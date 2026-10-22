@@ -177,6 +177,7 @@ export function convertOmmlToLatex(mathNode) {
 }
 function parseXml(xml, path) {
     if (xml.length > MAX_PART_BYTES) throw new Error('Tệp XML trong DOCX quá lớn: ' + path);
+    if(/<!DOCTYPE|<!ENTITY/i.test(xml))throw new Error('DOCX chứa DTD/ENTITY XML không an toàn: '+path);
     let errors = [];
     const dom = new DOMParser({
         onError(level, message) { if (level === 'error' || level === 'fatalError') errors.push(message); }
@@ -273,7 +274,12 @@ export async function inspectScientificDocx(arrayBuffer) {
             issues.push({kind:'image',reason:'Định dạng ảnh DOCX chưa hỗ trợ: ' + path});
             return null;
         }
-        const data = await zip.file(path).async('base64');
+        const compressedImagePart=zip.file(path);
+        if(Number(compressedImagePart._data?.uncompressedSize||0)>8*1024*1024){
+            issues.push({kind:'image',reason:'Ảnh Word quá lớn để xử lý an toàn: '+path});
+            return null;
+        }
+        const data = await compressedImagePart.async('base64');
         imageCount++;
         return 'data:' + mime + ';base64,' + data;
     }
