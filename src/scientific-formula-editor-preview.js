@@ -11,7 +11,9 @@ export function attachScientificEditorPreviews(root, renderContent, typesetRoot)
   if (!root || typeof renderContent !== 'function') return;
   const create = (field) => {
     if (!isScientificEditorField(field) || !field.isConnected) return null;
-    const sibling = field.nextElementSibling;
+    const anchor = field.tagName === 'INPUT' && field.parentElement?.classList.contains('flex')
+      ? field.parentElement : field;
+    const sibling = anchor.nextElementSibling;
     if (sibling && sibling.classList.contains('scientific-editor-preview')) return sibling;
     const wrapper = field.ownerDocument.createElement('div');
     wrapper.className = 'scientific-editor-preview';
@@ -23,7 +25,7 @@ export function attachScientificEditorPreviews(root, renderContent, typesetRoot)
     const body = field.ownerDocument.createElement('div');
     body.className = 'scientific-editor-preview-body';
     wrapper.append(heading, body);
-    field.insertAdjacentElement('afterend', wrapper);
+    anchor.insertAdjacentElement('afterend', wrapper);
     return wrapper;
   };
   const refresh = (field) => {
