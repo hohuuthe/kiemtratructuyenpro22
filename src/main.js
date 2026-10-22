@@ -15630,6 +15630,37 @@ CẤU TRÚC JSON:
             if (modalEl) queueMathJax(modalEl);
         }
 
+        // DEV-only end-to-end fixture exercises the actual review modal.
+        // Vite removes this branch from production; no real results exposed.
+        if (import.meta.env.DEV) {
+            window.__openExamDetailScientificFixture = async function(rawDetails) {
+                const id = '__exam_detail_scientific_qa__';
+                const originalResults = results;
+                const originalAdmin = isAdminLoggedIn;
+                const originalTeacher = isTeacherLoggedIn;
+                const fixture = {
+                    id, studentName: 'KIỂM THỬ CÔNG THỨC', studentClass: 'QA',
+                    examName: 'Bài thi mô phỏng kiểm thử công thức',
+                    timestamp: '2026-10-22T07:00:00.000Z',
+                    score: 7, correctCount: 1, totalQuestions: 4,
+                    timeTaken: 120, cheatWarningCount: 0,
+                    details: rawDetails
+                };
+                const originalDetails = JSON.stringify(fixture.details);
+                results = [...results, fixture];
+                isAdminLoggedIn = true;
+                isTeacherLoggedIn = false;
+                try {
+                    await window.showExamDetail(id);
+                    return { detailsUntouched: JSON.stringify(fixture.details) === originalDetails };
+                } finally {
+                    results = originalResults;
+                    isAdminLoggedIn = originalAdmin;
+                    isTeacherLoggedIn = originalTeacher;
+                }
+            };
+        }
+
         window.onRankingCheckboxChange = function(el) {
             const val = el.value;
             const isChecked = el.checked;
