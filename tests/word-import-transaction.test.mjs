@@ -24,7 +24,7 @@ test('Payload validation rejects ambiguous/broken/duplicate imports before trans
  const mislabeled=validBatch();mislabeled.questions[0].type='UNKNOWN';
  assert.ok(validateBatchPayload(mislabeled).some(x=>x.includes('phân loại')));
  const pending=validBatch();pending.questions[0].formulaSources[0].status='review';
- assert.ok(validateBatchPayload(pending).some(x=>x.includes('chưa được duyệt')));
+ assert.ok(validateBatchPayload(pending).some(x=>x.includes('metadata công thức chưa được xác minh')));
  const huge=validBatch();huge.questions=Array.from({length:MAX_WORD_IMPORT_QUESTIONS+1},(_,i)=>question('question'+i));
  assert.ok(validateBatchPayload(huge).some(x=>x.includes('400')));
 });
