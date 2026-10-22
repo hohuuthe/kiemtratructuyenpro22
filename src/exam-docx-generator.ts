@@ -68,7 +68,16 @@ export function parseFormattedText(textInput: any, defaultBold = false): (TextRu
                { type: 'math', value: unwrapWordFormula(record.formula) }]
             : [{ type: 'text', value: record.value }])
         : splitScientificContent(original);
-    if (!parts.some(part => part.type === 'math')) return parseFormattedTextLegacy(original, defaultBold);
+    if (!parts.some(part => part.type === 'math')) {
+        // Some valid imported scientific expressions are one bare TeX formula
+        // without delimiters. The student tokenizer conservatively treats these
+        // as prose; in a Word question we can type them as OMML when unambiguous.
+        if (isConfidentStandaloneWordFormula(original)) {
+            const native = makeWordMathRun(original, defaultBold);
+            if (native instanceof WordMath) return [native];
+        }
+        return parseFormattedTextLegacy(original, defaultBold);
+    }
     const runs: (TextRun | WordMath)[] = [];
     for (const part of parts) {
         if (part.type !== 'math') {
@@ -90,6 +99,41 @@ function unwrapWordFormula(source: string): string {
     return parts.length === 1 && parts[0].type === 'math' ? parts[0].value : source;
 }
 
+/**
+ * A separate WORD-ONLY recognition rule. It does not modify the established
+ * student renderer or guess that surrounding natural language is mathematics.
+ */
+function isConfidentStandaloneWordFormula(raw: string): boolean {
+    const input = String(raw || '').trim();
+    if (!input || input.length > 500 || /[À-ỹ]/u.test(input)) return false;
+    if (/<[a-z/][^>]*>/i.test(input) || input.includes('$')) return false;
+    if (/^\d+(?:\{,\}\d+|:\d+(?:\\,\d+)?)$/.test(input)) return true;
+    return /\\(?:texttt|le|leq|ge|geq|triangle|sim|propto|cup|cap|setminus|subset|subseteq|oplus|implies|iff|Rightarrow|Leftrightarrow|ll|in|notin|quad)(?![A-Za-z])/u.test(input);
+}
+
+/** Only lossless mathematical aliases and formatting wrappers. */
+function normalizeWordMathAliases(source: string): string {
+    return source
+        .replace(/\\texttt(?=\s*\{)/g, '\\text')
+        .replace(/\\triangle\b/g, '△')
+        .replace(/\\sim\b/g, '∼')
+        .replace(/\\propto\b/g, '∝')
+        .replace(/\\cup\b/g, '∪')
+        .replace(/\\cap\b/g, '∩')
+        .replace(/\\setminus\b/g, '∖')
+        .replace(/\\subseteq\b/g, '⊆')
+        .replace(/\\subset\b/g, '⊂')
+        .replace(/\\oplus\b/g, '⊕')
+        .replace(/\\implies\b|\\Rightarrow\b/g, '⇒')
+        .replace(/\\iff\b|\\Leftrightarrow\b/g, '⇔')
+        .replace(/\\ll\b/g, '≪')
+        .replace(/\\notin\b/g, '∉')
+        .replace(/\\in\b/g, '∈')
+        .replace(/\\le\b/g, '≤')
+        .replace(/\\ge\b/g, '≥')
+        .replace(/\\quad\b/g, '  ');
+}
+
 export function makeWordMathRun(source: string, defaultBold = false): WordMath | TextRun {
     const original = String(source ?? '').trim();
     const chemistry = standaloneMhchemCommand(original);
@@ -100,7 +144,7 @@ export function makeWordMathRun(source: string, defaultBold = false): WordMath |
         // expand chemical species without breaking outer editable fractions.
         const latex = /\\(?:ce|pu)\s*\{/.test(original)
             ? expandMhchemForWordMath(original) : original;
-        return new WordMath({ children: latexToMath(latex) });
+        return new WordMath({ children: latexToMath(normalizeWordMathAliases(latex)) });
     } catch (error) {
         // Never silently claim the unrendered LaTeX is a Word equation.
         // Keep original source visible rather than substituting a guessed value;
