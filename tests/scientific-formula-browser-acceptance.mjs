@@ -199,6 +199,68 @@ try {
   });
   check('Exam detail fits mobile viewport',widths.scroll<=widths.client+4,JSON.stringify(widths));
   await page.setViewportSize({width:1365,height:850});
+
+  // Real Chi tiết bài thi modal, not an isolated HTML fragment.
+  const realDetailFixture = await page.evaluate(async () => {
+    if (typeof window.__openExamDetailScientificFixture !== 'function')
+      throw new Error('DEV-only modal fixture not available');
+    const cases = [
+      {question:JSON.stringify({id:1,type:'4-1',
+        content:JSON.stringify({text:'Tính $\\frac{\\sqrt{x}}{2}$ và $E=mc^2$'}),
+        options:JSON.stringify({A:{text:'$\\frac{1}{2}$'},B:{text:'$\\ce{H2O}$'},
+          C:{text:'$\\begin{pmatrix}a&b\\\\c&d\\end{pmatrix}$'},D:{text:'$\\pi$'}}),
+        answer:'A'}),userAnswer:'B',correctAnswer:'A',score:0,isCorrect:false},
+      {question:{id:2,type:'tf4',content:{text:'$\\ce{2H2 + O2 -> 2H2O}$ và $\\ce{SO4^{2-}}$'},
+        options:{A:{text:'$\\ce{NH4+}$'},B:{text:'$\\forall x\\in\\mathbb{R}$'},
+          C:{text:'$p^2+2pq+q^2=1$'},D:{text:'$\\sqrt{a^2+b^2}$'}},answer:'A&C'},
+        userAnswer:'{"A":true,"C":false}',correctAnswer:'A&C',score:0.5,isCorrect:false},
+      {question:{id:3,type:'SQ',content:'$\\int_0^1 x^2\\,dx$ và $\\sum_{i=1}^{n}i$'},
+        userAnswer:'$\\frac{1}{3}$',correctAnswer:'$\\frac{1}{3}$',score:1,isCorrect:true},
+      {question:{id:4,type:'TL',content:'$\\begin{cases}x+y=3\\\\x-y=1\\end{cases}$'},
+        userAnswer:{text:'$x=2$',image:''},correctAnswer:'$x=2,\\;y=1$',score:0,isCorrect:false}
+    ];
+    return window.__openExamDetailScientificFixture(JSON.stringify(cases));
+  });
+  check('Real modal leaves persisted result details unchanged',
+    realDetailFixture?.detailsUntouched===true,JSON.stringify(realDetailFixture));
+  await page.locator('#modal-content .exam-detail-review').waitFor({state:'visible',timeout:15000});
+  await page.waitForFunction(() => !!document.querySelector('#modal-content .exam-detail-review') &&
+    !document.querySelector('#modal-content .exam-detail-review .scientific-mathjax-pending'),null,{timeout:30000});
+  const actualExamDetail = await page.evaluate(() => {
+    const root=document.querySelector('#modal-content .exam-detail-review');
+    const questions=[...root.querySelectorAll('.exam-detail-question')];
+    const options=[...root.querySelectorAll('.exam-detail-option')];
+    const baseline=document.createElement('div');baseline.className='responsive-q-text';
+    baseline.style.setProperty('--base-q-size',questions[0].style.getPropertyValue('--base-q-size'));
+    document.body.append(baseline);
+    const expectedFont=getComputedStyle(baseline).fontSize;baseline.remove();
+    return {questions:questions.length,options:options.length,
+      math:root.querySelectorAll('.katex,mjx-container[jax="CHTML"]').length,
+      chemical:root.querySelectorAll('mjx-container[jax="CHTML"]').length,
+      unresolved:root.querySelectorAll('.scientific-math-unresolved,merror,.mjx-merror').length,
+      legacyJson:questions.some(q=>q.textContent.includes('"text"')),
+      matchingFont:getComputedStyle(questions[0]).fontSize===expectedFont};
+  });
+  check('Actual Chi tiết bài thi shows four questions and eight options',
+    actualExamDetail.questions===4 && actualExamDetail.options===8,JSON.stringify(actualExamDetail));
+  check('Actual Chi tiết bài thi formulas render without errors',
+    actualExamDetail.math>=12 && actualExamDetail.chemical>0 &&
+    actualExamDetail.unresolved===0 && !actualExamDetail.legacyJson,
+    JSON.stringify(actualExamDetail));
+  check('Actual modal matches the student question font',actualExamDetail.matchingFont);
+  await page.locator('#modal-content').screenshot({path:root+'/real-exam-detail-desktop.png'});
+  report.files.push('real-exam-detail-desktop.png');
+  await page.setViewportSize({width:390,height:844});
+  await page.locator('#modal-content').screenshot({path:root+'/real-exam-detail-mobile.png'});
+  report.files.push('real-exam-detail-mobile.png');
+  const realMobile = await page.evaluate(()=>{
+    const el=document.querySelector('#modal-content .exam-detail-review');
+    return {width:el.clientWidth,scrollWidth:el.scrollWidth,
+      clipped:[...el.querySelectorAll('.exam-detail-question')].filter(x=>x.scrollWidth>x.clientWidth+5).length};
+  });
+  check('Actual Chi tiết bài thi fits the mobile viewport',
+    realMobile.scrollWidth<=realMobile.width+5 && !realMobile.clipped,JSON.stringify(realMobile));
+  await page.setViewportSize({width:1365,height:850});
   await page.close();
 }catch(error){
   report.errors.push({label:'Browser acceptance failed',detail:String(error.stack||error)});

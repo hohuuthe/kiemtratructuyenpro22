@@ -27,3 +27,9 @@ jobs:
         run: node --import tsx --test tests/scientific-formula-unified.test.mjs tests/exam-export-regression.test.mjs tests/exam-detail-formula-parity.test.mjs
       - name: Production build
         run: npm run build
+      - name: Ensure DEV-only result fixture is absent in Production
+        run: |
+          if grep -R -l "__openExamDetailScientificFixture" dist; then
+            echo "::error::DEV-only exam detail fixture was included in the Production bundle."
+            exit 1
+          fi

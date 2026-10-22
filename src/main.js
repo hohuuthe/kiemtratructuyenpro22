@@ -4,7 +4,7 @@ import './style.css';
 import './pwa-manager.js';
 import './teacher-assignment.js';
 import { typesetScientificMath } from './scientific-formula-typeset.js';
-import { renderExamDetailQuestion, renderExamDetailOptions } from './exam-detail-formula-renderer.js';
+import { renderExamDetailQuestion, renderExamDetailOptions, renderExamReviewMath, normalizeExamReviewDetails } from './exam-detail-formula-renderer.js';
 import { attachScientificEditorPreviews } from './scientific-formula-editor-preview.js';
 import JSZip from 'jszip';
 import * as docx from 'docx';
@@ -15349,6 +15349,15 @@ CẤU TRÚC JSON:
                 if(btn) { btn.disabled = false; btn.innerHTML = '<span>👁️</span> Xem chi tiết'; }
             }
 
+            // The student generator decodes JSON-looking question fields; grading
+            // snapshots from older exams keep raw DB strings. Normalize the view
+            // only, never change the stored result, original question or grades.
+            const examReviewDetails = normalizeExamReviewDetails(result.details);
+            if (!examReviewDetails.length) {
+                showToast('Bản lưu kết quả không có chi tiết câu hỏi để hiển thị.', 'warning');
+                return;
+            }
+
             // Lấy config đúng để hiển thị điểm tối đa chính xác
             const targetConfig = await getExamConfigForGrading(result.examName) || examConfig;
 
@@ -15359,14 +15368,14 @@ CẤU TRÚC JSON:
             const isExamCreator = currentUser && String(examToCreatorMap[result.examName]) === String(currentUser.id);
             
             // Re-calculate stats from details for historical data
-            if (!result.statsByType && result.details && result.details.length > 0) {
+            if (!result.statsByType && examReviewDetails && examReviewDetails.length > 0) {
                 const statsByType = {
                     '4-1': { total: 0, answered: 0, correct: 0 },
                     'TF4': { total: 0, answered: 0, correct: 0, totalStatements: 0, correctStatements: 0 },
                     'SQ': { total: 0, answered: 0, correct: 0 },
                     'TL': { total: 0, answered: 0, correct: 0, th: 0, vd: 0, nb: 0 }
                 };
-                result.details.forEach(d => {
+                examReviewDetails.forEach(d => {
                     const type = d.question?.type || '4-1';
                     if(!statsByType[type]) return;
                     statsByType[type].total++;
@@ -15433,7 +15442,7 @@ CẤU TRÚC JSON:
                 return `${m} phút ${s} giây`;
             };
 
-            const detailsHtml = result.details.map((d, i) => {
+            const detailsHtml = examReviewDetails.map((d, i) => {
                 const isAnswered = d.question.type === 'TF4' 
                     ? (d.userAnswer && Object.keys(d.userAnswer).length > 0)
                     : (d.userAnswer !== undefined && d.userAnswer !== null && d.userAnswer !== '');
@@ -15456,18 +15465,21 @@ CẤU TRÚC JSON:
                 // Render each stored option with the exact KaTeX/MathJax pipeline of the student exam.
                 // This is a read-only presentation change; no answer or scoring data is mutated.
                 const optionsHtml = renderExamDetailOptions(d.question, d.userAnswer, d.correctAnswer, appSettings.answerFontSize || 20);
-                const scoreDisplay = `<p class="text-base font-semibold mt-1">Điểm đạt được: ${(d.score || 0).toFixed(2)}</p>`;
+                const scoreDisplay = `<p class="text-base font-semibold mt-1">Điểm đạt được: ${(Number(d.score) || 0).toFixed(2)}</p>`;
                 const userAnsColor = d.isCorrect ? 'text-green-600' : (!isAnswered ? 'text-yellow-600' : 'text-purple-600');
 
                 let answerDisplay = '';
                 if (d.question.type === '4-1') {
                     answerDisplay = `
-                        <div class="text-sm md:text-base break-words mt-1">Đáp án của học sinh: <div class="exam-detail-answer inline-block font-bold ${userAnsColor}">${formatContent(d.userAnswer) || 'Chưa trả lời'}</div></div>
-                        <div class="text-sm md:text-base break-words mt-1">Đáp án đúng: <div class="exam-detail-answer inline-block font-bold text-green-700">${formatContent(d.correctAnswer)}</div></div>
+                        <div class="text-sm md:text-base break-words mt-1">Đáp án của học sinh: <div class="exam-detail-answer inline-block font-bold ${userAnsColor}">${renderExamReviewMath(d.userAnswer) || 'Chưa trả lời'}</div></div>
+                        <div class="text-sm md:text-base break-words mt-1">Đáp án đúng: <div class="exam-detail-answer inline-block font-bold text-green-700">${renderExamReviewMath(d.correctAnswer)}</div></div>
                         ${scoreDisplay}
                     `;
                 } else if (d.question.type === 'TF4') {
-                    const correctAnswers = d.question.answer.split('&');
+                    // Older results may carry an alternative TF4 answer separator
+                    // or a missing question.answer; never abort the entire modal.
+                    const answerKey = String(d.correctAnswer ?? d.question.answer ?? '');
+                    const correctAnswers = answerKey.split(/[&,;]/).map(part => part.trim()).filter(Boolean);
                     const userAnswers = d.userAnswer || {};
                     let userAnsHtml = [];
                     ['A', 'B', 'C', 'D'].forEach(opt => {
@@ -15539,10 +15551,10 @@ CẤU TRÚC JSON:
                 }
 
                 return `
-                    <div class="p-3 sm:p-4 border-2 rounded-lg ${statusClass} mb-0 overflow-hidden shadow-sm">
+                    <div class="exam-detail-result-card p-3 sm:p-4 border-2 rounded-lg ${statusClass} mb-0 shadow-sm">
                         <div class="flex items-start gap-2">
                             <span class="text-2xl flex-shrink-0">${statusIcon}</span>
-                            <div class="flex-1 min-w-0">
+                            <div class="exam-detail-item-body flex-1 min-w-0">
                                 ${renderExamDetailQuestion(d.question, i, appSettings.questionFontSize || 24)}
                                 ${d.question.image ? `<img src="${d.question.image}" class="max-w-full h-auto mb-2 rounded border shadow-sm cursor-zoom-in hover:scale-[1.01] transition-transform" style="max-height: 250px; object-fit: contain;" onclick="zoomImage(this.src)">` : ''}
                                 ${optionsHtml}
@@ -15554,7 +15566,7 @@ CẤU TRÚC JSON:
             }).join('');
 
             const modalContent = `
-                <div class="p-3 sm:p-5 relative pb-6">
+                <div class="exam-detail-review p-3 sm:p-5 relative pb-6">
                     <div class="text-center mb-3 pr-8 pl-8">
                         <h2 class="text-lg sm:text-xl font-bold text-gray-800 mb-1">Chi tiết bài thi</h2>
                         <div class="flex flex-wrap items-center justify-center gap-2 mb-1">
@@ -15616,6 +15628,37 @@ CẤU TRÚC JSON:
             // Typeset this modal immediately as in renderCurrentQuestion (student view).
             // queueMathJax handles MathJax readiness and its own retry when necessary.
             if (modalEl) queueMathJax(modalEl);
+        }
+
+        // DEV-only end-to-end fixture exercises the actual review modal.
+        // Vite removes this branch from production; no real results exposed.
+        if (import.meta.env.DEV) {
+            window.__openExamDetailScientificFixture = async function(rawDetails) {
+                const id = '__exam_detail_scientific_qa__';
+                const originalResults = results;
+                const originalAdmin = isAdminLoggedIn;
+                const originalTeacher = isTeacherLoggedIn;
+                const fixture = {
+                    id, studentName: 'KIỂM THỬ CÔNG THỨC', studentClass: 'QA',
+                    examName: 'Bài thi mô phỏng kiểm thử công thức',
+                    timestamp: '2026-10-22T07:00:00.000Z',
+                    score: 7, correctCount: 1, totalQuestions: 4,
+                    timeTaken: 120, cheatWarningCount: 0,
+                    details: rawDetails
+                };
+                const originalDetails = JSON.stringify(fixture.details);
+                results = [...results, fixture];
+                isAdminLoggedIn = true;
+                isTeacherLoggedIn = false;
+                try {
+                    await window.showExamDetail(id);
+                    return { detailsUntouched: JSON.stringify(fixture.details) === originalDetails };
+                } finally {
+                    results = originalResults;
+                    isAdminLoggedIn = originalAdmin;
+                    isTeacherLoggedIn = originalTeacher;
+                }
+            };
         }
 
         window.onRankingCheckboxChange = function(el) {

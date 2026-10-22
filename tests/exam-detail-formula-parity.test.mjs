@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import {
-  getExamDetailOption, renderExamDetailQuestion, renderExamDetailOptions
+  getExamDetailOption, renderExamDetailQuestion, renderExamDetailOptions,
+  getExamReviewText, renderExamReviewMath, normalizeExamReviewDetails
 } from '../src/exam-detail-formula-renderer.js';
 import { renderScientificContent } from '../src/scientific-formula-engine.ts';
 
@@ -121,4 +122,53 @@ test('The actual review modal calls the shared renderer and typesetter', () => {
   assert.match(review,/renderExamDetailOptions\(d\.question, d\.userAnswer, d\.correctAnswer/);
   assert.match(review,/queueMathJax\(modalEl\)/);
   assert.match(review,/always-scrollbar-y/);
+});
+
+
+test('Historical JSON question content matches the student exam data decoding', () => {
+  const canonical = String.raw`Cho $\frac{\sqrt{x}}{2}$, ion $\ce{SO4^{2-}}$`;
+  const persisted = JSON.stringify({ text: canonical, metadata: 'imported from Word' });
+  assert.ok(renderScientificContent(canonical).includes('katex') || renderScientificContent(canonical).includes('scientific-mathjax-pending'));
+  assert.equal(getExamReviewText(persisted), canonical);
+  assert.equal(getExamReviewText({ text: canonical }), canonical);
+  assert.equal(renderExamReviewMath(persisted), renderScientificContent(canonical));
+  assert.ok(renderExamDetailQuestion({content: persisted},0).includes(renderScientificContent(canonical)));
+  assert.ok(renderExamDetailQuestion({content: {text: canonical}},1).includes(renderScientificContent(canonical)));
+  assert.equal(getExamReviewText(String.raw`{x+y}`), String.raw`{x+y}`);
+});
+
+test('Legacy serialized result details are parsed for display without altering grades', () => {
+  const question = {type:'tf4',content:JSON.stringify({text:'Phản ứng $\\ce{2H2 + O2 -> 2H2O}$'}),
+    options:JSON.stringify({A:{text:'$\\ce{H2O}$'},B:{text:'$E=mc^2$'},
+      C:{text:'$\\sqrt{x}$'},D:{text:'$\\frac{1}{3}$'}}),answer:'A&C'};
+  const old=[{question:JSON.stringify(question),userAnswer:'{"A":true,"C":false}',
+    correctAnswer:'A&C',score:0.75,isCorrect:false}];
+  const serialized=JSON.stringify(old);
+  const parsed=normalizeExamReviewDetails(serialized);
+  assert.equal(parsed.length,1);
+  assert.equal(parsed[0].question.type,'TF4');
+  assert.equal(parsed[0].userAnswer.A,true);
+  assert.equal(parsed[0].userAnswer.C,false);
+  assert.equal(parsed[0].score,0.75);
+  assert.ok(renderExamDetailQuestion(parsed[0].question,0).includes(
+    renderScientificContent('Phản ứng $\\ce{2H2 + O2 -> 2H2O}$')));
+  assert.ok(renderExamDetailOptions(parsed[0].question,parsed[0].userAnswer,parsed[0].correctAnswer)
+    .includes(renderScientificContent('$\\ce{H2O}$')));
+  assert.equal(JSON.stringify(old),serialized);
+  assert.equal(normalizeExamReviewDetails('invalid JSON').length,0);
+});
+
+test('Real modal calls normalization, uses unclipped question cards and keeps a DEV-only E2E seam', () => {
+  const main=readFileSync('src/main.js','utf8');
+  const css=readFileSync('src/style.css','utf8');
+  const start=main.indexOf('window.showExamDetail = async function showExamDetail(');
+  const end=main.indexOf('window.onRankingCheckboxChange =',start);
+  const detail=main.slice(start,end);
+  assert.match(detail,/normalizeExamReviewDetails\(result\.details\)/);
+  assert.match(detail,/renderExamDetailQuestion\(d\.question, i/);
+  assert.match(detail,/renderExamReviewMath\(d\.userAnswer\)/);
+  assert.match(detail,/class="exam-detail-review/);
+  assert.doesNotMatch(detail,/exam-detail-result-card[^"]*overflow-hidden/);
+  assert.match(main,/if \(import\.meta\.env\.DEV\)[\s\S]*?window\.__openExamDetailScientificFixture/);
+  assert.match(css,/\.exam-detail-review \.scientific-rendered-math/);
 });

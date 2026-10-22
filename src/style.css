@@ -548,3 +548,54 @@ button { touch-action: manipulation; }
   overflow: visible !important;
 }
 .scientific-bank-option { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+
+
+/* Exam review uses the exact student scientific renderer but lives inside a
+   vertically scrolling modal. Do not clip wide matrices, roots or equations;
+   only their own math nodes may scroll horizontally when truly necessary. */
+.exam-detail-review,
+.exam-detail-review .exam-detail-result-card,
+.exam-detail-review .exam-detail-item-body,
+.exam-detail-review .exam-detail-question,
+.exam-detail-review .exam-detail-option,
+.exam-detail-review .exam-detail-answer {
+  min-width: 0;
+  max-width: 100%;
+}
+.exam-detail-review .exam-detail-question,
+.exam-detail-review .exam-detail-option,
+.exam-detail-review .exam-detail-answer {
+  overflow-wrap: break-word;
+  line-height: 1.65;
+}
+.exam-detail-review .scientific-rendered-math {
+  display: inline-block;
+  vertical-align: middle;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.exam-detail-review .scientific-rendered-math::-webkit-scrollbar {
+  display: none;
+}
+.exam-detail-review .katex-display,
+.exam-detail-review mjx-container[jax="CHTML"][display="true"] {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  margin-block: .45em !important;
+  scrollbar-width: none !important;
+}
+.exam-detail-review .katex-display::-webkit-scrollbar,
+.exam-detail-review mjx-container[jax="CHTML"][display="true"]::-webkit-scrollbar {
+  display: none;
+}
+.exam-detail-review .scientific-rendered-math,
+.exam-detail-review .katex,
+.exam-detail-review mjx-container {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
