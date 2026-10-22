@@ -1270,31 +1270,8 @@ if (contentTypeConfig && contentTypeConfig.includes("application/json")) {
         }
 
         function sanitizeQuestionFormulas(q) {
-            if (!q || typeof q !== 'object') return q;
-            const cleaned = { ...q };
-            if (typeof cleaned.content === 'string') {
-                cleaned.content = repairMissingBackslashes(cleaned.content);
-            }
-            if (typeof cleaned.answer === 'string') {
-                cleaned.answer = repairMissingBackslashes(cleaned.answer);
-            }
-            if (cleaned.options && typeof cleaned.options === 'object') {
-                const newOpts = { ...cleaned.options };
-                ['A', 'B', 'C', 'D'].forEach(optKey => {
-                    if (newOpts[optKey]) {
-                        if (typeof newOpts[optKey] === 'string') {
-                            newOpts[optKey] = repairMissingBackslashes(newOpts[optKey]);
-                        } else if (typeof newOpts[optKey] === 'object') {
-                            newOpts[optKey] = {
-                                ...newOpts[optKey],
-                                text: repairMissingBackslashes(newOpts[optKey].text || '')
-                            };
-                        }
-                    }
-                });
-                cleaned.options = newOpts;
-            }
-            return cleaned;
+            // Lossless: never rewrite an authored question or answer while loading.
+            return q;
         }
         window.sanitizeQuestionFormulas = sanitizeQuestionFormulas;
 
