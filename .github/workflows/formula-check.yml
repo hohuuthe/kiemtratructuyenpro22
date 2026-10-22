@@ -23,5 +23,7 @@ jobs:
         run: npm install --no-audit --no-fund
       - name: Formula tokenizer regression tests
         run: node --test tests/scientific-formula-tokenizer.test.mjs tests/scientific-formula-acceptance.test.mjs tests/scientific-formula-student-view.test.mjs
+      - name: Cross-surface scientific formula export tests
+        run: node --import tsx --test tests/scientific-formula-unified.test.mjs
       - name: Production build
         run: npm run build
