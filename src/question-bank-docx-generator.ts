@@ -9,14 +9,101 @@ import { Math as WordMath } from 'docx/math';
 import { extractOptionsABCD, parseFormattedText, makeWordMathRun } from './exam-docx-generator.ts';
 import { splitScientificContent } from './scientific-formula-tokenizer.js';
 
-function strictRuns(source, description) {
-    const text = String(source ?? '');
+
+const TWO_ARGUMENT_WORD_COMMAND = /\\(?:dfrac|tfrac|cfrac|frac|binom|dbinom|tbinom)(?![A-Za-z])/g;
+
+/** Balanced TeX arguments. Escaped braces don't affect nesting. */
+function readBracedWordArgumentEnd(source, opening) {
+    if (source[opening] !== '{') return -1;
+    let depth = 0;
+    for (let i = opening; i < source.length; i++) {
+        if (source[i] === '\\') { i++; continue; }
+        if (source[i] === '{') depth++;
+        else if (source[i] === '}' && --depth === 0) return i + 1;
+    }
+    return -1;
+}
+
+/**
+ * Some Word imports wrap a fraction numerator and its denominator in separate
+ * inline HTML spans. Join ONLY formatting tags between two TeX groups.
+ * All mathematical characters are preserved, without inventing denominators.
+ */
+export function joinFormattedFractionArguments(sourceInput) {
+    let text = String(sourceInput ?? '');
+    const fractions = new RegExp(TWO_ARGUMENT_WORD_COMMAND.source, 'g');
+    for (let match; (match = fractions.exec(text)); ) {
+        let first = fractions.lastIndex;
+        while (/\s/.test(text[first] || '') && first < text.length) first++;
+        const endOfNumerator = readBracedWordArgumentEnd(text, first);
+        if (endOfNumerator === -1) continue;
+
+        let cursor = endOfNumerator;
+        let hasMarkup = false;
+        for (;;) {
+            while (cursor < text.length && /\s/.test(text[cursor])) cursor++;
+            const tag = /^<\/?(?:span|b|strong|i|em|u|font)\b[^>]*>/i.exec(text.slice(cursor));
+            if (!tag) break;
+            hasMarkup = true;
+            cursor += tag[0].length;
+        }
+        if (hasMarkup && text[cursor] === '{') {
+            // Only presentation markup is removed, not the TeX numerator or
+            // denominator; this is intentionally Word-only, not a DB rewrite.
+            text = text.slice(0, endOfNumerator) + text.slice(cursor);
+            fractions.lastIndex = match.index + match[0].length;
+        }
+    }
+    return text;
+}
+
+/**
+ * Identify TeX fractions with a missing numerator/denominator. Do not guess
+ * what the omitted operand was (even when a typical derivative suggests h).
+ */
+export function findIncompleteWordFractions(sourceInput) {
+    const source = String(sourceInput ?? '');
+    const found = [];
+    const fractions = new RegExp(TWO_ARGUMENT_WORD_COMMAND.source, 'g');
+    for (let match; (match = fractions.exec(source)); ) {
+        let next = fractions.lastIndex;
+        let complete = true;
+        for (let index = 0; index < 2; index++) {
+            while (next < source.length && /\s/.test(source[next])) next++;
+            const end = readBracedWordArgumentEnd(source, next);
+            if (end === -1) { complete = false; break; }
+            next = end;
+        }
+        if (!complete) {
+            found.push(source.slice(match.index, Math.min(source.length, Math.max(next, match.index + 16) + 110)));
+        }
+    }
+    return found;
+}
+
+function strictRuns(source, description, onFormulaWarning) {
+    const text = joinFormattedFractionArguments(source);
+    const report = (raw, reason) => onFormulaWarning?.({
+        location: description,
+        source: String(raw),
+        reason
+    });
+    // Even when the generic tokenizer treats an incomplete bare command as
+    // text, report it so the teacher can repair the source in the editor.
+    const incomplete = findIncompleteWordFractions(text);
+    for (const expression of incomplete) {
+        report(expression, 'Công thức LaTeX thiếu tử số hoặc mẫu số');
+    }
     for (const part of splitScientificContent(text)) {
         if (part.type !== 'math') continue;
         if (!(makeWordMathRun(part.value) instanceof WordMath)) {
-            throw new Error(description + ': công thức không chuyển được thành Equation Word. Vui lòng sửa cú pháp nguồn trước khi xuất: ' + part.value.slice(0, 120));
+            if (!incomplete.some(expression => expression.includes(part.value) || part.value.includes(expression))) {
+                report(part.value, 'Không thể tạo Equation Word từ LaTeX nguồn');
+            }
         }
     }
+    // All selected questions must still be exported. Unconvertible source
+    // remains visibly editable literal text, never a guessed equation/image.
     const runs = parseFormattedText(text);
     if (!Array.isArray(runs)) throw new Error(description + ': không đọc được nội dung câu hỏi.');
     return runs;
@@ -37,19 +124,19 @@ function htmlImageSource(tag) {
 }
 
 /** Recognize inline HTML images without discarding adjacent text/math. */
-async function richContentRuns(value, description, imageResolver, maxWidth) {
-    const text = String(value ?? '');
+async function richContentRuns(value, description, imageResolver, maxWidth, onFormulaWarning) {
+    const text = joinFormattedFractionArguments(value);
     const runs = [];
     const imageRe = /<img\b[^>]*>/gi;
     let cursor = 0, match;
     while ((match = imageRe.exec(text)) !== null) {
-        if (match.index > cursor) runs.push(...strictRuns(text.slice(cursor, match.index), description));
+        if (match.index > cursor) runs.push(...strictRuns(text.slice(cursor, match.index), description, onFormulaWarning));
         const source = htmlImageSource(match[0]);
         if (!source) throw new Error(description + ': thẻ ảnh thiếu đường dẫn.');
         runs.push(await makeImageRun(source, description, imageResolver, maxWidth));
         cursor = match.index + match[0].length;
     }
-    if (cursor < text.length) runs.push(...strictRuns(text.slice(cursor), description));
+    if (cursor < text.length) runs.push(...strictRuns(text.slice(cursor), description, onFormulaWarning));
     return runs.length ? runs : [new TextRun({ text: '' })];
 }
 
@@ -106,6 +193,13 @@ export async function generateQuestionBankDocx(plan, options = {}) {
         throw new Error('Danh sách xuất Word có câu hỏi trùng ID.');
     }
     const resolveImage = options.resolveImage;
+    const warningKeys = new Set();
+    const warnFormula = (issue) => {
+        const key = issue.location + '|' + issue.source;
+        if (warningKeys.has(key)) return;
+        warningKeys.add(key);
+        if (typeof options.onFormulaWarning === 'function') options.onFormulaWarning(issue);
+    };
     const paragraphs = [
         new Paragraph({
             children: [new TextRun({ text: 'NGÂN HÀNG CÂU HỎI', bold: true, size: 32 })],
@@ -125,11 +219,12 @@ export async function generateQuestionBankDocx(plan, options = {}) {
     for (let i = 0; i < questions.length; i++) {
         const q = questions[i];
         const label = 'Câu ' + (i + 1);
+        const detailLabel = label + ' (ID ' + String(q.id ?? '?') + ')';
         paragraphs.push(new Paragraph({
             children: [
                 new TextRun({ text: label + ': ', bold: true }),
                 new TextRun({ text: questionTag(q), italics: true, color: '666666' }),
-                ...await richContentRuns(q.content, label, resolveImage, 450)
+                ...await richContentRuns(q.content, detailLabel, resolveImage, 450, warnFormula)
             ],
             spacing: { before: 180, after: 60 }
         }));
@@ -159,7 +254,7 @@ export async function generateQuestionBankDocx(plan, options = {}) {
                 paragraphs.push(new Paragraph({
                     children: [
                         new TextRun({ text: option + '. ', bold: true }),
-                        ...await richContentRuns(content, label + ' / phương án ' + option, resolveImage, 200)
+                        ...await richContentRuns(content, detailLabel + ' / phương án ' + option, resolveImage, 200, warnFormula)
                     ],
                     spacing: { before: 20, after: 20 }
                 }));
@@ -173,7 +268,7 @@ export async function generateQuestionBankDocx(plan, options = {}) {
         }
 
         const answer = answerText(q.answer, q.type);
-        const answerRuns = strictRuns(answer, label + ' / đáp án');
+        const answerRuns = strictRuns(answer, detailLabel + ' / đáp án', warnFormula);
         paragraphs.push(new Paragraph({
             children: [
                 new TextRun({ text: 'Đáp án: ', bold: true, color: 'FF0000' }),

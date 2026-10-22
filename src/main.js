@@ -12672,7 +12672,9 @@ D. Phát biểu SAI</pre>
                     }
                 }
 
+                const wordFormulaWarnings = [];
                 const blob = await generateQuestionBankDocx(freshPlan, {
+                    onFormulaWarning: issue => wordFormulaWarnings.push(issue),
                     resolveImage: async (imageUrl, description) => {
                         const bytes = await convertImageToUint8Array(imageUrl);
                         if (!bytes?.length) throw new Error(description + ': không thể tải ảnh trong câu hỏi.');
@@ -12691,8 +12693,28 @@ D. Phát biểu SAI</pre>
                 download.click();
                 download.remove();
                 setTimeout(() => URL.revokeObjectURL(fileUrl), 30000);
-                showToast('Đã tạo Word với đúng ' + freshPlan.totalSelected + ' câu từ ' +
-                    freshPlan.selectedLessons + ' bài. Các công thức hỗ trợ là Equation chỉnh sửa được.', 'success');
+                if (wordFormulaWarnings.length) {
+                    const details = wordFormulaWarnings.map(issue =>
+                        issue.location + ' — ' + issue.reason + ': ' + issue.source
+                    ).join('\n');
+                    const report = new Blob([ 'CẢNH BÁO CÔNG THỨC TRONG FILE WORD\n' +
+                        'Các câu hỏi vẫn được xuất đầy đủ. Công thức hợp lệ là Equation chỉnh sửa được; ' +
+                        'nguồn LaTeX bị lỗi được giữ nguyên để không suy đoán.\n\n' + details ],
+                        { type: 'text/plain;charset=utf-8' });
+                    const warningUrl = URL.createObjectURL(report);
+                    const warningLink = document.createElement('a');
+                    warningLink.href = warningUrl;
+                    warningLink.download = 'CanhBao_CongThuc_Word_' + new Date().toISOString().slice(0, 10) + '.txt';
+                    document.body.appendChild(warningLink);
+                    warningLink.click();
+                    warningLink.remove();
+                    setTimeout(() => URL.revokeObjectURL(warningUrl), 30000);
+                    showToast('Đã xuất đủ ' + freshPlan.totalSelected + ' câu; có ' +
+                        wordFormulaWarnings.length + ' công thức nguồn cần kiểm tra. Xem file cảnh báo đi kèm.', 'warning');
+                } else {
+                    showToast('Đã tạo Word với đúng ' + freshPlan.totalSelected + ' câu từ ' +
+                        freshPlan.selectedLessons + ' bài. Công thức hỗ trợ là Equation chỉnh sửa được.', 'success');
+                }
                 modal.remove();
                 bankWordExportInventory = null;
             } catch (error) {

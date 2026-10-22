@@ -41,7 +41,10 @@ function readRawLatexCommand(source, pos) {
   const count = /^(frac|dfrac|tfrac|cfrac|binom|dbinom|tbinom)$/.test(name) ? 2 : /^(sqrt|vec|overrightarrow|overleftarrow|overline|underline|widehat|widetilde|hat|bar|tilde|ce|pu|mathrm|mathbf|mathbb|mathcal|text)$/.test(name) ? 1 : 0;
   for (let n = 0; n < count; n++) {
     while (source[end] === ' ') end++;
-    if (source[end] !== '{') return n === 0 ? -1 : end;
+    // A two-argument command is never a valid half-command: preserve the
+    // entire malformed source as literal text instead of tokenizing a
+    // truncated numerator into a fake standalone equation.
+    if (source[end] !== '{') return -1;
     const closing = readBalancedCurly(source, end);
     if (closing === -1) return -1;
     end = closing;
