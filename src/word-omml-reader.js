@@ -279,9 +279,15 @@ export async function inspectScientificDocx(arrayBuffer) {
             const u = child(pre,'u'), b=child(pre,'b');
             const underline=u && !['none','false','0'].includes(attr(u,'val'));
             const bold=b && !['false','0'].includes(attr(b,'val'));
-            if (underline) return {start:'[[U]]',end:'[[/U]]'};
-            if (bold) return {start:'[[B]]',end:'[[/B]]'};
-            return {start:'',end:''};
+            let start='',end='';
+            if (underline) { start+='[[U]]'; end='[[/U]]'+end; }
+            else if (bold) { start+='[[B]]'; end='[[/B]]'+end; }
+            const position=attr(child(pre,'vertAlign'),'val');
+            if(position==='subscript'||position==='superscript') {
+                const tag=position==='subscript'?'sub':'sup';
+                start+='<'+tag+'>'; end='</'+tag+'>'+end;
+            }
+            return {start,end};
         };
         async function visit(n) {
             const k=nameOf(n);
