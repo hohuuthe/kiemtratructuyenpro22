@@ -9,10 +9,10 @@ import { renderScientificContent } from '../src/scientific-formula-engine.ts';
 
 const header = { soGiaoDuc: 'SO GIAO DUC', truongHoc: 'THPT TEST', deThiTitle: 'DE TEST', namHoc: '2026-2027', monHoc: 'TOAN LY HOA', thoiGian: 45, maDe: '8101' };
 const questions = [
-  { id: 1, type: '4-1', lesson: 'Toan', level: 'NB', content: 'Giai $\\\\frac{\\\\sqrt{x}}{2}$', options: { A: '$\\\\frac{1}{2}$', B: '$x^2$', C: '$\\\\pi$', D: '$\\\\sqrt{3}$' }, answer: 'A' },
-  { id: 2, type: 'TF4', lesson: 'Hoa', level: 'TH', content: 'Chat $\\\\ce{H2O}$', options: { A: '$\\\\ce{H2O}$', B: '$\\\\ce{CO2}$', C: '$\\\\ce{NH4+}$', D: '$\\\\ce{SO4^{2-}}$' }, answer: 'AB' },
+  { id: 1, type: '4-1', lesson: 'Toan', level: 'NB', content: 'Giai $\\frac{\\sqrt{x}}{2}$', options: { A: '$\\frac{1}{2}$', B: '$x^2$', C: '$\\pi$', D: '$\\sqrt{3}$' }, answer: 'A' },
+  { id: 2, type: 'TF4', lesson: 'Hoa', level: 'TH', content: 'Chat $\\ce{H2O}$', options: { A: '$\\ce{H2O}$', B: '$\\ce{CO2}$', C: '$\\ce{NH4+}$', D: '$\\ce{SO4^{2-}}$' }, answer: 'AB' },
   { id: 3, type: 'SQ', lesson: 'Ly', level: 'VD', content: 'Nang luong $E=mc^2$', answer: '42' },
-  { id: 4, type: 'TL', lesson: 'Toan', level: 'VD', content: 'He $\\\\begin{cases}x+y=3\\\\\\\\x-y=1\\\\end{cases}$', answer: 'x=2' },
+  { id: 4, type: 'TL', lesson: 'Toan', level: 'VD', content: 'He $\\begin{cases}x+y=3\\\\x-y=1\\end{cases}$', answer: 'x=2' },
 ];
 
 test('DOCX export creates a nonempty valid Office package with formulas and all four sections', async () => {
@@ -20,6 +20,9 @@ test('DOCX export creates a nonempty valid Office package with formulas and all 
   const zip = await JSZip.loadAsync(data);
   const xml = await zip.file('word/document.xml').async('string');
   assert.match(xml, /<m:oMath/);
+  assert.match(xml, /<m:f\\b/, 'a native editable fraction must be preserved in Word');
+  assert.match(xml, /<m:rad\\b/, 'a nested square root must be preserved in Word');
+  assert.ok(!xml.includes('\\\\frac'), 'the supported fraction must not silently fall back to raw TeX');
   for (const label of ['PHẦN I', 'PHẦN II', 'PHẦN III', 'Câu 1']) assert.ok(xml.includes(label), label);
   assert.ok(data.byteLength > 2000);
 });
