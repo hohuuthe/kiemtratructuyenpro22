@@ -212,7 +212,14 @@ test('All 7 previously unrenderable historical sources become editable Office Ma
     const run = makeWordMathRun(original);
     assert.ok(run instanceof WordMath,id+' fallback to a raw LaTeX text run');
     const xml = await xmlFor([run]);
-    assert.match(xml, /<m:oMath\b/,id);
+    const visible = [...xml.matchAll(/<m:t\\b[^>]*>([^<]*)<\\/m:t>/g)].map(m=>m[1].replace(/&amp;/g,'&'));
+    console.log('[LegacyEquationOMML]',JSON.stringify({
+      id,rows:(xml.match(/<m:mr>/g)||[]).length,
+      eqRows:(xml.match(/<m:e>/g)||[]).length,
+      visible:visible.join('').slice(0,180),
+      hlineLiteral:xml.includes('hline'),rawDelimiter:xml.includes('\\\\begin{')
+    }));
+    assert.match(xml, /<m:oMath\\b/,id);
     assert.ok(!xml.includes('\\begin{'),id+' leaked raw TeX environment');
     if(id==='MAT-086'||id==='MAT-088'||id==='STR-030') {
       assert.match(xml, /<m:m>|<m:eqArr>/,id+' missing native matrix/array structure');
