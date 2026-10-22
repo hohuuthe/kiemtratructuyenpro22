@@ -7499,6 +7499,14 @@ if (contentType && contentType.includes("application/json")) {
             if (elTitle) elTitle.textContent = examConfig.name || '';
             if (elCreator) elCreator.textContent = examConfig.creatorName || ho_ten_khach_hang || '';
 
+            // Luôn kích hoạt và ràng buộc toàn màn hình bắt buộc khi bắt đầu làm bài
+            if (typeof window.enterExamFullscreen === 'function') {
+                window.enterExamFullscreen();
+            }
+            if (typeof window.enforceFullscreenConstraint === 'function') {
+                window.enforceFullscreenConstraint();
+            }
+
             // Khởi tạo giám sát phòng thi mượt mà
             if (window.initExamMonitoring) {
                 window.initExamMonitoring();
@@ -7551,6 +7559,15 @@ if (contentType && contentType.includes("application/json")) {
                     showToast('Vui lòng chọn bộ câu hỏi hoặc đề thi!', 'error');
                     document.getElementById('student-exam-name-filter')?.focus();
                     return;
+                }
+
+                // Luôn mở toàn màn hình ngay khi bấm Bắt đầu làm bài (User Gesture hợp lệ)
+                try {
+                    if (typeof window.enterExamFullscreen === 'function') {
+                        window.enterExamFullscreen();
+                    }
+                } catch (e) {
+                    console.warn('Auto fullscreen on startExam click:', e);
                 }
 
                 // KHẮC PHỤC LỖI TẢI NHẦM ĐỀ: Đồng bộ tuyệt đối giữa examConfig trong bộ nhớ và đề được chọn
@@ -8004,6 +8021,11 @@ if (contentType && contentType.includes("application/json")) {
                         floatingTextEl.classList.add('text-amber-300');
                         floatingTextEl.classList.remove('text-rose-300', 'text-white', 'font-black');
                     }
+                }
+
+                // Định kỳ kiểm tra và đảm bảo ràng buộc toàn màn hình
+                if (remaining % 3 === 0 && typeof window.enforceFullscreenConstraint === 'function') {
+                    window.enforceFullscreenConstraint();
                 }
 
                 // ==================== ÂM THANH CẢNH BÁO THỜI GIAN ====================
@@ -8805,34 +8827,115 @@ if (contentType && contentType.includes("application/json")) {
             }
         };
 
+        window.enterExamFullscreen = function enterExamFullscreen() {
+            const elem = document.getElementById('exam-interface') || document.documentElement;
+            if (!elem) return Promise.resolve(false);
+
+            // Đưa modal và toast vào trong context fullscreen nếu cần
+            const modalContainer = document.getElementById('modal-container');
+            const toastCenter = document.getElementById('toast-container-center');
+            const toastRight = document.getElementById('toast-container-right');
+            if (modalContainer && modalContainer.parentElement !== elem) {
+                elem.appendChild(modalContainer);
+            }
+            if (toastCenter && toastCenter.parentElement !== elem) {
+                elem.appendChild(toastCenter);
+            }
+            if (toastRight && toastRight.parentElement !== elem) {
+                elem.appendChild(toastRight);
+            }
+
+            if (!document.fullscreenElement) {
+                const requestFs = elem.requestFullscreen || elem.webkitRequestFullscreen || elem.mozRequestFullScreen || elem.msRequestFullscreen;
+                if (requestFs) {
+                    return requestFs.call(elem).then(() => {
+                        if (navigator.keyboard && navigator.keyboard.lock) {
+                            navigator.keyboard.lock(['Escape']).catch(() => {});
+                        }
+                        window.hideFullscreenEnforcer();
+                        return true;
+                    }).catch(err => {
+                        console.warn('Lỗi khi mở toàn màn hình:', err);
+                        window.showFullscreenEnforcer();
+                        return false;
+                    });
+                } else {
+                    // Thiết bị không hỗ trợ API Fullscreen
+                    window.hideFullscreenEnforcer();
+                    return Promise.resolve(false);
+                }
+            } else {
+                window.hideFullscreenEnforcer();
+                return Promise.resolve(true);
+            }
+        };
+
+        window.showFullscreenEnforcer = function showFullscreenEnforcer() {
+            const isExamActive = document.getElementById('exam-interface') && !document.getElementById('exam-interface').classList.contains('hidden');
+            if (!isExamActive || window.intentionalFullscreenExit) return;
+            const enforcer = document.getElementById('exam-fullscreen-enforcer');
+            if (enforcer) {
+                enforcer.classList.remove('hidden');
+                enforcer.classList.add('flex');
+            }
+        };
+
+        window.hideFullscreenEnforcer = function hideFullscreenEnforcer() {
+            const enforcer = document.getElementById('exam-fullscreen-enforcer');
+            if (enforcer) {
+                enforcer.classList.remove('flex');
+                enforcer.classList.add('hidden');
+            }
+        };
+
+        window.enforceFullscreenConstraint = function enforceFullscreenConstraint() {
+            const isExamActive = document.getElementById('exam-interface') && !document.getElementById('exam-interface').classList.contains('hidden');
+            if (!isExamActive || window.intentionalFullscreenExit) {
+                window.hideFullscreenEnforcer();
+                return;
+            }
+            // Kiểm tra trình duyệt có hỗ trợ Fullscreen API không
+            const supportsFullscreen = Boolean(document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen || document.documentElement.msRequestFullscreen);
+            if (!supportsFullscreen) {
+                window.hideFullscreenEnforcer();
+                return;
+            }
+            if (!document.fullscreenElement) {
+                window.showFullscreenEnforcer();
+            } else {
+                window.hideFullscreenEnforcer();
+            }
+        };
+
         window.initExamMonitoring = function initExamMonitoring() {
             window.updateCheatWarningUI();
+            window.enforceFullscreenConstraint();
         };
 
         // --- Fullscreen Lock Anti-Cheat ---
         document.addEventListener('keydown', function (e) {
             const isExamActive = document.getElementById('exam-interface') && !document.getElementById('exam-interface').classList.contains('hidden');
-            if (isExamActive && document.fullscreenElement) {
-                // Block Esc (27), F11 (122), Windows Key, Alt, etc if desired.
-                // We mainly block Esc and F11
+            if (isExamActive) {
+                // Khóa Esc và F11 để ràng buộc làm bài toàn màn hình
                 if (e.key === 'Escape' || e.key === 'F11' || e.keyCode === 27 || e.keyCode === 122) {
                     e.preventDefault();
                     e.stopPropagation();
-                    showToast('🔒 Đã khóa! Vui lòng dùng nút "Thu nhỏ" để thoát toàn màn hình.', 'error');
+                    showToast('🔒 Quy chế thi: Bắt buộc làm bài ở chế độ toàn màn hình!', 'warning');
+                    if (!document.fullscreenElement) {
+                        window.showFullscreenEnforcer();
+                    }
                 }
             }
         }, true);
 
-
-        // Ngăn chặn chuột phải và các thao tác khác
+        // Ngăn chặn chuột phải và các thao tác khác trong khi làm bài
         document.addEventListener('contextmenu', function (e) {
             const isExamActive = document.getElementById('exam-interface') && !document.getElementById('exam-interface').classList.contains('hidden');
-            if (isExamActive && document.fullscreenElement) {
+            if (isExamActive) {
                 e.preventDefault();
                 showToast('🔒 Khóa chuột phải trong khi thi.', 'error');
             }
         }, true);
-
 
         // ==================== CƠ CHẾ GIỮ MÀN HÌNH ĐIỆN THOẠI KHÔNG TẮT (SCREEN WAKE LOCK) ====================
         // Đã loại bỏ hoàn toàn chế độ màn hình luôn sáng để giao diện nhẹ nhàng, không khựng và tiết kiệm pin
@@ -8858,19 +8961,10 @@ if (contentType && contentType.includes("application/json")) {
 
         document.addEventListener('fullscreenchange', () => {
             const isExamActive = document.getElementById('exam-interface') && !document.getElementById('exam-interface').classList.contains('hidden');
-
-            if (isExamActive && !document.fullscreenElement && !window.intentionalFullscreenExit) {
-                // Unauthorized exit from fullscreen
-                window.handleCheatDetection('Thoát toàn màn hình trái phép');
-                showConfirmModal('Bạn vừa thoát chế độ toàn màn hình không hợp lệ. Vui lòng quay lại toàn màn hình ngay lập tức để tiếp tục làm bài!', () => {
-                    window.toggleExamFullscreen();
-                }, '⚠️ CẢNH BÁO VI PHẠM', 'Quay lại toàn màn hình');
-            }
             
             const modalContainer = document.getElementById('modal-container');
             const toastCenter = document.getElementById('toast-container-center');
             const toastRight = document.getElementById('toast-container-right');
-            const appDiv = document.getElementById('app') || document.body;
             const elem = document.getElementById('exam-interface');
             const btn = document.getElementById('btn-exam-fullscreen');
             
@@ -8889,24 +8983,26 @@ if (contentType && contentType.includes("application/json")) {
             }
             
             if (document.fullscreenElement) {
+                window.hideFullscreenEnforcer();
                 if (btn) {
-                    btn.classList.replace('bg-indigo-50', 'bg-purple-50');
-                    btn.classList.replace('text-indigo-700', 'text-purple-700');
-                    btn.classList.replace('border-indigo-200', 'border-red-200');
-                    btn.innerHTML = `<svg class="w-3.5 h-3.5 md:w-4 md:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg> <span class="hidden sm:inline">Thu nhỏ</span></u><span class="sm:hidden text-[10px]">Thu nhỏ</span></u>`;
+                    btn.className = "group px-2 py-1.5 md:px-3 md:py-2 bg-emerald-50 text-emerald-700 font-bold text-[10px] md:text-xs rounded-lg border border-emerald-300 shadow-sm flex items-center justify-center gap-1.5 cursor-pointer";
+                    btn.innerHTML = `<svg class="w-3.5 h-3.5 md:w-4 md:h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg> <span class="hidden sm:inline">Toàn MH (Khóa)</span><span class="sm:hidden text-[10px]">Toàn MH 🔒</span>`;
                 }
                 if (elem) elem.classList.add('p-4', 'md:p-8', 'bg-gray-50', 'overflow-y-auto');
             } else {
                 if (btn) {
-                    btn.classList.replace('bg-purple-50', 'bg-indigo-50');
-                    btn.classList.replace('text-purple-700', 'text-indigo-700');
-                    btn.classList.replace('border-red-200', 'border-indigo-200');
-                    btn.innerHTML = `<svg class="w-3.5 h-3.5 md:w-4 md:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"></path></svg> <span class="hidden sm:inline">Toàn màn hình</span></u><span class="sm:hidden text-[10px]">Toàn MH</span></u>`;
+                    btn.className = "group px-2 py-1.5 md:px-3 md:py-2 bg-amber-50 text-amber-700 font-bold text-[10px] md:text-xs rounded-lg border border-amber-300 shadow-sm flex items-center justify-center gap-1.5 cursor-pointer animate-pulse";
+                    btn.innerHTML = `<svg class="w-3.5 h-3.5 md:w-4 md:h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"></path></svg> <span class="hidden sm:inline">Vào Toàn MH</span><span class="sm:hidden text-[10px]">Vào Toàn MH</span>`;
                 }
                 if (elem) elem.classList.remove('p-4', 'md:p-8', 'bg-gray-50', 'overflow-y-auto');
+
+                if (isExamActive && !window.intentionalFullscreenExit) {
+                    // Unauthorized exit from fullscreen
+                    window.handleCheatDetection('Thoát toàn màn hình trái phép');
+                    window.showFullscreenEnforcer();
+                }
             }
         });
-
 
         window.openStudentSettingsModal = function() {
             const modal = document.getElementById('student-settings-modal');
@@ -8951,21 +9047,12 @@ if (contentType && contentType.includes("application/json")) {
 
         window.intentionalFullscreenExit = false;
         window.toggleExamFullscreen = function toggleExamFullscreen() {
-            const elem = document.getElementById('exam-interface');
-            if (!elem) return;
-            
-            if (!document.fullscreenElement) {
-                const requestFs = elem.requestFullscreen || elem.webkitRequestFullscreen || elem.msRequestFullscreen;
-                if (requestFs) {
-                    requestFs.call(elem).then(() => {
-                        if (navigator.keyboard && navigator.keyboard.lock) {
-                            navigator.keyboard.lock(['Escape']).catch(e => console.log('Keyboard lock failed', e));
-                        }
-                    }).catch(err => {
-                        if(err) showToast(`Lỗi không thể mở toàn màn hình: ${err.message || ''}`, 'error');
-                    });
+            const isExamActive = document.getElementById('exam-interface') && !document.getElementById('exam-interface').classList.contains('hidden');
+            if (document.fullscreenElement) {
+                if (isExamActive) {
+                    showToast('🔒 Quy chế thi: Bắt buộc duy trì chế độ Toàn màn hình trong suốt bài thi!', 'warning');
+                    return;
                 }
-            } else {
                 const exitFs = document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen;
                 if (exitFs) {
                     if (navigator.keyboard && navigator.keyboard.unlock) {
@@ -8973,8 +9060,10 @@ if (contentType && contentType.includes("application/json")) {
                     }
                     exitFs.call(document).catch(err => {});
                 }
+            } else {
+                window.enterExamFullscreen();
             }
-        }
+        };
 
         window.submitExam = function submitExam(isAuto = false) {
             console.log('submitExam called');
@@ -9064,10 +9153,17 @@ if (contentType && contentType.includes("application/json")) {
                 document.body.appendChild(toastRight);
             }
 
+            window.intentionalFullscreenExit = true;
+            if (typeof window.hideFullscreenEnforcer === 'function') {
+                window.hideFullscreenEnforcer();
+            }
             if (document.fullscreenElement) {
-                window.intentionalFullscreenExit = true;
                 try {
-                    await document.exitFullscreen();
+                    const exitFs = document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen;
+                    if (exitFs) {
+                        if (navigator.keyboard && navigator.keyboard.unlock) navigator.keyboard.unlock();
+                        await exitFs.call(document);
+                    }
                 } catch (e) {
                     console.log(e);
                 }
