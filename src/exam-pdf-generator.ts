@@ -1,5 +1,5 @@
 import { jsPDF } from 'jspdf';
-import html2canvas from 'html2canvas';
+import html2canvas from 'html2canvas-pro';
 import { renderScientificContent } from './scientific-formula-engine';
 import { typesetScientificMath } from './scientific-formula-typeset.js';
 import { extractOptionsABCD, getOptionText, estimatePageCount, ExamExportHeaderOptions, ExamExportQuestion } from './exam-docx-generator';
@@ -135,7 +135,7 @@ export async function generateExamPdfBlob(
                 <div class="pdf-block" style="margin-bottom: 12px; text-align: justify; line-height: 1.5;">
                     <span style="font-weight: bold; color: #1e3a8a;">Câu ${qNum}: </span>
                     <span>${cleanHTMLText(q.content)}</span>
-                    ${q.image ? `<div style="text-align: center; margin: 8px 0;"><img src="${q.image}" style="max-width: 320px; max-height: 200px; border-radius: 4px; border: 1px solid #e5e7eb; padding: 4px;" crossOrigin="anonymous" /></div>` : ''}
+                    ${q.image ? `<div style="text-align: center; margin: 8px 0;"><img src="${escapeHtml(q.image)}" style="max-width: 320px; max-height: 200px; border-radius: 4px; border: 1px solid #e5e7eb; padding: 4px;" crossOrigin="anonymous" /></div>` : ''}
                     <div style="margin-top: 4px; color: #555555;">………………………………………………………………………………………………….</div>
                 </div>
             `;
@@ -215,8 +215,14 @@ export async function generateExamPdfBlob(
             }
         };
 
+        // Wait for the same fonts and typeset formula glyphs shown to students.
+        if (document.fonts?.ready) await document.fonts.ready;
+
         // Render lần 1
         let canvas = await html2canvas(container, html2canvasOptions);
+        if (!canvas.width || !canvas.height) {
+            throw new Error('PDF không có nội dung được kết xuất. Vui lòng thử lại trong trình duyệt.');
+        }
 
         let canvasPxPerMm = canvas.width / 170;
         let pageCanvasContentHeightPx = pageContentHeightPx * (canvas.width / 700);
@@ -376,7 +382,7 @@ function renderQuestionHTML(
     const renderCell = (lbl: string, text: string, img?: string) => `
         <div style="flex: 1; min-width: 0;">
             <div><span style="font-weight: bold;">${lbl}</span>${text}</div>
-            ${img ? `<div style="text-align: center; margin-top: 4px;"><img src="${img}" style="max-width: 170px; max-height: 110px; border-radius: 4px; border: 1px solid #e5e7eb; padding: 2px;" crossOrigin="anonymous" /></div>` : ''}
+            ${img ? `<div style="text-align: center; margin-top: 4px;"><img src="${escapeHtml(img)}" style="max-width: 170px; max-height: 110px; border-radius: 4px; border: 1px solid #e5e7eb; padding: 2px;" crossOrigin="anonymous" /></div>` : ''}
         </div>
     `;
 
@@ -421,7 +427,7 @@ function renderQuestionHTML(
                 <span style="font-weight: bold; color: #1e3a8a;">Câu ${qNum}:</span>
                 <span style="margin-left: 4px;">${formattedContent}</span>
             </div>
-            ${q.image ? `<div style="text-align: center; margin: 8px 0;"><img src="${q.image}" style="max-width: 320px; max-height: 200px; border-radius: 6px; border: 1px solid #e5e7eb; padding: 4px;" crossOrigin="anonymous" /></div>` : ''}
+            ${q.image ? `<div style="text-align: center; margin: 8px 0;"><img src="${escapeHtml(q.image)}" style="max-width: 320px; max-height: 200px; border-radius: 6px; border: 1px solid #e5e7eb; padding: 4px;" crossOrigin="anonymous" /></div>` : ''}
             ${optionsHTML}
         </div>
     `;
