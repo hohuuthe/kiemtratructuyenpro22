@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
+import JSZip from 'jszip';
 import { spawn } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { setTimeout as sleep } from 'node:timers/promises';
 
 const root = 'artifacts/formula-visual-qa';
@@ -153,6 +154,17 @@ try {
       report.files.push('sample.'+item.name);
     }
   }
+  // Inspect the ACTUAL downloaded browser DOCX, rather than trusting size.
+  // Office Math elements are editable in Word; literal \ce remains a failure.
+  const browserDocxZip=await JSZip.loadAsync(readFileSync(root+'/sample.docx'));
+  const browserWordXml=await browserDocxZip.file('word/document.xml').async('string');
+  check('Actual downloaded DOCX contains native Office Math',
+    browserWordXml.includes('<m:oMath') && browserWordXml.includes('<m:sSub>') &&
+    browserWordXml.includes('<m:sSup>') && !browserWordXml.includes('\\ce{'),
+    'Office Math=' + (browserWordXml.match(/<m:oMath\b/g)||[]).length +
+    ' subs=' + (browserWordXml.match(/<m:sSub>/g)||[]).length +
+    ' supers=' + (browserWordXml.match(/<m:sSup>/g)||[]).length +
+    ' raw mhchem=' + browserWordXml.includes('\\ce{'));
   // Review dialog: exercise its exact shared read-only renderer in real Chromium.
   await page.evaluate(async () => {
     const {renderExamDetailQuestion,renderExamDetailOptions} = await import('/src/exam-detail-formula-renderer.js');
