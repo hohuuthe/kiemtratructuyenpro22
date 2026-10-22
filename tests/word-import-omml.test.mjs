@@ -200,3 +200,16 @@ test('Manual correction must retain one-to-one OMML provenance; deleting formula
     fixed.content=fixed.content.replace('frac','sqrt');
     assert.equal(checkWordImportBeforeSave([fixed],[]).ok,false);
 });
+
+
+test('A single original Word Equation cannot be silently duplicated across separate questions',async()=>{
+ const report=await inspectScientificDocx(await fixture(prefix+eqFraction+'</w:p>'+p('Đáp án: A')));
+ const token=report.formulas[0].token;
+ const questions=[
+   {id:'record001',type:'TL',level:'NB',lesson:'BÀI 1',content:token,answer:'A'},
+   {id:'record002',type:'TL',level:'NB',lesson:'BÀI 1',content:token,answer:'A'}
+ ];
+ const res=verifyImportedWordQuestions(questions,report);
+ assert.ok(res.documentIssues.some(x=>x.kind==='structure'));
+ assert.equal(checkWordImportBeforeSave(res.questions,res.documentIssues).ok,false);
+});
