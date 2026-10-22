@@ -6,7 +6,7 @@ import { Math as WordMath } from 'docx/math';
 import { makeWordMathRun } from '../src/exam-docx-generator.ts';
 import { DOMParser } from '@xmldom/xmldom';
 import { inspectScientificDocx, convertOmmlToLatex } from '../src/word-omml-reader.js';
-import { verifyImportedWordQuestions, checkWordImportBeforeSave, validateScientificLatexForImport } from '../src/word-import-verification.js';
+import { verifyImportedWordQuestions, checkWordImportBeforeSave, validateScientificLatexForImport, correctImportedWordEquation } from '../src/word-import-verification.js';
 
 const pre='<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" '+
     'xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math" '+
@@ -176,4 +176,27 @@ test('Mixed inline image/text and Word automatic list numbering become explicit 
   ));
   assert.ok(report.issues.some(i=>i.kind==='image'));
   assert.ok(report.issues.some(i=>i.kind==='numbering'));
+});
+
+
+test('Manual correction must retain one-to-one OMML provenance; deleting formula is never an approval',async()=>{
+    const bad='<m:oMath><m:phant><m:e><m:r><m:t>x</m:t></m:r></m:e></m:phant></m:oMath>';
+    const report=await inspectScientificDocx(await fixture(prefix+bad+'</w:p>'+p('Đáp án: A')));
+    const q={id:'source000011',type:'TL',level:'NB',lesson:'BÀI 1',content:report.lines[0].text,answer:'A'};
+    const item=verifyImportedWordQuestions([q],report).questions[0];
+    assert.equal(checkWordImportBeforeSave([item],[]).ok,false);
+    // A malicious or mistaken review may not remove the formula silently.
+    item.content=item.content.replace('__WMATH_000001__','');
+    item.__wordReviewed=true;
+    assert.equal(checkWordImportBeforeSave([item],[]).ok,false);
+    item.content=report.lines[0].text;
+    const fixed=correctImportedWordEquation(item,'__WMATH_000001__','\\frac{x+1}{h}');
+    assert.equal(fixed.__wordFormulaSources[0].status,'manual_verified');
+    assert.equal(fixed.__wordFormulaSources[0].latex,'\\frac{x+1}{h}');
+    assert.ok(fixed.content.includes('$\\frac{x+1}{h}$'));
+    assert.match(fixed.__wordFormulaSources[0].sourceOmml,/<m:phant>/);
+    assert.deepEqual(fixed.__wordImportIssues,[]);
+    assert.equal(checkWordImportBeforeSave([fixed],[]).ok,true);
+    fixed.content=fixed.content.replace('frac','sqrt');
+    assert.equal(checkWordImportBeforeSave([fixed],[]).ok,false);
 });
