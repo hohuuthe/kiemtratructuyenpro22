@@ -1,0 +1,27 @@
+name: Formula rendering checks
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main, fix/scientific-formulas-student-exam-20261022]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Test formulas and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Formula tokenizer regression tests
+        run: node --test tests/scientific-formula-tokenizer.test.mjs
+      - name: Production build
+        run: npm run build
