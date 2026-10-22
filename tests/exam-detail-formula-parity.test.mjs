@@ -97,9 +97,10 @@ test('Absent old option content is reported, never invented', () => {
   assert.equal(renderExamDetailOptions({type:'TL',content:'$E=mc^2$'},'', ''),'');
 });
 
-test('All 516 interdisciplinary fixture sources stay equivalent to student display', () => {
+test('All 516 regular and 35 boundary formula sources match the student view', () => {
   const fixture = JSON.parse(readFileSync('tests/fixtures/scientific-formulas-516.json','utf8'));
-  assert.equal(fixture.cases.length, 516);
+  assert.equal(fixture.cases.filter(item => !item.special).length, 516);
+  assert.equal(fixture.cases.length, 551);
   for (const item of fixture.cases) {
     const source = String(item.latex);
     const expected = renderScientificContent(source);
