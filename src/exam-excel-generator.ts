@@ -81,7 +81,7 @@ export function formatAnswerDisplay(type: string, rawAnswer: any, options?: any)
   // Excel cells are plain text, not an equation-rendering canvas.
   // Preserve LaTeX and delimiters EXACTLY for subsequent editing/printing.
   // Never strip $...$, \\( ... \\), braces or mhchem markup.
-  return String(ans ?? '').replace(/<br\\s*\\/?\\s*>/gi, '\\n').trim();
+  return String(ans ?? '').replace(/<br\s*\/?\s*>/gi, '\n').trim();
 }
 
 /**
