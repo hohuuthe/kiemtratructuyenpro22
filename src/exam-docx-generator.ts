@@ -64,7 +64,7 @@ export function parseFormattedText(textInput: any, defaultBold = false): (TextRu
     const parts: Array<{ type: string; value: string; display?: boolean }> = records
         ? records.flatMap((record, i) => record.type === 'record'
             ? [{ type: 'text', value: (i ? '\n' : '') + record.id + ' | ' + record.label + ' | ' },
-               { type: 'math', value: record.formula }]
+               { type: 'math', value: unwrapWordFormula(record.formula) }]
             : [{ type: 'text', value: record.value }])
         : splitScientificContent(original);
     if (!parts.some(part => part.type === 'math')) return parseFormattedTextLegacy(original, defaultBold);
@@ -84,6 +84,11 @@ export function parseFormattedText(textInput: any, defaultBold = false): (TextRu
  * Native OMML for formulas supported by docx/math. Never rewrite an
  * unrecognized expression into an approximate equation.
  */
+function unwrapWordFormula(source: string): string {
+    const parts = splitScientificContent(source);
+    return parts.length === 1 && parts[0].type === 'math' ? parts[0].value : source;
+}
+
 export function makeWordMathRun(source: string, defaultBold = false): WordMath | TextRun {
     let latex = String(source || '');
     const simpleChemical = /^\\ce\{([A-Za-z0-9()]+)\}$/.exec(latex);
