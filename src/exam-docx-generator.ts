@@ -91,10 +91,17 @@ function unwrapWordFormula(source: string): string {
 
 export function makeWordMathRun(source: string, defaultBold = false): WordMath | TextRun {
     let latex = String(source || '');
-    const simpleChemical = /^\\ce\{([A-Za-z0-9()]+)\}$/.exec(latex);
+    // Convert simple mhchem species to editable Office Math; never guess reactions.
+    const simpleChemical = /^\\ce\{([A-Za-z0-9()^{}+\-]+)\}$/.exec(latex);
     if (simpleChemical) {
-        const body = simpleChemical[1].replace(/([A-Za-z)])(\d+)/g, '$1_{$2}');
-        latex = '\\mathrm{' + body + '}';
+        let body = simpleChemical[1];
+        const charge = /\^\{(\d*[+-])\}$/.exec(body) || /\^([+-])$/.exec(body);
+        if (charge) body = body.slice(0, charge.index);
+        const tokens = body.match(/(?:[A-Z][a-z]?|[()])\d*/g);
+        if (tokens && tokens.join('') === body) {
+            const wordBody = tokens.map(token => token.replace(/(\d+)$/, '_{$1}')).join('');
+            latex = '\\mathrm{' + wordBody + '}' + (charge ? '^{' + charge[1] + '}' : '');
+        }
     }
     try {
         return new WordMath({ children: latexToMath(latex) });
