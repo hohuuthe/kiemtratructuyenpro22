@@ -485,8 +485,32 @@ button { touch-action: manipulation; }
 
 /* Catalog equations in student questions: retain the teacher's label, typeset
    only the expression, and allow long formulas to scroll independently. */
-.scientific-record { display:block; margin:0.22rem 0; line-height:1.6; overflow-x:auto; max-width:100%; }
+.scientific-record { display:block; margin:0.22rem 0; line-height:1.6; max-width:100%; overflow-x:auto; overflow-y:hidden; -webkit-overflow-scrolling:touch; }
 .scientific-record-meta { font-weight:600; white-space:normal; margin-right:0.4em; }
 .scientific-record .scientific-rendered-math { display:inline-block; max-width:100%; vertical-align:middle; }
 .scientific-record .katex-display { font-weight:normal; }
-.scientific-record mjx-container { max-width:100%; overflow-x:auto; }
+/* Inline MathJax formulas are text, not scrollable windows.
+   The previous overflow-x:auto on every mjx-container created the
+   tiny horizontal/vertical scrollbars next to H2O, CO2 and ions.
+   The parent .scientific-record handles rare genuinely wide formulas. */
+.scientific-record mjx-container[jax="CHTML"]:not([display="true"]),
+.responsive-q-text mjx-container[jax="CHTML"]:not([display="true"]),
+.responsive-a-text mjx-container[jax="CHTML"]:not([display="true"]) {
+  display: inline-block !important;
+  max-width: none;
+  overflow: visible !important;
+  vertical-align: middle;
+}
+/* Do not scroll inside MathJax. Large display math can scroll at the
+   outer line/formula container; inline notation stays borderless. */
+.scientific-record mjx-container {
+  overflow: visible !important;
+}
+/* Keep swipe-to-scroll for exceptionally long source formulas,
+   without decorating ordinary equations with a scrollbar. */
+.scientific-record {
+  scrollbar-width: none;
+}
+.scientific-record::-webkit-scrollbar {
+  display: none;
+}
