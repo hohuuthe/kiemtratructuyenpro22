@@ -52,17 +52,28 @@ function isCurrencyStart(source, index) {
   if (source[index] !== '$') return false;
   const rest = source.slice(index + 1);
   const m = /^(\d+(?:[.,]\d{1,2})?)(?=$|[\s,.;!?)])/u.exec(rest);
-  return !!m && rest[m[1].length] !== '$';
+  if (!m) return false;
+  const nextDollar = rest.indexOf('$');
+  const mathCandidate = nextDollar < 0 ? rest : rest.slice(0, nextDollar);
+  return !/[=^_+*<>]/.test(mathCandidate);
 }
 function looksLikeStandaloneMath(text) {
   const t = text.trim();
-  return t.length > 2 &&
-    /[=^_≤≥≠≈∑∫√±×÷]/u.test(t) &&
-    /^[\dA-Za-z\s{}()[\],.;+\-*/^_=<>|!\\%∞√∑∫πΔμΩ±×÷→←⇌]+$/u.test(t) &&
-    !/(?:^|\s)(?:and|the|with|find|calculate|choose|where)(?:\s|$)/i.test(t);
+  if (!t) return false;
+  if (/[À-ỹ]/u.test(t) && !/\\(?:text|mathrm|operatorname|ce|pu)\s*\{/.test(t)) return false;
+  if (/<[a-z/!][^>]*>/i.test(t)) return false;
+  const hasOperator = /[=^_<>≤≥≠≈∑∫√±×÷]|\\(?:frac|dfrac|tfrac|cfrac|sqrt|sum|prod|int|iint|iiint|lim|ce|pu|begin|text|mathrm|vec|mathbb|left|right|sin|cos|tan|log|ln|pm|geq|leq|to|rightarrow|overline|overrightarrow|times|cdot|alpha|beta|gamma|Delta|pi|infty|perp|parallel|land|lor|neg|mathcal|mathsf|mathfrak|overset|underbrace|hat|hbar|nabla|partial)\b/.test(t);
+  return hasOperator && !/[\r\n]{2}/.test(t) && !/(?:^|\s)(?:Giá|Dòng|Với|Biết|Cho|Tính|Hãy|Nêu|Câu|Khi|Nhiệt|Lực|Phản ứng|Thể tích|Khối lượng|Công thức)(?:\s|:)/iu.test(t);
+}
+function hasExplicitDelimiter(source) {
+  return /\\\(|\\\[|\$\$|(?<!\\)\$(?!\d)/.test(source) || source.includes(String.fromCharCode(96));
 }
 export function splitScientificContent(sourceInput) {
   const source = String(sourceInput ?? '');
+  // Render a complete bare expression as one formula, not separate commands.
+  if (!hasExplicitDelimiter(source) && looksLikeStandaloneMath(source)) {
+    return [{ type: 'math', value: source.trim(), display: /\\begin\{/.test(source) }];
+  }
   const segments = [];
   let text = '';
   const pushText = () => { if (text) segments.push({ type: 'text', value: text }); text = ''; };

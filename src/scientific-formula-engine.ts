@@ -254,11 +254,17 @@ export function autoHealSyntaxErrors(latex: string): string {
 // =========================================================================
 
 export function renderKatexToString(rawLatex: string, isDisplay: boolean = false): string {
-    // Do not silently rewrite mathematical meaning: keep authors' TeX intact.
     const source = unescapeHtmlInsideMath(String(rawLatex ?? '')).trim();
     if (!source) return '';
+    // KaTeX mhchem registration varies across bundlers. MathJax is already
+    // configured with mhchem, so always use it for chemistry notation.
+    if (/\\\\(?:ce|pu)\\b/.test(source)) {
+        const safe = sanitizeHtml(source);
+        const tag = isDisplay ? 'div' : 'span';
+        return '<' + tag + ' class="tex2jax_ignore formula-source-fallback scientific-mathjax-pending" data-scientific-latex="' + safe + '" data-scientific-display="' + (isDisplay ? 'true' : 'false') + '" role="note">' + safe + '</' + tag + '>';
+    }
     try {
-        return katex.renderToString(source, {
+        const html = katex.renderToString(source, {
             displayMode: isDisplay,
             throwOnError: true,
             strict: 'warn',
@@ -267,14 +273,17 @@ export function renderKatexToString(rawLatex: string, isDisplay: boolean = false
             maxSize: 20,
             macros: { '\\degree': '^{\\circ}' }
         });
+        // Ignore already typeset KaTeX when legacy MathJax scans the exam DOM.
+        return '<span class="tex2jax_ignore scientific-rendered-math">' + html + '</span>';
     } catch (error) {
-        // A wrong guess is worse than a visible source formula in an exam.
-        console.warn('[ScientificFormula] Unsupported or invalid expression:', error);
+        console.warn('[ScientificFormula] KaTeX requires fallback:', error);
+        // The MathJax fallback is applied after DOM insertion; original source
+        // remains visible if MathJax is unavailable or also rejects this syntax.
         const tag = isDisplay ? 'div' : 'span';
-        return `<${tag} class="formula-source-fallback" role="note" title="Công thức không hợp lệ hoặc thư viện chưa hỗ trợ">${sanitizeHtml(source)}</${tag}>`;
+        const safe = sanitizeHtml(source);
+        return '<' + tag + ' class="tex2jax_ignore formula-source-fallback scientific-mathjax-pending" data-scientific-latex="' + safe + '" data-scientific-display="' + (isDisplay ? 'true' : 'false') + '" role="note" title="Công thức cần bộ dựng MathJax">' + safe + '</' + tag + '>';
     }
 }
-
 // =========================================================================
 // AUTO-WRAP CÁC CÔNG THỨC TRẦN KHÔNG CÓ DELIMITER (Word/Excel import)
 // =========================================================================

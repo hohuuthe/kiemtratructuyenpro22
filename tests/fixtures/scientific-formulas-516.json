@@ -1,0 +1,3312 @@
+{
+  "source": "User-supplied scientific formula acceptance suite, 2026-10-22",
+  "notes": "Inputs are preserved verbatim, including intentionally malformed NEG cases and Word-copy artifacts. Fixtures are not automatically assumed semantically valid.",
+  "cases": [
+    {
+      "id": "MAT-001",
+      "name": "Số nguyên âm và phép trừ",
+      "latex": "-7+12=5",
+      "special": false
+    },
+    {
+      "id": "MAT-002",
+      "name": "Phân số thường",
+      "latex": "\\frac{a}{b}",
+      "special": false
+    },
+    {
+      "id": "MAT-003",
+      "name": "Phân số số học",
+      "latex": "\\frac{17}{24}+\\frac{5}{18}",
+      "special": false
+    },
+    {
+      "id": "MAT-004",
+      "name": "Phân số lồng hai tầng",
+      "latex": "\\frac{\\frac{a}{b}}{\\frac{c}{d}}",
+      "special": false
+    },
+    {
+      "id": "MAT-005",
+      "name": "Phân số liên tục",
+      "latex": "1+\\cfrac{1}{2+\\cfrac{1}{3+x}}",
+      "special": false
+    },
+    {
+      "id": "MAT-006",
+      "name": "Hỗn số biểu diễn bằng LaTeX",
+      "latex": "2\\frac{3}{5}",
+      "special": false
+    },
+    {
+      "id": "MAT-007",
+      "name": "Số thập phân dùng dấu phẩy",
+      "latex": "3{,}14159",
+      "special": false
+    },
+    {
+      "id": "MAT-008",
+      "name": "Lũy thừa",
+      "latex": "a^{m+n}=a^ma^{n}",
+      "special": false
+    },
+    {
+      "id": "MAT-009",
+      "name": "Số mũ âm",
+      "latex": "x^{-3}=\\frac{1}{x^3}",
+      "special": false
+    },
+    {
+      "id": "MAT-010",
+      "name": "Số mũ phân số",
+      "latex": "x^{\\frac{2}{3}}=\\sqrt[3]{x^2}",
+      "special": false
+    },
+    {
+      "id": "MAT-011",
+      "name": "Căn bậc hai",
+      "latex": "\\sqrt{x^{2}+y^2}",
+      "special": false
+    },
+    {
+      "id": "MAT-012",
+      "name": "Căn bậc ba",
+      "latex": "\\sqrt[3]{125}=5",
+      "special": false
+    },
+    {
+      "id": "MAT-013",
+      "name": "Căn lồng nhau",
+      "latex": "\\sqrt{2+\\sqrt{3+\\sqrt{5}}}",
+      "special": false
+    },
+    {
+      "id": "MAT-014",
+      "name": "Giá trị tuyệt đối",
+      "latex": "|x-3|\\le 5",
+      "special": false
+    },
+    {
+      "id": "MAT-015",
+      "name": "Giá trị tuyệt đối co giãn",
+      "latex": "\\left|\\frac{x-1}{x+1}\\right|",
+      "special": false
+    },
+    {
+      "id": "MAT-016",
+      "name": "Đa thức",
+      "latex": "P(x)=3x^{4}-2x^{3}+x-7",
+      "special": false
+    },
+    {
+      "id": "MAT-017",
+      "name": "Hằng đẳng thức",
+      "latex": "(a+b)^{3}=a^{3}+3a^2b+3ab^{2}+b^{3}",
+      "special": false
+    },
+    {
+      "id": "MAT-018",
+      "name": "Phương trình bậc hai",
+      "latex": "ax^{2}+bx+c=0\\quad (a\\ne0)",
+      "special": false
+    },
+    {
+      "id": "MAT-019",
+      "name": "Nghiệm phương trình bậc hai",
+      "latex": "x=\\frac{-b\\pm\\sqrt{b^{2}-4ac}}{2a}",
+      "special": false
+    },
+    {
+      "id": "MAT-020",
+      "name": "Định lý Viète",
+      "latex": "x_{1}+x_{2}=-\\frac ba,\\quad x_1x_{2}=\\frac ca",
+      "special": false
+    },
+    {
+      "id": "MAT-021",
+      "name": "Bất phương trình kép",
+      "latex": "-2\\le x<5",
+      "special": false
+    },
+    {
+      "id": "MAT-022",
+      "name": "Hệ bất phương trình",
+      "latex": "\\begin{cases}2x+y>1\\x-3y\\le7\\end{cases}",
+      "special": false
+    },
+    {
+      "id": "MAT-023",
+      "name": "Hệ phương trình",
+      "latex": "\\begin{cases}x+y=5\\\\2x-y=1\\end{cases}",
+      "special": false
+    },
+    {
+      "id": "MAT-024",
+      "name": "Phương trình trị tuyệt đối",
+      "latex": "|2x-1|=3",
+      "special": false
+    },
+    {
+      "id": "MAT-025",
+      "name": "Hàm số từng đoạn",
+      "latex": "f(x)=\\begin{cases}x^{2},&x\\ge0\\\\-x,&x<0\\end{cases}",
+      "special": false
+    },
+    {
+      "id": "MAT-026",
+      "name": "Lôgarit",
+      "latex": "\\log_{a}(xy)=\\log_ax+\\log_ay",
+      "special": false
+    },
+    {
+      "id": "MAT-027",
+      "name": "Lôgarit tự nhiên",
+      "latex": "\\ln(e^{x})=x",
+      "special": false
+    },
+    {
+      "id": "MAT-028",
+      "name": "Hàm mũ",
+      "latex": "y=Ae^{kt}",
+      "special": false
+    },
+    {
+      "id": "MAT-029",
+      "name": "Dãy số cấp số cộng",
+      "latex": "u_{n}=u_{1}+(n-1)d",
+      "special": false
+    },
+    {
+      "id": "MAT-030",
+      "name": "Cấp số nhân",
+      "latex": "u_{n}=u_1q^{n-1}",
+      "special": false
+    },
+    {
+      "id": "MAT-031",
+      "name": "Tổng cấp số nhân",
+      "latex": "S_{n}=a\\frac{1-q^n}{1-q}\\quad(q\\ne1)",
+      "special": false
+    },
+    {
+      "id": "MAT-032",
+      "name": "Giai thừa",
+      "latex": "5!=120",
+      "special": false
+    },
+    {
+      "id": "MAT-033",
+      "name": "Nhị thức Newton",
+      "latex": "(a+b)^{n}=\\sum_{k=0}^{n}\\binom nk a^{n-k}b^{k}",
+      "special": false
+    },
+    {
+      "id": "MAT-034",
+      "name": "Tổ hợp",
+      "latex": "\\binom nk=\\frac{n!}{k!(n-k)!}",
+      "special": false
+    },
+    {
+      "id": "MAT-035",
+      "name": "Số phức",
+      "latex": "z=3-4i,\\quad |z|=5",
+      "special": false
+    },
+    {
+      "id": "MAT-036",
+      "name": "Liên hợp số phức",
+      "latex": "z\\overline z=|z|^{2}",
+      "special": false
+    },
+    {
+      "id": "MAT-037",
+      "name": "Dạng lượng giác số phức",
+      "latex": "z=r(\\cos\\theta+i\\sin\\theta)",
+      "special": false
+    },
+    {
+      "id": "MAT-038",
+      "name": "Công thức Euler",
+      "latex": "e^{i\\theta}=\\cos\\theta+i\\sin\\theta",
+      "special": false
+    },
+    {
+      "id": "MAT-039",
+      "name": "Tích vô hạn",
+      "latex": "\\prod_{n=1}^{\\infty}\\left(1+\\frac1{n^2}\\right)",
+      "special": false
+    },
+    {
+      "id": "MAT-040",
+      "name": "Giới hạn đơn giản",
+      "latex": "\\lim_{x\\to0}\\frac{\\sin x}{x}=1",
+      "special": false
+    },
+    {
+      "id": "MAT-041",
+      "name": "Giới hạn một phía",
+      "latex": "\\lim_{x\\to0^+}\\ln x=-\\infty",
+      "special": false
+    },
+    {
+      "id": "MAT-042",
+      "name": "Giới hạn dãy số",
+      "latex": "\\lim_{n\\to\\infty}\\frac{n+1}{2n}=\\frac12",
+      "special": false
+    },
+    {
+      "id": "MAT-043",
+      "name": "Giới hạn chứa căn",
+      "latex": "\\lim_{x\\to0}\\frac{\\sqrt{1+x}-1}{x}=\\frac12",
+      "special": false
+    },
+    {
+      "id": "MAT-044",
+      "name": "Định nghĩa đạo hàm",
+      "latex": "f'(x)=\\lim_{h\\to0}\\frac{f(x+h)-f(x)}h",
+      "special": false
+    },
+    {
+      "id": "MAT-045",
+      "name": "Đạo hàm hàm mũ",
+      "latex": "\\frac{d}{dx}e^{x}=e^{x}",
+      "special": false
+    },
+    {
+      "id": "MAT-046",
+      "name": "Đạo hàm phân thức",
+      "latex": "\\left(\\frac uv\\right)'=\\frac{u'v-uv'}{v^2}",
+      "special": false
+    },
+    {
+      "id": "MAT-047",
+      "name": "Đạo hàm cấp hai",
+      "latex": "\\frac{d^2y}{dx^2}",
+      "special": false
+    },
+    {
+      "id": "MAT-048",
+      "name": "Đạo hàm riêng",
+      "latex": "\\frac{\\partial f}{\\partial x}",
+      "special": false
+    },
+    {
+      "id": "MAT-049",
+      "name": "Đạo hàm riêng bậc hai",
+      "latex": "\\frac{\\partial^{2} f}{\\partial x\\partial y}",
+      "special": false
+    },
+    {
+      "id": "MAT-050",
+      "name": "Gradient",
+      "latex": "\\nabla f=\\left(\\frac{\\partial f}{\\partial x},\\frac{\\partial f}{\\partial y},\\frac{\\partial f}{\\partial z}\\right)",
+      "special": false
+    },
+    {
+      "id": "MAT-051",
+      "name": "Vi phân toàn phần",
+      "latex": "df=f_{x}\\,dx+f_{y}\\,dy",
+      "special": false
+    },
+    {
+      "id": "MAT-052",
+      "name": "Nguyên hàm",
+      "latex": "\\int x^{n}\\,dx=\\frac{x^{n+1}}{n+1}+C\\quad(n\\ne-1)",
+      "special": false
+    },
+    {
+      "id": "MAT-053",
+      "name": "Tích phân xác định",
+      "latex": "\\int_{0}^1x^{2}\\,dx=\\frac13",
+      "special": false
+    },
+    {
+      "id": "MAT-054",
+      "name": "Tích phân từng phần",
+      "latex": "\\int u\\,dv=uv-\\int v\\,du",
+      "special": false
+    },
+    {
+      "id": "MAT-055",
+      "name": "Tích phân kép",
+      "latex": "\\iint_{D} f(x,y)\\,dA",
+      "special": false
+    },
+    {
+      "id": "MAT-056",
+      "name": "Tích phân ba",
+      "latex": "\\iiint_{V}\\rho(x,y,z)\\,dV",
+      "special": false
+    },
+    {
+      "id": "MAT-057",
+      "name": "Tích phân đường",
+      "latex": "\\oint_{C}\\vec F\\cdot d\\vec r",
+      "special": false
+    },
+    {
+      "id": "MAT-058",
+      "name": "Tổng \\sigma",
+      "latex": "\\sum_{k=1}^{n} k=\\frac{n(n+1)}2",
+      "special": false
+    },
+    {
+      "id": "MAT-059",
+      "name": "Tổng vô hạn",
+      "latex": "\\sum_{n=0}^{\\infty}\\frac1{2^n}=2",
+      "special": false
+    },
+    {
+      "id": "MAT-060",
+      "name": "Chuỗi Taylor",
+      "latex": "e^{x}=\\sum_{n=0}^{\\infty}\\frac{x^n}{n!}",
+      "special": false
+    },
+    {
+      "id": "MAT-061",
+      "name": "Phương trình vi phân",
+      "latex": "\\frac{dy}{dx}=ky",
+      "special": false
+    },
+    {
+      "id": "MAT-062",
+      "name": "Phương trình vi phân cấp hai",
+      "latex": "y''+\\omega^2y=0",
+      "special": false
+    },
+    {
+      "id": "MAT-063",
+      "name": "Biến đổi Laplace",
+      "latex": "\\mathcal L\\{f(t)\\}=\\int_{0}^{\\infty}e^{-st}f(t)\\,dt",
+      "special": false
+    },
+    {
+      "id": "MAT-064",
+      "name": "Biến đổi Fourier",
+      "latex": "\\hat f(\\xi)=\\int_{-\\infty}^{\\infty}f(x)e^{-2\\pi i x\\xi}\\,dx",
+      "special": false
+    },
+    {
+      "id": "MAT-065",
+      "name": "Sin và \\cos",
+      "latex": "\\sin^{2}\\alpha+\\cos^{2}\\alpha=1",
+      "special": false
+    },
+    {
+      "id": "MAT-066",
+      "name": "Công thức nhân đôi",
+      "latex": "\\sin2x=2\\sin x\\cos x",
+      "special": false
+    },
+    {
+      "id": "MAT-067",
+      "name": "Công thức cộng",
+      "latex": "\\cos(a+b)=\\cos a\\cos b-\\sin a\\sin b",
+      "special": false
+    },
+    {
+      "id": "MAT-068",
+      "name": "Đổi độ sang radian",
+      "latex": "$180^{\\circ}$=\\pi\\,\\mathrm{rad}",
+      "special": false
+    },
+    {
+      "id": "MAT-069",
+      "name": "Hàm hyperbol",
+      "latex": "\\cosh^2x-\\sinh^2x=1",
+      "special": false
+    },
+    {
+      "id": "MAT-070",
+      "name": "Phương trình lượng giác",
+      "latex": "\\tan x=\\frac{\\sin x}{\\cos x}",
+      "special": false
+    },
+    {
+      "id": "MAT-071",
+      "name": "Ký hiệu xấp xỉ",
+      "latex": "\\pi\\approx3{,}14159265",
+      "special": false
+    },
+    {
+      "id": "MAT-072",
+      "name": "Lũy thừa ký hiệu vô hạn",
+      "latex": "\\lim_{x\\to\\infty}\\frac1x=0",
+      "special": false
+    },
+    {
+      "id": "MAT-073",
+      "name": "Diện tích tam giác",
+      "latex": "S=\\frac12 ah",
+      "special": false
+    },
+    {
+      "id": "MAT-074",
+      "name": "Diện tích tròn",
+      "latex": "S=\\pi r^{2}",
+      "special": false
+    },
+    {
+      "id": "MAT-075",
+      "name": "Thể tích cầu",
+      "latex": "V=\\frac43\\pi r^{3}",
+      "special": false
+    },
+    {
+      "id": "MAT-076",
+      "name": "Định lý Pythagore",
+      "latex": "a^{2}+b^{2}=c^{2}",
+      "special": false
+    },
+    {
+      "id": "MAT-077",
+      "name": "Định lý cosin",
+      "latex": "c^{2}=a^{2}+b^{2}-2ab\\cos C",
+      "special": false
+    },
+    {
+      "id": "MAT-078",
+      "name": "Định lý \\sin",
+      "latex": "\\frac a{\\sin A}=\\frac b{\\sin B}=\\frac c{\\sin C}",
+      "special": false
+    },
+    {
+      "id": "MAT-079",
+      "name": "Góc và ký hiệu hình học",
+      "latex": "\\angle ABC=$60^{\\circ}\\text{M}",
+      "special": false
+    },
+    {
+      "id": "MAT-080",
+      "name": "Song song và vuông góc",
+      "latex": "a\\parallel b,\\quad c\\perp d",
+      "special": false
+    },
+    {
+      "id": "MAT-081",
+      "name": "Tam giác đồng dạng",
+      "latex": "\\triangle ABC\\sim\\triangle DEF",
+      "special": false
+    },
+    {
+      "id": "MAT-082",
+      "name": "Vector có mũi tên",
+      "latex": "\\vec v=(v_{x},v_{y},v_{z})",
+      "special": false
+    },
+    {
+      "id": "MAT-083",
+      "name": "Vector có hat",
+      "latex": "\\hat{\\mathbf n}=\\frac{\\vec n}{\\|\\vec n\\|}",
+      "special": false
+    },
+    {
+      "id": "MAT-084",
+      "name": "Tích vô hướng",
+      "latex": "\\vec a\\cdot\\vec b=|\\vec a||\\vec b|\\cos\\theta",
+      "special": false
+    },
+    {
+      "id": "MAT-085",
+      "name": "Tích có hướng",
+      "latex": "\\vec a\\times\\vec b",
+      "special": false
+    },
+    {
+      "id": "MAT-086",
+      "name": "Ma trận 2 nhân 2",
+      "latex": "A=\\begin{pmatrix}a&b\\c&d\\end{pmatrix}",
+      "special": false
+    },
+    {
+      "id": "MAT-087",
+      "name": "Ma trận 3 nhân 3",
+      "latex": "B=\\begin{bmatrix}1&0&-1\\\\2&3&4\\\\0&5&6\\end{bmatrix}",
+      "special": false
+    },
+    {
+      "id": "MAT-088",
+      "name": "Định thức",
+      "latex": "\\det\\begin{pmatrix}a&b\\c&d\\end{pmatrix}=ad-bc",
+      "special": false
+    },
+    {
+      "id": "MAT-089",
+      "name": "Nghịch đảo ma trận",
+      "latex": "A^{-1}=\\frac1{ad-bc}\\begin{pmatrix}d&-b\\\\-c&a\\end{pmatrix}",
+      "special": false
+    },
+    {
+      "id": "MAT-090",
+      "name": "Phép chuyển vị",
+      "latex": "(AB)^\\mathsf T=B^\\mathsf TA^\\mathsf T",
+      "special": false
+    },
+    {
+      "id": "MAT-091",
+      "name": "Hệ tuyến tính ma trận",
+      "latex": "A\\mathbf x=\\mathbf b",
+      "special": false
+    },
+    {
+      "id": "MAT-092",
+      "name": "Tập hợp",
+      "latex": "A\\cup B,\\quad A\\cap B,\\quad A\\setminus B",
+      "special": false
+    },
+    {
+      "id": "MAT-093",
+      "name": "Ký hiệu thuộc tập",
+      "latex": "x\\in\\mathbb R,\\quad n\\in\\mathbb N",
+      "special": false
+    },
+    {
+      "id": "MAT-094",
+      "name": "Các lượng từ logic",
+      "latex": "\\forall x\\in\\mathbb R,\\ \\exists y\\in\\mathbb R",
+      "special": false
+    },
+    {
+      "id": "MAT-095",
+      "name": "Quan hệ kéo theo",
+      "latex": "P\\Rightarrow Q,\\quad P\\Leftrightarrow Q",
+      "special": false
+    },
+    {
+      "id": "MAT-096",
+      "name": "Xác suất có điều kiện",
+      "latex": "P(A\\mid B)=\\frac{P(A\\cap B)}{P(B)}",
+      "special": false
+    },
+    {
+      "id": "MAT-097",
+      "name": "Công thức Bayes",
+      "latex": "P(A\\mid B)=\\frac{P(B\\mid A)P(A)}{P(B)}",
+      "special": false
+    },
+    {
+      "id": "MAT-098",
+      "name": "Phân phối nhị thức",
+      "latex": "P(X=k)=\\binom nk p^{k}(1-p)^{n-k}",
+      "special": false
+    },
+    {
+      "id": "MAT-099",
+      "name": "Kỳ vọng",
+      "latex": "\\mathbb E[X]=\\sum_{x} xP(X=x)",
+      "special": false
+    },
+    {
+      "id": "MAT-100",
+      "name": "Phương sai",
+      "latex": "\\mathrm{Var}(X)=\\mathbb E[(X-\\mu)^{2}]",
+      "special": false
+    },
+    {
+      "id": "MAT-101",
+      "name": "Trung bình mẫu",
+      "latex": "\\overline x=\\frac1n\\sum_{i=1}^{n} x_{i}",
+      "special": false
+    },
+    {
+      "id": "MAT-102",
+      "name": "Độ lệch chuẩn mẫu",
+      "latex": "s=\\sqrt{\\frac{\\sum_{i=1}^{n}(x_{i}-\\overline x)^2}{n-1}}",
+      "special": false
+    },
+    {
+      "id": "MAT-103",
+      "name": "Tương quan Pearson",
+      "latex": "r=\\frac{\\sum_{i}(x_{i}-\\overline x)(y_{i}-\\overline y)}{\\sqrt{\\sum_{i}(x_{i}-\\overline x)^{2}\\sum_{i}(y_{i}-\\overline y)^2}}",
+      "special": false
+    },
+    {
+      "id": "MAT-104",
+      "name": "Khoảng tin cậy",
+      "latex": "\\overline x\\pm z_{\\alpha/2}\\frac{\\sigma}{\\sqrt n}",
+      "special": false
+    },
+    {
+      "id": "MAT-105",
+      "name": "Phân phối chuẩn",
+      "latex": "f(x)=\\frac{1}{\\sigma\\sqrt{2\\pi}}e^{-\\frac{(x-\\mu)^2}{2\\sigma^2}}",
+      "special": false
+    },
+    {
+      "id": "PHY-001",
+      "name": "Vận tốc trung bình",
+      "latex": "v=\\frac{\\Delta s}{\\Delta t}",
+      "special": false
+    },
+    {
+      "id": "PHY-002",
+      "name": "Gia tốc trung bình",
+      "latex": "a=\\frac{\\Delta v}{\\Delta t}",
+      "special": false
+    },
+    {
+      "id": "PHY-003",
+      "name": "Phương trình chuyển động thẳng đều",
+      "latex": "x=x_{0}+vt",
+      "special": false
+    },
+    {
+      "id": "PHY-004",
+      "name": "Chuyển động biến đổi đều",
+      "latex": "s=v_0t+\\frac12at^{2}",
+      "special": false
+    },
+    {
+      "id": "PHY-005",
+      "name": "Liên hệ vận tốc và gia tốc",
+      "latex": "v^{2}-v_{0}^{2}=2as",
+      "special": false
+    },
+    {
+      "id": "PHY-006",
+      "name": "Định luật Newton II",
+      "latex": "\\vec F=m\\vec a",
+      "special": false
+    },
+    {
+      "id": "PHY-007",
+      "name": "Động lượng",
+      "latex": "\\vec p=m\\vec v",
+      "special": false
+    },
+    {
+      "id": "PHY-008",
+      "name": "Xung lượng",
+      "latex": "\\Delta\\vec p=\\vec F\\Delta t",
+      "special": false
+    },
+    {
+      "id": "PHY-009",
+      "name": "Công cơ học",
+      "latex": "A=Fs\\cos\\alpha",
+      "special": false
+    },
+    {
+      "id": "PHY-010",
+      "name": "Động năng",
+      "latex": "W_{\\mathrm{đ}}=\\frac12mv^{2}",
+      "special": false
+    },
+    {
+      "id": "PHY-011",
+      "name": "Thế năng trọng trường",
+      "latex": "W_{t}=mgh",
+      "special": false
+    },
+    {
+      "id": "PHY-012",
+      "name": "Bảo toàn năng lượng",
+      "latex": "E_{1}=E_{2}",
+      "special": false
+    },
+    {
+      "id": "PHY-013",
+      "name": "Công suất",
+      "latex": "P=\\frac{A}{t}",
+      "special": false
+    },
+    {
+      "id": "PHY-014",
+      "name": "Lực hấp dẫn",
+      "latex": "F=G\\frac{m_1m_2}{r^2}",
+      "special": false
+    },
+    {
+      "id": "PHY-015",
+      "name": "Gia tốc trọng trường",
+      "latex": "g=G\\frac M{R^2}",
+      "special": false
+    },
+    {
+      "id": "PHY-016",
+      "name": "Lực hướng tâm",
+      "latex": "F_{c}=\\frac{mv^2}{r}=m\\omega^2r",
+      "special": false
+    },
+    {
+      "id": "PHY-017",
+      "name": "Vận tốc góc",
+      "latex": "\\omega=\\frac{2\\pi}{T}",
+      "special": false
+    },
+    {
+      "id": "PHY-018",
+      "name": "Momen lực",
+      "latex": "M=Fd",
+      "special": false
+    },
+    {
+      "id": "PHY-019",
+      "name": "Cân bằng mômen",
+      "latex": "\\sum M=0",
+      "special": false
+    },
+    {
+      "id": "PHY-020",
+      "name": "Định luật Hooke",
+      "latex": "F_{\\mathrm{đh}}=k|\\Delta l|",
+      "special": false
+    },
+    {
+      "id": "PHY-021",
+      "name": "Áp suất",
+      "latex": "p=\\frac FS",
+      "special": false
+    },
+    {
+      "id": "PHY-022",
+      "name": "Áp suất thủy tĩnh",
+      "latex": "p=\\rho gh",
+      "special": false
+    },
+    {
+      "id": "PHY-023",
+      "name": "Lực đẩy Archimedes",
+      "latex": "F_{A}=\\rho gV",
+      "special": false
+    },
+    {
+      "id": "PHY-024",
+      "name": "Phương trình liên tục",
+      "latex": "A_1v_{1}=A_2v_{2}",
+      "special": false
+    },
+    {
+      "id": "PHY-025",
+      "name": "Bernoulli lý tưởng",
+      "latex": "p+\\frac12\\rho v^{2}+\\rho gh=\\mathrm{const}",
+      "special": false
+    },
+    {
+      "id": "PHY-026",
+      "name": "Nhiệt lượng",
+      "latex": "Q=mc\\Delta T",
+      "special": false
+    },
+    {
+      "id": "PHY-027",
+      "name": "Độ tăng nhiệt độ",
+      "latex": "\\Delta T=T_{2}-T_{1}",
+      "special": false
+    },
+    {
+      "id": "PHY-028",
+      "name": "Nhiệt dung riêng nước",
+      "latex": "c_{\\mathrm{H_2O}}\\approx4200\\,\\mathrm{J/(kg\\cdot K)}",
+      "special": false
+    },
+    {
+      "id": "PHY-029",
+      "name": "Nhiệt nóng chảy",
+      "latex": "Q=\\lambda m",
+      "special": false
+    },
+    {
+      "id": "PHY-030",
+      "name": "Nhiệt hóa hơi",
+      "latex": "Q=Lm",
+      "special": false
+    },
+    {
+      "id": "PHY-031",
+      "name": "Phương trình trạng thái khí lý tưởng",
+      "latex": "pV=nRT",
+      "special": false
+    },
+    {
+      "id": "PHY-032",
+      "name": "Định luật Boyle",
+      "latex": "p_1V_{1}=p_2V_{2}",
+      "special": false
+    },
+    {
+      "id": "PHY-033",
+      "name": "Định luật Charles",
+      "latex": "\\frac{V_1}{T_1}=\\frac{V_2}{T_2}",
+      "special": false
+    },
+    {
+      "id": "PHY-034",
+      "name": "Định luật I nhiệt động lực học",
+      "latex": "\\Delta U=Q-W",
+      "special": false
+    },
+    {
+      "id": "PHY-035",
+      "name": "Độ biến thiên entropy thuận nghịch",
+      "latex": "dS=\\frac{\\delta Q_{\\mathrm{rev}}}{T}",
+      "special": false
+    },
+    {
+      "id": "PHY-036",
+      "name": "Hiệu suất động cơ nhiệt",
+      "latex": "\\eta=\\frac{W}{Q_{\\mathrm{vào}}}",
+      "special": false
+    },
+    {
+      "id": "PHY-037",
+      "name": "Độ C sang kelvin",
+      "latex": "T(\\mathrm K)=t(^\\circ\\mathrm C)+273{,}15",
+      "special": false
+    },
+    {
+      "id": "PHY-038",
+      "name": "Độ giãn dài",
+      "latex": "\\Delta l=\\alpha l_{0}\\Delta T",
+      "special": false
+    },
+    {
+      "id": "PHY-039",
+      "name": "Dẫn nhiệt Fourier",
+      "latex": "\\dot Q=-kA\\frac{dT}{dx}",
+      "special": false
+    },
+    {
+      "id": "PHY-040",
+      "name": "Đơn vị gia tốc",
+      "latex": "a=9{,}81\\,\\mathrm{m/s^2}",
+      "special": false
+    },
+    {
+      "id": "PHY-041",
+      "name": "Phương trình dao động",
+      "latex": "x=A\\cos(\\omega t+\\varphi)",
+      "special": false
+    },
+    {
+      "id": "PHY-042",
+      "name": "Gia tốc dao động",
+      "latex": "a=-\\omega^2x",
+      "special": false
+    },
+    {
+      "id": "PHY-043",
+      "name": "Chu kỳ con lắc lò xo",
+      "latex": "T=2\\pi\\sqrt{\\frac mk}",
+      "special": false
+    },
+    {
+      "id": "PHY-044",
+      "name": "Chu kỳ con lắc đơn gần đúng",
+      "latex": "T\\approx2\\pi\\sqrt{\\frac lg}",
+      "special": false
+    },
+    {
+      "id": "PHY-045",
+      "name": "Tần số",
+      "latex": "f=\\frac1T",
+      "special": false
+    },
+    {
+      "id": "PHY-046",
+      "name": "Bước sóng",
+      "latex": "\\lambda=\\frac vf",
+      "special": false
+    },
+    {
+      "id": "PHY-047",
+      "name": "Vận tốc truyền sóng",
+      "latex": "v=\\lambda f",
+      "special": false
+    },
+    {
+      "id": "PHY-048",
+      "name": "Giao thoa khe Young",
+      "latex": "i=\\frac{\\lambda D}{a}",
+      "special": false
+    },
+    {
+      "id": "PHY-049",
+      "name": "Khúc xạ Snell",
+      "latex": "n_{1}\\sin\\theta_{1}=n_{2}\\sin\\theta_{2}",
+      "special": false
+    },
+    {
+      "id": "PHY-050",
+      "name": "Thấu kính mỏng",
+      "latex": "\\frac1f=\\frac1d+\\frac1{d'}",
+      "special": false
+    },
+    {
+      "id": "PHY-051",
+      "name": "Độ phóng đại",
+      "latex": "k=-\\frac{d'}d",
+      "special": false
+    },
+    {
+      "id": "PHY-052",
+      "name": "Định luật Ohm",
+      "latex": "I=\\frac UR",
+      "special": false
+    },
+    {
+      "id": "PHY-053",
+      "name": "Điện trở dây dẫn",
+      "latex": "R=\\rho\\frac lS",
+      "special": false
+    },
+    {
+      "id": "PHY-054",
+      "name": "Điện năng tiêu thụ",
+      "latex": "A=UIt",
+      "special": false
+    },
+    {
+      "id": "PHY-055",
+      "name": "Công suất điện",
+      "latex": "P=UI=I^2R=\\frac{U^2}R",
+      "special": false
+    },
+    {
+      "id": "PHY-056",
+      "name": "Điện trở nối tiếp",
+      "latex": "R_{\\mathrm{td}}=\\sum_{i=1}^nR_{i}",
+      "special": false
+    },
+    {
+      "id": "PHY-057",
+      "name": "Điện trở song song",
+      "latex": "\\frac1{R_{\\mathrm{td}}}=\\sum_{i=1}^{n}\\frac1{R_i}",
+      "special": false
+    },
+    {
+      "id": "PHY-058",
+      "name": "Điện dung",
+      "latex": "C=\\frac QU",
+      "special": false
+    },
+    {
+      "id": "PHY-059",
+      "name": "Năng lượng tụ điện",
+      "latex": "W_{C}=\\frac12CU^{2}",
+      "special": false
+    },
+    {
+      "id": "PHY-060",
+      "name": "Định luật Coulomb",
+      "latex": "F=k\\frac{|q_1q_{2}|}{r^2}",
+      "special": false
+    },
+    {
+      "id": "PHY-061",
+      "name": "Cường độ điện trường",
+      "latex": "\\vec E=\\frac{\\vec F}{q}",
+      "special": false
+    },
+    {
+      "id": "PHY-062",
+      "name": "Hiệu điện thế",
+      "latex": "U_{AB}=V_{A}-V_{B}",
+      "special": false
+    },
+    {
+      "id": "PHY-063",
+      "name": "Lực Lorentz",
+      "latex": "\\vec F=q\\vec v\\times\\vec B",
+      "special": false
+    },
+    {
+      "id": "PHY-064",
+      "name": "Từ thông",
+      "latex": "\\Phi=BS\\cos\\alpha",
+      "special": false
+    },
+    {
+      "id": "PHY-065",
+      "name": "Suất điện động cảm ứng",
+      "latex": "\\mathcal E=-\\frac{d\\Phi}{dt}",
+      "special": false
+    },
+    {
+      "id": "PHY-066",
+      "name": "Định luật Ampere-Maxwell",
+      "latex": "\\oint_{C}\\vec B\\cdot d\\vec\\ell=\\mu_{0}\\left(I_{\\mathrm{bao}}+\\varepsilon_{0}\\frac{d\\Phi_E}{dt}\\right)",
+      "special": false
+    },
+    {
+      "id": "PHY-067",
+      "name": "Dòng xoay \\chiều",
+      "latex": "i=I_{0}\\cos(\\omega t+\\varphi)",
+      "special": false
+    },
+    {
+      "id": "PHY-068",
+      "name": "Trở kháng RLC",
+      "latex": "Z=\\sqrt{R^{2}+\\left(\\omega L-\\frac1{\\omega C}\\right)^2}",
+      "special": false
+    },
+    {
+      "id": "PHY-069",
+      "name": "Cảm kháng",
+      "latex": "X_{L}=\\omega L",
+      "special": false
+    },
+    {
+      "id": "PHY-070",
+      "name": "Dung kháng",
+      "latex": "X_{C}=\\frac1{\\omega C}",
+      "special": false
+    },
+    {
+      "id": "PHY-071",
+      "name": "Định luật Faraday điện phân",
+      "latex": "m=\\frac{MIt}{zF}",
+      "special": false
+    },
+    {
+      "id": "PHY-072",
+      "name": "Phương trình sóng",
+      "latex": "\\frac{\\partial^2y}{\\partial t^2}=v^{2}\\frac{\\partial^2y}{\\partial x^2}",
+      "special": false
+    },
+    {
+      "id": "PHY-073",
+      "name": "Định luật Gauss",
+      "latex": "\\oint_{S}\\vec E\\cdot d\\vec A=\\frac{Q_{\\mathrm{bao}}}{\\varepsilon_0}",
+      "special": false
+    },
+    {
+      "id": "PHY-074",
+      "name": "Đơn vị vi mô",
+      "latex": "1\\,\\mathrm{\\mu m}=10^{-6}\\,\\mathrm m",
+      "special": false
+    },
+    {
+      "id": "PHY-075",
+      "name": "Năng lượng photon",
+      "latex": "E=hf=\\frac{hc}{\\lambda}",
+      "special": false
+    },
+    {
+      "id": "PHY-076",
+      "name": "Hệ thức Einstein",
+      "latex": "E=mc^{2}",
+      "special": false
+    },
+    {
+      "id": "PHY-077",
+      "name": "Động lượng photon",
+      "latex": "p=\\frac h\\lambda",
+      "special": false
+    },
+    {
+      "id": "PHY-078",
+      "name": "Bước sóng de Broglie",
+      "latex": "\\lambda=\\frac hp",
+      "special": false
+    },
+    {
+      "id": "PHY-079",
+      "name": "Giới hạn bất định",
+      "latex": "\\Delta x\\Delta p\\ge\\frac\\hbar2",
+      "special": false
+    },
+    {
+      "id": "PHY-080",
+      "name": "Năng lượng electron-volt",
+      "latex": "1\\,\\mathrm{eV}=1{,}602176634\\times10^{-19}\\,\\mathrm J",
+      "special": false
+    },
+    {
+      "id": "PHY-081",
+      "name": "Độ hụt khối",
+      "latex": "\\Delta m=Zm_{p}+(A-Z)m_{n}-m_{\\mathrm{hạt\\ nhân}}",
+      "special": false
+    },
+    {
+      "id": "PHY-082",
+      "name": "Năng lượng liên kết",
+      "latex": "E_{b}=\\Delta mc^{2}",
+      "special": false
+    },
+    {
+      "id": "PHY-083",
+      "name": "Định luật phóng xạ",
+      "latex": "N(t)=N_0e^{-\\lambda t}",
+      "special": false
+    },
+    {
+      "id": "PHY-084",
+      "name": "Chu kỳ bán rã",
+      "latex": "T_{1/2}=\\frac{\\ln2}{\\lambda}",
+      "special": false
+    },
+    {
+      "id": "PHY-085",
+      "name": "Phương trình Schrödinger một \\chiều",
+      "latex": "-\\frac{\\hbar^2}{2m}\\frac{d^{2}\\psi}{dx^2}+V(x)\\psi=E\\psi",
+      "special": false
+    },
+    {
+      "id": "PHY-086",
+      "name": "Bức xạ vật đen Stefan-Boltzmann",
+      "latex": "P=\\sigma A\\varepsilon T^{4}",
+      "special": false
+    },
+    {
+      "id": "PHY-087",
+      "name": "Công thức Doppler ánh sáng \\phi tương đối tính",
+      "latex": "\\frac{\\Delta\\lambda}{\\lambda}\\approx\\frac vc\\quad(|v|\\ll c)",
+      "special": false
+    },
+    {
+      "id": "PHY-088",
+      "name": "Hệ số Lorentz",
+      "latex": "\\gamma=\\frac1{\\sqrt{1-v^{2}/c^2}}",
+      "special": false
+    },
+    {
+      "id": "PHY-089",
+      "name": "Giãn thời gian",
+      "latex": "\\Delta t=\\gamma\\Delta\\tau",
+      "special": false
+    },
+    {
+      "id": "CHE-001",
+      "name": "Phân tử nước",
+      "latex": "\\ce{H2O}",
+      "special": false
+    },
+    {
+      "id": "CHE-002",
+      "name": "Carbon dioxide",
+      "latex": "\\ce{CO2}",
+      "special": false
+    },
+    {
+      "id": "CHE-003",
+      "name": "Axit sulfuric",
+      "latex": "\\ce{H2SO4}",
+      "special": false
+    },
+    {
+      "id": "CHE-004",
+      "name": "Canxi hydroxide",
+      "latex": "\\ce{Ca(OH)2}",
+      "special": false
+    },
+    {
+      "id": "CHE-005",
+      "name": "Amoni",
+      "latex": "\\ce{NH4+}",
+      "special": false
+    },
+    {
+      "id": "CHE-006",
+      "name": "Sulfat",
+      "latex": "\\ce{SO4^{2}-}",
+      "special": false
+    },
+    {
+      "id": "CHE-007",
+      "name": "Nitrat",
+      "latex": "\\ce{NO3-}",
+      "special": false
+    },
+    {
+      "id": "CHE-008",
+      "name": "Phosphat",
+      "latex": "\\ce{PO4^{3}-}",
+      "special": false
+    },
+    {
+      "id": "CHE-009",
+      "name": "Phức chất",
+      "latex": "\\ce{[Cu(NH3)4]^{2}+}",
+      "special": false
+    },
+    {
+      "id": "CHE-010",
+      "name": "Ion oxonium",
+      "latex": "\\ce{H3O+}",
+      "special": false
+    },
+    {
+      "id": "CHE-011",
+      "name": "Nguyên tử đồng vị carbon-14",
+      "latex": "\\ce{^{14}_6C}",
+      "special": false
+    },
+    {
+      "id": "CHE-012",
+      "name": "Đồng vị uranium-235",
+      "latex": "\\ce{^{235}_{92}U}",
+      "special": false
+    },
+    {
+      "id": "CHE-013",
+      "name": "Đồng vị hydrogen",
+      "latex": "\\ce{^{2}_1H}",
+      "special": false
+    },
+    {
+      "id": "CHE-014",
+      "name": "Nồng độ ion hydrogen",
+      "latex": "[\\ce{H+}]=10^{-7}\\,\\mathrm{mol/L}",
+      "special": false
+    },
+    {
+      "id": "CHE-015",
+      "name": "Số oxi hóa trong biểu thức",
+      "latex": "\\overset{+2}{\\mathrm{Fe}}",
+      "special": false
+    },
+    {
+      "id": "CHE-016",
+      "name": "Phân tử glucose",
+      "latex": "\\ce{C6H12O6}",
+      "special": false
+    },
+    {
+      "id": "CHE-017",
+      "name": "Phân tử ethanol",
+      "latex": "\\ce{C2H5OH}",
+      "special": false
+    },
+    {
+      "id": "CHE-018",
+      "name": "Axit acetic",
+      "latex": "\\ce{CH3COOH}",
+      "special": false
+    },
+    {
+      "id": "CHE-019",
+      "name": "Amoniac",
+      "latex": "\\ce{NH3}",
+      "special": false
+    },
+    {
+      "id": "CHE-020",
+      "name": "Acetone",
+      "latex": "\\ce{CH3COCH3}",
+      "special": false
+    },
+    {
+      "id": "CHE-021",
+      "name": "Benzene",
+      "latex": "\\ce{C6H6}",
+      "special": false
+    },
+    {
+      "id": "CHE-022",
+      "name": "Phản ứng tổng hợp nước",
+      "latex": "\\ce{2H2 + O2 -> 2H2O}",
+      "special": false
+    },
+    {
+      "id": "CHE-023",
+      "name": "Phân hủy calcium carbonate",
+      "latex": "\\ce{CaCO3 -> CaO + CO2}",
+      "special": false
+    },
+    {
+      "id": "CHE-024",
+      "name": "Phản ứng thuận nghịch Haber",
+      "latex": "\\ce{N2 + 3H2 <=> 2NH3}",
+      "special": false
+    },
+    {
+      "id": "CHE-025",
+      "name": "Trung hòa axit-bazơ",
+      "latex": "\\ce{HCl + NaOH -> NaCl + H2O}",
+      "special": false
+    },
+    {
+      "id": "CHE-026",
+      "name": "Phương trình ion thu gọn",
+      "latex": "\\ce{H+ + OH- -> H2O}",
+      "special": false
+    },
+    {
+      "id": "CHE-027",
+      "name": "Kết tủa bạc chloride",
+      "latex": "\\ce{Ag+ + Cl- -> AgCl v}",
+      "special": false
+    },
+    {
+      "id": "CHE-028",
+      "name": "Giải phóng khí carbon dioxide",
+      "latex": "\\ce{CaCO3 + 2HCl -> CaCl2 + CO2 ^ + H2O}",
+      "special": false
+    },
+    {
+      "id": "CHE-029",
+      "name": "Phản ứng Fe hydroxide",
+      "latex": "\\ce{Fe^{3}+ + 3OH- -> Fe(OH)3 v}",
+      "special": false
+    },
+    {
+      "id": "CHE-030",
+      "name": "Phản ứng cháy methane",
+      "latex": "\\ce{CH4 + 2O2 -> CO2 + 2H2O}",
+      "special": false
+    },
+    {
+      "id": "CHE-031",
+      "name": "Phản ứng cháy ethanol",
+      "latex": "\\ce{C2H5OH + 3O2 -> 2CO2 + 3H2O}",
+      "special": false
+    },
+    {
+      "id": "CHE-032",
+      "name": "Phản ứng nhiệt hóa",
+      "latex": "\\ce{C(s) + O2(g) -> CO2(g)}\\quad\\Delta H^\\circ=-393{,}5\\,\\mathrm{kJ/mol}",
+      "special": false
+    },
+    {
+      "id": "CHE-033",
+      "name": "Phản ứng quang phân",
+      "latex": "\\ce{2AgCl ->[h\\nu] 2Ag + Cl2}",
+      "special": false
+    },
+    {
+      "id": "CHE-034",
+      "name": "Phản ứng xúc tác",
+      "latex": "\\ce{2H2O2 ->[MnO2] 2H2O + O2}",
+      "special": false
+    },
+    {
+      "id": "CHE-035",
+      "name": "Phản ứng có điều kiện",
+      "latex": "\\ce{CaCO3 ->[\\Delta] CaO + CO2}",
+      "special": false
+    },
+    {
+      "id": "CHE-036",
+      "name": "Số mol",
+      "latex": "n=\\frac mM",
+      "special": false
+    },
+    {
+      "id": "CHE-037",
+      "name": "Nồng độ mol",
+      "latex": "C_{M}=\\frac nV",
+      "special": false
+    },
+    {
+      "id": "CHE-038",
+      "name": "Nồng độ phần trăm khối lượng",
+      "latex": "C_{\\%}=\\frac{m_{\\mathrm{ct}}}{m_{\\mathrm{dd}}}\\times100\\%",
+      "special": false
+    },
+    {
+      "id": "CHE-039",
+      "name": "Khí lý tưởng",
+      "latex": "pV=nRT",
+      "special": false
+    },
+    {
+      "id": "CHE-040",
+      "name": "Mật độ khí so với khí khác",
+      "latex": "d_{A/B}=\\frac{M_A}{M_B}",
+      "special": false
+    },
+    {
+      "id": "CHE-041",
+      "name": "Hiệu suất phản ứng",
+      "latex": "H=\\frac{m_{\\mathrm{thực\\ tế}}}{m_{\\mathrm{lý\\ thuyết}}}\\times100\\%",
+      "special": false
+    },
+    {
+      "id": "CHE-042",
+      "name": "pH",
+      "latex": "\\mathrm{pH}=-\\log_{10}[\\ce{H+}]",
+      "special": false
+    },
+    {
+      "id": "CHE-043",
+      "name": "pOH",
+      "latex": "\\mathrm{pOH}=-\\log_{10}[\\ce{OH-}]",
+      "special": false
+    },
+    {
+      "id": "CHE-044",
+      "name": "Ở 25 độ C",
+      "latex": "\\mathrm{pH}+\\mathrm{pOH}=14",
+      "special": false
+    },
+    {
+      "id": "CHE-045",
+      "name": "Tích số ion của nước",
+      "latex": "K_{w}=[\\ce{H+}][\\ce{OH-}]",
+      "special": false
+    },
+    {
+      "id": "CHE-046",
+      "name": "Hằng số cân bằng",
+      "latex": "K_{c}=\\frac{[C]^{c}[D]^d}{[A]^{a}[B]^b}",
+      "special": false
+    },
+    {
+      "id": "CHE-047",
+      "name": "Hằng số acid yếu",
+      "latex": "K_{a}=\\frac{[\\ce{H+}][\\ce{A-}]}{[\\ce{HA}]}",
+      "special": false
+    },
+    {
+      "id": "CHE-048",
+      "name": "Henderson-Hasselbalch",
+      "latex": "\\mathrm{pH}=\\mathrm pK_{a}+\\log\\frac{[\\ce{A-}]}{[\\ce{HA}]}",
+      "special": false
+    },
+    {
+      "id": "CHE-049",
+      "name": "Định luật tốc độ phản ứng",
+      "latex": "v=k[A]^{m}[B]^{n}",
+      "special": false
+    },
+    {
+      "id": "CHE-050",
+      "name": "Phương trình Arrhenius",
+      "latex": "k=Ae^{-E_{a}/(RT)}",
+      "special": false
+    },
+    {
+      "id": "CHE-051",
+      "name": "Năng lượng Gibbs",
+      "latex": "\\Delta G=\\Delta H-T\\Delta S",
+      "special": false
+    },
+    {
+      "id": "CHE-052",
+      "name": "Năng lượng tự do và hằng số",
+      "latex": "\\Delta G^\\circ=-RT\\ln K",
+      "special": false
+    },
+    {
+      "id": "CHE-053",
+      "name": "Nernst ở điều kiện chung",
+      "latex": "E=E^\\circ-\\frac{RT}{nF}\\ln Q",
+      "special": false
+    },
+    {
+      "id": "CHE-054",
+      "name": "Điện phân Faraday",
+      "latex": "m=\\frac{MIt}{nF}",
+      "special": false
+    },
+    {
+      "id": "CHE-055",
+      "name": "Áp suất thẩm thấu lý tưởng",
+      "latex": "\\Pi=iCRT",
+      "special": false
+    },
+    {
+      "id": "CHE-056",
+      "name": "Định luật Raoult",
+      "latex": "p_{A}=x_Ap_{A}^\\circ",
+      "special": false
+    },
+    {
+      "id": "CHE-057",
+      "name": "Độ tăng nhiệt độ sôi",
+      "latex": "\\Delta T_{b}=iK_bm",
+      "special": false
+    },
+    {
+      "id": "CHE-058",
+      "name": "Độ hạ nhiệt độ đông đặc",
+      "latex": "\\Delta T_{f}=iK_fm",
+      "special": false
+    },
+    {
+      "id": "CHE-059",
+      "name": "Các liên kết đôi trong hữu cơ",
+      "latex": "\\ce{CH2=CH2}",
+      "special": false
+    },
+    {
+      "id": "CHE-060",
+      "name": "Các liên kết ba trong hữu cơ",
+      "latex": "\\ce{HC#CH}",
+      "special": false
+    },
+    {
+      "id": "CHE-061",
+      "name": "Axit lactic",
+      "latex": "\\ce{CH3-CH(OH)-COOH}",
+      "special": false
+    },
+    {
+      "id": "CHE-062",
+      "name": "Este ethyl acetate",
+      "latex": "\\ce{CH3COOC2H5}",
+      "special": false
+    },
+    {
+      "id": "CHE-063",
+      "name": "Polymer polyethylene",
+      "latex": "\\ce{(-CH2-CH2-)_{n}}",
+      "special": false
+    },
+    {
+      "id": "CHE-064",
+      "name": "Phản ứng ester hóa",
+      "latex": "\\ce{CH3COOH + C2H5OH <=> CH3COOC2H5 + H2O}",
+      "special": false
+    },
+    {
+      "id": "CHE-065",
+      "name": "Phản ứng xà phòng hóa",
+      "latex": "\\ce{CH3COOC2H5 + NaOH -> CH3COONa + C2H5OH}",
+      "special": false
+    },
+    {
+      "id": "CHE-066",
+      "name": "Phản ứng oxi hóa khử",
+      "latex": "\\ce{Zn + Cu^{2}+ -> Zn^{2}+ + Cu}",
+      "special": false
+    },
+    {
+      "id": "CHE-067",
+      "name": "Bán phản ứng khử",
+      "latex": "\\ce{Cu^{2}+ + 2e- -> Cu}",
+      "special": false
+    },
+    {
+      "id": "CHE-068",
+      "name": "Bán phản ứng oxi hóa",
+      "latex": "\\ce{Zn -> Zn^{2}+ + 2e-}",
+      "special": false
+    },
+    {
+      "id": "BIO-001",
+      "name": "Bộ NST lưỡng bội",
+      "latex": "2n=46",
+      "special": false
+    },
+    {
+      "id": "BIO-002",
+      "name": "Bộ NST đơn bội",
+      "latex": "n=23",
+      "special": false
+    },
+    {
+      "id": "BIO-003",
+      "name": "Cân bằng Hardy-Weinberg",
+      "latex": "p^{2}+2pq+q^{2}=1",
+      "special": false
+    },
+    {
+      "id": "BIO-004",
+      "name": "Tổng tần số hai alen",
+      "latex": "p+q=1",
+      "special": false
+    },
+    {
+      "id": "BIO-005",
+      "name": "Tần số kiểu gen dị hợp",
+      "latex": "P(Aa)=2pq",
+      "special": false
+    },
+    {
+      "id": "BIO-006",
+      "name": "Tỉ lệ phân li kiểu gen",
+      "latex": "AA:Aa:aa=1:2:1",
+      "special": false
+    },
+    {
+      "id": "BIO-007",
+      "name": "Tỉ lệ phân li kiểu hình",
+      "latex": "3:1",
+      "special": false
+    },
+    {
+      "id": "BIO-008",
+      "name": "Kiểu gen giới tính",
+      "latex": "X^AX^{a}\\times X^aY",
+      "special": false
+    },
+    {
+      "id": "BIO-009",
+      "name": "Alen liên kết X",
+      "latex": "X^AX^{A},\\quad X^AX^{a},\\quad X^aY",
+      "special": false
+    },
+    {
+      "id": "BIO-010",
+      "name": "Xác suất biến cố độc lập",
+      "latex": "P(A\\cap B)=P(A)P(B)",
+      "special": false
+    },
+    {
+      "id": "BIO-011",
+      "name": "Tần số hoán vị gen",
+      "latex": "f=\\frac{N_{\\mathrm{tái\\ tổ\\ hợp}}}{N_{\\mathrm{tổng}}}\\times100\\%",
+      "special": false
+    },
+    {
+      "id": "BIO-012",
+      "name": "Tổng nucleotide ADN",
+      "latex": "N=A+T+G+C",
+      "special": false
+    },
+    {
+      "id": "BIO-013",
+      "name": "Nguyên tắc bổ sung ADN",
+      "latex": "A=T,\\quad G=C",
+      "special": false
+    },
+    {
+      "id": "BIO-014",
+      "name": "Liên kết hydrogen ADN",
+      "latex": "H=2A+3G",
+      "special": false
+    },
+    {
+      "id": "BIO-015",
+      "name": "Tỉ số nucleotide",
+      "latex": "\\frac{A+T}{G+C}",
+      "special": false
+    },
+    {
+      "id": "BIO-016",
+      "name": "Chiều dài phân tử ADN dạng lý tưởng",
+      "latex": "L\\approx0{,}34n\\,\\mathrm{nm}",
+      "special": false
+    },
+    {
+      "id": "BIO-017",
+      "name": "Số liên kết peptide chuỗi đơn",
+      "latex": "n_{\\mathrm{peptide}}=n_{\\mathrm{aa}}-1",
+      "special": false
+    },
+    {
+      "id": "BIO-018",
+      "name": "Trình tự nucleotide DNA",
+      "latex": "\\texttt{5'-ATGCCATTA-3'}",
+      "special": false
+    },
+    {
+      "id": "BIO-019",
+      "name": "Trình tự RNA",
+      "latex": "\\texttt{5'-AUGCCAUUA-3'}",
+      "special": false
+    },
+    {
+      "id": "BIO-020",
+      "name": "Cặp codon amino acid",
+      "latex": "\\mathrm{AUG}\\to\\mathrm{Met}",
+      "special": false
+    },
+    {
+      "id": "BIO-021",
+      "name": "Phương trình quang hợp tổng quát",
+      "latex": "\\ce{6CO2 + 6H2O -> C6H12O6 + 6O2}",
+      "special": false
+    },
+    {
+      "id": "BIO-022",
+      "name": "Phương trình hô hấp tế bào",
+      "latex": "\\ce{C6H12O6 + 6O2 -> 6CO2 + 6H2O}",
+      "special": false
+    },
+    {
+      "id": "BIO-023",
+      "name": "ATP chuyển thành ADP",
+      "latex": "\\mathrm{ATP}+\\mathrm{H_2O}\\to\\mathrm{ADP}+\\mathrm{P_i}",
+      "special": false
+    },
+    {
+      "id": "BIO-024",
+      "name": "Phản ứng enzyme",
+      "latex": "E+S\\rightleftharpoons ES\\rightarrow E+P",
+      "special": false
+    },
+    {
+      "id": "BIO-025",
+      "name": "Michaelis-Menten",
+      "latex": "v=\\frac{V_{\\max}[S]}{K_{m}+[S]}",
+      "special": false
+    },
+    {
+      "id": "BIO-026",
+      "name": "Ức chế cạnh tranh",
+      "latex": "v=\\frac{V_{\\max}[S]}{K_{m}(1+[I]/K_{i})+[S]}",
+      "special": false
+    },
+    {
+      "id": "BIO-027",
+      "name": "Động học bậc một",
+      "latex": "C(t)=C_0e^{-kt}",
+      "special": false
+    },
+    {
+      "id": "BIO-028",
+      "name": "Phân bố tỉ lệ alen nhiều alen",
+      "latex": "\\sum_{i=1}^np_{i}=1",
+      "special": false
+    },
+    {
+      "id": "BIO-029",
+      "name": "Hệ số cận huyết",
+      "latex": "F=1-\\frac{H_{\\mathrm{quan\\ sát}}}{H_{\\mathrm{kỳ\\ vọng}}}",
+      "special": false
+    },
+    {
+      "id": "BIO-030",
+      "name": "Số tế bào sau n lần nguyên phân",
+      "latex": "N=N_{0}\\,2^{n}",
+      "special": false
+    },
+    {
+      "id": "BIO-031",
+      "name": "Số tế bào con từ một tế bào",
+      "latex": "2^{n}",
+      "special": false
+    },
+    {
+      "id": "BIO-032",
+      "name": "Tăng trưởng theo hàm mũ",
+      "latex": "N(t)=N_0e^{rt}",
+      "special": false
+    },
+    {
+      "id": "BIO-033",
+      "name": "Phương trình logistic",
+      "latex": "\\frac{dN}{dt}=rN\\left(1-\\frac NK\\right)",
+      "special": false
+    },
+    {
+      "id": "BIO-034",
+      "name": "Nghiệm logistic",
+      "latex": "N(t)=\\frac{K}{1+Ae^{-rt}}",
+      "special": false
+    },
+    {
+      "id": "BIO-035",
+      "name": "Mật độ quần thể",
+      "latex": "D=\\frac NS",
+      "special": false
+    },
+    {
+      "id": "BIO-036",
+      "name": "Tốc độ tăng trưởng quần thể",
+      "latex": "r=b-d",
+      "special": false
+    },
+    {
+      "id": "BIO-037",
+      "name": "Hiệu suất sinh thái",
+      "latex": "E=\\frac{Q_{n+1}}{Q_n}\\times100\\%",
+      "special": false
+    },
+    {
+      "id": "BIO-038",
+      "name": "Chỉ số đa dạng Shannon",
+      "latex": "H'=-\\sum_{i=1}^{S}p_{i}\\ln p_{i}",
+      "special": false
+    },
+    {
+      "id": "BIO-039",
+      "name": "Chỉ số Simpson",
+      "latex": "D=1-\\sum_{i=1}^{S}p_{i}^{2}",
+      "special": false
+    },
+    {
+      "id": "BIO-040",
+      "name": "Ước lượng bắt lại",
+      "latex": "\\hat N=\\frac{n_1n_2}{m_2}",
+      "special": false
+    },
+    {
+      "id": "BIO-041",
+      "name": "Tốc độ hô hấp",
+      "latex": "R=\\frac{\\Delta V_{\\ce{O2}}}{\\Delta t}",
+      "special": false
+    },
+    {
+      "id": "BIO-042",
+      "name": "Tỉ số trao đổi hô hấp",
+      "latex": "RQ=\\frac{V_{\\ce{CO2}}}{V_{\\ce{O2}}}",
+      "special": false
+    },
+    {
+      "id": "BIO-043",
+      "name": "Huyết áp đơn vị",
+      "latex": "p=120/80\\,\\mathrm{mmHg}",
+      "special": false
+    },
+    {
+      "id": "BIO-044",
+      "name": "Chỉ số khối cơ thể",
+      "latex": "\\mathrm{BMI}=\\frac{m\\,(\\mathrm{kg})}{[h\\,(\\mathrm m)]^2}",
+      "special": false
+    },
+    {
+      "id": "BIO-045",
+      "name": "Phương trình khuếch tán Fick",
+      "latex": "J=-D\\frac{dC}{dx}",
+      "special": false
+    },
+    {
+      "id": "BIO-046",
+      "name": "Áp suất thẩm thấu van't Hoff",
+      "latex": "\\Pi=iCRT",
+      "special": false
+    },
+    {
+      "id": "BIO-047",
+      "name": "Thế nước ở thực vật",
+      "latex": "\\Psi_{w}=\\Psi_{s}+\\Psi_{p}",
+      "special": false
+    },
+    {
+      "id": "BIO-048",
+      "name": "Tốc độ quang hợp thuần",
+      "latex": "P_{n}=P_{g}-R",
+      "special": false
+    },
+    {
+      "id": "BIO-049",
+      "name": "Động học quang hợp bão hòa",
+      "latex": "P(I)=\\frac{P_{\\max}I}{K_{I}+I}",
+      "special": false
+    },
+    {
+      "id": "BIO-050",
+      "name": "Hệ số di truyền",
+      "latex": "h^{2}=\\frac{V_A}{V_P}",
+      "special": false
+    },
+    {
+      "id": "BIO-051",
+      "name": "Phương trình Price",
+      "latex": "\\Delta\\overline z=\\frac{\\mathrm{Cov}(w_{i},z_{i})}{\\overline w}+\\frac{\\mathbb E[w_{i}\\Delta z_{i}]}{\\overline w}",
+      "special": false
+    },
+    {
+      "id": "BIO-052",
+      "name": "Ký hiệu tuổi quần thể",
+      "latex": "N_{t+1}=N_{t}+B-D+I-E",
+      "special": false
+    },
+    {
+      "id": "BIO-053",
+      "name": "Tỷ lệ giới tính",
+      "latex": "SR=\\frac{N_{\\mathrm{đực}}}{N_{\\mathrm{cái}}}",
+      "special": false
+    },
+    {
+      "id": "BIO-054",
+      "name": "Năng suất sinh học",
+      "latex": "P=\\frac{\\Delta B}{\\Delta t}",
+      "special": false
+    },
+    {
+      "id": "BIO-055",
+      "name": "Hiệu suất chuyển hóa",
+      "latex": "\\eta=\\frac{E_{\\mathrm{hữu\\ ích}}}{E_{\\mathrm{đầu\\ vào}}}\\times100\\%",
+      "special": false
+    },
+    {
+      "id": "BIO-056",
+      "name": "Định luật Kleiber xấp xỉ",
+      "latex": "B\\propto M^{3/4}",
+      "special": false
+    },
+    {
+      "id": "CS-001",
+      "name": "Phép AND",
+      "latex": "A\\land B",
+      "special": false
+    },
+    {
+      "id": "CS-002",
+      "name": "Phép OR",
+      "latex": "A\\lor B",
+      "special": false
+    },
+    {
+      "id": "CS-003",
+      "name": "Phép NOT",
+      "latex": "\\neg A",
+      "special": false
+    },
+    {
+      "id": "CS-004",
+      "name": "Phép XOR",
+      "latex": "A\\oplus B",
+      "special": false
+    },
+    {
+      "id": "CS-005",
+      "name": "Hệ thức De Morgan",
+      "latex": "\\neg(A\\land B)=\\neg A\\lor\\neg B",
+      "special": false
+    },
+    {
+      "id": "CS-006",
+      "name": "Suy ra và tương đương",
+      "latex": "P\\implies Q,\\quad P\\iff Q",
+      "special": false
+    },
+    {
+      "id": "CS-007",
+      "name": "Tập con",
+      "latex": "A\\subseteq B",
+      "special": false
+    },
+    {
+      "id": "CS-008",
+      "name": "Hợp và giao tập hợp",
+      "latex": "A\\cup B,\\quad A\\cap B",
+      "special": false
+    },
+    {
+      "id": "CS-009",
+      "name": "Số nhị phân",
+      "latex": "(101101)_{2}=(45)_{10}",
+      "special": false
+    },
+    {
+      "id": "CS-010",
+      "name": "Số thập lục phân",
+      "latex": "(\\mathrm{FF})_{16}=(255)_{10}",
+      "special": false
+    },
+    {
+      "id": "CS-011",
+      "name": "Dịch trái bit",
+      "latex": "x\\ll1",
+      "special": false
+    },
+    {
+      "id": "CS-012",
+      "name": "Độ phức tạp tuyến tính",
+      "latex": "T(n)\\in O(n)",
+      "special": false
+    },
+    {
+      "id": "CS-013",
+      "name": "Độ phức tạp logarit",
+      "latex": "T(n)\\in O(\\log n)",
+      "special": false
+    },
+    {
+      "id": "CS-014",
+      "name": "Độ phức tạp n \\log n",
+      "latex": "T(n)\\in O(n\\log n)",
+      "special": false
+    },
+    {
+      "id": "CS-015",
+      "name": "Độ phức tạp bậc hai",
+      "latex": "T(n)\\in O(n^{2})",
+      "special": false
+    },
+    {
+      "id": "CS-016",
+      "name": "Độ phức tạp \\Omega",
+      "latex": "T(n)\\in\\Omega(n)",
+      "special": false
+    },
+    {
+      "id": "CS-017",
+      "name": "Độ phức tạp \\Theta",
+      "latex": "T(n)\\in\\Theta(n\\log n)",
+      "special": false
+    },
+    {
+      "id": "CS-018",
+      "name": "Truy hồi chia để trị",
+      "latex": "T(n)=2T(n/2)+n",
+      "special": false
+    },
+    {
+      "id": "CS-019",
+      "name": "Tổng \\chi phí vòng lặp",
+      "latex": "\\sum_{i=1}^{n} i=\\frac{n(n+1)}2",
+      "special": false
+    },
+    {
+      "id": "CS-020",
+      "name": "Entropy Shannon",
+      "latex": "H(X)=-\\sum_xp(x)\\log_2p(x)",
+      "special": false
+    },
+    {
+      "id": "CS-021",
+      "name": "Lượng thông tin",
+      "latex": "I(x)=-\\log_2p(x)",
+      "special": false
+    },
+    {
+      "id": "CS-022",
+      "name": "Thông tin tương hỗ",
+      "latex": "I(X;Y)=H(X)-H(X\\mid Y)",
+      "special": false
+    },
+    {
+      "id": "CS-023",
+      "name": "Độ chính xác dự đoán",
+      "latex": "\\mathrm{Accuracy}=\\frac{TP+TN}{TP+TN+FP+FN}",
+      "special": false
+    },
+    {
+      "id": "CS-024",
+      "name": "Precision",
+      "latex": "\\mathrm{Precision}=\\frac{TP}{TP+FP}",
+      "special": false
+    },
+    {
+      "id": "CS-025",
+      "name": "Recall",
+      "latex": "\\mathrm{Recall}=\\frac{TP}{TP+FN}",
+      "special": false
+    },
+    {
+      "id": "CS-026",
+      "name": "F1-score",
+      "latex": "F_{1}=\\frac{2PR}{P+R}",
+      "special": false
+    },
+    {
+      "id": "CS-027",
+      "name": "Hàm sigmoid",
+      "latex": "\\sigma(x)=\\frac1{1+e^{-x}}",
+      "special": false
+    },
+    {
+      "id": "CS-028",
+      "name": "Softmax",
+      "latex": "p_{i}=\\frac{e^{z_i}}{\\sum_{j=1}^Ke^{z_j}}",
+      "special": false
+    },
+    {
+      "id": "CS-029",
+      "name": "MSE",
+      "latex": "\\mathrm{MSE}=\\frac1n\\sum_{i=1}^{n}(y_{i}-\\hat y_{i})^{2}",
+      "special": false
+    },
+    {
+      "id": "CS-030",
+      "name": "Cross entropy nhị phân",
+      "latex": "L=-[y\\log p+(1-y)\\log(1-p)]",
+      "special": false
+    },
+    {
+      "id": "ENG-001",
+      "name": "Điện áp, dòng điện, điện trở",
+      "latex": "U=IR",
+      "special": false
+    },
+    {
+      "id": "ENG-002",
+      "name": "Công suất điện xoay \\chiều",
+      "latex": "P=UI\\cos\\varphi",
+      "special": false
+    },
+    {
+      "id": "ENG-003",
+      "name": "Công suất ba pha cân bằng",
+      "latex": "P=\\sqrt3\\,U_LI_{L}\\cos\\varphi",
+      "special": false
+    },
+    {
+      "id": "ENG-004",
+      "name": "Công suất biểu kiến",
+      "latex": "S=UI",
+      "special": false
+    },
+    {
+      "id": "ENG-005",
+      "name": "Hệ số công suất",
+      "latex": "\\mathrm{PF}=\\frac PS=\\cos\\varphi",
+      "special": false
+    },
+    {
+      "id": "ENG-006",
+      "name": "Hiệu suất máy",
+      "latex": "\\eta=\\frac{P_{\\mathrm{ra}}}{P_{\\mathrm{vào}}}\\times100\\%",
+      "special": false
+    },
+    {
+      "id": "ENG-007",
+      "name": "Tỉ số máy biến áp lý tưởng",
+      "latex": "\\frac{U_1}{U_2}=\\frac{N_1}{N_2}",
+      "special": false
+    },
+    {
+      "id": "ENG-008",
+      "name": "Định luật Kirchhoff nút",
+      "latex": "\\sum_kI_{k}=0",
+      "special": false
+    },
+    {
+      "id": "ENG-009",
+      "name": "Định luật Kirchhoff vòng",
+      "latex": "\\sum_kU_{k}=0",
+      "special": false
+    },
+    {
+      "id": "ENG-010",
+      "name": "Năng lượng tụ điện",
+      "latex": "W=\\frac12CU^{2}",
+      "special": false
+    },
+    {
+      "id": "ENG-011",
+      "name": "Tần số cắt RC",
+      "latex": "f_{c}=\\frac1{2\\pi RC}",
+      "special": false
+    },
+    {
+      "id": "ENG-012",
+      "name": "Dao động RLC lý tưởng",
+      "latex": "f_{0}=\\frac1{2\\pi\\sqrt{LC}}",
+      "special": false
+    },
+    {
+      "id": "ENG-013",
+      "name": "Ứng suất",
+      "latex": "\\sigma=\\frac FA",
+      "special": false
+    },
+    {
+      "id": "ENG-014",
+      "name": "Biến dạng dài",
+      "latex": "\\varepsilon=\\frac{\\Delta l}{l_0}",
+      "special": false
+    },
+    {
+      "id": "ENG-015",
+      "name": "Định luật đàn hồi",
+      "latex": "\\sigma=E\\varepsilon",
+      "special": false
+    },
+    {
+      "id": "ENG-016",
+      "name": "Mômen xoắn",
+      "latex": "T=Fr",
+      "special": false
+    },
+    {
+      "id": "ENG-017",
+      "name": "Ứng suất uốn",
+      "latex": "\\sigma=\\frac{My}{I}",
+      "special": false
+    },
+    {
+      "id": "ENG-018",
+      "name": "Số Reynolds",
+      "latex": "\\mathrm{Re}=\\frac{\\rho vD}{\\mu}",
+      "special": false
+    },
+    {
+      "id": "ENG-019",
+      "name": "Lưu lượng thể tích",
+      "latex": "Q=Av",
+      "special": false
+    },
+    {
+      "id": "ENG-020",
+      "name": "Công suất thủy lực",
+      "latex": "P=\\rho gQH",
+      "special": false
+    },
+    {
+      "id": "ENG-021",
+      "name": "Cường độ bức xạ",
+      "latex": "E=\\frac{P}{A}",
+      "special": false
+    },
+    {
+      "id": "ENG-022",
+      "name": "Cường độ âm",
+      "latex": "L=10\\log_{10}\\frac I{I_0}\\,\\mathrm{dB}",
+      "special": false
+    },
+    {
+      "id": "ENG-023",
+      "name": "Năng suất cây trồng",
+      "latex": "Y=\\frac{M_{\\mathrm{thu\\ hoạch}}}{S_{\\mathrm{gieo\\ trồng}}}",
+      "special": false
+    },
+    {
+      "id": "ENG-024",
+      "name": "Lượng phân bón trên diện tích",
+      "latex": "R=\\frac{m_{\\mathrm{phân}}}{A}",
+      "special": false
+    },
+    {
+      "id": "ENG-025",
+      "name": "Tỉ lệ nảy mầm",
+      "latex": "G=\\frac{N_{\\mathrm{nảy\\ mầm}}}{N_{\\mathrm{gieo}}}\\times100\\%",
+      "special": false
+    },
+    {
+      "id": "GEO-001",
+      "name": "Mật độ dân số",
+      "latex": "D=\\frac{P}{A}",
+      "special": false
+    },
+    {
+      "id": "GEO-002",
+      "name": "Tỉ suất sinh thô",
+      "latex": "\\mathrm{CBR}=\\frac B{P_{\\mathrm{tb}}}\\times1000\\,\\text{‰}",
+      "special": false
+    },
+    {
+      "id": "GEO-003",
+      "name": "Tỉ suất tử thô",
+      "latex": "\\mathrm{CDR}=\\frac D{P_{\\mathrm{tb}}}\\times1000\\,\\text{‰}",
+      "special": false
+    },
+    {
+      "id": "GEO-004",
+      "name": "Gia tăng tự nhiên theo phần trăm",
+      "latex": "r=\\frac{B-D}{P_{\\mathrm{tb}}}\\times100\\%",
+      "special": false
+    },
+    {
+      "id": "GEO-005",
+      "name": "Tỉ lệ dân số thành thị",
+      "latex": "U=\\frac{P_{\\mathrm{thành\\ thị}}}{P_{\\mathrm{tổng}}}\\times100\\%",
+      "special": false
+    },
+    {
+      "id": "GEO-006",
+      "name": "Năng suất cây trồng",
+      "latex": "Y=\\frac{\\mathrm{Sản\\ lượng}}{\\mathrm{Diện\\ tích}}",
+      "special": false
+    },
+    {
+      "id": "GEO-007",
+      "name": "Tỉ lệ bản đồ",
+      "latex": "k=\\frac{d_{\\mathrm{bản\\ đồ}}}{d_{\\mathrm{thực\\ địa}}}",
+      "special": false
+    },
+    {
+      "id": "GEO-008",
+      "name": "Tỷ lệ 1 trên 50 000",
+      "latex": "1:50\\,000",
+      "special": false
+    },
+    {
+      "id": "GEO-009",
+      "name": "Tốc độ tăng trưởng",
+      "latex": "g=\\frac{X_{t}-X_{t-1}}{X_{t-1}}\\times100\\%",
+      "special": false
+    },
+    {
+      "id": "GEO-010",
+      "name": "Biên độ nhiệt",
+      "latex": "A_{T}=T_{\\max}-T_{\\min}",
+      "special": false
+    },
+    {
+      "id": "GEO-011",
+      "name": "Nhiệt độ trung bình",
+      "latex": "\\overline T=\\frac1{12}\\sum_{i=1}^{12}T_{i}",
+      "special": false
+    },
+    {
+      "id": "GEO-012",
+      "name": "Lượng mưa tổng năm",
+      "latex": "R_{\\mathrm{năm}}=\\sum_{i=1}^{12}R_{i}",
+      "special": false
+    },
+    {
+      "id": "GEO-013",
+      "name": "Áp suất khí quyển tiêu chuẩn",
+      "latex": "p_{0}=101\\,325\\,\\mathrm{Pa}",
+      "special": false
+    },
+    {
+      "id": "GEO-014",
+      "name": "Phương trình trạng thái khí",
+      "latex": "pV=nRT",
+      "special": false
+    },
+    {
+      "id": "GEO-015",
+      "name": "Độ ẩm tương đối",
+      "latex": "RH=\\frac e{e_s}\\times100\\%",
+      "special": false
+    },
+    {
+      "id": "GEO-016",
+      "name": "Nồng độ chất ô nhiễm",
+      "latex": "C=\\frac mV",
+      "special": false
+    },
+    {
+      "id": "GEO-017",
+      "name": "Chuyển đổi ppm",
+      "latex": "1\\,\\mathrm{ppm}=10^{-6}",
+      "special": false
+    },
+    {
+      "id": "GEO-018",
+      "name": "Hệ số phát thải",
+      "latex": "E=AD\\times EF",
+      "special": false
+    },
+    {
+      "id": "GEO-019",
+      "name": "Phát thải CO2 quy đổi",
+      "latex": "E_{\\mathrm{CO_2e}}=\\sum_iE_{i}\\,\\mathrm{GWP}_{i}",
+      "special": false
+    },
+    {
+      "id": "GEO-020",
+      "name": "Chỉ số chất lượng nước dạng tổng có trọng số",
+      "latex": "WQI=\\sum_iw_iq_{i}",
+      "special": false
+    },
+    {
+      "id": "GEO-021",
+      "name": "Tốc độ gió trung bình",
+      "latex": "\\overline v=\\frac1n\\sum_{i=1}^nv_{i}",
+      "special": false
+    },
+    {
+      "id": "GEO-022",
+      "name": "Đơn vị kilowatt giờ",
+      "latex": "1\\,\\mathrm{kWh}=3{,}6\\times10^{6}\\,\\mathrm J",
+      "special": false
+    },
+    {
+      "id": "ECO-001",
+      "name": "Tỷ lệ phần trăm",
+      "latex": "r=\\frac ab\\times100\\%",
+      "special": false
+    },
+    {
+      "id": "ECO-002",
+      "name": "Lãi đơn",
+      "latex": "I=Prt",
+      "special": false
+    },
+    {
+      "id": "ECO-003",
+      "name": "Lãi kép",
+      "latex": "FV=PV(1+r)^{n}",
+      "special": false
+    },
+    {
+      "id": "ECO-004",
+      "name": "Giá trị hiện tại",
+      "latex": "PV=\\frac{FV}{(1+r)^n}",
+      "special": false
+    },
+    {
+      "id": "ECO-005",
+      "name": "Lãi suất hiệu dụng",
+      "latex": "EAR=\\left(1+\\frac rm\\right)^{m}-1",
+      "special": false
+    },
+    {
+      "id": "ECO-006",
+      "name": "Niên kim thông thường",
+      "latex": "PV=A\\frac{1-(1+r)^{-n}}r",
+      "special": false
+    },
+    {
+      "id": "ECO-007",
+      "name": "Giá trị hiện tại ròng",
+      "latex": "NPV=\\sum_{t=0}^{T}\\frac{CF_t}{(1+r)^t}",
+      "special": false
+    },
+    {
+      "id": "ECO-008",
+      "name": "Tỷ suất hoàn vốn",
+      "latex": "ROI=\\frac{\\text{Lợi nhuận}}{\\text{Vốn đầu tư}}\\times100\\%",
+      "special": false
+    },
+    {
+      "id": "ECO-009",
+      "name": "Tỷ lệ lạm phát",
+      "latex": "\\pi_{t}=\\frac{CPI_{t}-CPI_{t-1}}{CPI_{t-1}}\\times100\\%",
+      "special": false
+    },
+    {
+      "id": "ECO-010",
+      "name": "GDP phương pháp \\chi tiêu",
+      "latex": "GDP=C+I+G+(X-M)",
+      "special": false
+    },
+    {
+      "id": "ECO-011",
+      "name": "GDP bình quân đầu người",
+      "latex": "GDP_{pc}=\\frac{GDP}{P}",
+      "special": false
+    },
+    {
+      "id": "ECO-012",
+      "name": "Độ co giãn theo giá",
+      "latex": "E_{d}=\\frac{\\%\\Delta Q_d}{\\%\\Delta P}",
+      "special": false
+    },
+    {
+      "id": "ECO-013",
+      "name": "Doanh thu",
+      "latex": "TR=P\\times Q",
+      "special": false
+    },
+    {
+      "id": "ECO-014",
+      "name": "Lợi nhuận",
+      "latex": "\\Pi=TR-TC",
+      "special": false
+    },
+    {
+      "id": "ECO-015",
+      "name": "Chi phí biên",
+      "latex": "MC=\\frac{\\Delta TC}{\\Delta Q}",
+      "special": false
+    },
+    {
+      "id": "ECO-016",
+      "name": "Số trung bình có trọng số",
+      "latex": "\\overline x_{w}=\\frac{\\sum_iw_ix_i}{\\sum_iw_i}",
+      "special": false
+    },
+    {
+      "id": "ECO-017",
+      "name": "Chỉ số Laspeyres",
+      "latex": "L_{P}=\\frac{\\sum_ip_{1i}q_{0i}}{\\sum_ip_{0i}q_{0i}}\\times100",
+      "special": false
+    },
+    {
+      "id": "ECO-018",
+      "name": "Hồi quy tuyến tính",
+      "latex": "\\hat y=\\beta_{0}+\\beta_1x",
+      "special": false
+    },
+    {
+      "id": "ECO-019",
+      "name": "Bình phương tối thiểu",
+      "latex": "\\min_{\\boldsymbol\\beta}\\sum_{i=1}^{n}(y_{i}-\\mathbf x_{i}^\\mathsf T\\boldsymbol\\beta)^{2}",
+      "special": false
+    },
+    {
+      "id": "ECO-020",
+      "name": "Tỷ số Sharpe",
+      "latex": "S=\\frac{R_{p}-R_f}{\\sigma_p}",
+      "special": false
+    },
+    {
+      "id": "MED-001",
+      "name": "BMI",
+      "latex": "\\mathrm{BMI}=\\frac{m\\, (\\mathrm{kg})}{[h\\, (\\mathrm m)]^2}",
+      "special": false
+    },
+    {
+      "id": "MED-002",
+      "name": "Độ thanh thải",
+      "latex": "CL=\\frac{\\text{Tốc độ thải trừ}}{C_p}",
+      "special": false
+    },
+    {
+      "id": "MED-003",
+      "name": "Thời gian bán thải bậc một",
+      "latex": "t_{1/2}=\\frac{\\ln2}{k}",
+      "special": false
+    },
+    {
+      "id": "MED-004",
+      "name": "Động học thuốc bậc một",
+      "latex": "C(t)=C_0e^{-kt}",
+      "special": false
+    },
+    {
+      "id": "MED-005",
+      "name": "Thể tích phân bố biểu kiến",
+      "latex": "V_{d}=\\frac{A_{\\mathrm{cơ\\ thể}}}{C_p}",
+      "special": false
+    },
+    {
+      "id": "MED-006",
+      "name": "Diện tích dưới đường cong",
+      "latex": "AUC=\\int_{0}^{\\infty}C(t)\\,dt",
+      "special": false
+    },
+    {
+      "id": "MED-007",
+      "name": "Sinh khả dụng tương đối",
+      "latex": "F_{\\mathrm{rel}}=\\frac{AUC_{\\mathrm{test}}}{AUC_{\\mathrm{ref}}}\\frac{D_{\\mathrm{ref}}}{D_{\\mathrm{test}}}",
+      "special": false
+    },
+    {
+      "id": "MED-008",
+      "name": "Độ nhạy",
+      "latex": "Se=\\frac{TP}{TP+FN}",
+      "special": false
+    },
+    {
+      "id": "MED-009",
+      "name": "Độ đặc hiệu",
+      "latex": "Sp=\\frac{TN}{TN+FP}",
+      "special": false
+    },
+    {
+      "id": "MED-010",
+      "name": "Giá trị tiên đoán dương",
+      "latex": "PPV=\\frac{TP}{TP+FP}",
+      "special": false
+    },
+    {
+      "id": "MED-011",
+      "name": "Giá trị tiên đoán âm",
+      "latex": "NPV=\\frac{TN}{TN+FN}",
+      "special": false
+    },
+    {
+      "id": "MED-012",
+      "name": "Nguy cơ tương đối",
+      "latex": "RR=\\frac{a/(a+b)}{c/(c+d)}",
+      "special": false
+    },
+    {
+      "id": "MED-013",
+      "name": "Odds ratio",
+      "latex": "OR=\\frac{ad}{bc}",
+      "special": false
+    },
+    {
+      "id": "MED-014",
+      "name": "Tỷ lệ mắc mới",
+      "latex": "I=\\frac{N_{\\mathrm{ca\\ mới}}}{N_{\\mathrm{người\\ có\\ nguy\\ cơ}}}\\times100\\%",
+      "special": false
+    },
+    {
+      "id": "MED-015",
+      "name": "Tỷ lệ hiện mắc",
+      "latex": "P=\\frac{N_{\\mathrm{đang\\ mắc}}}{N_{\\mathrm{dân\\ số}}}\\times100\\%",
+      "special": false
+    },
+    {
+      "id": "MED-016",
+      "name": "Số sinh sản cơ bản SIR",
+      "latex": "R_{0}=\\frac{\\beta}{\\gamma}\\quad\\text{(mô hình SIR đơn giản)}",
+      "special": false
+    },
+    {
+      "id": "MED-017",
+      "name": "Mô hình SIR",
+      "latex": "\\frac{dS}{dt}=-\\beta\\frac{SI}{N}",
+      "special": false
+    },
+    {
+      "id": "MED-018",
+      "name": "Mô hình SIR lây nhiễm",
+      "latex": "\\frac{dI}{dt}=\\beta\\frac{SI}{N}-\\gamma I",
+      "special": false
+    },
+    {
+      "id": "MED-019",
+      "name": "Mô hình SIR hồi phục",
+      "latex": "\\frac{dR}{dt}=\\gamma I",
+      "special": false
+    },
+    {
+      "id": "MED-020",
+      "name": "Phương trình Henderson-Hasselbalch",
+      "latex": "\\mathrm{pH}=\\mathrm pK_{a}+\\log\\frac{[A^-]}{[HA]}",
+      "special": false
+    },
+    {
+      "id": "AST-001",
+      "name": "Định luật Kepler III",
+      "latex": "\\frac{T^2}{a^3}=\\frac{4\\pi^2}{GM}",
+      "special": false
+    },
+    {
+      "id": "AST-002",
+      "name": "Lực hấp dẫn Newton",
+      "latex": "F=G\\frac{m_1m_2}{r^2}",
+      "special": false
+    },
+    {
+      "id": "AST-003",
+      "name": "Tốc độ thoát",
+      "latex": "v_{e}=\\sqrt{\\frac{2GM}{r}}",
+      "special": false
+    },
+    {
+      "id": "AST-004",
+      "name": "Vận tốc quỹ đạo tròn",
+      "latex": "v=\\sqrt{\\frac{GM}{r}}",
+      "special": false
+    },
+    {
+      "id": "AST-005",
+      "name": "Độ sáng nguồn điểm",
+      "latex": "F=\\frac{L}{4\\pi d^2}",
+      "special": false
+    },
+    {
+      "id": "AST-006",
+      "name": "Độ lớn sao biểu kiến",
+      "latex": "m_{2}-m_{1}=-2{,}5\\log_{10}\\frac{F_2}{F_1}",
+      "special": false
+    },
+    {
+      "id": "AST-007",
+      "name": "Định luật Hubble-Lemaître",
+      "latex": "v=H_0d",
+      "special": false
+    },
+    {
+      "id": "AST-008",
+      "name": "Dịch chuyển đỏ",
+      "latex": "z=\\frac{\\lambda_{\\mathrm{obs}}-\\lambda_{\\mathrm{emit}}}{\\lambda_{\\mathrm{emit}}}",
+      "special": false
+    },
+    {
+      "id": "AST-009",
+      "name": "Bán kính Schwarzschild",
+      "latex": "r_{s}=\\frac{2GM}{c^2}",
+      "special": false
+    },
+    {
+      "id": "AST-010",
+      "name": "Luật Planck về photon",
+      "latex": "E=hf",
+      "special": false
+    },
+    {
+      "id": "AST-011",
+      "name": "Bức xạ Stefan-Boltzmann",
+      "latex": "L=4\\pi R^{2}\\sigma T^{4}",
+      "special": false
+    },
+    {
+      "id": "AST-012",
+      "name": "Độ sâu quang học",
+      "latex": "I=I_0e^{-\\tau}",
+      "special": false
+    },
+    {
+      "id": "AST-013",
+      "name": "Độ lớn khoảng cách",
+      "latex": "m-M=5\\log_{10}\\left(\\frac d{10\\,\\mathrm{pc}}\\right)",
+      "special": false
+    },
+    {
+      "id": "AST-014",
+      "name": "Sóng địa chấn",
+      "latex": "v=\\sqrt{\\frac K\\rho}",
+      "special": false
+    },
+    {
+      "id": "AST-015",
+      "name": "Nhiệt thông theo Fourier",
+      "latex": "q=-k\\frac{dT}{dz}",
+      "special": false
+    },
+    {
+      "id": "AST-016",
+      "name": "Năng lượng động đất gần đúng",
+      "latex": "\\log_{10}E=1{,}5M+4{,}8\\quad(E\\text{ tính bằng J})",
+      "special": false
+    },
+    {
+      "id": "AST-017",
+      "name": "Công suất gió lý tưởng",
+      "latex": "P=\\frac12\\rho Av^{3}",
+      "special": false
+    },
+    {
+      "id": "AST-018",
+      "name": "Công suất thủy điện",
+      "latex": "P=\\eta\\rho gQH",
+      "special": false
+    },
+    {
+      "id": "AST-019",
+      "name": "Hệ số phản xạ",
+      "latex": "\\alpha=\\frac{E_{\\mathrm{phản\\ xạ}}}{E_{\\mathrm{tới}}}",
+      "special": false
+    },
+    {
+      "id": "AST-020",
+      "name": "Độ cao khí quyển đẳng nhiệt",
+      "latex": "p(z)=p_0e^{-Mgz/(RT)}",
+      "special": false
+    },
+    {
+      "id": "GEN-001",
+      "name": "Alpha \\beta \\gamma \\delta",
+      "latex": "\\alpha,\\beta,\\gamma,\\delta,\\Delta,\\Omega,\\mu",
+      "special": false
+    },
+    {
+      "id": "GEN-002",
+      "name": "Chữ cái Hy Lạp nâng cao",
+      "latex": "\\theta,\\vartheta,\\xi,\\zeta,\\phi,\\varphi,\\psi,\\omega",
+      "special": false
+    },
+    {
+      "id": "GEN-003",
+      "name": "Ký hiệu so sánh",
+      "latex": "a\\ne b,\\quad a\\approx b,\\quad a\\le b,\\quad a\\ge b",
+      "special": false
+    },
+    {
+      "id": "GEN-004",
+      "name": "Tập số",
+      "latex": "\\mathbb N,\\ \\mathbb Z,\\ \\mathbb Q,\\ \\mathbb R,\\ \\mathbb C",
+      "special": false
+    },
+    {
+      "id": "GEN-005",
+      "name": "Mũi tên thường và đặc biệt",
+      "latex": "A\\to B,\\quad A\\longrightarrow B,\\quad A\\leftrightarrow B",
+      "special": false
+    },
+    {
+      "id": "GEN-006",
+      "name": "Toán tử vuông góc song song",
+      "latex": "a\\perp b,\\quad a\\parallel b",
+      "special": false
+    },
+    {
+      "id": "GEN-007",
+      "name": "Ký hiệu xấp xỉ và tỉ lệ",
+      "latex": "x\\sim y,\\quad x\\propto y",
+      "special": false
+    },
+    {
+      "id": "GEN-008",
+      "name": "Gạch trên dưới",
+      "latex": "\\overline{AB},\\quad\\underline{x},\\quad\\widehat{ABC}",
+      "special": false
+    },
+    {
+      "id": "GEN-009",
+      "name": "Mũi tên vector dài",
+      "latex": "\\overrightarrow{AB}+\\overrightarrow{BC}=\\overrightarrow{AC}",
+      "special": false
+    },
+    {
+      "id": "GEN-010",
+      "name": "Dấu chú giải trên dưới",
+      "latex": "\\underbrace{1+1+\\cdots+1}_{n\\ \\mathrm{số\\ hạng}}=n",
+      "special": false
+    },
+    {
+      "id": "GEN-011",
+      "name": "Ngoặc lồng nhau",
+      "latex": "\\left\\{\\left[\\left(\\frac ab\\right)^{2}+c\\right]^{1/2}\\right\\}",
+      "special": false
+    },
+    {
+      "id": "GEN-012",
+      "name": "Đơn vị SI nhiều tầng",
+      "latex": "\\mathrm{kg\\cdot m^{2}/(s^{3}\\cdot A)}",
+      "special": false
+    },
+    {
+      "id": "GEN-013",
+      "name": "Đơn vị khối lượng thể tích",
+      "latex": "\\rho=1000\\,\\mathrm{kg/m^3}",
+      "special": false
+    },
+    {
+      "id": "GEN-014",
+      "name": "Dấu phần trăm và phần nghìn",
+      "latex": "15\\%,\\quad 0{,}8\\,\\text{‰}",
+      "special": false
+    },
+    {
+      "id": "GEN-015",
+      "name": "Ký hiệu vi phân và tích phân",
+      "latex": "d,\\ \\partial,\\ \\nabla,\\ \\int,\\ \\iint,\\ \\iiint",
+      "special": false
+    },
+    {
+      "id": "GEN-016",
+      "name": "Các loại font toán",
+      "latex": "\\mathcal F,\\ \\mathscr F,\\ \\mathfrak g,\\ \\mathbf v,\\ \\mathsf A",
+      "special": false
+    },
+    {
+      "id": "GEN-017",
+      "name": "Ký hiệu logic",
+      "latex": "\\therefore,\\quad\\because,\\quad\\neg,\\quad\\land,\\quad\\lor",
+      "special": false
+    },
+    {
+      "id": "GEN-018",
+      "name": "Ký hiệu khác",
+      "latex": "\\infty,\\quad\\emptyset,\\quad\\nexists,\\quad\\forall",
+      "special": false
+    },
+    {
+      "id": "GEN-019",
+      "name": "Văn bản trong công thức",
+      "latex": "\\text{Nếu }x>0 \\text{ thì }\\sqrt{x^2}=x",
+      "special": false
+    },
+    {
+      "id": "GEN-020",
+      "name": "Việt hóa đơn vị bằng mathrm",
+      "latex": "E=42\\,\\mathrm{J},\\quad t=2\\,\\mathrm s",
+      "special": false
+    },
+    {
+      "id": "GEN-021",
+      "name": "Văn bản dài bên cạnh công thức",
+      "latex": "\\text{Gia tốc trung bình: }\\overline a=\\frac{v_{2}-v_1}{t_{2}-t_1}",
+      "special": false
+    },
+    {
+      "id": "GEN-022",
+      "name": "Đơn vị micromet",
+      "latex": "\\lambda=550\\,\\mathrm{nm}=0{,}55\\,\\mathrm{\\mu m}",
+      "special": false
+    },
+    {
+      "id": "GEN-023",
+      "name": "Ký hiệu xác suất",
+      "latex": "\\Pr(X\\ge x),\\quad\\mathbb P(A\\mid B)",
+      "special": false
+    },
+    {
+      "id": "GEN-024",
+      "name": "Ký hiệu lượng giác",
+      "latex": "\\sin\\alpha,\\ \\cos\\beta,\\ \\tan\\theta,\\ \\cot\\theta",
+      "special": false
+    },
+    {
+      "id": "GEN-025",
+      "name": "Suy diễn dòng",
+      "latex": "\\begin{aligned}a&=b+c\\\\&=d+e\\end{aligned}",
+      "special": false
+    },
+    {
+      "id": "GEN-026",
+      "name": "Công thức nhiều dòng canh dấu bằng",
+      "latex": "\\begin{aligned}S_{n}&=1+2+\\cdots+n\\\\&=\\frac{n(n+1)}2\\end{aligned}",
+      "special": false
+    },
+    {
+      "id": "GEN-027",
+      "name": "Môi trường ma trận",
+      "latex": "\\begin{pmatrix}1&2\\\\3&4\\end{pmatrix}",
+      "special": false
+    },
+    {
+      "id": "GEN-028",
+      "name": "Môi trường phân loại",
+      "latex": "f(x)=\\begin{cases}-1,&x<0\\\\0,&x=0\\\\1,&x>0\\end{cases}",
+      "special": false
+    },
+    {
+      "id": "GEN-029",
+      "name": "Môi trường phân số và ngoặc",
+      "latex": "\\left(\\frac{\\sqrt{1+x^2}}{1+\\frac1x}\\right)^{3}",
+      "special": false
+    },
+    {
+      "id": "GEN-030",
+      "name": "Tổng lồng tổng",
+      "latex": "\\sum_{i=1}^{m}\\sum_{j=1}^{n} a_{ij}",
+      "special": false
+    },
+    {
+      "id": "GEN-031",
+      "name": "Phân số lồng 3 lớp",
+      "latex": "\\frac{1}{1+\\frac{1}{2+\\frac{1}{3+x}}}",
+      "special": false
+    },
+    {
+      "id": "STR-001",
+      "name": "Phân số dài nhiều lớp",
+      "latex": "\\frac{\\sqrt{\\frac{a^{2}+b^2}{1+c^2}}+\\frac{1}{1+\\frac{1}{x}}}{\\log_{2}(1+x^{2})+\\sum_{k=1}^{n}\\frac1{k^2}}",
+      "special": false
+    },
+    {
+      "id": "STR-002",
+      "name": "Phương trình tích phân phức tạp",
+      "latex": "\\int_{0}^\\infty\\frac{x^{s-1}}{e^{x}-1}\\,dx=\\Gamma(s)\\zeta(s)",
+      "special": false
+    },
+    {
+      "id": "STR-003",
+      "name": "Phương trình nhiều dòng",
+      "latex": "\\begin{aligned}f(x)&=\\frac{1}{\\sqrt{1+x^2}}\\f'(x)&=-\\frac{x}{(1+x^{2})^{3/2}}\\f''(x)&=\\frac{2x^{2}-1}{(1+x^{2})^{5/2}}\\end{aligned}",
+      "special": false
+    },
+    {
+      "id": "STR-004",
+      "name": "Ma trận 4 nhân 4",
+      "latex": "M=\\begin{bmatrix}1&0&0&2\\\\0&1&3&0\\\\2&0&1&0\\\\0&4&0&1\\end{bmatrix}",
+      "special": false
+    },
+    {
+      "id": "STR-005",
+      "name": "Kết hợp chữ thường và công thức",
+      "latex": "\\text{Khi }t=0 \\text{, }v(t)=\\frac{ds}{dt}=v_{0}",
+      "special": false
+    },
+    {
+      "id": "STR-006",
+      "name": "Hóa học có điều kiện phức",
+      "latex": "\\ce{N2(g) + 3H2(g) <=>[\\text{Fe},\\,$450^{\\circ}$\\mathrm C][\\text{áp suất}] 2NH3(g)}",
+      "special": false
+    },
+    {
+      "id": "STR-007",
+      "name": "Ion nhiều điện tích",
+      "latex": "\\ce{[Fe(CN)6]^{3}-}",
+      "special": false
+    },
+    {
+      "id": "STR-008",
+      "name": "Đồng vị và hạt nhân",
+      "latex": "\\ce{^{238}_{92}U -> ^{234}_{90}Th + ^{4}_2He}",
+      "special": false
+    },
+    {
+      "id": "STR-009",
+      "name": "Đơn vị dài",
+      "latex": "P=15\\,\\mathrm{kg\\cdot m^{2}/(s^{3}\\cdot A)}",
+      "special": false
+    },
+    {
+      "id": "STR-010",
+      "name": "Số khoa học dài",
+      "latex": "N_{A}=6{,}02214076\\times10^{23}\\,\\mathrm{mol^{-1}}",
+      "special": false
+    },
+    {
+      "id": "STR-011",
+      "name": "Chuỗi unicode Hy Lạp",
+      "latex": "\\alpha\\to\\beta\\to\\gamma\\to\\delta\\to\\epsilon\\to\\zeta\\to\\eta",
+      "special": false
+    },
+    {
+      "id": "STR-012",
+      "name": "Toán tử trong văn bản",
+      "latex": "\\text{Giá trị }pH=7 \\text{ ứng với môi trường trung tính ở }$25^{\\circ}$\\mathrm C",
+      "special": false
+    },
+    {
+      "id": "STR-013",
+      "name": "Xác suất và phân phối trộn",
+      "latex": "f(x)=\\sum_{k=1}^{K}\\pi_{k}\\frac{1}{\\sqrt{2\\pi\\sigma_{k}^2}}e^{-\\frac{(x-\\mu_{k})^2}{2\\sigma_{k}^2}}",
+      "special": false
+    },
+    {
+      "id": "STR-014",
+      "name": "Ma trận chỉ số nặng",
+      "latex": "A_{i_1i_2}^{j_1j_2}=\\sum_{k=1}^nB_{i_1k}^{j_1}C_{i_2}^{kj_2}",
+      "special": false
+    },
+    {
+      "id": "STR-015",
+      "name": "Tích phân nhiều cận",
+      "latex": "\\int_{-1}^{1}\\int_{0}^{\\sqrt{1-x^2}}f(x,y)\\,dy\\,dx",
+      "special": false
+    },
+    {
+      "id": "STR-016",
+      "name": "Vector có chỉ số",
+      "latex": "\\vec v_{A/B}=\\vec v_{A/O}-\\vec v_{B/O}",
+      "special": false
+    },
+    {
+      "id": "STR-017",
+      "name": "Số mũ rất nhỏ rất lớn",
+      "latex": "10^{-30}\\le x\\le10^{30}",
+      "special": false
+    },
+    {
+      "id": "STR-018",
+      "name": "Tần số kHz và MHz",
+      "latex": "f_{1}=2{,}4\\,\\mathrm{GHz},\\quad f_{2}=125\\,\\mathrm{kHz}",
+      "special": false
+    },
+    {
+      "id": "STR-019",
+      "name": "Ký hiệu hằng số Planck",
+      "latex": "\\hbar=\\frac h{2\\pi}",
+      "special": false
+    },
+    {
+      "id": "STR-020",
+      "name": "Phần trăm và đơn vị",
+      "latex": "\\eta=95{,}5\\%,\\quad E=1{,}20\\times10^{3}\\,\\mathrm{J}",
+      "special": false
+    },
+    {
+      "id": "STR-021",
+      "name": "Bài kiểm tra giữa dòng",
+      "latex": "\\text{Khối lượng }m=2\\,\\mathrm{kg};\\quad Q=mc\\Delta T",
+      "special": false
+    },
+    {
+      "id": "STR-022",
+      "name": "Ngắt dòng chuẩn",
+      "latex": "\\begin{aligned}U&=IR\\P&=UI\\E&=Pt\\end{aligned}",
+      "special": false
+    },
+    {
+      "id": "STR-023",
+      "name": "Tích và tổng lồng nhau",
+      "latex": "\\prod_{i=1}^{n}\\left(1+\\sum_{j=1}^{m}\\frac{a_{ij}}{j}\\right)",
+      "special": false
+    },
+    {
+      "id": "STR-024",
+      "name": "Biểu thức đạo hàm hữu tỉ",
+      "latex": "\\frac{d}{dx}\\left[\\frac{\\ln(1+x^{2})}{\\sqrt{1+x}}\\right]",
+      "special": false
+    },
+    {
+      "id": "STR-025",
+      "name": "Bốn loại ngoặc",
+      "latex": "\\left[\\left\\{\\left(\\frac ab\\right)\\right\\}\\right]",
+      "special": false
+    },
+    {
+      "id": "STR-026",
+      "name": "Dấu gạch dưới trong texttt",
+      "latex": "\\texttt{gene\\_{A}\\_variant\\_2}",
+      "special": false
+    },
+    {
+      "id": "STR-027",
+      "name": "Ví dụ có ký hiệu đô la thật",
+      "latex": "\\text{Giá bán là }\\$25,\\quad x=\\frac12",
+      "special": false
+    },
+    {
+      "id": "STR-028",
+      "name": "Thực nghiệm nhận diện %",
+      "latex": "12\\%+5\\%=17\\%",
+      "special": false
+    },
+    {
+      "id": "STR-029",
+      "name": "Ký hiệu bất đẳng thức lớn",
+      "latex": "\\Biggl(\\sum_{i=1}^{n}x_{i}^{2}\\Biggr)^{\\!1/2}\\ge\\frac1{\\sqrt n}\\sum_{i=1}^{n}|x_{i}|",
+      "special": false
+    },
+    {
+      "id": "STR-030",
+      "name": "Bảng mảng trong LaTeX",
+      "latex": "\\begin{array}{c|cc}&A&B\\hline A&1&0\\B&0&1\\end{array}",
+      "special": false
+    },
+    {
+      "id": "NEG-001",
+      "name": "Thiếu ngoặc phân số",
+      "latex": "\\frac{a}{b",
+      "special": true
+    },
+    {
+      "id": "NEG-002",
+      "name": "Thiếu đối số phân số",
+      "latex": "\\frac{a}",
+      "special": true
+    },
+    {
+      "id": "NEG-003",
+      "name": "Thiếu ngoặc căn",
+      "latex": "\\sqrt{x+1",
+      "special": true
+    },
+    {
+      "id": "NEG-004",
+      "name": "Lệnh không tồn tại",
+      "latex": "\\notARealCommand{x}",
+      "special": true
+    },
+    {
+      "id": "NEG-005",
+      "name": "Thiếu kết thúc ma trận",
+      "latex": "\\begin{matrix}1&2\\\\3&4",
+      "special": true
+    },
+    {
+      "id": "NEG-006",
+      "name": "Thiếu kết thúc cases",
+      "latex": "\\begin{cases}x&x>0",
+      "special": true
+    },
+    {
+      "id": "NEG-007",
+      "name": "Dấu escape mất trước frac",
+      "latex": "\\frac{a}{b}",
+      "special": true
+    },
+    {
+      "id": "NEG-008",
+      "name": "Dấu escape mất trước text",
+      "latex": "\\text{kg}",
+      "special": true
+    },
+    {
+      "id": "NEG-009",
+      "name": "Escape JavaScript biến thành ký tự điều khiển",
+      "latex": "Q=\\frac{mc}{t_{2}-t_1}",
+      "special": true
+    },
+    {
+      "id": "NEG-010",
+      "name": "Dấu phần trăm chưa escape",
+      "latex": "75%",
+      "special": true
+    },
+    {
+      "id": "NEG-011",
+      "name": "Dấu dollar trong văn bản thường",
+      "latex": "Giá vé $20, giảm còn $15",
+      "special": true
+    },
+    {
+      "id": "NEG-012",
+      "name": "HTML không được thực thi",
+      "latex": "<img src=x onerror=alert(1)>",
+      "special": true
+    },
+    {
+      "id": "NEG-013",
+      "name": "Script không được thực thi",
+      "latex": "<script>alert(1)</script>",
+      "special": true
+    },
+    {
+      "id": "NEG-014",
+      "name": "Dấu gạch chéo đơn",
+      "latex": "\\",
+      "special": true
+    },
+    {
+      "id": "NEG-015",
+      "name": "Dấu ngoặc đóng thừa",
+      "latex": "a+b}",
+      "special": true
+    },
+    {
+      "id": "NEG-016",
+      "name": "Dấu ngoặc mở thừa",
+      "latex": "{a+b",
+      "special": true
+    },
+    {
+      "id": "NEG-017",
+      "name": "Phản ứng hóa học thiếu ngoặc",
+      "latex": "\\ce{2H2 + O2 -> 2H2O",
+      "special": true
+    },
+    {
+      "id": "NEG-018",
+      "name": "Lệnh chemfig nếu chưa cài plugin",
+      "latex": "\\chemfig{*6(-=-=-=)}",
+      "special": true
+    },
+    {
+      "id": "NEG-019",
+      "name": "TikZ nếu chưa cài engine chuyên dụng",
+      "latex": "\\begin{tikzpicture}\\draw (0,0)--(1,1);\\end{tikzpicture}",
+      "special": true
+    },
+    {
+      "id": "NEG-020",
+      "name": "Ký hiệu SMILES cần renderer riêng",
+      "latex": "c1ccccc1",
+      "special": true
+    },
+    {
+      "id": "NEG-021",
+      "name": "Nội dung dollar không đóng",
+      "latex": "$\\frac12",
+      "special": true
+    },
+    {
+      "id": "NEG-022",
+      "name": "Markdown và LaTeX chen nhau",
+      "latex": "**in đậm** \\(\\frac12\\) _nghiêng_",
+      "special": true
+    },
+    {
+      "id": "NEG-023",
+      "name": "String chứa tab và newline escape",
+      "latex": "\\t \\n \\r",
+      "special": true
+    },
+    {
+      "id": "NEG-024",
+      "name": "Unicode tổ hợp",
+      "latex": "x̄ + ŷ = 3",
+      "special": true
+    },
+    {
+      "id": "NEG-025",
+      "name": "Lệnh môi trường chưa hỗ trợ",
+      "latex": "\\begin{alignat}{2}x&=1&y&=2\\end{alignat}",
+      "special": true
+    },
+    {
+      "id": "DEL-001",
+      "name": "Dấu ngoặc tròn inline",
+      "latex": "\\(E=mc^{2}\\)",
+      "special": true
+    },
+    {
+      "id": "DEL-002",
+      "name": "Dấu dollar inline",
+      "latex": "$E=mc^{2}$",
+      "special": true
+    },
+    {
+      "id": "DEL-003",
+      "name": "Dấu ngoặc vuông display",
+      "latex": "\\[E=mc^{2}\\]",
+      "special": true
+    },
+    {
+      "id": "DEL-004",
+      "name": "Dollar kép display",
+      "latex": "$$E=mc^{2}$$",
+      "special": true
+    },
+    {
+      "id": "DEL-005",
+      "name": "Hai công thức cùng câu",
+      "latex": "Với \\(m=2\\,\\mathrm{kg}\\), ta có \\(F=ma\\).",
+      "special": true
+    },
+    {
+      "id": "DEL-006",
+      "name": "Markdown bold xen LaTeX",
+      "latex": "**Lực:** \\(F=ma\\); **nhiệt:** \\(Q=mc\\Delta T\\).",
+      "special": true
+    },
+    {
+      "id": "DEL-007",
+      "name": "Tiếng Việt hai phía",
+      "latex": "Nhiệt độ \\(t_{1}=$20^{\\circ}$\\mathrm C\\) tăng thành \\(t_{2}=$45^{\\circ}$\\mathrm C\\).",
+      "special": true
+    },
+    {
+      "id": "DEL-008",
+      "name": "Nhiều inline và một display",
+      "latex": "Biết \\(a>0\\), xét \\[x=\\frac{-b\\pm\\sqrt{b^{2}-4ac}}{2a}\\] với \\(a\\ne0\\).",
+      "special": true
+    },
+    {
+      "id": "DEL-009",
+      "name": "Dấu đô-la tiền tệ",
+      "latex": "Giá $20, không phải định dạng toán học.",
+      "special": true
+    },
+    {
+      "id": "DEL-010",
+      "name": "Dấu xuống dòng văn bản",
+      "latex": "Dòng 1: \\(E=mc^{2}\\).\\nDòng 2: \\(F=ma\\).",
+      "special": true
+    }
+  ]
+}

@@ -738,34 +738,45 @@ if (contentTypeConfig && contentTypeConfig.includes("application/json")) {
         function queueMathJax(element) {
             const targetEl = element || document.body;
             if (!targetEl) return;
-
-            if (window.MathJax && window.MathJax.typesetPromise) {
-                mathJaxPromise = mathJaxPromise.then(() => {
+            const renderPending = async () => {
+                const math = window.MathJax;
+                if (!math) return;
+                for (const node of Array.from(targetEl.querySelectorAll('.scientific-mathjax-pending'))) {
+                    if (!node.isConnected) continue;
+                    const latex = node.getAttribute('data-scientific-latex') || '';
+                    const display = node.getAttribute('data-scientific-display') === 'true';
                     try {
-                        if (window.MathJax.typesetClear) {
-                            window.MathJax.typesetClear([targetEl]);
-                        }
-                    } catch (e) {
-                        /* ignore cleanup errors */
-                    }
-                    return window.MathJax.typesetPromise([targetEl]).then(() => {
-                        targetEl.querySelectorAll('.katex-error, .mjx-error, .MathJax_Error, [data-mjx-error], .mjx-merror').forEach(el => {
-                            if (el.style) {
-                                el.style.color = 'inherit';
-                                el.style.background = 'transparent';
-                                el.style.border = 'none';
+                        // Render the unsupported KaTeX expression, without parsing HTML.
+                        if (typeof math.tex2chtmlPromise === 'function') {
+                            const output = await math.tex2chtmlPromise(latex, { display });
+                            if (output && node.isConnected && !output.querySelector('merror, .mjx-merror, [data-mjx-error]')) {
+                                node.replaceWith(output);
+                                continue;
                             }
-                        });
-                    }).catch((err) => {
-                        console.warn('MathJax typeset notice:', err);
-                    });
-                });
+                        }
+                    } catch (error) {
+                        console.warn('[ScientificFormula] MathJax fallback failed:', error);
+                    }
+                    // Never discard a difficult formula: keep escaped source visible.
+                    node.classList.remove('scientific-mathjax-pending');
+                    node.setAttribute('title', 'Cú pháp nguồn chưa được hỗ trợ. Cần kiểm tra lại công thức.');
+                }
+            };
+            if (window.MathJax && window.MathJax.typesetPromise) {
+                mathJaxPromise = mathJaxPromise.then(async () => {
+                    await renderPending();
+                    // KaTeX output is marked tex2jax_ignore: MathJax must not
+                    // parse formulas a second time and corrupt their structure.
+                    await window.MathJax.typesetPromise([targetEl]);
+                }).catch(err => console.warn('MathJax typeset notice:', err));
             } else if (window.MathJax && window.MathJax.startup && window.MathJax.startup.promise) {
-                window.MathJax.startup.promise.then(() => {
-                    queueMathJax(targetEl);
-                }).catch(() => {});
+                window.MathJax.startup.promise.then(() => queueMathJax(targetEl)).catch(() => {});
             } else {
-                setTimeout(() => queueMathJax(targetEl), 200);
+                // Do not create unbounded retries if the CDN is inaccessible.
+                if (!targetEl.__scientificMathRetry) {
+                    targetEl.__scientificMathRetry = true;
+                    setTimeout(() => { targetEl.__scientificMathRetry = false; queueMathJax(targetEl); }, 1000);
+                }
             }
         }
 
