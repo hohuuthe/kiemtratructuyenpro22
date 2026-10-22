@@ -13,7 +13,7 @@ const question = (id='question0001')=>({
 const validBatch=()=>({
  batchId:'batch-20261023-aaaaaaaa',
  fileName:'Kiểm tra.docx',
- sourceSha256:'abcde',
+ sourceSha256:'a'.repeat(64),
  engineVersion:'word-omml-1.0',questions:[question()]
 });
 test('Payload validation rejects ambiguous/broken/duplicate imports before transactions',()=>{
