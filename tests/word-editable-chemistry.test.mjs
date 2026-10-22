@@ -211,6 +211,9 @@ test('All 7 previously unrenderable historical sources become editable Office Ma
     const original = originals.get(id);
     const run = makeWordMathRun(original);
     assert.ok(run instanceof WordMath,id+' fallback to a raw LaTeX text run');
+    const documentRuns = parseFormattedText(original);
+    assert.equal(documentRuns.length,1,id+' source should remain one integral Word equation');
+    assert.ok(documentRuns[0] instanceof WordMath,id+' DOCX route must render the complete expression');
     const xml = await xmlFor([run]);
     const visible = [...xml.matchAll(/<m:t[^>]*>([^<]*)<\/m:t>/g)].map(m=>m[1].replace(/&amp;/g,'&'));
     console.log('[LegacyEquationOMML]',JSON.stringify({
