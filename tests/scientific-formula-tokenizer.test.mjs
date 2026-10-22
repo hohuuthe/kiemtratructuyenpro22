@@ -1,0 +1,23 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { splitScientificContent } from '../src/scientific-formula-tokenizer.js';
+
+// Regression tests are independent from DOM and external networks.
+test('scientific formula token 1', () => { const tokens = splitScientificContent("$\\frac{1}{2}$"); assert.equal(tokens.length, 1); assert.equal(tokens[0].type, "math"); assert.equal(tokens[0].value, "\\frac{1}{2}"); });
+test('scientific formula token 2', () => { const tokens = splitScientificContent("\\(\\frac{a}{b}+\\sqrt{c}\\)"); assert.equal(tokens.length, 1); assert.equal(tokens[0].type, "math"); assert.equal(tokens[0].value, "\\frac{a}{b}+\\sqrt{c}"); });
+test('scientific formula token 3', () => { const tokens = splitScientificContent("$$\\begin{matrix}1&2\\\\3&4\\end{matrix}$$"); assert.equal(tokens.length, 1); assert.equal(tokens[0].type, "math"); assert.equal(tokens[0].value, "\\begin{matrix}1&2\\\\3&4\\end{matrix}"); });
+test('scientific formula token 4', () => { const tokens = splitScientificContent("\\[\\int_0^1 x^2 dx\\]"); assert.equal(tokens.length, 1); assert.equal(tokens[0].type, "math"); assert.equal(tokens[0].value, "\\int_0^1 x^2 dx"); });
+test('scientific formula token 5', () => { const tokens = splitScientificContent("\\ce{Ca(OH)2 + 2HCl -> CaCl2 + 2H2O}"); assert.equal(tokens.length, 1); assert.equal(tokens[0].type, "math"); assert.equal(tokens[0].value, "\\ce{Ca(OH)2 + 2HCl -> CaCl2 + 2H2O}"); });
+test('scientific formula token 6', () => { const tokens = splitScientificContent("\\pu{9.81 m/s^2}"); assert.equal(tokens.length, 1); assert.equal(tokens[0].type, "math"); assert.equal(tokens[0].value, "\\pu{9.81 m/s^2}"); });
+test('scientific formula token 7', () => { const tokens = splitScientificContent("$\\ce{H2O}$"); assert.equal(tokens.length, 1); assert.equal(tokens[0].type, "math"); assert.equal(tokens[0].value, "\\ce{H2O}"); });
+test('scientific formula token 8', () => { const tokens = splitScientificContent("\\begin{cases}x+y=3\\\\x-y=1\\end{cases}"); assert.equal(tokens.length, 1); assert.equal(tokens[0].type, "math"); assert.equal(tokens[0].value, "\\begin{cases}x+y=3\\\\x-y=1\\end{cases}"); });
+test('scientific formula token 9', () => { const tokens = splitScientificContent("\\frac{\\sqrt{x}}{\\frac{a}{b}}"); assert.equal(tokens.length, 1); assert.equal(tokens[0].type, "math"); assert.equal(tokens[0].value, "\\frac{\\sqrt{x}}{\\frac{a}{b}}"); });
+test('scientific formula token 10', () => { const tokens = splitScientificContent("p^2 + 2pq + q^2 = 1"); assert.equal(tokens.length, 1); assert.equal(tokens[0].type, "math"); assert.equal(tokens[0].value, "p^2 + 2pq + q^2 = 1"); });
+test('scientific formula token 11', () => { const tokens = splitScientificContent("$E=mc^2$"); assert.equal(tokens.length, 1); assert.equal(tokens[0].type, "math"); assert.equal(tokens[0].value, "E=mc^2"); });
+test('scientific formula token 12', () => { const tokens = splitScientificContent("$x_1+x_2$"); assert.equal(tokens.length, 1); assert.equal(tokens[0].type, "math"); assert.equal(tokens[0].value, "x_1+x_2"); });
+test('currency is kept verbatim', () => { const tokens = splitScientificContent("Giá $20, giảm $15 và $x+y=3$"); assert.equal(tokens[0].value, 'Giá $20, giảm $15 và '); assert.equal(tokens[1].value, 'x+y=3'); });
+test('escaped dollar does not start math', () => { const tokens = splitScientificContent("Phí \\$20 và $x^2$"); assert.equal(tokens[0].value, 'Phí $20 và '); assert.equal(tokens[1].value, 'x^2'); });
+test('unmatched dollar never discards original text', () => { const tokens = splitScientificContent('Giá $x thì sao'); assert.ok(tokens.map(t=>t.value).join('').includes('$x')); });
+test('HTML stays text, never interpreted as LaTeX', () => { const tokens = splitScientificContent('<script>alert(1)</script>'); assert.equal(tokens[0].type, 'text'); });
+test('code examples are not typeset', () => { const tokens = splitScientificContent('Code: `$x^2$` và $y^2$'); assert.equal(tokens[0].type,'text'); assert.equal(tokens[1].value,'y^2'); });
+test('math source is unchanged through tokenization', () => { const v = String.raw`\\begin{aligned}E &= mc^2 \\\\ F &= ma\\end{aligned}`; const t = splitScientificContent(v); assert.equal(t.map(z=>z.value).join(''), v); });
