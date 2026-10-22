@@ -5901,13 +5901,16 @@ if (contentType && contentType.includes("application/json")) {
                                 errorText = errJson.error || '';
                             } catch(e) {}
 
-                            if (errorText) {
-                                throw new Error(errorText);
-                            }
+                            // Server errors must not make export permanently unavailable:
+                            // use the same selected exam and the browser-side generator.
+                            console.warn('[ExamExport] Server returned', response.status, errorText);
                             useClientFallback = true;
                         } else {
                             updateProgress(90, `📦 Đang tải về gói đề thi Word và file Excel bảng đáp án...`, `${soLuongDe} / ${soLuongDe} đề`);
                             const zipBlob = await response.blob();
+                            if (zipBlob.size < 100 || !(await zipBlob.slice(0, 4).arrayBuffer()).byteLength) {
+                                throw new Error('Gói đề thi Word trả về trống hoặc không hợp lệ');
+                            }
                             const safeTitle = deThiTitle.replace(/[^a-zA-Z0-9_\u00C0-\u1EF9]/g, '_');
                             const zipFileName = soLuongDe === 1
                                 ? `De_Thi_kem_Dap_An_${safeTitle}_MaDe_${baseMaDe}.zip`
@@ -5935,9 +5938,6 @@ if (contentType && contentType.includes("application/json")) {
                             downloaded = true;
                         }
                     } catch (serverErr) {
-                        if (serverErr.message && !serverErr.message.includes('fetch') && !serverErr.message.includes('NetworkError')) {
-                            throw serverErr;
-                        }
                         console.warn("Server API export failed, switching to client-side generator:", serverErr);
                         useClientFallback = true;
                     }
