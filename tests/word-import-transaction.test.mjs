@@ -7,7 +7,7 @@ const question = (id='question0001')=>({
  answer:'A',options:{},image:'',
  formulaSources:[{token:'__WMATH_000001__',field:'content',sourceType:'omml',
     sourceOmml:'<m:oMath><m:r><m:t>a</m:t></m:r></m:oMath>',
-    latex:'a',status:'verified',engineVersion:'word-omml-1.0'}],
+    latex:'\\frac{a}{b}',status:'verified',engineVersion:'word-omml-1.0'}],
  reviewPending:false,importIssues:[]
 });
 const validBatch=()=>({
@@ -34,7 +34,12 @@ test('Atomic DB interface logs original OMML and verifies exact imported count',
  const sql={
    async query(text,params) {
      calls.push({text,params});
+     if(text.includes('COUNT(*)::integer AS n FROM question_formula_sources')) return [{n:b.questions.reduce((sum,q)=>sum+q.formulaSources.length,0)}];
      if(text.includes('COUNT(*)::integer'))return [{n:b.questions.length}];
+     if(text.includes('SELECT q.id,q.type,q.level')) return b.questions.map(q=>({
+       id:q.id,type:q.type,level:q.level,lesson:q.lesson,content:q.content,
+       options:JSON.stringify(q.options),answer:q.answer,image:q.image
+     }));
      return [];
    },
    async transaction(parts,opts){transactions.push({parts,opts});await Promise.all(parts);return parts;}
