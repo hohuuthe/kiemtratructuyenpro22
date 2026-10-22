@@ -6,6 +6,7 @@ import { Document, Packer, Paragraph } from 'docx';
 import { Math as WordMath } from 'docx/math';
 import { makeWordMathRun, parseFormattedText, generateExamDocx } from '../src/exam-docx-generator.ts';
 import { standaloneMhchemCommand, makeEditableChemistryEquation, makeEditableUnitEquation, expandMhchemForWordMath } from '../src/word-editable-chemistry.js';
+import { repairLegacyScientificLatexForWord } from '../src/word-legacy-latex-repair.js';
 
 const samples = [
   String.raw`\ce{H2O}`,
@@ -174,4 +175,65 @@ test('Common standalone math and biology nomenclature are editable rather than l
     const runs=parseFormattedText(src);
     assert.ok(runs.some(x=>x instanceof WordMath),'Source should be editable math: '+src);
   }
+});
+
+
+const malformedFixtureIDs = ['MAT-022','MAT-079','MAT-086','MAT-088','STR-003','STR-022','STR-030'];
+
+test('Legacy repair touches delimiters only and does not change mathematical operands', () => {
+  const fixture = JSON.parse(readFileSync('tests/fixtures/scientific-formulas-516.json','utf8'));
+  const source = new Map(fixture.cases.map(x=>[x.id,x.latex]));
+  for(const id of malformedFixtureIDs){
+    const raw = source.get(id);
+    assert.ok(raw,id);
+    const clean = repairLegacyScientificLatexForWord(raw);
+    assert.ok(clean.changed,id + ' must have a repair');
+    assert.ok(clean.repairs.length,id + ' must have a diagnostic reason');
+    assert.equal(repairLegacyScientificLatexForWord(clean.latex).latex,clean.latex,'idempotent '+id);
+    assert.ok(clean.latex.includes('1') || id==='MAT-079' || id==='MAT-086' || id==='MAT-088','operands unchanged '+id);
+  }
+  const alreadyValid = [
+    String.raw`\begin{pmatrix}a&b\\c&d\end{pmatrix}`,
+    String.raw`\begin{cases}x>1\\x\le1\end{cases}`,
+    String.raw`\begin{aligned}x&=2\\y&=3\end{aligned}`,
+    String.raw`\frac{\sqrt{x}}{2}`,
+    String.raw`\ce{N2 + 3H2 <=> 2NH3}`,
+  ];
+  for(const raw of alreadyValid) {
+    assert.equal(repairLegacyScientificLatexForWord(raw).latex,raw,'already-valid source must not change');
+  }
+});
+
+test('All 7 previously unrenderable historical sources become editable Office Math', async () => {
+  const fixture = JSON.parse(readFileSync('tests/fixtures/scientific-formulas-516.json','utf8'));
+  const originals = new Map(fixture.cases.map(x=>[x.id,x.latex]));
+  for(const id of malformedFixtureIDs){
+    const original = originals.get(id);
+    const run = makeWordMathRun(original);
+    assert.ok(run instanceof WordMath,id+' fallback to a raw LaTeX text run');
+    const xml = await xmlFor([run]);
+    assert.match(xml, /<m:oMath\b/,id);
+    assert.ok(!xml.includes('\\begin{'),id+' leaked raw TeX environment');
+    if(id==='MAT-086'||id==='MAT-088'||id==='STR-030') {
+      assert.match(xml, /<m:m>|<m:eqArr>/,id+' missing native matrix/array structure');
+    }
+    if(id==='MAT-022'||id==='STR-003'||id==='STR-022'){
+      assert.match(xml, /<m:m>|<m:eqArr>/,id+' missing native multiline equation');
+    }
+  }
+  // Never modify the original source in the fixture or database.
+  assert.equal(new Map(fixture.cases.map(x=>[x.id,x.latex])).get('MAT-079'),
+    String.raw`\angle ABC=$60^{\circ}\text{M}`);
+});
+
+test('All 516 ordinary fixture formulas export as native editable Word Math', async () => {
+  const fixture=JSON.parse(readFileSync('tests/fixtures/scientific-formulas-516.json','utf8'));
+  const regular=fixture.cases.filter(item=>!item.special);
+  const nonEditable=[];
+  for(const item of regular){
+    const runs=parseFormattedText(String(item.latex));
+    if(!runs.some(run=>run instanceof WordMath)) nonEditable.push(item.id);
+  }
+  assert.equal(regular.length,516);
+  assert.deepEqual(nonEditable,[],'All provided scientific fixtures must be editable native Word equations');
 });
