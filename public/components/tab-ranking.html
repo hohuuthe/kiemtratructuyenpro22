@@ -1,0 +1,155 @@
+<div id="tab-ranking" class="tab-content">
+    <div class="bg-white rounded-2xl shadow-xl p-3 md:p-5 mb-4">
+      <!-- Header & Hàng nút: Tải lại kết quả + Báo cáo + Export Excel -->
+      <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 mb-4 pb-3 border-b border-gray-100">
+        <h2 class="text-lg sm:text-xl font-bold text-gray-800 flex items-center gap-2">
+          <span>🏆</span> <span>Quản lý kết quả</span>
+        </h2>
+        
+        <!-- Hàng nút chức năng: Icon Tải lại kết quả nằm TRƯỚC nút Báo cáo & Export Excel -->
+        <div class="flex flex-wrap items-center gap-1.5 sm:gap-2 w-full md:w-auto justify-start md:justify-end">
+          <!-- Icon Tải lại kết quả nằm TRƯỚC nút Báo cáo -->
+          <button type="button" onclick="refreshRankingResults()" class="p-2 bg-white text-purple-700 border border-purple-200 hover:bg-purple-50 hover:border-purple-300 rounded-lg transition shadow-xs flex items-center justify-center font-bold cursor-pointer active:scale-95" title="Tải lại toàn bộ kết quả mới nhất">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+          </button>
+
+          <button id="btn-delete-selected-ranking" onclick="deleteSelectedRankingResults()" class="px-3 py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg transition shadow-xs hidden text-xs sm:text-sm flex items-center gap-1.5 cursor-pointer active:scale-95">
+            <span>🗑️</span> <span id="btn-delete-selected-ranking-text">Xóa đã chọn</span>
+          </button>
+
+          <button id="btn-clear-selected-ranking" onclick="clearAllRankingSelection()" class="px-2.5 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold rounded-lg transition text-xs sm:text-sm hidden items-center gap-1 cursor-pointer active:scale-95" title="Bỏ chọn tất cả">
+            <span>✕</span> Bỏ chọn
+          </button>
+          
+          <button onclick="openExamReportModal()" class="px-3 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold rounded-lg transition shadow-md text-xs sm:text-sm flex items-center gap-1.5 cursor-pointer active:scale-95">
+            <span>📈</span> Báo cáo
+          </button>
+          
+          <button onclick="exportRanking()" class="px-3 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold rounded-lg transition shadow-md text-xs sm:text-sm flex items-center gap-1.5 cursor-pointer active:scale-95">
+            <span>📊</span> Export Excel
+          </button>
+        </div>
+      </div>
+
+      <!-- Thanh công cụ bộ lọc và Ô tìm kiếm rộng toàn màn hình -->
+      <div class="space-y-2.5 mb-4 p-3 bg-purple-50/40 rounded-xl border border-purple-100/70">
+        <!-- Hàng bộ lọc: Trên máy tính (lg:) tất cả nằm cùng 1 dòng; Trên điện thoại giữ nguyên chia 2 hàng -->
+        <div class="flex flex-col lg:flex-row items-stretch lg:items-center gap-2">
+          <!-- Cụm 1: Mã xem điểm & Chọn đề thi -->
+          <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 flex-1 min-w-0">
+            <!-- Mã xem điểm (Xem KQ) -->
+            <div class="flex items-center space-x-1 border border-indigo-200 rounded-lg p-1 bg-white shadow-2xs shrink-0">
+              <input type="text" id="shared-result-code" placeholder="Nhập mã xem điểm..." class="px-2.5 py-1.5 border-0 focus:ring-0 focus:outline-none text-xs sm:text-sm flex-1 sm:w-36 bg-transparent">
+              <button onclick="loadSharedResultsByCode()" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-md text-xs transition cursor-pointer whitespace-nowrap">Xem KQ</button>
+            </div>
+
+            <!-- Chọn / Lọc theo đề thi -->
+            <select id="ranking-exam-filter" onchange="renderRanking()" class="px-3 py-2 border border-gray-200 rounded-lg focus:border-purple-500 focus:outline-none text-xs sm:text-sm flex-1 min-w-0 bg-white shadow-2xs font-medium text-gray-700 cursor-pointer" title="Lọc theo đề thi">
+              <option value="">-- Tất cả đề thi --</option>
+            </select>
+          </div>
+
+          <!-- Cụm 2: Bộ lọc Đơn vị / Trường, Lớp và Bộ lọc lớp phụ trách -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:flex lg:items-center gap-2 lg:shrink-0">
+            <select id="ranking-unit-filter" onchange="renderRanking()" class="w-full lg:w-48 px-3 py-2 border border-gray-200 rounded-lg focus:border-purple-500 focus:outline-none text-xs sm:text-sm bg-white shadow-2xs font-medium text-gray-700 cursor-pointer" title="Lọc theo đơn vị / trường">
+              <option value="">-- Tất cả đơn vị --</option>
+            </select>
+
+            <select id="ranking-class-filter" onchange="renderRanking()" class="w-full lg:w-36 px-3 py-2 border border-gray-200 rounded-lg focus:border-purple-500 focus:outline-none text-xs sm:text-sm bg-white shadow-2xs font-medium text-gray-700 cursor-pointer" title="Lọc theo lớp">
+              <option value="">-- Tất cả lớp --</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Ô tìm kiếm rộng ra TOÀN MÀN HÌNH (w-full) & Thanh chọn Sắp xếp linh hoạt -->
+        <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full">
+          <div class="relative group flex-1">
+            <input type="text" id="ranking-search" oninput="renderRanking()" placeholder="🔍 Tìm kiếm thông minh (không dấu, gần đúng): Họ tên, SBD, Lớp, Trường, Đề thi, Điểm, Ngày..." class="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 focus:outline-none text-xs sm:text-sm bg-white transition shadow-2xs group-hover:border-purple-300">
+            <svg class="w-4 h-4 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2 group-hover:text-purple-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+          </div>
+
+          <!-- Thanh chọn Sắp xếp linh hoạt -->
+          <div class="flex items-center gap-1.5 shrink-0 bg-white border border-purple-200/80 rounded-lg p-1 shadow-2xs">
+            <span class="text-xs font-bold text-purple-900 pl-1.5 shrink-0">↕️ Sắp xếp:</span>
+            <select id="ranking-sort-select" onchange="sortRankingBy(this.value)" class="px-2 py-1 border-0 focus:ring-0 focus:outline-none text-xs font-semibold text-purple-900 bg-transparent cursor-pointer">
+              <option value="rank">Mặc định (Hạng cao nhất)</option>
+              <option value="studentName">Họ tên (A-Z)</option>
+              <option value="score">Điểm số (Thấp ↔ Cao)</option>
+              <option value="correctCount">Số câu đúng</option>
+              <option value="timeTaken">Thời gian làm bài</option>
+              <option value="lop">Lớp</option>
+              <option value="donvi">Đơn vị / Trường</option>
+              <option value="loaiThiSinh">Loại thí sinh</option>
+              <option value="aiGrading">Chấm tự động</option>
+              <option value="examName">Tên đề thi</option>
+            </select>
+            <button type="button" onclick="toggleRankingSortDirection()" id="sort-direction-btn" class="px-2 py-1 bg-purple-100 hover:bg-purple-200 text-purple-800 rounded font-bold text-xs transition cursor-pointer shrink-0 flex items-center gap-1" title="Đổi hướng sắp xếp (Tăng dần / Giảm dần)">
+              <span id="sort-direction-btn-icon">🔽 Giảm dần</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Thanh công cụ lựa chọn & thao tác nhanh (hiển thị khi có mục được chọn) -->
+      <div id="ranking-selection-bar" class="hidden mb-3 p-2.5 bg-gradient-to-r from-purple-50 via-indigo-50 to-pink-50 rounded-xl border border-purple-200 flex flex-wrap items-center justify-between gap-2 shadow-xs transition-all">
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="w-2.5 h-2.5 rounded-full bg-purple-600 animate-pulse"></span>
+          <span class="text-xs sm:text-sm font-bold text-purple-950">
+            Đã chọn: <span id="ranking-selected-count-badge" class="px-2 py-0.5 bg-purple-600 text-white rounded-full text-xs font-bold">0</span> kết quả
+          </span>
+          <button type="button" onclick="selectAllFilteredRankingResults()" id="btn-select-all-filtered" class="hidden text-xs text-indigo-700 hover:text-indigo-900 underline font-semibold cursor-pointer">
+            Chọn toàn bộ kết quả đang lọc
+          </button>
+        </div>
+        <div class="flex items-center gap-2">
+          <button type="button" onclick="clearAllRankingSelection()" class="px-2.5 py-1.5 bg-white text-gray-700 hover:bg-gray-100 border border-gray-300 rounded-lg text-xs font-semibold transition cursor-pointer shadow-2xs active:scale-95">
+            ✕ Bỏ chọn
+          </button>
+          <button type="button" onclick="deleteSelectedRankingResults()" class="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg text-xs transition flex items-center gap-1.5 shadow-xs cursor-pointer active:scale-95">
+            <span>🗑️</span> Xóa đã chọn
+          </button>
+        </div>
+      </div>
+
+      <!-- Bảng Desktop -->
+      <div id="ranking-container-desktop" class="hidden md:block overflow-x-auto">
+       <table class="w-full text-[15px]">
+        <thead>
+         <tr class="bg-gradient-to-r from-purple-500 to-pink-500 text-white text-base select-none">
+          <th class="px-1.5 py-1.5 text-center rounded-tl-lg w-10">
+            <input type="checkbox" id="ranking-select-all" class="w-4 h-4 rounded border-white cursor-pointer" onchange="toggleAllRankingCheckboxes(this.checked)" title="Chọn/Bỏ chọn tất cả trang này">
+          </th>
+          <th class="px-2 py-1.5 text-left w-14 whitespace-nowrap cursor-pointer hover:bg-white/10 rounded transition" onclick="sortRankingBy('rank')" title="Click để sắp xếp theo Hạng">Hạng <span id="sort-icon-rank" class="text-xs">↕️</span></th>
+          <th class="px-2 py-1.5 text-left w-24 whitespace-nowrap cursor-pointer hover:bg-white/10 rounded transition" onclick="sortRankingBy('loaiThiSinh')" title="Click để sắp xếp theo Loại thí sinh">Loại TS <span id="sort-icon-loaiThiSinh" class="text-xs opacity-75">↕️</span></th>
+          <th class="px-3 py-1.5 text-left cursor-pointer hover:bg-white/10 rounded transition" onclick="sortRankingBy('studentName')" title="Click để sắp xếp theo Họ tên">Họ tên <span id="sort-icon-studentName" class="text-xs opacity-75">↕️</span></th>
+          <th class="px-2 py-1.5 text-center w-20 whitespace-nowrap cursor-pointer hover:bg-white/10 rounded transition" onclick="sortRankingBy('lop')" title="Click để sắp xếp theo Lớp">Lớp <span id="sort-icon-lop" class="text-xs opacity-75">↕️</span></th>
+          <th class="px-3 py-1.5 text-left w-36 whitespace-nowrap cursor-pointer hover:bg-white/10 rounded transition" onclick="sortRankingBy('donvi')" title="Click để sắp xếp theo Đơn vị / Trường">Đơn vị / Trường <span id="sort-icon-donvi" class="text-xs opacity-75">↕️</span></th>
+          <th class="px-2 py-1.5 text-center w-16 whitespace-nowrap cursor-pointer hover:bg-white/10 rounded transition" onclick="sortRankingBy('score')" title="Click để sắp xếp theo Điểm">Điểm <span id="sort-icon-score" class="text-xs opacity-75">↕️</span></th>
+          <th class="px-2 py-1.5 text-center w-24 whitespace-nowrap cursor-pointer hover:bg-white/10 rounded transition" onclick="sortRankingBy('correctCount')" title="Click để sắp xếp theo Số câu đúng">Số câu đúng <span id="sort-icon-correctCount" class="text-xs opacity-75">↕️</span></th>
+          <th class="px-2 py-1.5 text-center w-20 whitespace-nowrap cursor-pointer hover:bg-white/10 rounded transition" onclick="sortRankingBy('timeTaken')" title="Click để sắp xếp theo Thời gian">Thời gian <span id="sort-icon-timeTaken" class="text-xs opacity-75">↕️</span></th>
+          <th class="px-3 py-1.5 text-center w-32 whitespace-nowrap cursor-pointer hover:bg-white/10 rounded transition" onclick="sortRankingBy('aiGrading')" title="Click để sắp xếp theo Trạng thái chấm">Chấm tự động <span id="sort-icon-aiGrading" class="text-xs opacity-75">↕️</span></th>
+          <th class="px-4 py-1.5 text-left cursor-pointer hover:bg-white/10 rounded transition" onclick="sortRankingBy('examName')" title="Click để sắp xếp theo Đề thi">Đề thi <span id="sort-icon-examName" class="text-xs opacity-75">↕️</span></th>
+          <th class="px-2 py-1.5 text-center rounded-tr-lg w-28 whitespace-nowrap">Thao tác</th>
+         </tr>
+        </thead>
+        <tbody id="ranking-table">
+        </tbody>
+       </table>
+      </div>
+
+      <!-- Thanh chọn nhanh trên Mobile -->
+      <div class="md:hidden flex items-center justify-between px-2 py-1.5 mb-2 bg-purple-50/70 rounded-xl border border-purple-100">
+        <label class="flex items-center gap-2 text-xs font-bold text-purple-900 cursor-pointer select-none">
+          <input type="checkbox" id="ranking-select-all-mobile" onchange="toggleAllRankingCheckboxes(this.checked)" class="w-4 h-4 rounded text-purple-600 border-gray-300">
+          <span>Chọn tất cả trang này</span>
+        </label>
+        <span id="ranking-mobile-count-text" class="text-xs text-gray-500 font-medium"></span>
+      </div>
+
+      <!-- Danh sách dạng Card trên Mobile -->
+      <div id="ranking-container-mobile" class="md:hidden space-y-4 px-1"></div>
+
+      <!-- Thanh phân trang linh hoạt chuyên nghiệp -->
+      <div id="ranking-pagination" class="mt-4 pt-3 border-t border-gray-100 flex flex-wrap items-center justify-between gap-3 px-2 text-sm text-gray-700"></div>
+    </div>
+</div>

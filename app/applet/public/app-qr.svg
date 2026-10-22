@@ -1,0 +1,116 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000" width="1000" height="1000">
+  <rect width="1000" height="1000" fill="#ffffff" />
+  
+  <!-- Outer Gold Rounded Border -->
+  <rect x="160" y="200" width="680" height="680" rx="45" fill="none" stroke="#E6AD38" stroke-width="22" />
+
+  <!-- QR Position Targets Top-Left, Top-Right, Bottom-Left -->
+  <!-- Top-Left Target -->
+  <g transform="translate(305, 345)">
+    <circle cx="0" cy="0" r="62" fill="none" stroke="#C82323" stroke-width="16" />
+    <circle cx="0" cy="0" r="32" fill="none" stroke="#C82323" stroke-width="14" />
+    <circle cx="0" cy="0" r="14" fill="#C82323" />
+  </g>
+  <!-- Top-Right Target -->
+  <g transform="translate(695, 345)">
+    <circle cx="0" cy="0" r="62" fill="none" stroke="#C82323" stroke-width="16" />
+    <circle cx="0" cy="0" r="32" fill="none" stroke="#C82323" stroke-width="14" />
+    <circle cx="0" cy="0" r="14" fill="#C82323" />
+  </g>
+  <!-- Bottom-Left Target -->
+  <g transform="translate(305, 735)">
+    <circle cx="0" cy="0" r="62" fill="none" stroke="#C82323" stroke-width="16" />
+    <circle cx="0" cy="0" r="32" fill="none" stroke="#C82323" stroke-width="14" />
+    <circle cx="0" cy="0" r="14" fill="#C82323" />
+  </g>
+
+  <!-- QR Data Grid (Red Circles Pattern) -->
+  <g fill="#C82323">
+    <!-- Timing patterns & Data modules -->
+    <circle cx="410" cy="305" r="8" /><circle cx="430" cy="305" r="8" /><circle cx="450" cy="305" r="8" /><circle cx="500" cy="305" r="8" /><circle cx="520" cy="305" r="8" /><circle cx="540" cy="305" r="8" />
+    <circle cx="420" cy="325" r="8" /><circle cx="440" cy="325" r="8" /><circle cx="480" cy="325" r="8" /><circle cx="510" cy="325" r="8" /><circle cx="550" cy="325" r="8" /><circle cx="570" cy="325" r="8" />
+    <circle cx="390" cy="345" r="8" /><circle cx="430" cy="345" r="8" /><circle cx="470" cy="345" r="8" /><circle cx="530" cy="345" r="8" /><circle cx="560" cy="345" r="8" /><circle cx="600" cy="345" r="8" />
+    <circle cx="400" cy="365" r="8" /><circle cx="450" cy="365" r="8" /><circle cx="490" cy="365" r="8" /><circle cx="520" cy="365" r="8" /><circle cx="580" cy="365" r="8" />
+    <circle cx="410" cy="385" r="8" /><circle cx="440" cy="385" r="8" /><circle cx="460" cy="385" r="8" /><circle cx="500" cy="385" r="8" /><circle cx="540" cy="385" r="8" /><circle cx="590" cy="385" r="8" />
+    
+    <!-- Middle Matrix -->
+    <circle cx="245" cy="455" r="8" /><circle cx="265" cy="455" r="8" /><circle cx="305" cy="455" r="8" /><circle cx="325" cy="455" r="8" /><circle cx="345" cy="455" r="8" /><circle cx="365" cy="455" r="8" /><circle cx="385" cy="455" r="8" />
+    <circle cx="410" cy="425" r="8" /><circle cx="430" cy="425" r="8" /><circle cx="450" cy="425" r="8" /><circle cx="470" cy="425" r="8" /><circle cx="510" cy="425" r="8" /><circle cx="530" cy="425" r="8" /><circle cx="550" cy="425" r="8" /><circle cx="570" cy="425" r="8" /><circle cx="610" cy="425" r="8" /><circle cx="650" cy="425" r="8" /><circle cx="670" cy="425" r="8" /><circle cx="690" cy="425" r="8" /><circle cx="710" cy="425" r="8" /><circle cx="730" cy="425" r="8" />
+    <circle cx="245" cy="495" r="8" /><circle cx="265" cy="495" r="8" /><circle cx="285" cy="495" r="8" /><circle cx="315" cy="495" r="8" /><circle cx="335" cy="495" r="8" /><circle cx="355" cy="495" r="8" /><circle cx="375" cy="495" r="8" /><circle cx="395" cy="495" r="8" /><circle cx="415" cy="495" r="8" /><circle cx="435" cy="495" r="8" /><circle cx="455" cy="495" r="8" /><circle cx="475" cy="495" r="8" /><circle cx="495" cy="495" r="8" /><circle cx="525" cy="495" r="8" /><circle cx="545" cy="495" r="8" /><circle cx="565" cy="495" r="8" /><circle cx="585" cy="495" r="8" /><circle cx="615" cy="495" r="8" /><circle cx="635" cy="495" r="8" /><circle cx="655" cy="495" r="8" /><circle cx="685" cy="495" r="8" /><circle cx="715" cy="495" r="8" /><circle cx="735" cy="495" r="8" />
+    <circle cx="245" cy="515" r="8" /><circle cx="275" cy="515" r="8" /><circle cx="295" cy="515" r="8" /><circle cx="325" cy="515" r="8" /><circle cx="345" cy="515" r="8" /><circle cx="365" cy="515" r="8" /><circle cx="395" cy="515" r="8" /><circle cx="415" cy="515" r="8" /><circle cx="435" cy="515" r="8" /><circle cx="465" cy="515" r="8" /><circle cx="485" cy="515" r="8" /><circle cx="505" cy="515" r="8" /><circle cx="535" cy="515" r="8" /><circle cx="555" cy="515" r="8" /><circle cx="575" cy="515" r="8" /><circle cx="605" cy="515" r="8" /><circle cx="625" cy="515" r="8" /><circle cx="645" cy="515" r="8" /><circle cx="665" cy="515" r="8" /><circle cx="695" cy="515" r="8" /><circle cx="715" cy="515" r="8" /><circle cx="735" cy="515" r="8" />
+    <circle cx="245" cy="540" r="8" /><circle cx="285" cy="540" r="8" /><circle cx="315" cy="540" r="8" /><circle cx="335" cy="540" r="8" /><circle cx="365" cy="540" r="8" /><circle cx="385" cy="540" r="8" /><circle cx="415" cy="540" r="8" /><circle cx="445" cy="540" r="8" /><circle cx="465" cy="540" r="8" /><circle cx="495" cy="540" r="8" /><circle cx="515" cy="540" r="8" /><circle cx="545" cy="540" r="8" /><circle cx="565" cy="540" r="8" /><circle cx="585" cy="540" r="8" /><circle cx="615" cy="540" r="8" /><circle cx="645" cy="540" r="8" /><circle cx="675" cy="540" r="8" /><circle cx="705" cy="540" r="8" /><circle cx="735" cy="540" r="8" />
+    <circle cx="245" cy="565" r="8" /><circle cx="265" cy="565" r="8" /><circle cx="295" cy="565" r="8" /><circle cx="325" cy="565" r="8" /><circle cx="355" cy="565" r="8" /><circle cx="375" cy="565" r="8" /><circle cx="405" cy="565" r="8" /><circle cx="425" cy="565" r="8" /><circle cx="455" cy="565" r="8" /><circle cx="475" cy="565" r="8" /><circle cx="505" cy="565" r="8" /><circle cx="525" cy="565" r="8" /><circle cx="555" cy="565" r="8" /><circle cx="575" cy="565" r="8" /><circle cx="595" cy="565" r="8" /><circle cx="625" cy="565" r="8" /><circle cx="655" cy="565" r="8" /><circle cx="685" cy="565" r="8" /><circle cx="715" cy="565" r="8" /><circle cx="735" cy="565" r="8" />
+    <circle cx="245" cy="590" r="8" /><circle cx="275" cy="590" r="8" /><circle cx="305" cy="590" r="8" /><circle cx="335" cy="590" r="8" /><circle cx="365" cy="590" r="8" /><circle cx="395" cy="590" r="8" /><circle cx="425" cy="590" r="8" /><circle cx="445" cy="590" r="8" /><circle cx="475" cy="590" r="8" /><circle cx="495" cy="590" r="8" /><circle cx="515" cy="590" r="8" /><circle cx="545" cy="590" r="8" /><circle cx="565" cy="590" r="8" /><circle cx="595" cy="590" r="8" /><circle cx="615" cy="590" r="8" /><circle cx="645" cy="590" r="8" /><circle cx="675" cy="590" r="8" /><circle cx="705" cy="590" r="8" /><circle cx="735" cy="590" r="8" />
+    <circle cx="245" cy="615" r="8" /><circle cx="265" cy="615" r="8" /><circle cx="295" cy="615" r="8" /><circle cx="315" cy="615" r="8" /><circle cx="345" cy="615" r="8" /><circle cx="375" cy="615" r="8" /><circle cx="405" cy="615" r="8" /><circle cx="435" cy="615" r="8" /><circle cx="465" cy="615" r="8" /><circle cx="485" cy="615" r="8" /><circle cx="515" cy="615" r="8" /><circle cx="535" cy="615" r="8" /><circle cx="565" cy="615" r="8" /><circle cx="585" cy="615" r="8" /><circle cx="605" cy="615" r="8" /><circle cx="635" cy="615" r="8" /><circle cx="665" cy="615" r="8" /><circle cx="695" cy="615" r="8" /><circle cx="725" cy="615" r="8" />
+    <circle cx="245" cy="640" r="8" /><circle cx="285" cy="640" r="8" /><circle cx="305" cy="640" r="8" /><circle cx="335" cy="640" r="8" /><circle cx="355" cy="640" r="8" /><circle cx="385" cy="640" r="8" /><circle cx="415" cy="640" r="8" /><circle cx="435" cy="640" r="8" /><circle cx="455" cy="640" r="8" /><circle cx="485" cy="640" r="8" /><circle cx="505" cy="640" r="8" /><circle cx="535" cy="640" r="8" /><circle cx="555" cy="640" r="8" /><circle cx="585" cy="640" r="8" /><circle cx="615" cy="640" r="8" /><circle cx="645" cy="640" r="8" /><circle cx="675" cy="640" r="8" /><circle cx="705" cy="640" r="8" /><circle cx="735" cy="640" r="8" />
+    
+    <!-- Bottom Grid -->
+    <circle cx="390" cy="670" r="8" /><circle cx="410" cy="670" r="8" /><circle cx="430" cy="670" r="8" /><circle cx="470" cy="670" r="8" /><circle cx="500" cy="670" r="8" /><circle cx="520" cy="670" r="8" /><circle cx="550" cy="670" r="8" /><circle cx="580" cy="670" r="8" /><circle cx="600" cy="670" r="8" /><circle cx="630" cy="670" r="8" /><circle cx="660" cy="670" r="8" /><circle cx="690" cy="670" r="8" /><circle cx="710" cy="670" r="8" />
+    <circle cx="410" cy="700" r="8" /><circle cx="430" cy="700" r="8" /><circle cx="450" cy="700" r="8" /><circle cx="480" cy="700" r="8" /><circle cx="510" cy="700" r="8" /><circle cx="530" cy="700" r="8" /><circle cx="560" cy="700" r="8" /><circle cx="590" cy="700" r="8" /><circle cx="610" cy="700" r="8" /><circle cx="640" cy="700" r="8" /><circle cx="670" cy="700" r="8" /><circle cx="700" cy="700" r="8" /><circle cx="730" cy="700" r="8" />
+    <circle cx="390" cy="730" r="8" /><circle cx="420" cy="730" r="8" /><circle cx="440" cy="730" r="8" /><circle cx="460" cy="730" r="8" /><circle cx="490" cy="730" r="8" /><circle cx="520" cy="730" r="8" /><circle cx="540" cy="730" r="8" /><circle cx="570" cy="730" r="8" /><circle cx="600" cy="730" r="8" /><circle cx="620" cy="730" r="8" /><circle cx="650" cy="730" r="8" /><circle cx="680" cy="730" r="8" /><circle cx="710" cy="730" r="8" />
+    <circle cx="400" cy="760" r="8" /><circle cx="430" cy="760" r="8" /><circle cx="450" cy="760" r="8" /><circle cx="480" cy="760" r="8" /><circle cx="510" cy="760" r="8" /><circle cx="530" cy="760" r="8" /><circle cx="560" cy="760" r="8" /><circle cx="590" cy="760" r="8" /><circle cx="610" cy="760" r="8" /><circle cx="640" cy="760" r="8" /><circle cx="670" cy="760" r="8" /><circle cx="700" cy="760" r="8" /><circle cx="720" cy="760" r="8" />
+    <circle cx="380" cy="780" r="8" /><circle cx="410" cy="780" r="8" /><circle cx="440" cy="780" r="8" /><circle cx="470" cy="780" r="8" /><circle cx="500" cy="780" r="8" /><circle cx="520" cy="780" r="8" /><circle cx="550" cy="780" r="8" /><circle cx="580" cy="780" r="8" /><circle cx="600" cy="780" r="8" /><circle cx="630" cy="780" r="8" /><circle cx="660" cy="780" r="8" /><circle cx="690" cy="780" r="8" /><circle cx="710" cy="780" r="8" />
+  </g>
+
+  <!-- Left Lantern & Flowers Decorative Accent -->
+  <g id="decorations-left">
+    <!-- Top-Left Flower Cluster -->
+    <g transform="translate(180, 230)">
+      <path d="M0,-35 C12,-35 25,-20 20,-5 C35,-12 45,5 35,20 C45,30 30,45 15,38 C18,52 -2,58 -15,45 C-28,58 -45,45 -38,30 C-52,22 -45,-2 -30,-8 C-35,-25 -18,-38 0,-35 Z" fill="#F6CD57" stroke="#C82323" stroke-width="3" />
+      <circle cx="0" cy="10" r="10" fill="#C82323" />
+    </g>
+    <!-- Left Top Small Flower -->
+    <g transform="translate(210, 150) scale(0.6)">
+      <path d="M0,-35 C12,-35 25,-20 20,-5 C35,-12 45,5 35,20 C45,30 30,45 15,38 C18,52 -2,58 -15,45 C-28,58 -45,45 -38,30 C-52,22 -45,-2 -30,-8 C-35,-25 -18,-38 0,-35 Z" fill="#F6CD57" stroke="#C82323" stroke-width="3" />
+      <circle cx="0" cy="10" r="10" fill="#C82323" />
+    </g>
+    <!-- Left Mid Small Flower -->
+    <g transform="translate(70, 340) scale(0.7)">
+      <path d="M0,-35 C12,-35 25,-20 20,-5 C35,-12 45,5 35,20 C45,30 30,45 15,38 C18,52 -2,58 -15,45 C-28,58 -45,45 -38,30 C-52,22 -45,-2 -30,-8 C-35,-25 -18,-38 0,-35 Z" fill="#F6CD57" stroke="#C82323" stroke-width="3" />
+      <circle cx="0" cy="10" r="10" fill="#C82323" />
+    </g>
+    <!-- Left Main Lantern -->
+    <g transform="translate(170, 480)">
+      <line x1="0" y1="-180" x2="0" y2="-100" stroke="#E6AD38" stroke-width="6" />
+      <!-- Lantern Body -->
+      <path d="M-55,-100 C-85,-20 -85,60 -55,140 C-25,180 25,180 55,140 C85,60 85,-20 55,-100 Z" fill="#F6CD57" stroke="#C82323" stroke-width="8" />
+      <path d="M-25,-100 C-45,-20 -45,60 -25,140 M0,-100 L0,140 M25,-100 C45,-20 45,60 25,140" fill="none" stroke="#C82323" stroke-width="4" />
+      <rect x="-35" y="-115" width="70" height="15" rx="4" fill="#C82323" />
+      <rect x="-35" y="140" width="70" height="15" rx="4" fill="#C82323" />
+      <!-- Tassel -->
+      <line x1="0" y1="155" x2="0" y2="210" stroke="#C82323" stroke-width="6" />
+      <path d="M-12,210 L12,210 L18,270 L-18,270 Z" fill="#C82323" />
+    </g>
+  </g>
+
+  <!-- Right Lantern & Flowers Decorative Accent -->
+  <g id="decorations-right">
+    <!-- Right Middle Flower Cluster -->
+    <g transform="translate(840, 420)">
+      <path d="M0,-35 C12,-35 25,-20 20,-5 C35,-12 45,5 35,20 C45,30 30,45 15,38 C18,52 -2,58 -15,45 C-28,58 -45,45 -38,30 C-52,22 -45,-2 -30,-8 C-35,-25 -18,-38 0,-35 Z" fill="#F6CD57" stroke="#C82323" stroke-width="3" />
+      <circle cx="0" cy="10" r="10" fill="#C82323" />
+    </g>
+    <!-- Right Small Flower 1 -->
+    <g transform="translate(770, 520) scale(0.6)">
+      <path d="M0,-35 C12,-35 25,-20 20,-5 C35,-12 45,5 35,20 C45,30 30,45 15,38 C18,52 -2,58 -15,45 C-28,58 -45,45 -38,30 C-52,22 -45,-2 -30,-8 C-35,-25 -18,-38 0,-35 Z" fill="#F6CD57" stroke="#C82323" stroke-width="3" />
+      <circle cx="0" cy="10" r="10" fill="#C82323" />
+    </g>
+    <!-- Right Small Flower 2 -->
+    <g transform="translate(930, 530) scale(0.65)">
+      <path d="M0,-35 C12,-35 25,-20 20,-5 C35,-12 45,5 35,20 C45,30 30,45 15,38 C18,52 -2,58 -15,45 C-28,58 -45,45 -38,30 C-52,22 -45,-2 -30,-8 C-35,-25 -18,-38 0,-35 Z" fill="#F6CD57" stroke="#C82323" stroke-width="3" />
+      <circle cx="0" cy="10" r="10" fill="#C82323" />
+    </g>
+    <!-- Right Main Lantern -->
+    <g transform="translate(840, 620)">
+      <line x1="0" y1="-150" x2="0" y2="-100" stroke="#E6AD38" stroke-width="6" />
+      <!-- Lantern Body -->
+      <path d="M-55,-100 C-85,-20 -85,60 -55,140 C-25,180 25,180 55,140 C85,60 85,-20 55,-100 Z" fill="#F6CD57" stroke="#C82323" stroke-width="8" />
+      <path d="M-25,-100 C-45,-20 -45,60 -25,140 M0,-100 L0,140 M25,-100 C45,-20 45,60 25,140" fill="none" stroke="#C82323" stroke-width="4" />
+      <rect x="-35" y="-115" width="70" height="15" rx="4" fill="#C82323" />
+      <rect x="-35" y="140" width="70" height="15" rx="4" fill="#C82323" />
+      <!-- Tassel -->
+      <line x1="0" y1="155" x2="0" y2="210" stroke="#C82323" stroke-width="6" />
+      <path d="M-12,210 L12,210 L18,270 L-18,270 Z" fill="#C82323" />
+    </g>
+  </g>
+</svg>

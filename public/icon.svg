@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#064e3b"/>
+      <stop offset="50%" stop-color="#047857"/>
+      <stop offset="100%" stop-color="#059669"/>
+    </linearGradient>
+    <linearGradient id="accentGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fef08a"/>
+      <stop offset="100%" stop-color="#f59e0b"/>
+    </linearGradient>
+    <linearGradient id="paperGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#f8fafc"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="16" stdDeviation="16" flood-color="#022c22" flood-opacity="0.5"/>
+    </filter>
+    <filter id="innerShadow" x="-10%" y="-10%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#000000" flood-opacity="0.15"/>
+    </filter>
+  </defs>
+
+  <!-- Background Base (Full bleed for maskable PWA) -->
+  <rect width="512" height="512" rx="112" fill="url(#bgGrad)"/>
+
+  <!-- Inner border ring -->
+  <rect x="20" y="20" width="472" height="472" rx="96" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="4"/>
+
+  <!-- Main Exam Clipboard / Paper with shadow -->
+  <g filter="url(#shadow)">
+    <!-- Paper Sheet -->
+    <rect x="110" y="90" width="292" height="340" rx="32" fill="url(#paperGrad)"/>
+    
+    <!-- Header Clip / Top Plaque -->
+    <rect x="190" y="70" width="132" height="48" rx="16" fill="url(#accentGrad)" filter="url(#innerShadow)"/>
+    <circle cx="256" cy="94" r="10" fill="#047857"/>
+
+    <!-- Exam Content Lines & Checkmarks -->
+    <!-- Row 1: Checkbox & Line -->
+    <circle cx="160" cy="170" r="18" fill="#10b981"/>
+    <path d="M152 170 L158 176 L169 164" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="196" y="162" width="160" height="16" rx="8" fill="#cbd5e1"/>
+
+    <!-- Row 2: Checkbox & Line -->
+    <circle cx="160" cy="230" r="18" fill="#10b981"/>
+    <path d="M152 230 L158 236 L169 224" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="196" y="222" width="130" height="16" rx="8" fill="#cbd5e1"/>
+
+    <!-- Row 3: Option Selected -->
+    <circle cx="160" cy="290" r="18" fill="#f59e0b"/>
+    <circle cx="160" cy="290" r="8" fill="#ffffff"/>
+    <rect x="196" y="282" width="170" height="16" rx="8" fill="#cbd5e1"/>
+
+    <!-- Row 4: Score/Badge / A+ -->
+    <rect x="150" y="344" width="110" height="48" rx="14" fill="#047857"/>
+    <text x="205" y="377" font-family="system-ui, -apple-system, sans-serif" font-size="24" font-weight="900" fill="#ffffff" text-anchor="middle">10/10</text>
+  </g>
+
+  <!-- Modern Floating Pen/Stylus -->
+  <g filter="url(#shadow)" transform="rotate(35 375 365)">
+    <!-- Pen Body -->
+    <rect x="355" y="260" width="32" height="150" rx="8" fill="url(#accentGrad)"/>
+    <!-- Pen Tip -->
+    <path d="M355 410 L371 445 L387 410 Z" fill="#334155"/>
+    <circle cx="371" cy="442" r="3" fill="#047857"/>
+    <!-- Pen Cap band -->
+    <rect x="355" y="295" width="32" height="10" fill="#ffffff" opacity="0.6"/>
+  </g>
+</svg>

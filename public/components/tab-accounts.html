@@ -1,0 +1,181 @@
+<div id="tab-accounts" class="tab-content w-full">
+    <div class="bg-white rounded-2xl shadow-xl p-3.5 sm:p-5 md:p-6 mb-6">
+     <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-2.5 sm:gap-3 md:gap-4 mb-3 sm:mb-4 pb-3 sm:pb-4 border-b border-gray-100">
+      <!-- Tiêu đề 1 hàng và Tổng số tài khoản nằm ở bên dưới -->
+      <div class="flex flex-col items-start min-w-0 w-full md:w-auto">
+        <h2 class="text-sm sm:text-lg md:text-2xl font-bold text-gray-800 tracking-tight whitespace-nowrap overflow-hidden text-ellipsis w-full flex items-center gap-1.5">
+          <span>🔑</span> <span>Quản lý Tài khoản & Mật khẩu</span>
+        </h2>
+        <div class="mt-1 flex items-center gap-2">
+          <span id="accounts-count" class="text-[11px] sm:text-xs text-purple-700 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded-md font-bold whitespace-nowrap shadow-xs">
+            Tổng: 0 tài khoản
+          </span>
+        </div>
+      </div>
+      
+      <!-- Hàng nút tác vụ (3 nút chính nằm cùng một hàng) -->
+      <div class="flex items-center gap-1.5 sm:gap-2 w-full md:w-auto justify-start md:justify-end flex-nowrap overflow-x-auto pb-0.5">
+        <!-- Nút Tải lại toàn bộ danh sách tài khoản -->
+        <button type="button" onclick="window.refreshAccountsData()" class="p-1.5 sm:p-2 bg-white text-purple-700 border border-purple-200 hover:bg-purple-50 hover:border-purple-300 active:scale-95 rounded-lg transition shadow-xs flex items-center justify-center font-bold cursor-pointer shrink-0" title="Tải lại toàn bộ danh sách tài khoản">
+          <svg class="w-3.5 h-3.5 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+        </button>
+
+        <!-- Nút Xóa các tài khoản đã chọn -->
+        <button id="btn-delete-selected-accounts" onclick="window.confirmDeleteSelectedAccounts()" class="hidden px-2.5 py-1.5 sm:px-3.5 sm:py-2 bg-red-600 hover:bg-red-700 active:scale-95 text-white font-bold rounded-lg transition shadow-md flex items-center justify-center gap-1 text-xs sm:text-sm whitespace-nowrap cursor-pointer shrink-0" title="Xóa các tài khoản đã chọn">
+          <svg class="w-3.5 h-3.5 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+          <span id="selected-accounts-count-text">Xóa đã chọn (0)</span>
+        </button>
+
+        <!-- Nút Xuất danh sách tài khoản ra file Excel -->
+        <button id="btn-export-accounts-excel" onclick="window.exportAccountsToExcel()" class="flex-1 sm:flex-none px-2 sm:px-4 py-1.5 sm:py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 active:scale-95 text-white font-bold rounded-lg transition shadow-md flex items-center justify-center gap-1 text-xs sm:text-sm whitespace-nowrap cursor-pointer shrink-0" title="Xuất toàn bộ danh sách tài khoản ra file Excel">
+          <svg class="w-3.5 h-3.5 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+          <span>Xuất Excel</span>
+        </button>
+
+        <!-- Nút Nhập danh sách tài khoản từ file Excel -->
+        <button id="btn-import-accounts-excel" onclick="window.showImportAccountsModal()" class="flex-1 sm:flex-none px-2 sm:px-3.5 py-1.5 sm:py-2 bg-purple-50 text-purple-700 border border-purple-200 hover:bg-purple-100 active:scale-95 font-bold rounded-lg transition shadow-xs flex items-center justify-center gap-1 text-xs sm:text-sm whitespace-nowrap cursor-pointer shrink-0" title="Nhập danh sách tài khoản từ file Excel">
+          <svg class="w-3.5 h-3.5 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+          <span>Nhập Excel</span>
+        </button>
+
+        <!-- Nút Thêm tài khoản mới -->
+        <button onclick="showAccountModal()" class="flex-1 sm:flex-none px-2.5 sm:px-4 py-1.5 sm:py-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-bold rounded-lg hover:from-purple-700 hover:to-pink-700 transition shadow-md flex items-center justify-center gap-1 text-xs sm:text-sm whitespace-nowrap active:scale-95 cursor-pointer shrink-0" title="Thêm tài khoản">
+         <span class="text-sm sm:text-base leading-none font-bold">+</span> <span>Thêm</span>
+        </button>
+      </div>
+     </div>
+
+     <!-- Thanh công cụ tìm kiếm và 3 ô lọc tài khoản: Đối tượng, Trường/Đơn vị, Lớp -->
+     <div class="flex flex-wrap items-center gap-2.5 mb-5 p-3 bg-purple-50/40 rounded-xl border border-purple-100/70">
+       <!-- Tìm kiếm nhanh -->
+       <div class="relative group flex-1 min-w-[200px] sm:min-w-[240px]">
+         <input type="text" id="accounts-search" oninput="window.filterAccounts()" placeholder="🔍 Tìm kiếm tài khoản, họ tên, ID người dùng..." class="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 focus:outline-none text-sm bg-white transition shadow-xs group-hover:border-purple-300">
+         <svg class="w-4 h-4 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2 group-hover:text-purple-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+       </div>
+
+       <!-- Ô lọc 1: Đối tượng -->
+       <select id="accounts-audience-filter" onchange="window.filterAccounts()" class="px-3 py-2 border border-gray-200 rounded-lg focus:border-purple-500 focus:outline-none text-sm w-full sm:w-44 bg-white shadow-xs hover:border-purple-300 transition cursor-pointer font-medium text-gray-700" title="Lọc tài khoản theo đối tượng">
+         <option value="">-- Tất cả đối tượng --</option>
+       </select>
+
+       <!-- Ô lọc 2: Trường / Đơn vị -->
+       <select id="accounts-unit-filter" onchange="window.filterAccounts()" class="px-3 py-2 border border-gray-200 rounded-lg focus:border-purple-500 focus:outline-none text-sm w-full sm:w-52 bg-white shadow-xs hover:border-purple-300 transition cursor-pointer font-medium text-gray-700" title="Lọc tài khoản theo trường / đơn vị">
+         <option value="">-- Tất cả trường/đơn vị --</option>
+       </select>
+
+       <!-- Ô lọc 3: Lớp -->
+       <select id="accounts-class-filter" onchange="window.filterAccounts()" class="px-3 py-2 border border-gray-200 rounded-lg focus:border-purple-500 focus:outline-none text-sm w-full sm:w-36 bg-white shadow-xs hover:border-purple-300 transition cursor-pointer font-medium text-gray-700" title="Lọc tài khoản theo lớp">
+         <option value="">-- Tất cả lớp --</option>
+       </select>
+
+       <!-- Nút đặt lại bộ lọc -->
+       <button type="button" onclick="window.resetAccountsFilters()" class="p-2 border border-gray-200 bg-white hover:bg-purple-50 hover:text-purple-700 hover:border-purple-300 text-gray-600 rounded-lg transition shadow-xs cursor-pointer flex items-center justify-center font-bold" title="Đặt lại tất cả bộ lọc">
+         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+       </button>
+     </div>
+     
+     <div class="hidden md:block overflow-x-auto">
+      <table class="w-full text-left border-collapse whitespace-nowrap">
+       <thead>
+        <tr class="bg-gray-50 text-gray-600 text-sm border-b border-gray-200">
+         <th class="p-3 text-center w-10">
+           <input type="checkbox" id="accounts-select-all" onchange="window.toggleSelectAllAccounts(this)" class="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 cursor-pointer" title="Chọn tất cả tài khoản">
+         </th>
+         <th class="p-3 font-semibold text-center w-12">#</th>
+         <th class="p-4 font-semibold">Tài khoản đăng nhập</th>
+         <th class="p-4 font-semibold">Quyền hạn</th>
+         <th class="p-4 font-semibold">Hồ sơ người dùng liên kết</th>
+         <th class="p-4 font-semibold">Trạng thái</th>
+         <th class="p-4 font-semibold">Hết hạn</th>
+         <th class="p-4 font-semibold text-center">Thao tác</th>
+        </tr>
+       </thead>
+       <tbody id="accounts-table-body" class="divide-y divide-gray-100">
+        <!-- Rows will be populated by JS -->
+       </tbody>
+      </table>
+     </div>
+
+     <!-- View danh sách dạng thẻ cho Di động -->
+     <div id="accounts-card-container" class="md:hidden space-y-4">
+       <!-- Cards will be populated handled by JS -->
+     </div>
+
+     <!-- Container phân trang tài khoản -->
+     <div id="accounts-pagination" class="mt-6 pt-4 border-t border-gray-100 flex flex-wrap items-center justify-between gap-3 text-sm text-gray-700"></div>
+    </div>
+
+    <!-- Modal Nhập danh sách tài khoản từ file Excel -->
+    <div id="import-accounts-modal" class="fixed inset-0 z-[99999] hidden flex items-center justify-center p-4">
+      <div class="modal-overlay absolute inset-0 bg-gray-900/50 backdrop-blur-sm" onclick="window.closeImportAccountsModal()"></div>
+      <div class="bg-white border border-gray-100 rounded-3xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto relative z-10 p-6">
+        <!-- Nút đóng -->
+        <button onclick="window.closeImportAccountsModal()" class="absolute top-4 right-4 text-gray-400 hover:text-gray-700 transition hover:bg-gray-100 p-2 rounded-xl" title="Đóng">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+        </button>
+
+        <div class="mb-5 text-center">
+          <div class="w-12 h-12 bg-purple-100 text-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-2 text-2xl font-bold">📊</div>
+          <h3 class="text-xl font-black text-gray-900 tracking-tight uppercase">NHẬP DANH SÁCH TÀI KHOẢN TỪ EXCEL</h3>
+          <p class="text-xs text-gray-500 mt-1">Hỗ trợ file định dạng Excel (.xlsx, .xls) chuẩn hóa tài khoản đăng nhập & mật khẩu</p>
+        </div>
+
+        <!-- Tải file mẫu & Hướng dẫn -->
+        <div class="mb-5 p-4 bg-purple-50/60 border border-purple-200/80 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div>
+            <div class="text-sm font-bold text-purple-950 flex items-center gap-1.5">
+              <span>📁</span> File mẫu chuẩn hóa (Khổ A4 ngang)
+            </div>
+            <p class="text-xs text-purple-700 mt-0.5">Tải mẫu Excel tài khoản đã được định dạng và kẻ bảng sẵn để nhập liệu</p>
+          </div>
+          <button onclick="window.downloadAccountsTemplateExcel()" class="px-3.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl transition shadow-xs flex items-center gap-1.5 whitespace-nowrap active:scale-95 cursor-pointer">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+            <span>Tải file mẫu Excel</span>
+          </button>
+        </div>
+
+        <!-- Khu vực chọn file -->
+        <div class="mb-5">
+          <label class="block text-xs font-bold text-gray-700 mb-1.5 uppercase tracking-wider">Chọn file Excel (.xlsx, .xls)</label>
+          <div id="accounts-drop-area" onclick="document.getElementById('accounts-excel-file-input').click()" class="border-2 border-dashed border-gray-300 hover:border-purple-500 bg-gray-50/50 hover:bg-purple-50/30 rounded-2xl p-6 text-center cursor-pointer transition group">
+            <input type="file" id="accounts-excel-file-input" accept=".xlsx, .xls" class="hidden" onchange="window.handleAccountsExcelFile(this.files[0])">
+            <div class="w-10 h-10 bg-purple-100 text-purple-600 rounded-xl flex items-center justify-center mx-auto mb-2 text-xl group-hover:scale-110 transition">📥</div>
+            <p class="text-sm font-bold text-gray-700">Kéo thả file Excel vào đây hoặc <span class="text-purple-600 underline">bấm để chọn file</span></p>
+            <p id="accounts-selected-file-name" class="text-xs text-gray-400 mt-1">Chưa có file nào được chọn</p>
+          </div>
+        </div>
+
+        <!-- Preview danh sách nhận diện -->
+        <div id="accounts-import-preview-wrapper" class="hidden mb-5">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-bold text-gray-700 uppercase tracking-wider">Xem trước danh sách (<span id="accounts-preview-count" class="text-purple-600 font-bold">0</span> tài khoản)</span>
+            <span class="text-[11px] text-gray-500 italic">Kiểm tra thông tin trước khi lưu</span>
+          </div>
+          <div class="max-h-48 overflow-y-auto border border-gray-200 rounded-xl text-xs">
+            <table class="w-full text-left border-collapse whitespace-nowrap">
+              <thead class="bg-gray-100 sticky top-0 text-gray-700 font-bold border-b border-gray-200">
+                <tr>
+                  <th class="p-2 text-center w-8">#</th>
+                  <th class="p-2">Tài khoản</th>
+                  <th class="p-2">Mật khẩu</th>
+                  <th class="p-2">Quyền hạn</th>
+                  <th class="p-2">ID người dùng liên kết</th>
+                  <th class="p-2">Trạng thái</th>
+                  <th class="p-2">Hết hạn</th>
+                </tr>
+              </thead>
+              <tbody id="accounts-preview-tbody" class="divide-y divide-gray-100"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Footer Actions -->
+        <div class="flex gap-3 pt-4 border-t border-gray-100">
+          <button onclick="window.closeImportAccountsModal()" class="flex-1 px-4 py-2.5 bg-gray-100 text-gray-600 rounded-xl hover:bg-gray-200 transition font-bold text-xs uppercase tracking-wider cursor-pointer">Đóng</button>
+          <button id="btn-confirm-import-accounts" onclick="window.executeImportAccounts()" disabled class="flex-[2] px-4 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-xl hover:from-purple-500 hover:to-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed shadow-md transition font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer">
+            <span>🚀</span> Xác nhận nhập vào hệ thống
+          </button>
+        </div>
+      </div>
+    </div>
+</div>

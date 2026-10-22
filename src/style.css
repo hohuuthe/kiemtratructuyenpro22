@@ -1,0 +1,462 @@
+
+
+        @import "tailwindcss";
+
+@theme {
+  --breakpoint-xs: 480px;
+}
+
+* { touch-action: manipulation; }
+button, 
+[role="button"], 
+input[type="button"], 
+input[type="submit"], 
+input[type="reset"],
+select,
+label,
+input[type="checkbox"],
+input[type="radio"] { 
+    cursor: pointer; 
+}
+button { touch-action: manipulation; }
+        
+        /* Hide scrollbar for Chrome, Safari and Opera */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+
+        /* Hide scrollbar for IE, Edge and Firefox */
+        .no-scrollbar {
+            -ms-overflow-style: none;  /* IE and Edge */
+            scrollbar-width: none;  /* Firefox */
+        }
+
+        /* Custom scrollbar for navigation */
+        .custom-scrollbar-nav::-webkit-scrollbar {
+            height: 4px;
+        }
+        .custom-scrollbar-nav::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+        }
+        .custom-scrollbar-nav::-webkit-scrollbar-thumb {
+            background: rgba(52, 211, 153, 0.5);
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .custom-scrollbar-nav::-webkit-scrollbar-thumb:hover {
+            background: rgba(16, 185, 129, 0.5);
+        }
+
+        /* Custom scrollbar utility class */
+        .custom-scrollbar {
+            scrollbar-width: thin !important;
+            scrollbar-color: #94a3b8 #f1f5f9 !important;
+            -webkit-overflow-scrolling: touch !important;
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 7px !important;
+            height: 7px !important;
+            -webkit-appearance: none !important;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #f1f5f9 !important;
+            border-radius: 9999px !important;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #94a3b8 !important;
+            border-radius: 9999px !important;
+            border: 2px solid #f1f5f9 !important;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #64748b !important;
+        }
+
+        /* Always-visible vertical scrollbar for modals (both desktop & mobile) */
+        #modal-content {
+            scrollbar-width: thin;
+            scrollbar-color: #cbd5e1 #f8fafc;
+        }
+        #modal-content::-webkit-scrollbar {
+            width: 8px;
+        }
+        #modal-content::-webkit-scrollbar-track {
+            background: #f8fafc;
+            border-radius: 8px;
+        }
+        #modal-content::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 8px;
+            border: 2px solid #f8fafc;
+        }
+        #modal-content::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+
+        .always-scrollbar-y {
+            overflow-y: auto !important;
+            overflow-x: hidden !important;
+            scrollbar-width: thin !important;
+            scrollbar-color: #94a3b8 #f1f5f9 !important;
+            -webkit-overflow-scrolling: touch !important;
+        }
+        .always-scrollbar-y::-webkit-scrollbar {
+            width: 7px !important;
+            -webkit-appearance: none !important;
+        }
+        .always-scrollbar-y::-webkit-scrollbar-track {
+            background: #f1f5f9 !important;
+            border-radius: 9999px !important;
+        }
+        .always-scrollbar-y::-webkit-scrollbar-thumb {
+            background: #94a3b8 !important;
+            border-radius: 9999px !important;
+            border: 2px solid #f1f5f9 !important;
+        }
+        .always-scrollbar-y::-webkit-scrollbar-thumb:hover {
+            background: #64748b !important;
+        }
+
+        /* Always-visible styled scrollbar for student question navigation panel */
+        #question-nav {
+            overflow-y: auto !important;
+            scrollbar-width: thin !important;
+            scrollbar-color: #818cf8 #e0e7ff !important;
+            -webkit-overflow-scrolling: touch !important;
+        }
+        #question-nav::-webkit-scrollbar {
+            width: 6px !important;
+            height: 6px !important;
+            -webkit-appearance: none !important;
+        }
+        #question-nav::-webkit-scrollbar-track {
+            background: #e0e7ff !important;
+            border-radius: 9999px !important;
+        }
+        #question-nav::-webkit-scrollbar-thumb {
+            background: #6366f1 !important;
+            border-radius: 9999px !important;
+            border: 1px solid #e0e7ff !important;
+        }
+        #question-nav::-webkit-scrollbar-thumb:hover {
+            background: #4f46e5 !important;
+        }
+
+        /* Vertical Sidebar Collapse Mode Styles */
+        #app-sidebar.collapsed {
+            width: 4.5rem !important;
+        }
+        #app-sidebar.collapsed .sidebar-text,
+        #app-sidebar.collapsed .sidebar-group-title {
+            display: none !important;
+        }
+        #app-sidebar.collapsed .sidebar-nav-item {
+            justify-content: center !important;
+            padding-left: 0.5rem !important;
+            padding-right: 0.5rem !important;
+        }
+        #app-sidebar.collapsed #sidebar-user-card {
+            justify-content: center !important;
+            padding: 0.5rem !important;
+        }
+
+        .tab-btn {
+            @apply flex-shrink-0 px-2.5 py-1.5 rounded-xl font-bold transition-all duration-300 whitespace-nowrap text-xs;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        @media (min-width: 768px) {
+            .tab-btn {
+                @apply px-4 py-2 text-sm;
+            }
+        }
+
+        .tab-btn:hover {
+            transform: translateY(-3px) scale(1.05);
+            @apply brightness-125;
+            box-shadow: 0 0 20px rgba(52, 211, 153, 0.6), 0 10px 15px -3px rgba(0, 0, 0, 0.2);
+            border-color: rgba(255, 255, 255, 0.4);
+        }
+
+        .tab-btn.active {
+            @apply bg-emerald-400 text-white shadow-lg scale-105;
+            background-image: linear-gradient(135deg, #34d399 0%, #10b981 100%);
+            border-color: rgba(255, 255, 255, 0.4);
+            box-shadow: 0 0 25px rgba(52, 211, 153, 0.5), 0 5px 15px rgba(0, 0, 0, 0.2);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .tab-btn.active::after {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: linear-gradient(45deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+            transform: rotate(45deg);
+            animation: shine 3s infinite;
+        }
+
+        @keyframes shine {
+            0% { transform: translateX(-150%) rotate(45deg); }
+            50% { transform: translateX(150%) rotate(45deg); }
+            100% { transform: translateX(150%) rotate(45deg); }
+        }
+
+        .tab-btn:active {
+            transform: scale(0.95);
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        @keyframes bounceIn {
+            0% { opacity: 0; transform: scale(0.3); }
+            50% { transform: scale(1.05); }
+            70% { transform: scale(0.9); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+        
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        
+        .fade-in { animation: fadeIn 0.5s ease-out; }
+        .slide-up { animation: slideUp 0.5s ease-out; }
+        .bounce-in { animation: bounceIn 0.6s ease-out; }
+        .pulse-anim { animation: pulse 2s infinite; }
+        
+        @keyframes glowPulse {
+            0%, 100% { box-shadow: 0 0 15px rgba(255, 255, 255, 0.4), 0 0 5px rgba(52, 211, 153, 0.2), inset 0 0 5px rgba(255, 255, 255, 0.2); }
+            50% { box-shadow: 0 0 25px rgba(255, 255, 255, 0.6), 0 0 15px rgba(52, 211, 153, 0.5), inset 0 0 10px rgba(255, 255, 255, 0.4); }
+        }
+        .glow-pulse { animation: glowPulse 3s infinite; }
+        
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        
+        .question-option { cursor: pointer; transition: all 0.2s ease; }
+        .question-option.correct { border-color: #22c55e; background: #f0fdf4; }
+        .question-option.incorrect { border-color: #ef4444; background: #fef2f2; }
+        
+        .toast {
+            animation: slideUp 0.3s ease-out;
+        }
+        
+        .modal-overlay {
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(4px);
+        }
+        
+        .checkbox-custom:checked {
+            background-color: #3b82f6;
+            border-color: #3b82f6;
+        }
+        
+        .progress-bar {
+            transition: width 0.3s ease;
+        }
+        
+        .question-nav-btn {
+            transition: all 0.2s ease;
+        }
+        
+        .question-nav-btn:hover {
+            transform: scale(1.1);
+        }
+        
+        .question-nav-btn.answered {
+            background-color: #22c55e;
+            color: white;
+        }
+        
+        .question-nav-btn.current {
+            background-color: #3b82f6;
+            color: white;
+            transform: scale(1.15);
+        }
+
+        @keyframes zoomIn {
+            from { opacity: 0; transform: scale(0.9); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        .animate-zoom-in { animation: zoomIn 0.2s ease-out; }
+        .cursor-zoom-in { cursor: zoom-in; }
+        
+        .tf-option { cursor: pointer; transition: all 0.2s ease; }
+        .tf-option:hover { background: #f0f9ff; }
+        .tf-option.selected-true { background: #dcfce7; border-color: #22c55e; }
+        .tf-option.selected-false { background: #fee2e2; border-color: #ef4444; }
+        
+        .sq-input {
+            width: 100px;
+            height: 100px;
+            text-align: center;
+            font-size: 5rem;
+            font-weight: bold;
+            border: 3px solid #d1d5db;
+            border-radius: 12px;
+            transition: all 0.2s ease;
+        }
+        
+        .sq-input:focus {
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 5px rgba(59, 130, 246, 0.2);
+            outline: none;
+            transform: scale(1.05);
+        }
+        
+        .sq-input.correct { border-color: #22c55e; background: #f0fdf4; }
+        .sq-input.incorrect { border-color: #ef4444; background: #fef2f2; }
+
+        mjx-container {
+            display: inline-block !important;
+            margin: 0 !important;
+            max-width: 100%;
+            vertical-align: middle;
+        }
+
+        /* Triệt tiêu hoàn toàn màu đỏ và khung lỗi từ MathJax & KaTeX trên giao diện làm bài của học sinh */
+        .mjx-error, .MathJax_Error, [data-mjx-error], .mjx-merror, [data-mjx-err], .katex-error {
+            color: inherit !important;
+            background: transparent !important;
+            border: none !important;
+            padding: 0 !important;
+            font-style: normal !important;
+        }
+        .mjx-merror *, .katex-error * {
+            color: inherit !important;
+        }
+
+        mjx-container[jax="CHTML"][display="true"] {
+            display: block !important;
+            margin: 0.5rem 0 !important;
+            text-align: center;
+            overflow-x: auto;
+            overflow-y: hidden;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .katex-display {
+            overflow-x: auto;
+            overflow-y: hidden;
+            max-width: 100%;
+            padding: 0.25rem 0;
+            margin: 0.5rem 0;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .katex {
+            font-size: 1.05em;
+            text-rendering: auto;
+        }
+
+        .responsive-q-text { font-size: var(--base-q-size); }
+        .responsive-a-text { font-size: var(--base-a-size); }
+        .responsive-sq-input {
+            font-size: var(--base-a-size);
+            width: calc(max(var(--base-a-size) * 1.5, 40px));
+            height: calc(max(var(--base-a-size) * 1.5, 40px));
+        }
+        
+        @media (max-width: 1024px) {
+            .responsive-q-text { font-size: calc(var(--base-q-size) * 0.85); }
+            .responsive-a-text { font-size: calc(var(--base-a-size) * 0.85); }
+            .responsive-sq-input {
+                font-size: calc(var(--base-a-size) * 0.85);
+                width: calc(max(var(--base-a-size) * 0.85 * 1.5, 36px));
+                height: calc(max(var(--base-a-size) * 0.85 * 1.5, 36px));
+            }
+        }
+        
+        @media (max-width: 640px) {
+            .responsive-q-text { font-size: calc(var(--base-q-size) * 0.6); }
+            .responsive-a-text { font-size: calc(var(--base-a-size) * 0.6); }
+            .responsive-sq-input {
+                font-size: calc(var(--base-a-size) * 0.6);
+                width: calc(max(var(--base-a-size) * 0.6 * 1.5, 30px));
+                height: calc(max(var(--base-a-size) * 0.6 * 1.5, 30px));
+            }
+        }
+    
+  body { box-sizing: border-box; overflow-x: hidden; }
+  
+  select {
+    max-width: 100%;
+    box-sizing: border-box;
+    text-overflow: ellipsis;
+  }
+
+  /* Fix for flex containers with select boxes */
+  .flex > select, .flex > div > select {
+    min-width: 0;
+  }
+
+  /* Khoảng cách chân trang cách form nhập thông tin 2cm trong tab làm bài */
+  #tab-exam #exam-form {
+    margin-bottom: 2cm !important;
+  }
+
+  #app:has(#tab-exam.active) main {
+    flex: none !important;
+  }
+
+  #app:has(#tab-exam.active) footer {
+    margin-top: 0 !important;
+    padding-top: 0 !important;
+  }
+
+  /* =========================================================================
+     TẦNG 5: CHUẨN THẨM MỸ GIAO DIỆN & TYPOGRAPHY KHOA HỌC (KaTeX Publication)
+     ========================================================================= */
+  .katex {
+    font-size: 1.08em;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Đảm bảo toàn bộ chữ tiếng Việt có dấu trong \text{...} và \mathrm{...} hiển thị sắc nét, không lỗi font */
+  .katex .mtext, 
+  .katex .textrm,
+  .katex .text {
+    font-family: 'Noto Serif', 'Times New Roman', serif !important;
+    font-style: normal;
+  }
+
+  /* Khoảng đệm dọc chống dính dòng (Vertical Breathing Room) cho phân số, ma trận, tích phân */
+  .katex-display {
+    margin: 0.8em 0 !important;
+    padding: 8px 12px !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    scrollbar-width: thin !important;
+  }
+
+  .katex-display > .katex {
+    max-width: 100%;
+    text-align: center;
+  }
+
+  /* Phân số nhiều tầng và ma trận */
+  .katex .mord.matrix, 
+  .katex .delimsizing, 
+  .katex .mfrac {
+    padding: 2px 0;
+  }
+
+  /* Hỗ trợ hiển thị mượt mà trên di động không bị vỡ lề */
+  .formula-scroll-wrapper {
+    overflow-x: auto;
+    max-width: 100%;
+    scrollbar-width: thin;
+    padding-bottom: 2px;
+  }

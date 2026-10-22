@@ -1,0 +1,10 @@
+# Cấu hình Deploy lên Cloudflare Pages
+name = "kiemtratructuyenmoi"
+pages_build_output_dir = "./dist"
+
+# Môi trường tương thích
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+# Các biến cấu hình được quản lý trực tiếp trong Cloudflare Pages Settings hoặc .env

@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="vi" class="h-full">
+ <head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>HỆ THỐNG KIỂM TRA TRỰC TUYẾN</title>
+  <meta name="description" content="HỆ THỐNG KIỂM TRA TRỰC TUYẾN - Hệ thống kiểm tra, tạo đề thi, ngân hàng câu hỏi trực tuyến dành cho Giáo viên & Học sinh">
+  <meta property="og:title" content="HỆ THỐNG KIỂM TRA TRỰC TUYẾN">
+  <meta property="og:description" content="HỆ THỐNG KIỂM TRA TRỰC TUYẾN - Hệ thống kiểm tra, tạo đề thi, ngân hàng câu hỏi trực tuyến dành cho Giáo viên & Học sinh">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎓</text></svg>">
+  <link rel="stylesheet" href="/src/style.css">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#1e1b4b">
+  
+  <!-- Google Fonts: Noto Serif & JetBrains Mono cho hiển thị công thức khoa học & tiếng Việt có dấu chuẩn xuất bản -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Noto+Serif:ital,wght@0,400;0,700;1,400;1,700&display=swap" rel="stylesheet">
+  
+  <script>
+    // Tuân thủ triệt để AGENTS.md: Chặn hoàn toàn hộp thoại alert/confirm/prompt mặc định của trình duyệt
+    (function() {
+      window.alert = function(msg) {
+        console.warn('[Blocked native alert]:', msg);
+        // Bỏ qua các chuỗi debug đơn lẻ như '1', 1
+        if (msg === 1 || msg === '1' || msg === undefined || msg === null) return;
+        if (typeof window.showToast === 'function') {
+          window.showToast(String(msg), 'info');
+        }
+      };
+      window.confirm = function(msg) {
+        console.warn('[Blocked native confirm]:', msg);
+        return true;
+      };
+      window.prompt = function(msg) {
+        console.warn('[Blocked native prompt]:', msg);
+        return null;
+      };
+    })();
+
+    window.MathJax = {
+      tex: {
+        inlineMath: [['$', '$'], ['\\(', '\\)']],
+        displayMath: [['$$', '$$'], ['\\[', '\\]']],
+        processEscapes: true,
+        processEnvironments: true,
+        packages: {'[+]': ['mhchem', 'ams', 'noerrors', 'noundefined', 'physics', 'color', 'bbox']},
+        macros: {
+          degree: '^{\\circ}'
+        },
+        formatError: (jax, err) => {
+          try {
+            var nf = jax.parseOptions.nodeFactory;
+            var text = (jax.latex || '').replace(/\n/g, ' ');
+            var mtext = nf.create('token', 'mtext', {}, text);
+            return nf.create('node', 'merror', [mtext], {'data-mjx-error': err.message || '', title: err.message || ''});
+          } catch (e) {
+            return jax.parseOptions.nodeFactory.create('node', 'math', []);
+          }
+        }
+      },
+      loader: { load: ['[tex]/mhchem', '[tex]/ams', '[tex]/noerrors', '[tex]/noundefined', '[tex]/physics', '[tex]/color', '[tex]/bbox'] },
+      options: {
+        ignoreHtmlClass: 'tex2jax_ignore',
+        processHtmlClass: 'tex2jax_process',
+        enableErrorTargets: false
+      },
+      startup: {
+        ready: () => {
+          if (window.MathJax && window.MathJax.startup && window.MathJax.startup.defaultReady) {
+            window.MathJax.startup.defaultReady();
+          }
+          if (window.onMathJaxReady && typeof window.onMathJaxReady === 'function') {
+            window.onMathJaxReady();
+          }
+        }
+      }
+    };
+  </script>
+  <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+ </head>
+ <body class="h-full bg-[#15803d] overflow-x-hidden min-h-screen text-slate-900 font-sans antialiased">
+  <div id="app" class="min-h-screen w-full flex relative z-0">
+   
+   <!-- Vertical Left Sidebar (Khung danh mục dọc chuyên nghiệp) -->
+   <aside id="app-sidebar" class="fixed md:sticky top-0 left-0 z-[100] h-screen w-[216px] sm:w-[230px] flex-shrink-0 bg-gradient-to-b from-emerald-950 via-green-950 to-emerald-900 border-r border-emerald-800/40 text-white shadow-2xl transition-all duration-300 flex flex-col -translate-x-full md:translate-x-0">
+    <!-- Sidebar Header (Thông tin người dùng + Đăng nhập/Đăng xuất) -->
+    <div class="p-3 border-b border-white/10 bg-black/20 backdrop-blur-md space-y-2">
+      <!-- User Info Card (Full width) -->
+      <div id="sidebar-user-card" onclick="showUserInfoModal()" class="w-full flex items-center gap-2.5 p-1.5 rounded-xl bg-white/10 hover:bg-white/20 active:scale-95 transition cursor-pointer" title="Xem thông tin tài khoản">
+        <div class="w-8 h-8 rounded-lg bg-emerald-500/30 text-emerald-300 flex items-center justify-center font-bold text-sm flex-shrink-0">
+          👤
+        </div>
+        <div class="min-w-0 flex-1">
+          <p id="sidebar-user-name" class="font-black text-xs sm:text-sm text-white truncate leading-tight">Khách hàng</p>
+          <p id="sidebar-user-role" class="text-[10px] text-amber-300 font-bold truncate leading-tight">Thí sinh / Khách</p>
+        </div>
+      </div>
+
+      <!-- Auth Action Buttons (Đăng nhập / Đăng xuất) + Mobile Close Button -->
+      <div class="flex items-center gap-2">
+        <!-- Close button on Mobile drawer (nằm trước nút đăng nhập hoặc đăng xuất) -->
+        <button onclick="closeMobileSidebar()" type="button" class="md:hidden flex items-center justify-center w-9 h-9 rounded-xl bg-white/10 hover:bg-white/20 active:scale-95 text-white/80 hover:text-white border border-white/10 transition cursor-pointer flex-shrink-0" title="Đóng menu">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+
+        <div class="flex-1 min-w-0">
+          <button id="login-btn" onclick="showAdminLoginModal(); closeMobileSidebar();" class="w-full flex items-center justify-center gap-2 px-3 py-2 bg-emerald-500/20 hover:bg-emerald-500/35 active:scale-95 text-emerald-200 hover:text-white border border-emerald-400/30 rounded-xl text-xs sm:text-sm font-bold cursor-pointer transition shadow-sm" title="Đăng nhập tài khoản">
+            <span class="text-sm">🔐</span>
+            <span>Đăng nhập</span>
+          </button>
+          <div id="auth-status" class="hidden w-full">
+            <button onclick="showConfirmModal('Bạn có chắc chắn muốn đăng xuất khỏi hệ thống?', () => { adminLogout(); closeMobileSidebar(); });" class="w-full flex items-center justify-center gap-2 px-3 py-2 bg-rose-500/20 hover:bg-rose-500/35 active:scale-95 text-rose-200 hover:text-white border border-rose-400/30 rounded-xl text-xs sm:text-sm font-bold cursor-pointer transition shadow-sm" title="Đăng xuất khỏi hệ thống">
+              <span class="text-sm">🚪</span>
+              <span>Đăng xuất</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sidebar Navigation Items (Grouped) -->
+    <div class="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1.5">
+      <!-- Group 1: BÁO CÁO & THI THỬ -->
+      <div class="sidebar-group" data-group="exam">
+        <div class="sidebar-group-title px-2.5 py-0.5 mb-0.5 text-[8px] font-bold tracking-wider uppercase text-gray-400 select-none">
+          BÁO CÁO & THI THỬ
+        </div>
+        <div class="space-y-0.5">
+          <button onclick="switchTab('exam'); closeMobileSidebar();" data-sidebar-tab="exam" class="sidebar-nav-item w-full flex items-center gap-2.5 px-2.5 py-1 rounded-lg font-black text-base text-indigo-950 bg-white shadow-sm transition-all cursor-pointer">
+            <svg class="w-4.5 h-4.5 text-emerald-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.2"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+            <span class="truncate">Làm bài</span>
+          </button>
+          <button onclick="switchTab('ranking'); closeMobileSidebar();" data-sidebar-tab="ranking" class="sidebar-nav-item hidden w-full flex items-center gap-2.5 px-2.5 py-1 rounded-lg font-bold text-base text-white/95 hover:bg-white/10 hover:text-white transition-all cursor-pointer">
+            <svg class="w-4.5 h-4.5 text-amber-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 3v4M3 5h4M6 17v4m-2 0h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/></svg>
+            <span class="truncate">QL Kết quả</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Group 2: QUẢN LÝ NGHIỆP VỤ -->
+      <div class="sidebar-group hidden" data-group="management">
+        <div class="sidebar-group-title px-2.5 py-0.5 mb-0.5 text-[8px] font-bold tracking-wider uppercase text-gray-400 select-none">
+          QUẢN LÝ NGHIỆP VỤ
+        </div>
+        <div class="space-y-0.5">
+          <button onclick="switchTab('questions'); closeMobileSidebar();" data-sidebar-tab="questions" class="sidebar-nav-item hidden w-full flex items-center gap-2.5 px-2.5 py-1 rounded-lg font-bold text-base text-white/95 hover:bg-white/10 hover:text-white transition-all cursor-pointer">
+            <svg class="w-4.5 h-4.5 text-cyan-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>
+            <span class="truncate">QL Câu hỏi</span>
+          </button>
+          <button onclick="switchTab('exams'); closeMobileSidebar();" data-sidebar-tab="exams" class="sidebar-nav-item hidden w-full flex items-center gap-2.5 px-2.5 py-1 rounded-lg font-bold text-base text-white/95 hover:bg-white/10 hover:text-white transition-all cursor-pointer">
+            <svg class="w-4.5 h-4.5 text-teal-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/></svg>
+            <span class="truncate">QL Đề thi</span>
+          </button>
+          <button onclick="switchTab('teacher-assignment'); closeMobileSidebar();" data-sidebar-tab="teacher-assignment" class="sidebar-nav-item hidden w-full flex items-center gap-2.5 px-2.5 py-1 rounded-lg font-bold text-base text-white/95 hover:bg-white/10 hover:text-white transition-all cursor-pointer">
+            <svg class="w-4.5 h-4.5 text-yellow-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5m0 0v-5a2 2 0 012-2h2a2 2 0 012 2v5m-4 0h4"/></svg>
+            <span class="truncate">Phân công GV</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Group 3: QUẢN LÝ HỆ THỐNG -->
+      <div class="sidebar-group hidden" data-group="system">
+        <div class="sidebar-group-title px-2.5 py-0.5 mb-0.5 text-[8px] font-bold tracking-wider uppercase text-gray-400 select-none">
+          QUẢN LÝ HỆ THỐNG
+        </div>
+        <div class="space-y-0.5">
+          <button onclick="switchTab('users'); closeMobileSidebar();" data-sidebar-tab="users" class="sidebar-nav-item hidden w-full flex items-center gap-2.5 px-2.5 py-1 rounded-lg font-bold text-base text-white/95 hover:bg-white/10 hover:text-white transition-all cursor-pointer">
+            <svg class="w-4.5 h-4.5 text-blue-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.2"><path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+            <span class="truncate">QL Người dùng</span>
+          </button>
+          <button onclick="switchTab('accounts'); closeMobileSidebar();" data-sidebar-tab="accounts" class="sidebar-nav-item hidden w-full flex items-center gap-2.5 px-2.5 py-1 rounded-lg font-bold text-base text-white/95 hover:bg-white/10 hover:text-white transition-all cursor-pointer">
+            <svg class="w-4.5 h-4.5 text-purple-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.2"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+            <span class="truncate">QL Tài khoản</span>
+          </button>
+          <button onclick="switchTab('settings'); closeMobileSidebar();" data-sidebar-tab="settings" class="sidebar-nav-item hidden w-full flex items-center gap-2.5 px-2.5 py-1 rounded-lg font-bold text-base text-white/95 hover:bg-white/10 hover:text-white transition-all cursor-pointer">
+            <svg class="w-4.5 h-4.5 text-indigo-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.2"><path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+            <span class="truncate">Cấu hình</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Group 4: HỖ TRỢ -->
+      <div class="sidebar-group" data-group="support">
+        <div class="sidebar-group-title px-2.5 py-0.5 mb-0.5 text-[8px] font-bold tracking-wider uppercase text-gray-400 select-none">
+          HỖ TRỢ
+        </div>
+        <div class="space-y-0.5">
+          <button onclick="switchTab('help'); closeMobileSidebar();" data-sidebar-tab="help" class="sidebar-nav-item w-full flex items-center gap-2.5 px-2.5 py-1 rounded-lg font-bold text-base text-white/95 hover:bg-white/10 hover:text-white transition-all cursor-pointer">
+            <svg class="w-4.5 h-4.5 text-sky-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.2"><path stroke-linecap="round" stroke-linejoin="round" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            <span class="truncate">Trợ giúp</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Group 5: TIỆN ÍCH HỆ THỐNG -->
+      <div class="sidebar-group" data-group="utilities">
+        <div class="sidebar-group-title px-2.5 py-0.5 mb-0.5 text-[8px] font-bold tracking-wider uppercase text-gray-400 select-none">
+          TIỆN ÍCH HỆ THỐNG
+        </div>
+        <div class="space-y-0.5">
+          <button onclick="window.location.reload();" class="sidebar-nav-item w-full flex items-center gap-2.5 px-2.5 py-1 rounded-lg font-bold text-base text-sky-200 hover:bg-white/10 hover:text-white transition-all cursor-pointer" title="Làm mới trang">
+            <svg class="w-4.5 h-4.5 text-sky-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+            <span class="truncate">Làm mới</span>
+          </button>
+          <button onclick="showQrModal(); closeMobileSidebar();" class="sidebar-nav-item w-full flex items-center gap-2.5 px-2.5 py-1 rounded-lg font-bold text-base text-amber-200 hover:bg-white/10 hover:text-amber-100 transition-all cursor-pointer" title="Quét mã QR quét ứng dụng">
+            <svg class="w-4.5 h-4.5 text-amber-300 flex-shrink-0" fill="currentColor" viewBox="0 0 24 24"><path d="M3 3h8v8H3V3zm2 2v4h4V5H5zm8-2h8v8h-8V3zm2 2v4h4V5h-4zM3 13h8v8H3v-8zm2 2v4h4v-4H5zm13-2h3v2h-3v-2zm-3 0h2v3h-2v-3zm3 3h3v5h-3v-5zm-3 2h2v3h-2v-3zm-3-2h2v2h-2v-2zm0 3h2v2h-2v-2z"/></svg>
+            <span class="truncate">Quét mã QR</span>
+          </button>
+          <button id="pwa-install-btn" onclick="handlePwaInstallClick(); closeMobileSidebar();" class="sidebar-nav-item w-full flex items-center gap-2.5 px-2.5 py-1 rounded-lg font-bold text-base text-emerald-200 hover:bg-white/10 hover:text-emerald-100 transition-all cursor-pointer" title="Cài đặt ứng dụng PWA">
+            <svg class="w-4.5 h-4.5 text-emerald-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+            <span id="pwa-install-btn-text" class="truncate">Cài App</span>
+          </button>
+        </div>
+      </div>
+    </div>
+   </aside>
+
+   <!-- Mobile Backdrop Overlay -->
+   <div id="sidebar-backdrop" onclick="closeMobileSidebar()" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[90] hidden md:hidden transition-opacity"></div>
+
+   <!-- Right Main Layout Wrapper -->
+   <div class="flex-1 min-w-0 flex flex-col min-h-screen bg-transparent">
+    
+    <!-- Top Header Bar -->
+    <header class="sticky top-0 z-30 bg-gradient-to-r from-emerald-950 via-green-900 to-emerald-950 text-white shadow-md border-b border-emerald-800/40 px-3 py-2 sm:px-5 sm:py-2.5 flex items-center justify-between gap-3">
+     <!-- Left: Mobile Menu Toggle + App Title -->
+     <div class="flex items-center gap-2.5 min-w-0 flex-1">
+      <button onclick="toggleMobileSidebar()" type="button" class="p-2 rounded-xl bg-amber-400/20 hover:bg-amber-400/35 active:scale-95 text-amber-200 border border-amber-300/40 cursor-pointer md:hidden flex-shrink-0" title="Mở danh mục">
+       <svg class="w-5 h-5 text-amber-200" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+       </svg>
+      </button>
+
+      <div class="min-w-0 flex-1">
+       <h1 id="app-title" class="text-[15.5px] sm:text-[17.5px] md:text-[20px] font-black text-white tracking-tight uppercase break-words whitespace-normal leading-snug">HỆ THỐNG KIỂM TRA TRỰC TUYẾN</h1>
+       <div class="flex flex-wrap items-center gap-2 text-[11px] text-amber-200/90 font-bold leading-tight mt-0.5">
+        <span id="greeting-info"></span>
+        <span id="role-info" class="text-yellow-300 font-bold"></span>
+       </div>
+      </div>
+     </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="flex-1 p-2 sm:p-4 md:p-6 overflow-x-hidden">
+     <div id="tab-exam" class="tab-content active"></div>
+     <div id="tab-questions" class="tab-content"></div>
+     <div id="tab-exams" class="tab-content w-full"></div>
+     <div id="tab-teacher-assignment" class="tab-content w-full"></div>
+     <div id="tab-accounts" class="tab-content w-full"></div>
+     <div id="tab-users" class="tab-content w-full"></div>
+     <div id="tab-ranking" class="tab-content"></div>
+     <div id="tab-settings" class="tab-content"></div>
+     <div id="tab-help" class="tab-content"></div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="mt-auto py-4 px-4 text-center bg-transparent text-white/80 text-xs font-medium">
+     <div class="flex flex-col sm:flex-row justify-center items-center gap-1 sm:gap-4">
+      <p id="app-author" class="font-normal text-white/90">
+       Phát triển bởi: Hồ Hữu Thế - 0935 078 895
+      </p>
+      <span class="hidden sm:inline text-white/40">|</span>
+      <p id="app-version" class="text-white/70">
+       Phiên bản: 1.0 (Build: 20/09/2026)
+      </p>
+     </div>
+    </footer>
+   </div>
+  </div>
+
+  <!-- Dynamic Components Placeholders -->
+  <div id="modal-container"></div>
+  <div id="toast-container-center"></div>
+  <div id="toast-container-right"></div>
+  <div id="account-modal"></div>
+  <div id="user-modal"></div>
+
+  <script type="module" src="/src/main.js"></script>
+ </body>
+</html>

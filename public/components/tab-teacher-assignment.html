@@ -1,0 +1,405 @@
+<div id="tab-teacher-assignment" class="tab-content w-full space-y-4">
+  <!-- Application Header -->
+  <div class="bg-gradient-to-r from-slate-900/95 via-indigo-950/90 to-slate-900/95 rounded-3xl p-4 sm:p-6 shadow-2xl border border-indigo-500/30 backdrop-blur-md relative overflow-hidden">
+    <div class="absolute -top-24 -right-24 w-64 h-64 bg-indigo-500/20 rounded-full blur-3xl pointer-events-none"></div>
+    <div class="absolute -bottom-24 -left-24 w-64 h-64 bg-purple-500/15 rounded-full blur-3xl pointer-events-none"></div>
+
+    <div class="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+      <div class="space-y-1 min-w-0">
+        <div class="flex items-center gap-3">
+          <span class="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-indigo-500/30 border border-indigo-400/50 flex items-center justify-center text-2xl sm:text-3xl shadow-inner shrink-0">🏫</span>
+          <div class="min-w-0">
+            <div class="flex flex-wrap items-center gap-2">
+              <h2 class="text-lg sm:text-2xl font-black text-white tracking-tight leading-snug">
+                PHÂN CÔNG GIÁO VIÊN
+              </h2>
+              <span class="text-[11px] sm:text-xs px-2.5 py-0.5 rounded-full bg-indigo-500/40 text-indigo-200 border border-indigo-400/40 font-bold uppercase tracking-wider whitespace-nowrap">
+                Chuyên trang điều phối
+              </span>
+            </div>
+            <p class="text-xs sm:text-sm text-indigo-200/80 font-medium mt-0.5 leading-relaxed">
+              Quản lý phân công 2 chiều: Lớp cho Giáo viên & Giáo viên cho Lớp học chính xác, khoa học
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Action Buttons Header -->
+      <div class="flex flex-wrap items-center gap-2 shrink-0">
+        <button id="ta-btn-add-class" type="button" onclick="window.taOpenAddClassModal()" class="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5 shadow-md shadow-indigo-900/30 border border-indigo-400/40 transition-all cursor-pointer whitespace-nowrap">
+          <span>➕</span>
+          <span>Thêm lớp</span>
+        </button>
+        <button type="button" onclick="window.taExportExcel()" class="px-3.5 py-2 bg-emerald-600/90 hover:bg-emerald-500 active:scale-95 text-white rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5 shadow-md shadow-emerald-950/30 border border-emerald-400/40 transition-all cursor-pointer whitespace-nowrap">
+          <span>📥</span>
+          <span>Xuất Excel</span>
+        </button>
+        <button id="ta-btn-import-excel" type="button" onclick="window.taOpenImportModal()" class="px-3.5 py-2 bg-purple-600/90 hover:bg-purple-500 active:scale-95 text-white rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5 shadow-md shadow-purple-950/30 border border-purple-400/40 transition-all cursor-pointer whitespace-nowrap">
+          <span>📤</span>
+          <span>Nhập Excel</span>
+        </button>
+        <button type="button" onclick="window.initTeacherAssignmentApp(true)" class="p-2 sm:px-3 bg-white/10 hover:bg-white/20 active:scale-95 text-white rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5 border border-white/20 transition-all cursor-pointer whitespace-nowrap" title="Tải lại dữ liệu">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          <span class="hidden sm:inline">Làm mới</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Teacher Security Notice Banner -->
+    <div id="ta-teacher-notice-banner" class="hidden mt-3 p-3 bg-amber-500/20 border border-amber-400/30 rounded-2xl flex items-center gap-2.5 text-amber-200 text-xs font-semibold">
+      <span class="text-lg shrink-0">🔒</span>
+      <span><strong>Chế độ xem Giáo viên:</strong> Hệ thống chỉ hiển thị và cho phép thao tác trên các lớp học bạn được phân công giảng dạy.</span>
+    </div>
+
+    <!-- Stats summary grid -->
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3.5 mt-4">
+      <div class="bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl p-3 sm:p-3.5 transition-all min-w-0">
+        <div class="text-[11px] font-semibold text-indigo-200/70 flex items-center justify-between whitespace-nowrap">
+          <span>👨‍🏫 GIÁO VIÊN</span>
+          <span class="text-xs">👥</span>
+        </div>
+        <div class="mt-1 flex flex-wrap items-baseline gap-1.5">
+          <span id="ta-stat-total-teachers" class="text-xl sm:text-2xl font-black text-white">0</span>
+          <span id="ta-stat-assigned-teachers" class="text-[11px] text-emerald-400 font-bold whitespace-nowrap">(0 đã phân)</span>
+        </div>
+      </div>
+
+      <div class="bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl p-3 sm:p-3.5 transition-all min-w-0">
+        <div class="text-[11px] font-semibold text-indigo-200/70 flex items-center justify-between whitespace-nowrap">
+          <span>🏫 TỔNG SỐ LỚP</span>
+          <span class="text-xs">📚</span>
+        </div>
+        <div class="mt-1 flex flex-wrap items-baseline gap-1.5">
+          <span id="ta-stat-total-classes" class="text-xl sm:text-2xl font-black text-white">0</span>
+          <span id="ta-stat-classes-active" class="text-[11px] text-indigo-300 font-medium whitespace-nowrap">lớp học</span>
+        </div>
+      </div>
+
+      <div class="bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl p-3 sm:p-3.5 transition-all min-w-0">
+        <div class="text-[11px] font-semibold text-indigo-200/70 flex items-center justify-between whitespace-nowrap">
+          <span>👑 CÓ CHỦ NHIỆM</span>
+          <span class="text-xs">⭐</span>
+        </div>
+        <div class="mt-1 flex flex-wrap items-baseline gap-1.5">
+          <span id="ta-stat-classes-with-cn" class="text-xl sm:text-2xl font-black text-amber-300">0</span>
+          <span id="ta-stat-classes-no-cn" class="text-[11px] text-rose-300 font-bold whitespace-nowrap">(0 chưa có)</span>
+        </div>
+      </div>
+
+      <div class="bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl p-3 sm:p-3.5 transition-all min-w-0">
+        <div class="text-[11px] font-semibold text-indigo-200/70 flex items-center justify-between whitespace-nowrap">
+          <span>📋 PHÂN CÔNG</span>
+          <span class="text-xs">⚡</span>
+        </div>
+        <div class="mt-1 flex flex-wrap items-baseline gap-1.5">
+          <span id="ta-stat-total-assignments" class="text-xl sm:text-2xl font-black text-emerald-300">0</span>
+          <span class="text-[11px] text-emerald-200/70 font-medium whitespace-nowrap">lượt dạy</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- View Switcher & Toolbar Section -->
+  <div class="bg-white rounded-3xl p-3.5 sm:p-5 shadow-xl border border-gray-100 space-y-4">
+    <!-- View Switcher Tabs (3 Modes) -->
+    <div class="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 border-b border-gray-100 pb-3.5">
+      <div class="w-full md:w-auto grid grid-cols-3 md:inline-flex p-1 bg-slate-100/90 rounded-2xl border border-gray-200">
+        <button type="button" id="ta-btn-view-teachers" onclick="window.taSwitchView('teachers')" class="px-2.5 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-black transition-all flex items-center justify-center gap-1 sm:gap-1.5 shadow-xs cursor-pointer bg-indigo-600 text-white whitespace-nowrap">
+          <span>👨‍🏫</span>
+          <span><span class="hidden sm:inline">Theo </span>Giáo viên</span>
+        </button>
+        <button type="button" id="ta-btn-view-classes" onclick="window.taSwitchView('classes')" class="px-2.5 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-bold text-gray-600 hover:text-gray-900 transition-all flex items-center justify-center gap-1 sm:gap-1.5 cursor-pointer whitespace-nowrap">
+          <span>🏫</span>
+          <span><span class="hidden sm:inline">Theo </span>Lớp học</span>
+        </button>
+        <button type="button" id="ta-btn-view-matrix" onclick="window.taSwitchView('matrix')" class="px-2.5 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-bold text-gray-600 hover:text-gray-900 transition-all flex items-center justify-center gap-1 sm:gap-1.5 cursor-pointer whitespace-nowrap">
+          <span>📊</span>
+          <span>Ma trận<span class="hidden sm:inline"> toàn trường</span></span>
+        </button>
+      </div>
+
+      <!-- Quick filters: School/Donvi dropdown -->
+      <div class="flex items-center gap-2 w-full md:w-auto">
+        <label for="ta-filter-donvi" class="text-xs font-bold text-gray-600 shrink-0 hidden sm:inline whitespace-nowrap">Đơn vị:</label>
+        <select id="ta-filter-donvi" onchange="window.taOnFilterChange()" class="w-full md:w-64 px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs font-semibold text-gray-800 focus:outline-none focus:border-indigo-500 cursor-pointer truncate">
+          <option value="">Tất cả đơn vị / trường</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Search & Grade Filters Toolbar -->
+    <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+      <!-- Search input -->
+      <div class="relative flex-1 min-w-0">
+        <span class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400 text-sm">🔍</span>
+        <input type="text" id="ta-search-input" oninput="window.taOnFilterChange()" placeholder="Tìm kiếm tên giáo viên, tên lớp (12A1, 10B...), môn học..." class="w-full pl-9 pr-8 py-2.5 bg-gray-50 border border-gray-200 rounded-2xl text-xs sm:text-sm font-medium text-gray-800 placeholder:text-gray-400 focus:outline-none focus:border-indigo-500 focus:bg-white transition-all">
+        <button type="button" id="ta-search-clear" onclick="document.getElementById('ta-search-input').value=''; window.taOnFilterChange();" class="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 cursor-pointer hidden">✕</button>
+      </div>
+
+      <!-- Grade Filter Chips -->
+      <div class="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5 shrink-0">
+        <button type="button" onclick="window.taSetGradeFilter('')" class="ta-grade-chip px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer bg-indigo-600 text-white whitespace-nowrap shadow-xs" data-grade="">Tất cả khối</button>
+        <button type="button" onclick="window.taSetGradeFilter('12')" class="ta-grade-chip px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer bg-gray-100 text-gray-700 hover:bg-gray-200 whitespace-nowrap" data-grade="12">Khối 12</button>
+        <button type="button" onclick="window.taSetGradeFilter('11')" class="ta-grade-chip px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer bg-gray-100 text-gray-700 hover:bg-gray-200 whitespace-nowrap" data-grade="11">Khối 11</button>
+        <button type="button" onclick="window.taSetGradeFilter('10')" class="ta-grade-chip px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer bg-gray-100 text-gray-700 hover:bg-gray-200 whitespace-nowrap" data-grade="10">Khối 10</button>
+        <button type="button" onclick="window.taSetGradeFilter('other')" class="ta-grade-chip px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer bg-gray-100 text-gray-700 hover:bg-gray-200 whitespace-nowrap" data-grade="other">Khác</button>
+      </div>
+
+      <!-- Role / Status Filter -->
+      <div class="flex items-center gap-2 shrink-0">
+        <select id="ta-filter-role" onchange="window.taOnFilterChange()" class="w-full sm:w-auto px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs font-semibold text-gray-800 focus:outline-none focus:border-indigo-500 cursor-pointer">
+          <option value="">Tất cả vai trò</option>
+          <option value="has_classes">Đã phân công</option>
+          <option value="no_classes">Chưa phân công</option>
+          <option value="chu_nhiem">GV Chủ nhiệm</option>
+          <option value="bo_mon">GV Bộ môn</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Active View Contents -->
+    <div id="ta-views-container" class="pt-2">
+      <!-- 1. VIEW THEO GIÁO VIÊN -->
+      <div id="ta-view-teachers" class="space-y-3">
+        <div id="ta-teachers-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
+          <!-- Populated by JavaScript -->
+          <div class="col-span-full py-12 text-center text-gray-500 italic text-sm">
+            ⏳ Đang tải danh sách phân công giáo viên...
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. VIEW THEO LỚP HỌC -->
+      <div id="ta-view-classes" class="hidden space-y-3">
+        <div id="ta-classes-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
+          <!-- Populated by JavaScript -->
+        </div>
+      </div>
+
+      <!-- 3. VIEW MA TRẬN TOÀN TRƯỜNG -->
+      <div id="ta-view-matrix" class="hidden space-y-3">
+        <div class="bg-gray-50/80 border border-gray-200 rounded-2xl p-3 text-xs text-gray-600 flex flex-wrap items-center justify-between gap-2">
+          <div class="flex flex-wrap items-center gap-2 sm:gap-3">
+            <span class="font-bold text-gray-800 whitespace-nowrap">Chú thích ma trận:</span>
+            <span class="inline-flex items-center gap-1 font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 whitespace-nowrap">👑 CN: Chủ nhiệm</span>
+            <span class="inline-flex items-center gap-1 font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200 whitespace-nowrap">📖 Tên môn: Bộ môn</span>
+          </div>
+          <span class="text-gray-500 italic text-[11px] sm:text-xs">Bấm vào ô để xem hoặc sửa phân công</span>
+        </div>
+        <div id="ta-matrix-container" class="overflow-x-auto rounded-2xl border border-gray-200 shadow-xs bg-white">
+          <!-- Populated by JavaScript -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+<!-- ==================== MODAL: PHÂN CÔNG LỚP CHO GIÁO VIÊN ==================== -->
+<div id="modal-ta-assign-teacher" class="fixed inset-0 z-[99999] hidden flex items-center justify-center bg-black/75 backdrop-blur-sm p-3 sm:p-4 animate-fade-in">
+  <div class="bg-white rounded-3xl shadow-2xl max-w-2xl w-full max-h-[92vh] flex flex-col overflow-hidden animate-modal-enter border border-indigo-200">
+    <!-- Header -->
+    <div class="p-4 sm:p-5 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white flex items-center justify-between relative">
+      <div class="flex items-center gap-3 min-w-0 pr-8">
+        <span class="w-10 h-10 rounded-2xl bg-indigo-500/30 border border-indigo-400/40 flex items-center justify-center text-xl shrink-0">👨‍🏫</span>
+        <div class="min-w-0">
+          <h3 class="text-base sm:text-lg font-black truncate text-white" id="modal-ta-teacher-name">Họ và tên giáo viên</h3>
+          <p class="text-xs text-indigo-200/80 truncate" id="modal-ta-teacher-sub">Đơn vị: THPT</p>
+        </div>
+      </div>
+      <button type="button" onclick="window.taCloseAssignTeacherModal()" class="w-8 h-8 rounded-full bg-white/10 hover:bg-rose-600 active:scale-95 text-white flex items-center justify-center transition-all cursor-pointer">✕</button>
+    </div>
+
+    <!-- Body -->
+    <div class="p-4 sm:p-5 overflow-y-auto space-y-4 flex-1">
+      <!-- Quick add class toolbar -->
+      <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 bg-indigo-50/70 p-3 rounded-2xl border border-indigo-100">
+        <div class="flex-1 relative">
+          <input type="text" id="modal-ta-custom-class-input" placeholder="Nhập thêm lớp mới (VD: 12A5, 10C...)" class="w-full px-3 py-2 bg-white border border-indigo-200 rounded-xl text-xs font-semibold focus:outline-none focus:border-indigo-600">
+        </div>
+        <button type="button" onclick="window.taAddCustomClassToTeacherModal()" class="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white font-bold text-xs rounded-xl transition-all cursor-pointer shrink-0">
+          ➕ Thêm lớp này
+        </button>
+      </div>
+
+      <!-- Quick selection controls & filter -->
+      <div class="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 pb-2">
+        <div class="flex items-center gap-2">
+          <button type="button" onclick="window.taToggleAllClassesForTeacher(true)" class="px-2.5 py-1 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg text-xs font-bold cursor-pointer">
+            ✓ Chọn tất cả
+          </button>
+          <button type="button" onclick="window.taToggleAllClassesForTeacher(false)" class="px-2.5 py-1 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg text-xs font-bold cursor-pointer">
+            ✕ Bỏ chọn tất cả
+          </button>
+        </div>
+        <span id="modal-ta-selected-classes-count" class="text-xs font-extrabold text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-full border border-indigo-200">
+          Đã chọn: 0 lớp
+        </span>
+      </div>
+
+      <!-- Quick Subject Chips (Click to apply to all checked classes) -->
+      <div class="bg-gray-50 p-2.5 rounded-xl border border-gray-200/80">
+        <div class="text-[11px] font-bold text-gray-600 mb-1.5 flex items-center gap-1">
+          <span>⚡ Chọn nhanh môn dạy phổ biến:</span>
+        </div>
+        <div class="flex flex-wrap gap-1.5" id="modal-ta-subject-chips">
+          <button type="button" onclick="window.taApplySubjectChip('Toán')" class="px-2 py-0.5 bg-white hover:bg-indigo-50 hover:text-indigo-700 border border-gray-200 rounded text-[11px] font-semibold text-gray-700 cursor-pointer">Toán</button>
+          <button type="button" onclick="window.taApplySubjectChip('Ngữ văn')" class="px-2 py-0.5 bg-white hover:bg-indigo-50 hover:text-indigo-700 border border-gray-200 rounded text-[11px] font-semibold text-gray-700 cursor-pointer">Ngữ văn</button>
+          <button type="button" onclick="window.taApplySubjectChip('Tiếng Anh')" class="px-2 py-0.5 bg-white hover:bg-indigo-50 hover:text-indigo-700 border border-gray-200 rounded text-[11px] font-semibold text-gray-700 cursor-pointer">Tiếng Anh</button>
+          <button type="button" onclick="window.taApplySubjectChip('Vật lý')" class="px-2 py-0.5 bg-white hover:bg-indigo-50 hover:text-indigo-700 border border-gray-200 rounded text-[11px] font-semibold text-gray-700 cursor-pointer">Vật lý</button>
+          <button type="button" onclick="window.taApplySubjectChip('Hóa học')" class="px-2 py-0.5 bg-white hover:bg-indigo-50 hover:text-indigo-700 border border-gray-200 rounded text-[11px] font-semibold text-gray-700 cursor-pointer">Hóa học</button>
+          <button type="button" onclick="window.taApplySubjectChip('Sinh học')" class="px-2 py-0.5 bg-white hover:bg-indigo-50 hover:text-indigo-700 border border-gray-200 rounded text-[11px] font-semibold text-gray-700 cursor-pointer">Sinh học</button>
+          <button type="button" onclick="window.taApplySubjectChip('Lịch sử')" class="px-2 py-0.5 bg-white hover:bg-indigo-50 hover:text-indigo-700 border border-gray-200 rounded text-[11px] font-semibold text-gray-700 cursor-pointer">Lịch sử</button>
+          <button type="button" onclick="window.taApplySubjectChip('Địa lý')" class="px-2 py-0.5 bg-white hover:bg-indigo-50 hover:text-indigo-700 border border-gray-200 rounded text-[11px] font-semibold text-gray-700 cursor-pointer">Địa lý</button>
+          <button type="button" onclick="window.taApplySubjectChip('Tin học')" class="px-2 py-0.5 bg-white hover:bg-indigo-50 hover:text-indigo-700 border border-gray-200 rounded text-[11px] font-semibold text-gray-700 cursor-pointer">Tin học</button>
+          <button type="button" onclick="window.taApplySubjectChip('GDCD')" class="px-2 py-0.5 bg-white hover:bg-indigo-50 hover:text-indigo-700 border border-gray-200 rounded text-[11px] font-semibold text-gray-700 cursor-pointer">GDCD</button>
+        </div>
+      </div>
+
+      <!-- Classes Checklist Container -->
+      <div id="modal-ta-classes-checklist" class="space-y-2 max-h-72 overflow-y-auto pr-1">
+        <!-- Rendered by JS -->
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="p-3 sm:p-4 bg-gray-50 border-t border-gray-200 flex items-center justify-between gap-3">
+      <button type="button" onclick="window.taCloseAssignTeacherModal()" class="px-4 py-2 bg-white hover:bg-gray-100 text-gray-700 font-bold text-xs rounded-xl border border-gray-300 transition-all cursor-pointer">
+        Đóng
+      </button>
+      <button type="button" id="modal-ta-btn-save-teacher" onclick="window.taSaveTeacherClasses()" class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white font-black text-xs sm:text-sm rounded-xl shadow-lg shadow-indigo-900/30 transition-all cursor-pointer flex items-center gap-1.5">
+        <span>💾</span>
+        <span>Lưu phân công giáo viên</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== MODAL: PHÂN CÔNG GIÁO VIÊN CHO LỚP HỌC ==================== -->
+<div id="modal-ta-assign-class" class="fixed inset-0 z-[99999] hidden flex items-center justify-center bg-black/75 backdrop-blur-sm p-3 sm:p-4 animate-fade-in">
+  <div class="bg-white rounded-3xl shadow-2xl max-w-2xl w-full max-h-[92vh] flex flex-col overflow-hidden animate-modal-enter border border-indigo-200">
+    <!-- Header -->
+    <div class="p-4 sm:p-5 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white flex items-center justify-between relative">
+      <div class="flex items-center gap-3 min-w-0 pr-8">
+        <span class="w-10 h-10 rounded-2xl bg-amber-500/30 border border-amber-400/40 flex items-center justify-center text-xl shrink-0">🏫</span>
+        <div class="min-w-0">
+          <h3 class="text-base sm:text-lg font-black truncate text-white" id="modal-ta-class-name">Lớp 12A1</h3>
+          <p class="text-xs text-amber-200/90 truncate" id="modal-ta-class-sub">Phân công Giáo viên Chủ nhiệm & Bộ môn</p>
+        </div>
+      </div>
+      <button type="button" onclick="window.taCloseAssignClassModal()" class="w-8 h-8 rounded-full bg-white/10 hover:bg-rose-600 active:scale-95 text-white flex items-center justify-center transition-all cursor-pointer">✕</button>
+    </div>
+
+    <!-- Body -->
+    <div class="p-4 sm:p-5 overflow-y-auto space-y-4 flex-1">
+      <!-- 1. CHỦ NHIỆM LỚP HỌC -->
+      <div class="p-3.5 bg-amber-50/70 rounded-2xl border border-amber-200 space-y-2">
+        <label for="modal-ta-class-cn-select" class="text-xs font-black text-amber-900 flex items-center gap-1.5">
+          <span>👑 GIÁO VIÊN CHỦ NHIỆM (GVCN):</span>
+        </label>
+        <div class="flex items-center gap-2">
+          <select id="modal-ta-class-cn-select" class="w-full px-3 py-2 bg-white border border-amber-300 rounded-xl text-xs font-bold text-gray-800 focus:outline-none focus:border-amber-500">
+            <option value="">-- Chưa chọn Giáo viên Chủ nhiệm --</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- 2. DANH SÁCH GIÁO VIÊN BỘ MÔN (GVBM) -->
+      <div class="space-y-2">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-black text-indigo-900 flex items-center gap-1.5">
+            <span>📚 GIÁO VIÊN BỘ MÔN CHO LỚP:</span>
+          </span>
+          <span id="modal-ta-class-bm-count" class="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">
+            0 giáo viên bộ môn
+          </span>
+        </div>
+
+        <div id="modal-ta-class-teachers-list" class="space-y-2 max-h-72 overflow-y-auto pr-1">
+          <!-- Rendered by JS -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="p-3 sm:p-4 bg-gray-50 border-t border-gray-200 flex items-center justify-between gap-3">
+      <button type="button" onclick="window.taCloseAssignClassModal()" class="px-4 py-2 bg-white hover:bg-gray-100 text-gray-700 font-bold text-xs rounded-xl border border-gray-300 transition-all cursor-pointer">
+        Đóng
+      </button>
+      <button type="button" id="modal-ta-btn-save-class" onclick="window.taSaveClassTeachers()" class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white font-black text-xs sm:text-sm rounded-xl shadow-lg shadow-indigo-900/30 transition-all cursor-pointer flex items-center gap-1.5">
+        <span>💾</span>
+        <span>Lưu phân công lớp này</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== MODAL: THÊM LỚP HỌC MỚI ==================== -->
+<div id="modal-ta-add-class" class="fixed inset-0 z-[99999] hidden flex items-center justify-center bg-black/75 backdrop-blur-sm p-3 sm:p-4 animate-fade-in">
+  <div class="bg-white rounded-3xl shadow-2xl max-w-md w-full overflow-hidden animate-modal-enter border border-indigo-200">
+    <div class="p-4 sm:p-5 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white flex items-center justify-between">
+      <div class="flex items-center gap-2.5">
+        <span class="text-2xl">🏫</span>
+        <h3 class="text-base font-black text-white">Thêm lớp học mới</h3>
+      </div>
+      <button type="button" onclick="window.taCloseAddClassModal()" class="w-8 h-8 rounded-full bg-white/10 hover:bg-rose-600 text-white flex items-center justify-center transition-all cursor-pointer">✕</button>
+    </div>
+    <div class="p-5 space-y-4">
+      <div>
+        <label for="modal-ta-new-class-name" class="block text-xs font-bold text-gray-700 mb-1">Tên lớp học * (VD: 12A1, 11B2, 10C...)</label>
+        <input type="text" id="modal-ta-new-class-name" placeholder="Nhập tên lớp..." class="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs font-bold text-gray-900 focus:outline-none focus:border-indigo-600 uppercase">
+      </div>
+      <div>
+        <label for="modal-ta-new-class-donvi" class="block text-xs font-bold text-gray-700 mb-1">Đơn vị / Trường học</label>
+        <input type="text" id="modal-ta-new-class-donvi" placeholder="Đơn vị trường..." class="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs font-semibold text-gray-900 focus:outline-none focus:border-indigo-600">
+      </div>
+    </div>
+    <div class="p-4 bg-gray-50 border-t border-gray-200 flex items-center justify-end gap-2.5">
+      <button type="button" onclick="window.taCloseAddClassModal()" class="px-4 py-2 bg-white hover:bg-gray-100 text-gray-700 font-bold text-xs rounded-xl border border-gray-300 cursor-pointer">Hủy</button>
+      <button type="button" onclick="window.taConfirmAddNewClass()" class="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow cursor-pointer">Thêm vào hệ thống</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== MODAL: NHẬP EXCEL PHÂN CÔNG ==================== -->
+<div id="modal-ta-import-excel" class="fixed inset-0 z-[99999] hidden flex items-center justify-center bg-black/75 backdrop-blur-sm p-3 sm:p-4 animate-fade-in">
+  <div class="bg-white rounded-3xl shadow-2xl max-w-xl w-full max-h-[90vh] flex flex-col overflow-hidden animate-modal-enter border border-indigo-200">
+    <div class="p-4 sm:p-5 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white flex items-center justify-between">
+      <div class="flex items-center gap-2.5">
+        <span class="text-2xl">📥</span>
+        <h3 class="text-base font-black text-white">Nhập phân công từ file Excel</h3>
+      </div>
+      <button type="button" onclick="window.taCloseImportModal()" class="w-8 h-8 rounded-full bg-white/10 hover:bg-rose-600 text-white flex items-center justify-center transition-all cursor-pointer">✕</button>
+    </div>
+    <div class="p-5 overflow-y-auto space-y-4 flex-1">
+      <div class="p-3.5 bg-indigo-50 rounded-2xl border border-indigo-100 text-xs text-indigo-900 space-y-1">
+        <p class="font-bold">📋 Cấu trúc các cột trong file Excel:</p>
+        <p>File Excel (.xlsx) gồm các cột: <strong>Họ tên GV</strong> (hoặc Mã GV/Tên đăng nhập), <strong>Lớp</strong>, <strong>Vai trò</strong> (Chủ nhiệm / Bộ môn), <strong>Môn dạy</strong>.</p>
+        <button type="button" onclick="window.taDownloadExcelTemplate()" class="text-indigo-600 hover:text-indigo-800 font-bold underline inline-flex items-center gap-1 mt-1 cursor-pointer">
+          📥 Tải file mẫu phân công Excel (.xlsx)
+        </button>
+      </div>
+
+      <div class="border-2 border-dashed border-gray-300 hover:border-indigo-500 rounded-2xl p-6 text-center cursor-pointer transition bg-gray-50/50 hover:bg-indigo-50/20" onclick="document.getElementById('ta-import-excel-file').click()">
+        <input type="file" id="ta-import-excel-file" accept=".xlsx, .xls" class="hidden" onchange="window.taHandleExcelFileChosen(event)">
+        <span class="text-3xl block mb-2">📁</span>
+        <p class="text-xs sm:text-sm font-bold text-gray-800">Bấm để chọn file Excel hoặc kéo thả vào đây</p>
+        <p class="text-[11px] text-gray-500 mt-1">Định dạng hỗ trợ: .xlsx, .xls</p>
+      </div>
+
+      <div id="ta-import-preview-container" class="hidden space-y-2">
+        <div class="flex items-center justify-between text-xs font-bold text-gray-800">
+          <span>Xem trước dữ liệu hợp lệ:</span>
+          <span id="ta-import-count-badge" class="text-indigo-600 font-black">0 dòng</span>
+        </div>
+        <div id="ta-import-preview-list" class="max-h-48 overflow-y-auto space-y-1 border border-gray-200 rounded-xl p-2 bg-gray-50 text-xs">
+        </div>
+      </div>
+    </div>
+    <div class="p-4 bg-gray-50 border-t border-gray-200 flex items-center justify-end gap-2.5">
+      <button type="button" onclick="window.taCloseImportModal()" class="px-4 py-2 bg-white hover:bg-gray-100 text-gray-700 font-bold text-xs rounded-xl border border-gray-300 cursor-pointer">Hủy</button>
+      <button type="button" id="ta-btn-confirm-import" onclick="window.taConfirmImportExcel()" disabled class="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-xs rounded-xl shadow cursor-pointer">Tiến hành nhập</button>
+    </div>
+  </div>
+</div>
+</div>

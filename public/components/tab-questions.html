@@ -1,0 +1,62 @@
+<div id="tab-questions" class="tab-content">
+     <!-- Login for Questions -->
+     <div id="questions-login" class="bg-white rounded-2xl shadow-xl p-8 max-w-md mx-auto text-center slide-up">
+      <div class="text-6xl mb-4">🔐</div>
+      <h2 class="text-2xl font-bold text-gray-800 mb-2">Đăng nhập</h2>
+      <p class="text-gray-600 mb-6">Vui lòng nhập mật khẩu để quản lý câu hỏi</p>
+      <input type="text" style="-webkit-text-security: disc;" autocomplete="off" data-lpignore="true" id="questions-password" placeholder="Nhập mật khẩu" class="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-purple-500 focus:outline-none mb-4 text-center text-lg" onkeypress="if(event.key==='Enter') loginQuestions()">
+      <button onclick="loginQuestions()" class="w-full py-3 bg-purple-600 text-white font-bold rounded-lg hover:bg-purple-700 transition">Đăng nhập</button>
+     </div>
+     
+     <!-- Questions Panel (Hidden by default) -->
+     <div id="questions-panel" class="hidden">
+         <!-- Question Type Tabs -->
+         <div class="bg-white rounded-xl shadow-md p-3 mb-4">
+          <div class="flex flex-wrap gap-2 mb-3">
+           <select id="question-lesson-filter" onchange="filterQuestions()" class="px-3 py-1.5 border-2 border-gray-200 rounded-lg focus:border-purple-500 focus:outline-none text-sm"> <option value="">Tất cả bài</option> </select> <button onclick="setQuestionTypeFilter('4-1')" class="q-type-btn px-3 py-1.5 rounded-lg text-sm font-semibold transition-all bg-blue-100 text-blue-700 hover:bg-blue-200" data-type="4-1"> Câu hỏi [4-1] </button> <button onclick="setQuestionTypeFilter('TF4')" class="q-type-btn px-3 py-1.5 rounded-lg text-sm font-semibold transition-all bg-green-100 text-green-700 hover:bg-green-200" data-type="TF4"> Câu hỏi [TF4] </button> <button onclick="setQuestionTypeFilter('SQ')" class="q-type-btn px-3 py-1.5 rounded-lg text-sm font-semibold transition-all bg-orange-100 text-orange-700 hover:bg-orange-200" data-type="SQ"> Câu hỏi [SQ] </button> <button onclick="setQuestionTypeFilter('TL')" class="q-type-btn px-3 py-1.5 rounded-lg text-sm font-semibold transition-all bg-red-100 text-red-700 hover:bg-red-200" data-type="TL"> Tự luận [TL] </button>
+          </div><!-- Question Statistics by Type -->
+          <div id="question-type-stats" class="grid md:grid-cols-4 gap-2 mb-2 p-2 bg-gray-50 rounded-lg text-sm">
+          </div>
+         </div><!-- Actions -->
+         <div class="bg-white rounded-xl shadow-md p-4 mb-4">
+          <div class="flex flex-col xl:flex-row gap-4 justify-between items-start xl:items-center w-full">
+           <!-- Thêm/Tạo & Tải lại -->
+           <div class="flex flex-wrap gap-2 w-full xl:w-auto items-center">
+            <button type="button" onclick="window.refreshQuestionsData()" class="p-2 bg-white text-emerald-700 border border-emerald-200 hover:bg-emerald-50 hover:border-emerald-300 active:scale-95 rounded-lg transition shadow-xs flex items-center justify-center font-bold cursor-pointer" title="Tải lại toàn bộ ngân hàng câu hỏi">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+            </button>
+            <button onclick="showAddQuestionModal()" class="flex-1 xl:flex-none justify-center px-4 py-2 bg-gradient-to-r from-green-500 to-emerald-600 text-white text-sm font-bold rounded-lg hover:from-green-600 hover:to-emerald-700 shadow-sm transition flex items-center gap-2"><span>➕</span> <span class="sm:hidden">Thêm</span><span class="hidden sm:inline">Thêm câu hỏi</span></button>
+            <button onclick="window.showAIGenerateModal()" class="flex-1 xl:flex-none justify-center px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-600 text-white text-sm font-bold rounded-lg hover:from-indigo-600 hover:to-purple-700 shadow-sm transition flex items-center gap-2"><span>🤖</span> Tạo bằng AI</button>
+           </div>
+           
+           <!-- Import/Export -->
+           <div class="flex flex-wrap gap-2 w-full xl:w-auto xl:border-l xl:border-r border-gray-100 xl:px-4">
+            <button onclick="showImportModal()" class="flex-1 xl:flex-none justify-center px-3 py-2 bg-blue-50 text-blue-700 border border-blue-200 text-sm font-bold rounded-lg hover:bg-blue-100 transition flex items-center gap-2" title="Nhập dữ liệu từ file Word"><span>📥</span> Import Word</button>
+            <button onclick="exportQuestions()" class="flex-1 xl:flex-none justify-center px-3 py-2 bg-purple-50 text-purple-700 border border-purple-200 text-sm font-bold rounded-lg hover:bg-purple-100 transition flex items-center gap-2" title="Xuất dữ liệu ra file Word"><span>📤</span> Export Word</button>
+            <button onclick="exportStatsToExcel()" class="flex-1 xl:flex-none justify-center px-3 py-2 bg-emerald-50 text-emerald-700 border border-emerald-200 text-sm font-bold rounded-lg hover:bg-emerald-100 transition flex items-center gap-2" title="Xuất thống kê Excel"><span>📊</span> Xuất Excel</button>
+           </div>
+
+           <!-- Xóa/Chọn -->
+           <div class="flex flex-wrap gap-2 w-full xl:w-auto ml-auto">
+            <button onclick="selectAllQuestions()" class="flex-1 xl:flex-none justify-center px-3 py-2 bg-gray-100 text-gray-700 border border-gray-300 text-sm font-bold rounded-lg hover:bg-gray-200 transition flex items-center gap-2"><span>☑️</span> Chọn tất cả</button>
+            <button id="btn-delete-selected-questions" onclick="deleteSelectedQuestions()" class="flex-1 xl:flex-none justify-center px-3 py-2 bg-red-50 text-red-600 border border-red-200 text-sm font-bold rounded-lg hover:bg-red-100 hover:text-red-700 transition flex items-center gap-2"><span>🗑️</span> Xóa đã chọn</button>
+           </div>
+          </div>
+         </div><!-- Questions List -->
+         <div class="bg-white rounded-xl shadow-md p-3">
+          <div class="flex flex-col sm:flex-row justify-between sm:items-center gap-2 sm:gap-3 mb-3">
+           <div class="flex items-center justify-between sm:justify-start w-full sm:w-auto">
+             <h3 class="font-bold text-gray-800 text-sm flex items-center gap-1.5"><span>📋</span> Danh sách câu hỏi</h3>
+             <span id="questions-count" class="text-xs text-purple-700 bg-purple-50 border border-purple-100 px-2.5 py-1 rounded-md font-bold whitespace-nowrap shadow-sm">Tổng: 0 câu</span>
+           </div>
+           <div class="w-full sm:w-auto relative group">
+                <input type="text" id="question-search" oninput="filterQuestions()" placeholder="Tìm kiếm câu hỏi..." class="w-full sm:w-64 pl-9 pr-3 py-2 sm:py-1.5 border border-gray-200 rounded-lg focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 focus:outline-none text-sm transition-all shadow-sm group-hover:border-purple-300">
+                <svg class="w-4 h-4 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2 group-hover:text-purple-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+           </div>
+          </div>
+          <div id="questions-list" class="space-y-2 max-h-[600px] overflow-y-auto text-sm pr-1">
+          </div>
+          <div id="questions-pagination" class="mt-4 pt-3 border-t border-gray-100 flex flex-wrap items-center justify-between gap-3 px-2 text-sm text-gray-700"></div>
+         </div>
+     </div>
+    </div>

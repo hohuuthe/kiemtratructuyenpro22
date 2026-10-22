@@ -1,0 +1,145 @@
+<div id="user-modal" class="fixed inset-0 z-[99999] hidden">
+    <div class="modal-overlay absolute inset-0 bg-gray-900/40 backdrop-blur-sm" onclick="window.closeUserModal()"></div>
+    <div class="absolute inset-0 flex items-center justify-center p-3 sm:p-4">
+     <div class="bg-white border border-gray-100 rounded-2xl sm:rounded-3xl shadow-2xl max-w-xl w-full max-h-[92vh] overflow-y-auto relative z-10 bounce-in p-4 sm:p-6">
+      <!-- Close Button -->
+      <button onclick="window.closeUserModal()" class="absolute top-3 right-3 sm:top-4 sm:right-4 text-gray-400 hover:text-gray-700 transition hover:bg-gray-50 p-2 rounded-xl cursor-pointer" title="Đóng">
+       <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+       </svg>
+      </button>
+
+      <!-- Header -->
+      <div class="mb-4 text-center">
+        <div class="w-10 h-10 bg-blue-100 text-blue-600 rounded-xl flex items-center justify-center mx-auto mb-1.5 text-xl font-bold">👤</div>
+        <h3 id="user-modal-title" class="text-base sm:text-lg font-black text-gray-950 tracking-tight uppercase">HỒ SƠ THÔNG TIN NGƯỜI DÙNG</h3>
+        <p id="user-modal-subtitle" class="text-[10px] text-gray-500 uppercase tracking-widest mt-0.5">Quản lý hồ sơ thông tin người dùng</p>
+      </div>
+
+      <!-- Banner thông báo chỉ đọc khi là Giáo viên -->
+      <div id="user-modal-readonly-banner" class="hidden mb-3.5 p-3 bg-amber-50 border border-amber-300 rounded-xl text-xs text-amber-900 font-medium flex items-center gap-2 shadow-xs">
+        <span class="text-base">🔒</span>
+        <div class="text-[11px] leading-tight">
+          <strong class="block mb-0.5">Chế độ xem (Chỉ đọc):</strong>
+          <span>Tài khoản Giáo viên chỉ có quyền xem dữ liệu, không được phép chỉnh sửa.</span>
+        </div>
+      </div>
+
+      <!-- Khối hiển thị Tài khoản đăng nhập liên kết (bố trí khoa học không bị tràn) -->
+      <div class="mb-4 p-2.5 sm:p-3 bg-purple-50/70 border border-purple-200/80 rounded-xl sm:rounded-2xl space-y-1 shadow-2xs">
+        <div class="flex items-center justify-between">
+          <span class="text-[10px] font-bold text-purple-900 uppercase tracking-wider">Tài khoản đăng nhập liên kết:</span>
+          <span id="usr-linked-account-badge" class="px-2 py-0.2 rounded-md text-[10px] font-bold bg-white text-gray-600 border border-purple-200">Chưa có TK</span>
+        </div>
+        <div class="w-full py-1 px-2.5 bg-white/90 border border-purple-200/60 rounded-lg overflow-x-auto no-scrollbar">
+          <div id="usr-linked-account-display" class="font-mono font-bold text-xs sm:text-sm text-purple-800 whitespace-nowrap select-all">Chưa cấp tài khoản</div>
+        </div>
+      </div>
+
+      <input type="hidden" id="usr-id">
+      
+      <div class="space-y-3.5">
+       <!-- 1. HỌ VÀ TÊN -->
+       <div>
+        <label class="block text-[10px] font-bold text-gray-600 mb-1 ml-1 uppercase tracking-wider">HỌ VÀ TÊN NGƯỜI DÙNG *</label>
+        <input type="text" id="usr-fullname" placeholder="Nhập họ và tên..." class="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-xl focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-500/10 focus:outline-none text-xs sm:text-sm transition-all placeholder:text-gray-400 font-semibold">
+       </div>
+
+       <!-- 2. SĐT & GIỚI TÍNH -->
+       <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3">
+        <div>
+         <label class="block text-[10px] font-bold text-gray-600 mb-1 ml-1 uppercase tracking-wider">SỐ ĐIỆN THOẠI</label>
+         <input type="text" id="usr-phone" placeholder="Số điện thoại liên hệ..." class="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-xl focus:border-blue-500 focus:bg-white focus:outline-none text-xs sm:text-sm transition-all placeholder:text-gray-400">
+        </div>
+        <div>
+         <label class="block text-[10px] font-bold text-gray-600 mb-1 ml-1 uppercase tracking-wider">GIỚI TÍNH</label>
+         <select id="usr-gender" class="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-xl focus:border-blue-500 focus:bg-white focus:outline-none text-xs sm:text-sm">
+          <option value="">-- Chọn giới tính --</option>
+          <option value="Nam">Nam</option>
+          <option value="Nữ">Nữ</option>
+          <option value="Khác">Khác</option>
+         </select>
+        </div>
+       </div>
+
+       <!-- 3. NGÀY SINH & ĐỐI TƯỢNG -->
+       <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3">
+        <div>
+         <label class="block text-[10px] font-bold text-gray-600 mb-1 ml-1 uppercase tracking-wider">NGÀY SINH</label>
+         <input type="date" id="usr-dob" class="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-xl focus:border-blue-500 focus:bg-white focus:outline-none text-xs sm:text-sm">
+        </div>
+        <div>
+         <label class="block text-[10px] font-bold text-gray-600 mb-1 ml-1 uppercase tracking-wider">ĐỐI TƯỢNG</label>
+         <select id="usr-audience" class="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-xl focus:border-blue-500 focus:bg-white focus:outline-none text-xs sm:text-sm font-semibold">
+           <option value="Học sinh">Học sinh</option>
+           <option value="Giáo viên">Giáo viên</option>
+           <option value="Khác">Khác</option>
+         </select>
+        </div>
+       </div>
+
+       <!-- 4. ĐƠN VỊ / TRƯỜNG & LỚP -->
+       <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3">
+        <div class="sm:col-span-2">
+          <label class="block text-[10px] font-bold text-gray-600 mb-1 ml-1 uppercase tracking-wider">ĐƠN VỊ / TRƯỜNG HỌC</label>
+          <input type="text" id="usr-donvi" placeholder="Tên trường / cơ quan..." class="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-xl focus:border-blue-500 focus:bg-white focus:outline-none text-xs sm:text-sm transition-all placeholder:text-gray-400">
+        </div>
+        <div>
+          <label class="block text-[10px] font-bold text-gray-600 mb-1 ml-1 uppercase tracking-wider">LỚP</label>
+          <input type="text" id="usr-lop" placeholder="VD: 12A1, 9B..." class="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-xl focus:border-blue-500 focus:bg-white focus:outline-none text-xs sm:text-sm transition-all placeholder:text-gray-400 font-bold">
+        </div>
+       </div>
+
+       <!-- 5. NGHỀ NGHIỆP & ĐỊA CHỈ -->
+       <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3">
+        <div>
+         <label class="block text-[10px] font-bold text-gray-600 mb-1 ml-1 uppercase tracking-wider">NGHỀ NGHIỆP</label>
+         <input type="text" id="usr-occupation" placeholder="Nghề nghiệp..." class="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-xl focus:border-blue-500 focus:bg-white focus:outline-none text-xs sm:text-sm transition-all placeholder:text-gray-400">
+        </div>
+        <div>
+         <label class="block text-[10px] font-bold text-gray-600 mb-1 ml-1 uppercase tracking-wider">ĐỊA CHỈ</label>
+         <input type="text" id="usr-address" placeholder="Tỉnh / Thành phố / Địa chỉ..." class="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-xl focus:border-blue-500 focus:bg-white focus:outline-none text-xs sm:text-sm transition-all placeholder:text-gray-400">
+        </div>
+       </div>
+
+       <!-- 6. HẠN DÙNG & THANH TOÁN -->
+       <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3">
+        <div>
+         <label class="block text-[10px] font-bold text-gray-600 mb-1 ml-1 uppercase tracking-wider">HẠN SỬ DỤNG</label>
+         <input type="date" id="usr-expiry" class="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-xl focus:border-blue-500 focus:bg-white focus:outline-none text-xs sm:text-sm">
+        </div>
+        <div>
+         <label class="block text-[10px] font-bold text-gray-600 mb-1 ml-1 uppercase tracking-wider">TT THANH TOÁN</label>
+         <select id="usr-payment-status" class="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-xl focus:border-blue-500 focus:bg-white focus:outline-none text-xs sm:text-sm">
+           <option value="Chưa thanh toán">Chưa thanh toán</option>
+           <option value="Đã thanh toán">Đã thanh toán</option>
+           <option value="Miễn phí">Miễn phí</option>
+         </select>
+        </div>
+        <div>
+         <label class="block text-[10px] font-bold text-gray-600 mb-1 ml-1 uppercase tracking-wider">PT THANH TOÁN</label>
+         <input type="text" id="usr-payment-method" placeholder="Tiền mặt/CK..." class="w-full bg-gray-50 border border-gray-200 text-gray-900 px-3 py-2 rounded-xl focus:border-blue-500 focus:bg-white focus:outline-none text-xs sm:text-sm transition-all placeholder:text-gray-400">
+        </div>
+       </div>
+
+       <!-- 7. KÍCH HOẠT NGƯỜI DÙNG -->
+       <div class="flex items-center justify-between p-2.5 sm:p-3 bg-gray-50 rounded-xl border border-gray-200">
+        <div>
+          <div class="text-xs font-bold text-gray-800">Trạng thái hoạt động</div>
+          <div class="text-[11px] text-gray-500">Cho phép hồ sơ này tham gia các kỳ thi trên hệ thống</div>
+        </div>
+        <div class="relative inline-flex items-center cursor-pointer">
+          <input type="checkbox" id="usr-active" class="sr-only peer" checked>
+          <div class="w-10 h-5 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+        </div>
+       </div>
+      </div>
+      
+      <!-- Footer Actions -->
+      <div class="mt-5 flex gap-2.5 pt-4 border-t border-gray-100">
+       <button id="btn-cancel-user" onclick="window.closeUserModal()" class="flex-1 px-4 py-2.5 bg-gray-100 text-gray-600 rounded-xl hover:bg-gray-200 transition font-bold text-xs uppercase tracking-wider cursor-pointer">Đóng</button>
+       <button id="btn-save-user" onclick="window.saveUser()" class="flex-[2] px-4 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-500 hover:to-indigo-500 shadow-md transition-all font-bold text-xs uppercase tracking-wider cursor-pointer active:scale-95">Lưu thông tin</button>
+      </div>
+     </div>
+    </div>
+</div>

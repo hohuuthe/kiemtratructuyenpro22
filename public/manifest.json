@@ -1,0 +1,40 @@
+{
+  "name": "HỆ THỐNG KIỂM TRA TRỰC TUYẾN",
+  "short_name": "HỆ THỐNG KIỂM TRA TRỰC TUYẾN",
+  "description": "Hệ thống hỗ trợ kiểm tra trắc nghiệm trực tuyến đa năng, hỗ trợ công thức toán học và nhiều loại câu hỏi.",
+  "start_url": "/?utm_source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": [
+    "window-controls-overlay",
+    "standalone",
+    "minimal-ui"
+  ],
+  "background_color": "#15803d",
+  "theme_color": "#15803d",
+  "orientation": "any",
+  "categories": [
+    "education",
+    "productivity"
+  ],
+  "icons": [
+    {
+      "src": "/favicon.png",
+      "sizes": "64x64",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/pwa-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

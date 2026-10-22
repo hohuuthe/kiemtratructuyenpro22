@@ -1,0 +1,8 @@
+{
+  "name": "HỆ THỐNG KIỂM TRA TRỰC TUYẾN",
+  "description": "Hệ thống kiểm tra, tạo đề thi, ngân hàng câu hỏi trực tuyến dành cho Giáo viên & Học sinh",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
