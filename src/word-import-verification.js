@@ -166,7 +166,19 @@ export function correctImportedWordEquation(q, sourceToken, editedLatex) {
             else q.options[key]={...choice,text:value};
         };
     } else throw new Error('Trường công thức Word không hợp lệ: '+targetField);
-    if(!oldValue.includes(sourceToken) && !oldValue.includes('
+    if(!oldValue.includes(sourceToken) && !oldValue.includes(source.latex)) {
+        throw new Error('Không còn mã Equation ở vị trí gốc: '+sourceToken);
+    }
+    const original=oldValue.includes(sourceToken)?sourceToken:'$'+source.latex+'$';
+    set(oldValue.replace(original,'$'+String(editedLatex).trim()+'$'));
+    source.latex=String(editedLatex).trim();
+    source.status='manual_verified';
+    source.reason='';
+    q.__wordImportIssues=(q.__wordImportIssues||[]).filter(x=>x.token!==sourceToken);
+    q.__wordReviewed=true;
+    return q;
+}
+
 export function checkWordImportBeforeSave(questions, documentIssues = []) {
     const errors=[];
     if(!Array.isArray(questions)||!questions.length)errors.push('Không có câu hỏi để lưu');
