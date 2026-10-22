@@ -256,6 +256,13 @@ export function autoHealSyntaxErrors(latex: string): string {
 export function renderKatexToString(rawLatex: string, isDisplay: boolean = false): string {
     const source = unescapeHtmlInsideMath(String(rawLatex ?? '')).trim();
     if (!source) return '';
+    // KaTeX mhchem registration varies across bundlers. MathJax is already
+    // configured with mhchem, so always use it for chemistry notation.
+    if (/\\\\(?:ce|pu)\\b/.test(source)) {
+        const safe = sanitizeHtml(source);
+        const tag = isDisplay ? 'div' : 'span';
+        return '<' + tag + ' class="tex2jax_ignore formula-source-fallback scientific-mathjax-pending" data-scientific-latex="' + safe + '" data-scientific-display="' + (isDisplay ? 'true' : 'false') + '" role="note">' + safe + '</' + tag + '>';
+    }
     try {
         const html = katex.renderToString(source, {
             displayMode: isDisplay,
