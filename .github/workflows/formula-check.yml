@@ -22,6 +22,6 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund
       - name: Formula tokenizer regression tests
-        run: node --test tests/scientific-formula-tokenizer.test.mjs tests/scientific-formula-acceptance.test.mjs
+        run: node --test tests/scientific-formula-tokenizer.test.mjs tests/scientific-formula-acceptance.test.mjs tests/scientific-formula-student-view.test.mjs
       - name: Production build
         run: npm run build
