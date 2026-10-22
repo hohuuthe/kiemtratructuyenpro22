@@ -29,11 +29,15 @@ jobs:
           npx playwright install --with-deps chromium
       - name: Perform visual and export acceptance
         run: node tests/scientific-formula-browser-acceptance.mjs
+      - name: Verify browser Word OMML import and teacher review UI
+        run: node tests/word-import-browser-acceptance.mjs
       - name: Upload screenshot, generated files and acceptance JSON
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: scientific-formula-visual-acceptance
-          path: artifacts/formula-visual-qa/
+          path: |
+            artifacts/formula-visual-qa/
+            artifacts/word-import-visual-qa/
           retention-days: 14
           if-no-files-found: warn
