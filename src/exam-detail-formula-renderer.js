@@ -6,6 +6,64 @@ import { renderScientificContent, sanitizeHtml } from './scientific-formula-engi
 
 const LETTERS = ['A', 'B', 'C', 'D'];
 
+/**
+ * Student /api/exam/generate applies mapRowRead to JSON-looking database fields,
+ * then formatContent extracts content.text for objects. Historical result
+ * snapshots hold the original, sometimes JSON-serialized field instead.
+ * Decode only explicitly structured text, without modifying any LaTeX source.
+ */
+export function getExamReviewText(source) {
+    if (source === null || source === undefined) return '';
+    let value = source;
+    if (typeof value === 'string') {
+        const trimmed = value.trim();
+        if ((trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+            (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+            try {
+                const parsed = JSON.parse(trimmed);
+                if (parsed !== null && typeof parsed === 'object') value = parsed;
+            } catch {
+                // Genuine formula text may contain braces; leave it byte-for-byte.
+            }
+        }
+    }
+    if (value && typeof value === 'object') {
+        const text = value.text;
+        // Student formatContent uses text.text for rich question objects.
+        return typeof text === 'string' || typeof text === 'number' ? String(text) : '';
+    }
+    return String(value);
+}
+
+/**
+ * Read historical result snapshots defensively. Return new display-only
+ * objects; never rewrite marks, answer keys or the persisted result.
+ */
+export function normalizeExamReviewDetails(rawDetails) {
+    let entries = rawDetails;
+    for (let pass = 0; pass < 2 && typeof entries === 'string'; pass++) {
+        try { entries = JSON.parse(entries); } catch { return []; }
+    }
+    if (!Array.isArray(entries)) return [];
+    return entries.map(entry => {
+        if (!entry || typeof entry !== 'object') return { question: {}, score: 0 };
+        let question = entry.question || {};
+        if (typeof question === 'string') {
+            try { question = JSON.parse(question); } catch { question = { content: question }; }
+        }
+        if (!question || typeof question !== 'object' || Array.isArray(question)) question = {};
+        const options = decodeObject(question.options);
+        return { ...entry, question: { ...question,
+            options: options && typeof options === 'object' ? options : {} } };
+    });
+}
+
+export function renderExamReviewMath(source) {
+    // Same engine and source normalization as formatContent in student view.
+    return renderScientificContent(getExamReviewText(source));
+}
+
+
 function decodeObject(value) {
     if (typeof value !== 'string') return value;
     try { return JSON.parse(value); } catch { return value; }
@@ -79,7 +137,8 @@ export function renderExamDetailQuestion(question, index, questionFontSize = 24)
     return '<div class="exam-detail-question responsive-q-text font-bold text-gray-900 leading-relaxed mb-3 min-w-0 break-words" ' +
         'style="--base-q-size:' + fontSize(questionFontSize, 24) + 'px">' +
         '<span class="mr-2 text-blue-600 italic">Câu ' + (Number.isFinite(number) ? number : 1) + ':</span>' +
-        renderScientificContent(String(text ?? '')) +
+        (getExamReviewText(text) ? renderExamReviewMath(text) :
+            '<span class="text-sm font-normal text-amber-700">Không có nội dung câu hỏi trong bản lưu kết quả.</span>') +
         '</div>';
 }
 
@@ -139,7 +198,7 @@ export function renderExamDetailOptions(question, userAnswer, correctAnswer, ans
             '<div class="responsive-a-text min-w-0 break-words leading-relaxed" style="--base-a-size:' +
             fontSize(answerFontSize, 20) + 'px">' +
             '<span class="font-black text-indigo-600 mr-2">' + label + '.</span>' +
-            renderScientificContent(option.text) + imageHtml + '</div>' +
+            renderExamReviewMath(option.text) + imageHtml + '</div>' +
             (badges.length ? '<div class="flex flex-wrap gap-x-3 gap-y-1 mt-2">' + badges.join('') + '</div>' : '') +
             '</div>';
     });
