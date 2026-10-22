@@ -20,10 +20,12 @@ test('DOCX export creates a nonempty valid Office package with formulas and all 
   const zip = await JSZip.loadAsync(data);
   const xml = await zip.file('word/document.xml').async('string');
   assert.match(xml, /<m:oMath/);
-  assert.match(xml, /<m:f\\b/, 'a native editable fraction must be preserved in Word');
-  assert.match(xml, /<m:rad\\b/, 'a nested square root must be preserved in Word');
-  assert.ok(!xml.includes('\\\\frac'), 'the supported fraction must not silently fall back to raw TeX');
+  assert.match(xml, /<m:f\b/, 'a native editable fraction must be preserved in Word');
+  assert.match(xml, /<m:rad\b/, 'a nested square root must be preserved in Word');
+  assert.ok(!xml.includes('\\frac'), 'the supported fraction must not silently fall back to raw TeX');
   for (const label of ['PHẦN I', 'PHẦN II', 'PHẦN III', 'Câu 1']) assert.ok(xml.includes(label), label);
+  assert.ok(!xml.includes(String.raw`\\ce{NH4+}`), 'ammonium should be converted into a Word-native formula');
+  assert.ok(!xml.includes(String.raw`\\ce{SO4^{2-}}`), 'sulfate should be converted into a Word-native formula');
   assert.ok(data.byteLength > 2000);
 });
 
