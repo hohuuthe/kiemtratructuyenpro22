@@ -147,15 +147,12 @@ function speciesToComponents(source) {
                 const whitespace = /^\s*/.exec(body.slice(i + cmd[0].length))[0];
                 const begin = i + cmd[0].length + whitespace.length;
                 const group = balanced(body, begin);
-                if (group) {
-                    items.push(mark(group.inner)); i = group.end; continue;
-                }
+                if (group) { items.push(mark(group.inner)); i = group.end; continue; }
                 const one = /^[A-Za-zÀ-ỹ]+/u.exec(body.slice(begin));
                 if (one) { items.push(mark(one[0])); i = begin + one[0].length; continue; }
             }
             if (tail.startsWith('\\,')) { items.push(mark(' ')); i += 2; continue; }
             if (tail.startsWith('\\;')) { items.push(mark(' ')); i += 2; continue; }
-            // Unknown chemistry macros must never disappear or be silently guessed.
             throw new Error('Unsupported chemistry command: ' + tail.slice(0, 24));
         }
         const coeff = /^\d+(?:[.,]\d+)?/.exec(tail);
@@ -169,7 +166,7 @@ function speciesToComponents(source) {
             } else items.push(mark(coeff[0]));
             continue;
         }
-        if (body[i] === '
+        if (body[i] === '$') { i++; continue; }
         if (/\s/.test(body[i])) {
             const spaces = /^\s+/.exec(tail);
             items.push(mark(' ')); i += spaces[0].length; continue;
@@ -306,169 +303,13 @@ function chemicalToLatex(text) {
             (_full,sup,sub,element) => {
                 const index=isotopes.length;
                 isotopes.push('{}^{' + sup + '}_{' + sub + '}\\mathrm{' + element + '}');
-                return '\\uE000' + index + '\\uE001';
+                return '§' + index + '§';
             });
         const atomized=protectedSource
             .replace(/([A-Z][a-z]?)(\d*)/g, (_full,element,sub) =>
                 '\\mathrm{' + element + '}' + (sub ? '_{' + sub + '}' : ''))
             .replace(/([\)\]])(\d+)/g, '$1_{$2}')
-            .replace(/\\uE000(\d+)\\uE001/g, (_full,index) => isotopes[Number(index)]);
-        return (charge ? '{' + atomized + '}^{' + charge + '}' : atomized);
-    }).join('');
-}
-function unitToLatex(source) {
-    return String(source).replace(/([A-Za-zµμ°]+)(?:\^?\{?(-?\d+)\}?|(-\d+))?/g,
-        (_whole,unit,power1,power2) => '\\mathrm{' + unit + '}' +
-            ((power1 || power2) ? '^{' + (power1 || power2) + '}' : ''))
-        .replace(/\*/g,'\\cdot ');
-}
-
-/** Read complete \ce{...} or \pu{...} with balanced nested braces. */
-export function standaloneMhchemCommand(source) {
-    const str = String(source || '').trim();
-    const head = /^\\(ce|pu)\s*\{/.exec(str);
-    if (!head) return null;
-    const block = balanced(str, head[0].length - 1);
-    if (!block || block.end !== str.length) return null;
-    return {kind: head[1], body: block.inner};
-}
-) { i++; continue; }
-        if (/\s/.test(body[i])) {
-            const spaces = /^\s+/.exec(tail);
-            items.push(mark(' ')); i += spaces[0].length; continue;
-        }
-        if (/^[+\-#=·.:*/^{}\[\]a-zA-Z0-9]$/.test(body[i])) {
-            items.push(mark(body[i])); i++; continue;
-        }
-        // Preserve literal Unicode chemistry signs as editable math runs.
-        items.push(mark(body[i])); i++;
-    }
-    if (ion.charge) return [new MathSuperScript({
-        children: items.length ? items : [mark(' ')], superScript: script(ion.charge),
-    })];
-    return items;
-}
-
-/**
- * A top-level mhchem reaction parser. Chemistry arrows are native Unicode
- * symbols in MathRun; labeled arrows use native Word Math scripts.
- */
-export function parseChemicalMath(source) {
-    const text = String(source).trim();
-    if (!text) return [mark(' ')];
-    const out = [];
-    let pos = 0, chunk = '';
-    const flush = () => {
-        if (!chunk) return;
-        out.push(...speciesToComponents(chunk)); chunk = '';
-    };
-    // Prefer longest, so <--> is never partially read as <-.
-    const arrows = [
-        ['<<=>>','⇌'], ['<-->','⟷'], ['<=>','⇌'], ['<->','↔'],
-        ['<=>>','⇀'], ['->>','↠'], ['->','→'], ['<-','←'],
-    ];
-    while (pos < text.length) {
-        const tail = text.slice(pos);
-        // Distinguish '+' between molecules (" + ") from the ionic charge.
-        const addition = /^\s+\+\s+/.exec(tail);
-        if (addition) {
-            flush(); out.push(mark(' + ')); pos += addition[0].length; continue;
-        }
-        const arrow = arrows.find(([op]) => tail.startsWith(op));
-        if (arrow) {
-            flush(); pos += arrow[0].length;
-            const labels = [];
-            while (text[pos] === '[' && labels.length < 2) {
-                const label = balanced(text, pos, '[', ']');
-                if (!label) break;
-                labels.push(label.inner);
-                pos = label.end;
-            }
-            const base = [mark(arrow[1])];
-            if (labels.length === 1 && labels[0]) {
-                out.push(new MathSuperScript({ children: base, superScript: speciesToComponents(labels[0]) }));
-            } else if (labels.length === 2) {
-                out.push(new MathSubSuperScript({
-                    children: base,
-                    superScript: labels[0] ? speciesToComponents(labels[0]) : [mark(' ')],
-                    subScript: labels[1] ? speciesToComponents(labels[1]) : [mark(' ')],
-                }));
-            } else out.push(...base);
-            continue;
-        }
-        const precipitate = /^\s+(v|\^)(?=\s|$)/.exec(tail);
-        if (precipitate) {
-            flush(); out.push(mark(precipitate[1] === 'v' ? ' ↓' : ' ↑'));
-            pos += precipitate[0].length; continue;
-        }
-        if (text[pos] === '{') {
-            const brace = balanced(text, pos);
-            if (brace) { chunk += text.slice(pos, brace.end); pos = brace.end; continue; }
-        }
-        chunk += text[pos++];
-    }
-    flush();
-    return out.length ? out : [mark(' ')];
-}
-
-export function makeEditableChemistryEquation(source) {
-    return new WordMath({ children: parseChemicalMath(source) });
-}
-
-/** Editable scientific units, such as 123 kJ mol^-1 and m/s^2. */
-export function makeEditableUnitEquation(source) {
-    const raw = String(source || '').trim();
-    if (!raw) return new WordMath({ children: [mark(' ')] });
-    const parts = [], matches = /([a-zA-Zµμ°]+)(?:\^?\{?(-?\d+)\}?|(-\d+))?|(\d+(?:[.,]\d+)?)|(\s+)|([*/·×])|(.)/g;
-    for (const m of raw.matchAll(matches)) {
-        if (m[1]) {
-            const power = m[2] || m[3];
-            parts.push(power ? new MathSuperScript({
-                children: [mark(m[1])], superScript: script(power),
-            }) : mark(m[1]));
-        } else if (m[4]) parts.push(mark(m[4]));
-        else if (m[5]) parts.push(mark(' '));
-        else if (m[6]) parts.push(mark(m[6] === '*' ? '·' : m[6]));
-        else if (m[7]) parts.push(mark(m[7]));
-    }
-    return new WordMath({ children: parts });
-}
-
-/**
- * Expand chemistry in a larger expression (e.g. K_a = [\ce{H+}])
- * before docx's LaTeX parser sees unsupported \ce commands.
- * Supports any number of balanced nested chemistry blocks.
- */
-export function expandMhchemForWordMath(input) {
-    const source = String(input || '');
-    let result = '';
-    let pos = 0;
-    while (pos < source.length) {
-        const match = /^\\(ce|pu)\s*\{/.exec(source.slice(pos));
-        if (!match) { result += source[pos++]; continue; }
-        const block = balanced(source, pos + match[0].length - 1);
-        if (!block) throw new Error('Unbalanced \\'+match[1]+' chemistry source');
-        result += match[1] === 'ce' ? chemicalToLatex(block.inner) : unitToLatex(block.inner);
-        pos = block.end;
-    }
-    return result;
-}
-
-/** The embedded branch builds only ordinary TeX features docx/math supports. */
-function chemicalToLatex(text) {
-    const source = String(text).trim();
-    const ops = /(\s+\+\s+|<=>|<-->|<->|->|<-)/g;
-    return source.split(ops).filter(Boolean).map(token => {
-        const operator = token.trim();
-        if (/^\+$/.test(operator) && /^\s/.test(token)) return ' + ';
-        const arrows = {'->':'→','<-':'←','<=>':'⇌','<->':'↔','<-->':'⟷'};
-        if (Object.hasOwn(arrows,operator)) return arrows[operator];
-        const {body,charge} = detachCharge(token.trim());
-        const atomized = body.replace(/\^\{(\d+)\}_\{?(\d+)\}?([A-Z][a-z]?)/g,
-            (_full,sup,sub,element) => '{}^{' + sup + '}_{' + sub + '}\\mathrm{' + element + '}')
-            .replace(/([A-Z][a-z]?)(\d*)/g, (_full,element,sub) =>
-                '\\mathrm{' + element + '}' + (sub ? '_{' + sub + '}' : ''))
-            .replace(/([\)\]])(\d+)/g, '$1_{$2}');
+            .replace(/§(\d+)§/g, (_full,index) => isotopes[Number(index)]);
         return (charge ? '{' + atomized + '}^{' + charge + '}' : atomized);
     }).join('');
 }
