@@ -11531,7 +11531,7 @@ D. Phát biểu SAI</pre>
                     ).join('');
                 container.replaceChildren(alert);
             }
-            const cards = pendingImportQuestions.map((q, index) => 
+            const cards = pendingImportQuestions.map((q, index) => `
                 <div class="p-4 border-2 border-gray-100 rounded-xl bg-white hover:border-blue-100 transition shadow-sm">
                     <div class="flex justify-between items-start mb-3">
                         <div class="flex flex-wrap gap-2">
