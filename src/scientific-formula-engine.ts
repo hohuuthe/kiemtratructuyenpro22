@@ -9,7 +9,7 @@ import katex from 'katex';
 import { splitScientificContent } from './scientific-formula-tokenizer.js';
 import { splitLabeledScientificRecords } from './scientific-formula-records.js';
 import 'katex/dist/contrib/mhchem.js';
-import 'katex/dist/katex.min.css';
+// CSS is loaded only by the browser entrypoint; Node/Cloudflare can import this parser.
 
 export interface FormulaRenderResult {
     html: string;
