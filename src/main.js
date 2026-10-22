@@ -4755,13 +4755,16 @@ if (contentType && contentType.includes("application/json")) {
 
             // Reset size classes
             el.classList.remove(
-                'max-w-2xl', 'max-w-3xl', 'max-w-4xl', 'max-w-5xl', 'max-w-6xl', 'w-[98vw]', 
-                'h-[94vh]', 'max-h-[94vh]', 'max-h-[92vh]', 'max-h-[90vh]', 'sm:max-h-[90vh]', 
-                'md:max-w-[98vw]', 'md:h-[95vh]', 'max-w-[98vw]', 'h-[95vh]'
+                'max-w-2xl', 'max-w-3xl', 'max-w-4xl', 'max-w-5xl', 'max-w-6xl', 'max-w-7xl', 'xl:max-w-6xl', '2xl:max-w-7xl',
+                'w-[98vw]', 'w-[96vw]', 'w-[92vw]', 'w-full',
+                'h-[94vh]', 'max-h-[94vh]', 'max-h-[92vh]', 'max-h-[90vh]', 'sm:max-h-[92vh]', 'sm:max-h-[90vh]', 
+                'md:max-w-[98vw]', 'md:h-[95vh]', 'max-w-[98vw]', 'h-[95vh]', 'max-w-sm', 'max-w-md'
             );
 
             if (fullScreen === true || fullScreen === 'full') {
                 el.classList.add('w-[98vw]', 'max-w-6xl', 'max-h-[94vh]', 'overflow-y-auto');
+            } else if (fullScreen === 'import-word' || fullScreen === '6xl') {
+                el.classList.add('w-[96vw]', 'md:w-full', 'max-w-5xl', 'xl:max-w-6xl', '2xl:max-w-7xl', 'max-h-[94vh]', 'sm:max-h-[92vh]', 'overflow-y-auto');
             } else if (fullScreen === 'wide' || fullScreen === '4xl' || fullScreen === '5xl' || fullScreen === 'large') {
                 el.classList.add('w-full', 'max-w-4xl', 'lg:max-w-5xl', 'max-h-[92vh]', 'sm:max-h-[90vh]', 'overflow-y-auto');
             } else if (fullScreen === '3xl' || fullScreen === 'medium') {
@@ -7478,9 +7481,16 @@ if (contentType && contentType.includes("application/json")) {
         }
 
         window.startExamUI = function startExamUI() {
-            document.getElementById('exam-form')?.classList.add('hidden');
-            document.getElementById('exam-interface')?.classList.remove('hidden');
-            document.getElementById('exam-results')?.classList.add('hidden');
+            const examForm = document.getElementById('exam-form');
+            const examInterface = document.getElementById('exam-interface');
+            const examResults = document.getElementById('exam-results');
+
+            if (examForm) examForm.classList.add('hidden');
+            if (examResults) examResults.classList.add('hidden');
+            if (examInterface) {
+                examInterface.classList.remove('hidden');
+                examInterface.classList.add('fade-in');
+            }
 
             const elName = document.getElementById('exam-student-name');
             const elTitle = document.getElementById('exam-title');
@@ -7489,7 +7499,7 @@ if (contentType && contentType.includes("application/json")) {
             if (elTitle) elTitle.textContent = examConfig.name || '';
             if (elCreator) elCreator.textContent = examConfig.creatorName || ho_ten_khach_hang || '';
 
-            // Khởi tạo giám sát chuyển tab / toàn màn hình
+            // Khởi tạo giám sát phòng thi mượt mà
             if (window.initExamMonitoring) {
                 window.initExamMonitoring();
             }
@@ -7500,11 +7510,8 @@ if (contentType && contentType.includes("application/json")) {
             updateProgress();
             if (window.backupExamState) window.backupExamState();
 
-            // Cuộn xuống bảng điều hướng khi bắt đầu
-            setTimeout(() => {
-                const qNav = document.getElementById('question-nav');
-                if (qNav) qNav.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }, 100);
+            // Cuộn trang mượt mà lên đầu bài thi, không làm khựng hoặc giật trang
+            window.scrollTo({ top: 0, behavior: 'smooth' });
         };
 
         window.startExam = async function startExam(btn) {
@@ -7952,11 +7959,6 @@ if (contentType && contentType.includes("application/json")) {
 
             // Khởi tạo và mở khóa âm thanh ngay khi bắt đầu tính giờ
             try { getExamAudioContext(); } catch(e) {}
-
-            // Giữ màn hình điện thoại không tắt nếu đang ở chế độ toàn màn hình
-            if (document.fullscreenElement && typeof window.requestExamWakeLock === 'function') {
-                window.requestExamWakeLock();
-            }
 
             currentExam.timerInterval = setInterval(() => {
                 const elapsed = Math.floor((Date.now() - currentExam.startTime) / 1000);
@@ -8805,13 +8807,6 @@ if (contentType && contentType.includes("application/json")) {
 
         window.initExamMonitoring = function initExamMonitoring() {
             window.updateCheatWarningUI();
-            // Khuyến khích mở toàn màn hình khi bắt đầu nếu chưa mở
-            if (!document.fullscreenElement && window.toggleExamFullscreen) {
-                // Thử kích hoạt nếu trình duyệt cho phép từ tương tác người dùng
-                try {
-                    window.toggleExamFullscreen();
-                } catch(e) {}
-            }
         };
 
         // --- Fullscreen Lock Anti-Cheat ---
@@ -8840,116 +8835,29 @@ if (contentType && contentType.includes("application/json")) {
 
 
         // ==================== CƠ CHẾ GIỮ MÀN HÌNH ĐIỆN THOẠI KHÔNG TẮT (SCREEN WAKE LOCK) ====================
-        let examWakeLockSentinel = null;
-        let wakeLockFallbackVideo = null;
+        // Đã loại bỏ hoàn toàn chế độ màn hình luôn sáng để giao diện nhẹ nhàng, không khựng và tiết kiệm pin
         window.isExamWakeLockActive = false;
 
         window.requestExamWakeLock = async function requestExamWakeLock() {
-            const examInterface = document.getElementById('exam-interface');
-            const isExamActive = examInterface && !examInterface.classList.contains('hidden');
-            if (!isExamActive) return false;
-
-            let acquired = false;
-
-            // 1. Chuẩn Screen Wake Lock API hiện đại (Android Chrome, Edge, Safari 16.4+)
-            if ('wakeLock' in navigator && typeof navigator.wakeLock.request === 'function') {
-                try {
-                    if (!examWakeLockSentinel || examWakeLockSentinel.released) {
-                        examWakeLockSentinel = await navigator.wakeLock.request('screen');
-                        examWakeLockSentinel.addEventListener('release', () => {
-                            window.isExamWakeLockActive = false;
-                            updateWakeLockUI(false);
-                        });
-                    }
-                    acquired = true;
-                    window.isExamWakeLockActive = true;
-                } catch (err) {
-                    console.warn('Native WakeLock error, trying fallback:', err);
-                }
-            }
-
-            // 2. Cơ chế Fallback cho trình duyệt di động cũ không hỗ trợ Wake Lock API
-            if (!acquired) {
-                try {
-                    if (!wakeLockFallbackVideo) {
-                        wakeLockFallbackVideo = document.createElement('video');
-                        wakeLockFallbackVideo.setAttribute('playsinline', '');
-                        wakeLockFallbackVideo.setAttribute('webkit-playsinline', '');
-                        wakeLockFallbackVideo.setAttribute('muted', '');
-                        wakeLockFallbackVideo.muted = true;
-                        wakeLockFallbackVideo.loop = true;
-                        wakeLockFallbackVideo.style.position = 'fixed';
-                        wakeLockFallbackVideo.style.top = '-9999px';
-                        wakeLockFallbackVideo.style.left = '-9999px';
-                        wakeLockFallbackVideo.style.width = '1px';
-                        wakeLockFallbackVideo.style.height = '1px';
-                        wakeLockFallbackVideo.style.opacity = '0.01';
-                        wakeLockFallbackVideo.style.pointerEvents = 'none';
-                        wakeLockFallbackVideo.src = 'data:video/mp4;base64,AAAAHGZ0eXBtcDQyAAAAAG1wNDJpc29tYXZjMQAAAAhmcmVlAAAAGG1kYXQAAAHkAAADAgACAgABAQ==';
-                        document.body.appendChild(wakeLockFallbackVideo);
-                    }
-                    await wakeLockFallbackVideo.play().catch(() => {});
-                    acquired = true;
-                    window.isExamWakeLockActive = true;
-                } catch (e) {
-                    console.warn('Fallback Video WakeLock error:', e);
-                }
-            }
-
-            updateWakeLockUI(acquired);
-            return acquired;
+            return false;
         };
 
         window.releaseExamWakeLock = async function releaseExamWakeLock() {
-            try {
-                if (examWakeLockSentinel) {
-                    await examWakeLockSentinel.release().catch(() => {});
-                    examWakeLockSentinel = null;
-                }
-                if (wakeLockFallbackVideo) {
-                    wakeLockFallbackVideo.pause();
-                    wakeLockFallbackVideo.remove();
-                    wakeLockFallbackVideo = null;
-                }
-                window.isExamWakeLockActive = false;
-                updateWakeLockUI(false);
-            } catch (err) {
-                console.warn('Error releasing screen wake lock:', err);
-            }
+            window.isExamWakeLockActive = false;
         };
 
         function updateWakeLockUI(isActive) {
-            const badge = document.getElementById('screen-wake-lock-badge');
-            if (badge) {
-                if (isActive) {
-                    badge.classList.remove('hidden');
-                    badge.classList.add('flex');
-                } else {
-                    badge.classList.remove('flex');
-                    badge.classList.add('hidden');
-                }
-            }
+            // Đã loại bỏ hoàn toàn huy hiệu màn hình luôn sáng
         }
 
         document.addEventListener('visibilitychange', () => {
             if (document.hidden) {
                 window.handleCheatDetection('tab_switch');
-            } else {
-                // Tự động kích hoạt lại Screen Wake Lock khi quay lại màn hình
-                const isExamActive = document.getElementById('exam-interface') && !document.getElementById('exam-interface').classList.contains('hidden');
-                if (isExamActive && (document.fullscreenElement || window.isExamWakeLockActive)) {
-                    window.requestExamWakeLock();
-                }
             }
         });
 
         document.addEventListener('fullscreenchange', () => {
             const isExamActive = document.getElementById('exam-interface') && !document.getElementById('exam-interface').classList.contains('hidden');
-            if (document.fullscreenElement && isExamActive) {
-                window.requestExamWakeLock();
-            } else if (!document.fullscreenElement) {
-                window.releaseExamWakeLock();
-            }
 
             if (isExamActive && !document.fullscreenElement && !window.intentionalFullscreenExit) {
                 // Unauthorized exit from fullscreen
@@ -9050,7 +8958,6 @@ if (contentType && contentType.includes("application/json")) {
                 const requestFs = elem.requestFullscreen || elem.webkitRequestFullscreen || elem.msRequestFullscreen;
                 if (requestFs) {
                     requestFs.call(elem).then(() => {
-                        window.requestExamWakeLock();
                         if (navigator.keyboard && navigator.keyboard.lock) {
                             navigator.keyboard.lock(['Escape']).catch(e => console.log('Keyboard lock failed', e));
                         }
@@ -9064,10 +8971,7 @@ if (contentType && contentType.includes("application/json")) {
                     if (navigator.keyboard && navigator.keyboard.unlock) {
                         navigator.keyboard.unlock();
                     }
-                    exitFs.call(document).then(() => {
-                        window.releaseExamWakeLock();
-                    }).catch(err => {
-                    });
+                    exitFs.call(document).catch(err => {});
                 }
             }
         }
@@ -10829,17 +10733,17 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             document.getElementById('import-answer-format').value = tab;
             
             const tabs = {
-                'default': { tab: document.getElementById('tab-default'), content: document.getElementById('content-default'), activeClass: 'text-blue-600 border-blue-600' },
-                'underline': { tab: document.getElementById('tab-underline'), content: document.getElementById('content-underline'), activeClass: 'text-purple-600 border-purple-600' },
-                'bold': { tab: document.getElementById('tab-bold'), content: document.getElementById('content-bold'), activeClass: 'text-orange-600 border-orange-600' }
+                'default': { tab: document.getElementById('tab-default'), content: document.getElementById('content-default'), activeClass: 'text-blue-600 border-blue-600 bg-white shadow-xs' },
+                'underline': { tab: document.getElementById('tab-underline'), content: document.getElementById('content-underline'), activeClass: 'text-purple-600 border-purple-600 bg-white shadow-xs' },
+                'bold': { tab: document.getElementById('tab-bold'), content: document.getElementById('content-bold'), activeClass: 'text-orange-600 border-orange-600 bg-white shadow-xs' }
             };
             
             for (const key in tabs) {
                 if (key === tab) {
-                    tabs[key].tab.className = `flex-1 py-2 text-sm font-semibold ${tabs[key].activeClass} border-b-2 focus:outline-none`;
+                    tabs[key].tab.className = `flex-1 py-2 px-3 text-xs sm:text-sm font-bold ${tabs[key].activeClass} border-b-2 rounded-lg focus:outline-none transition-all`;
                     tabs[key].content.classList.remove('hidden');
                 } else {
-                    tabs[key].tab.className = 'flex-1 py-2 text-sm font-semibold text-gray-500 border-b-2 border-transparent hover:text-gray-700 hover:border-gray-300 focus:outline-none';
+                    tabs[key].tab.className = 'flex-1 py-2 px-3 text-xs sm:text-sm font-semibold text-gray-500 border-b-2 border-transparent rounded-lg hover:text-gray-700 hover:border-gray-300 focus:outline-none transition-all';
                     tabs[key].content.classList.add('hidden');
                 }
             }
@@ -10847,136 +10751,239 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
 
         window.showImportModal = function showImportModal() {
             const modalContent = `
-                <div class="p-6">
-                    <h3 class="text-xl font-bold text-gray-800 mb-4">📥 Import câu hỏi từ Word</h3>
+                <div class="p-4 sm:p-6 md:p-8 w-full">
+                    <div class="flex items-center justify-between border-b border-gray-100 pb-3 mb-4">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center text-xl shrink-0">
+                                📥
+                            </div>
+                            <div>
+                                <h3 class="text-lg sm:text-xl md:text-2xl font-black text-gray-800 leading-tight">Import câu hỏi từ Word (.docx)</h3>
+                                <p class="text-xs sm:text-sm text-gray-500 mt-0.5">Hỗ trợ trích xuất đầy đủ 4 dạng câu hỏi, hình ảnh minh họa và công thức toán học</p>
+                            </div>
+                        </div>
+                    </div>
                     
-                    <div class="flex border-b border-gray-200 mb-4">
-                        <button type="button" id="tab-default" class="flex-1 py-2 text-sm font-semibold text-blue-600 border-b-2 border-blue-600 focus:outline-none" onclick="switchImportTab('default')">Từ khóa "Đáp án:"</button>
-                        <button type="button" id="tab-underline" class="flex-1 py-2 text-sm font-semibold text-gray-500 border-b-2 border-transparent hover:text-gray-700 hover:border-gray-300 focus:outline-none" onclick="switchImportTab('underline')">GẠCH CHÂN</button>
-                        <button type="button" id="tab-bold" class="flex-1 py-2 text-sm font-semibold text-gray-500 border-b-2 border-transparent hover:text-gray-700 hover:border-gray-300 focus:outline-none" onclick="switchImportTab('bold')">IN ĐẬM</button>
+                    <!-- Tabs chọn kiểu định dạng đáp án -->
+                    <div class="flex border-b border-gray-200 mb-4 bg-gray-100/70 p-1 rounded-xl gap-1">
+                        <button type="button" id="tab-default" class="flex-1 py-2 px-3 text-xs sm:text-sm font-bold text-blue-600 bg-white shadow-xs rounded-lg border-b-2 border-blue-600 focus:outline-none transition-all" onclick="switchImportTab('default')">Từ khóa "Đáp án:" (Chuẩn)</button>
+                        <button type="button" id="tab-underline" class="flex-1 py-2 px-3 text-xs sm:text-sm font-semibold text-gray-500 rounded-lg hover:text-gray-700 focus:outline-none transition-all" onclick="switchImportTab('underline')">Đáp án GẠCH CHÂN</button>
+                        <button type="button" id="tab-bold" class="flex-1 py-2 px-3 text-xs sm:text-sm font-semibold text-gray-500 rounded-lg hover:text-gray-700 focus:outline-none transition-all" onclick="switchImportTab('bold')">Đáp án IN ĐẬM</button>
                     </div>
                     <input type="hidden" id="import-answer-format" value="default">
 
-                    <div id="content-default" class="mb-4 p-4 bg-blue-50 rounded-lg">
-                        <h4 class="font-bold text-blue-700 mb-2">📋 Hướng dẫn định dạng (Mặc định):</h4>
-                        <div class="text-sm text-gray-600 space-y-2">
-                            <p><strong>Câu hỏi [4-1] - Trắc nghiệm:</strong></p>
-                            <pre class="bg-white p-2 rounded text-xs overflow-x-auto">Câu 1: [BAI 1][NB][4-1] Nội dung câu hỏi
+                    <!-- Tab Mặc định: Từ khóa "Đáp án:" -->
+                    <div id="content-default" class="mb-5 p-4 sm:p-5 bg-blue-50/70 border border-blue-100 rounded-2xl">
+                        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 mb-3">
+                            <h4 class="font-bold text-blue-800 text-sm sm:text-base flex items-center gap-2">
+                                <span class="text-base">📋</span> Cú pháp định dạng chuẩn (Từ khóa "Đáp án:")
+                            </h4>
+                            <span class="text-[11px] font-semibold text-blue-700 bg-blue-100/80 px-2.5 py-0.5 rounded-full inline-flex self-start sm:self-auto">Áp dụng cho cả 4 dạng câu hỏi</span>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                            <!-- [4-1] -->
+                            <div class="bg-white p-3 rounded-xl border border-blue-100 shadow-2xs flex flex-col justify-between">
+                                <div>
+                                    <p class="text-xs font-bold text-blue-700 mb-1.5 flex items-center gap-1.5">
+                                        <span class="w-2 h-2 rounded-full bg-blue-500"></span> [4-1] Trắc nghiệm 4 chọn 1
+                                    </p>
+                                    <pre class="bg-slate-50 p-2.5 rounded-lg text-[11px] font-mono leading-relaxed text-slate-800 border border-slate-200/60 overflow-x-auto">Câu 1: [BAI 1][NB][4-1] Nội dung câu hỏi
 A. Đáp án A
 B. Đáp án B
 C. Đáp án C
 D. Đáp án D
 Đáp án: A</pre>
+                                </div>
+                            </div>
                             
-                            <p><strong>Câu hỏi [TF4] - Đúng/Sai:</strong></p>
-                            <pre class="bg-white p-2 rounded text-xs overflow-x-auto">Câu 2: [BAI 1][TH][TF4] Nội dung câu hỏi
+                            <!-- [TF4] -->
+                            <div class="bg-white p-3 rounded-xl border border-blue-100 shadow-2xs flex flex-col justify-between">
+                                <div>
+                                    <p class="text-xs font-bold text-emerald-700 mb-1.5 flex items-center gap-1.5">
+                                        <span class="w-2 h-2 rounded-full bg-emerald-500"></span> [TF4] Đúng / Sai (4 ý)
+                                    </p>
+                                    <pre class="bg-slate-50 p-2.5 rounded-lg text-[11px] font-mono leading-relaxed text-slate-800 border border-slate-200/60 overflow-x-auto">Câu 2: [BAI 1][TH][TF4] Nội dung câu hỏi
 A. Phát biểu 1
 B. Phát biểu 2
 C. Phát biểu 3
 D. Phát biểu 4
 Đáp án: A&C</pre>
+                                </div>
+                            </div>
                             
-                            <p><strong>Câu hỏi [SQ] - Tự luận ngắn:</strong></p>
-                            <pre class="bg-white p-2 rounded text-xs overflow-x-auto">Câu 3: [BAI 2][VD][SQ] Nội dung câu hỏi
+                            <!-- [SQ] -->
+                            <div class="bg-white p-3 rounded-xl border border-blue-100 shadow-2xs flex flex-col justify-between">
+                                <div>
+                                    <p class="text-xs font-bold text-amber-700 mb-1.5 flex items-center gap-1.5">
+                                        <span class="w-2 h-2 rounded-full bg-amber-500"></span> [SQ] Trả lời ngắn
+                                    </p>
+                                    <pre class="bg-slate-50 p-2.5 rounded-lg text-[11px] font-mono leading-relaxed text-slate-800 border border-slate-200/60 overflow-x-auto">Câu 3: [BAI 2][VD][SQ] Nội dung câu hỏi
 Đáp án: 123</pre>
-                            <p><strong>Câu hỏi [TL] - Tự luận:</strong></p>
-                            <pre class="bg-white p-2 rounded text-xs overflow-x-auto">Câu 4: [BAI 3][VD][TL] Nội dung câu hỏi tự luận
+                                </div>
+                            </div>
+                            
+                            <!-- [TL] -->
+                            <div class="bg-white p-3 rounded-xl border border-blue-100 shadow-2xs flex flex-col justify-between">
+                                <div>
+                                    <p class="text-xs font-bold text-purple-700 mb-1.5 flex items-center gap-1.5">
+                                        <span class="w-2 h-2 rounded-full bg-purple-500"></span> [TL] Tự luận
+                                    </p>
+                                    <pre class="bg-slate-50 p-2.5 rounded-lg text-[11px] font-mono leading-relaxed text-slate-800 border border-slate-200/60 overflow-x-auto">Câu 4: [BAI 3][VD][TL] Nội dung câu hỏi
 Đáp án: Hướng dẫn chấm chi tiết...</pre>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
-                    <div id="content-underline" class="mb-4 p-4 bg-purple-50 rounded-lg hidden">
-                        <h4 class="font-bold text-purple-700 mb-2">📋 Hướng dẫn định dạng (Chữ Gạch Chân):</h4>
-                        <div class="text-sm text-gray-600 space-y-2">
-                            <p><strong>Câu hỏi [4-1] - Trắc nghiệm:</strong></p>
-                            <pre class="bg-white p-2 rounded text-xs overflow-x-auto">Câu 1: [BAI 1][NB][4-1] Nội dung câu hỏi
+                    <!-- Tab Gạch Chân -->
+                    <div id="content-underline" class="mb-5 p-4 sm:p-5 bg-purple-50/70 border border-purple-100 rounded-2xl hidden">
+                        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 mb-3">
+                            <h4 class="font-bold text-purple-800 text-sm sm:text-base flex items-center gap-2">
+                                <span class="text-base">📋</span> Hướng dẫn định dạng (Đáp án GẠCH CHÂN trực tiếp trong Word)
+                            </h4>
+                            <span class="text-[11px] font-semibold text-purple-700 bg-purple-100/80 px-2.5 py-0.5 rounded-full inline-flex self-start sm:self-auto">Gạch chân chữ cái hoặc nội dung đáp án</span>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                            <div class="bg-white p-3 rounded-xl border border-purple-100 shadow-2xs flex flex-col">
+                                <p class="text-xs font-bold text-purple-700 mb-1.5 flex items-center gap-1.5">
+                                    <span class="w-2 h-2 rounded-full bg-purple-500"></span> [4-1] Trắc nghiệm 4 chọn 1:
+                                </p>
+                                <pre class="bg-slate-50 p-2.5 rounded-lg text-[11px] font-mono leading-relaxed text-slate-800 border border-slate-200/60 overflow-x-auto flex-1">Câu 1: [BAI 1][NB][4-1] Nội dung câu hỏi
 A. Đáp án sai
-<u><span style="font-weight:bold; color:purple;">B. Đáp án đúng (được gạch chân)</span></u>
+<u><span style="font-weight:bold; color:#7e22ce;">B. Đáp án đúng (được gạch chân)</span></u>
 C. Đáp án sai
 D. Đáp án sai</pre>
+                            </div>
                             
-                            <p><strong>Câu hỏi [TF4] - Đúng/Sai:</strong></p>
-                            <pre class="bg-white p-2 rounded text-xs overflow-x-auto">Câu 2: [BAI 1][TH][TF4] Nội dung câu hỏi
-<u><span style="font-weight:bold; color:purple;">A. Phát biểu ĐÚNG (được gạch chân)</span></u>
+                            <div class="bg-white p-3 rounded-xl border border-purple-100 shadow-2xs flex flex-col">
+                                <p class="text-xs font-bold text-purple-700 mb-1.5 flex items-center gap-1.5">
+                                    <span class="w-2 h-2 rounded-full bg-purple-500"></span> [TF4] Đúng / Sai (4 ý):
+                                </p>
+                                <pre class="bg-slate-50 p-2.5 rounded-lg text-[11px] font-mono leading-relaxed text-slate-800 border border-slate-200/60 overflow-x-auto flex-1">Câu 2: [BAI 1][TH][TF4] Nội dung câu hỏi
+<u><span style="font-weight:bold; color:#7e22ce;">A. Phát biểu ĐÚNG (gạch chân)</span></u>
 B. Phát biểu SAI
-<u><span style="font-weight:bold; color:purple;">C. Phát biểu ĐÚNG (được gạch chân)</span></u>
+<u><span style="font-weight:bold; color:#7e22ce;">C. Phát biểu ĐÚNG (gạch chân)</span></u>
 D. Phát biểu SAI</pre>
+                            </div>
                             
-                            <p><strong>Câu hỏi [SQ] & [TL]:</strong> Vẫn bắt buộc dùng dòng <code class="bg-white px-1 py-0.5 rounded text-purple-600">Đáp án: ...</code> như tab mặc định.</p>
+                            <div class="bg-white p-3 rounded-xl border border-purple-100 shadow-2xs flex flex-col justify-between">
+                                <div>
+                                    <p class="text-xs font-bold text-purple-700 mb-1.5 flex items-center gap-1.5">
+                                        <span class="w-2 h-2 rounded-full bg-purple-500"></span> [SQ] & [TL]:
+                                    </p>
+                                    <p class="text-xs text-gray-600 mt-1">Câu tự luận ngắn [SQ] và tự luận [TL] vẫn dùng dòng <code class="bg-purple-100 px-1.5 py-0.5 rounded text-purple-800 font-mono text-[11px]">Đáp án: ...</code> như tab mặc định.</p>
+                                </div>
+                                <div class="mt-3 p-2.5 bg-purple-50 rounded-xl text-xs text-purple-700 font-medium border border-purple-100">
+                                    💡 <b>Mẹo:</b> Có thể gạch chân toàn bộ nội dung đáp án hoặc chỉ gạch chân chữ cái đầu (A, B, C, D).
+                                </div>
+                            </div>
                         </div>
                     </div>
-                    <div id="content-bold" class="mb-4 p-4 bg-orange-50 rounded-lg hidden">
-                        <h4 class="font-bold text-orange-700 mb-2">📋 Hướng dẫn định dạng (Chữ In Đậm):</h4>
-                        <div class="text-sm text-gray-600 space-y-2">
-                            <p><strong>Câu hỏi [4-1] - Trắc nghiệm:</strong></p>
-                            <pre class="bg-white p-2 rounded text-xs overflow-x-auto">Câu 1: [BAI 1][NB][4-1] Nội dung câu hỏi
+
+                    <!-- Tab In Đậm -->
+                    <div id="content-bold" class="mb-5 p-4 sm:p-5 bg-amber-50/70 border border-amber-100 rounded-2xl hidden">
+                        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 mb-3">
+                            <h4 class="font-bold text-amber-800 text-sm sm:text-base flex items-center gap-2">
+                                <span class="text-base">📋</span> Hướng dẫn định dạng (Đáp án IN ĐẬM trực tiếp trong Word)
+                            </h4>
+                            <span class="text-[11px] font-semibold text-amber-700 bg-amber-100/80 px-2.5 py-0.5 rounded-full inline-flex self-start sm:self-auto">In đậm chữ cái hoặc nội dung đáp án</span>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                            <div class="bg-white p-3 rounded-xl border border-amber-100 shadow-2xs flex flex-col">
+                                <p class="text-xs font-bold text-amber-800 mb-1.5 flex items-center gap-1.5">
+                                    <span class="w-2 h-2 rounded-full bg-amber-600"></span> [4-1] Trắc nghiệm 4 chọn 1:
+                                </p>
+                                <pre class="bg-slate-50 p-2.5 rounded-lg text-[11px] font-mono leading-relaxed text-slate-800 border border-slate-200/60 overflow-x-auto flex-1">Câu 1: [BAI 1][NB][4-1] Nội dung câu hỏi
 A. Đáp án sai
-<strong><span style="color:orange;">B. Đáp án đúng (được in đậm)</span></strong>
+<strong><span style="color:#b45309;">B. Đáp án đúng (được in đậm)</span></strong>
 C. Đáp án sai
 D. Đáp án sai</pre>
+                            </div>
                             
-                            <p><strong>Câu hỏi [TF4] - Đúng/Sai:</strong></p>
-                            <pre class="bg-white p-2 rounded text-xs overflow-x-auto">Câu 2: [BAI 1][TH][TF4] Nội dung câu hỏi
-<strong><span style="color:orange;">A. Phát biểu ĐÚNG (được in đậm)</span></strong>
+                            <div class="bg-white p-3 rounded-xl border border-amber-100 shadow-2xs flex flex-col">
+                                <p class="text-xs font-bold text-amber-800 mb-1.5 flex items-center gap-1.5">
+                                    <span class="w-2 h-2 rounded-full bg-amber-600"></span> [TF4] Đúng / Sai (4 ý):
+                                </p>
+                                <pre class="bg-slate-50 p-2.5 rounded-lg text-[11px] font-mono leading-relaxed text-slate-800 border border-slate-200/60 overflow-x-auto flex-1">Câu 2: [BAI 1][TH][TF4] Nội dung câu hỏi
+<strong><span style="color:#b45309;">A. Phát biểu ĐÚNG (in đậm)</span></strong>
 B. Phát biểu SAI
-<strong><span style="color:orange;">C. Phát biểu ĐÚNG (được in đậm)</span></strong>
+<strong><span style="color:#b45309;">C. Phát biểu ĐÚNG (in đậm)</span></strong>
 D. Phát biểu SAI</pre>
+                            </div>
                             
-                            <p><strong>Câu hỏi [SQ] & [TL]:</strong> Vẫn bắt buộc dùng dòng <code class="bg-white px-1 py-0.5 rounded text-orange-600">Đáp án: ...</code> như tab mặc định.</p>
+                            <div class="bg-white p-3 rounded-xl border border-amber-100 shadow-2xs flex flex-col justify-between">
+                                <div>
+                                    <p class="text-xs font-bold text-amber-800 mb-1.5 flex items-center gap-1.5">
+                                        <span class="w-2 h-2 rounded-full bg-amber-600"></span> [SQ] & [TL]:
+                                    </p>
+                                    <p class="text-xs text-gray-600 mt-1">Câu tự luận ngắn [SQ] và tự luận [TL] vẫn dùng dòng <code class="bg-amber-100 px-1.5 py-0.5 rounded text-amber-800 font-mono text-[11px]">Đáp án: ...</code> như tab mặc định.</p>
+                                </div>
+                                <div class="mt-3 p-2.5 bg-amber-50 rounded-xl text-xs text-amber-700 font-medium border border-amber-100">
+                                    💡 <b>Mẹo:</b> Có thể in đậm toàn bộ nội dung đáp án hoặc chỉ in đậm chữ cái đầu (A, B, C, D).
+                                </div>
+                            </div>
                         </div>
                     </div>
-                    <div class="mb-4">
-                        <label class="block text-sm font-semibold text-gray-700 mb-2">Chọn file Word (.docx)</label>
-                        <div id="docx-drop-zone" class="border-2 border-dashed border-gray-300 rounded-xl p-6 text-center cursor-pointer hover:border-blue-500 hover:bg-blue-50/30 transition flex flex-col items-center justify-center gap-3" 
+
+                    <!-- Khu vực tải file Word -->
+                    <div class="mb-5">
+                        <label class="block text-sm font-bold text-gray-800 mb-2">Chọn file tài liệu Word (.docx)</label>
+                        <div id="docx-drop-zone" class="border-2 border-dashed border-blue-300 hover:border-blue-500 bg-blue-50/20 hover:bg-blue-50/40 rounded-2xl p-6 md:p-8 text-center cursor-pointer transition flex flex-col items-center justify-center gap-3 shadow-inner" 
                              onclick="document.getElementById('import-file').click()"
-                             ondragover="event.preventDefault(); this.classList.add('border-blue-500', 'bg-blue-50/50');"
-                             ondragleave="this.classList.remove('border-blue-500', 'bg-blue-50/50');"
-                             ondrop="event.preventDefault(); this.classList.remove('border-blue-500', 'bg-blue-50/50'); const f = event.dataTransfer.files[0]; if(f && f.name.endsWith('.docx')){ document.getElementById('import-file').files = event.dataTransfer.files; document.getElementById('docx-file-name').textContent = 'Đã chọn: ' + f.name; document.getElementById('docx-file-name').classList.remove('hidden'); }">
+                             ondragover="event.preventDefault(); this.classList.add('border-blue-500', 'bg-blue-50/60');"
+                             ondragleave="this.classList.remove('border-blue-500', 'bg-blue-50/60');"
+                             ondrop="event.preventDefault(); this.classList.remove('border-blue-500', 'bg-blue-50/60'); const f = event.dataTransfer.files[0]; if(f && f.name.endsWith('.docx')){ document.getElementById('import-file').files = event.dataTransfer.files; document.getElementById('docx-file-name').textContent = 'Đã chọn: ' + f.name; document.getElementById('docx-file-name').classList.remove('hidden'); }">
                             
-                            <!-- Icon Word Document -->
-                            <div class="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center text-blue-600">
-                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <div class="w-14 h-14 rounded-2xl bg-blue-100 text-blue-600 flex items-center justify-center shadow-sm">
+                                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
                                 </svg>
                             </div>
                             
                             <div class="flex flex-col gap-1 items-center">
-                                <span class="text-sm font-medium text-gray-700">Kéo thả file Word vào đây hoặc</span></u>
-                                <button type="button" class="mt-1.5 px-4 py-2 bg-blue-50 text-blue-600 border border-blue-200 rounded-lg text-sm font-bold hover:bg-blue-100 transition inline-flex items-center gap-2 justify-center">
+                                <span class="text-sm md:text-base font-bold text-gray-800">Kéo thả file Word (.docx) vào đây hoặc bấm để tải lên</span>
+                                <span class="text-xs text-gray-500">Tự động nhận diện công thức toán học, ký tự đặc biệt và trích xuất hình ảnh câu hỏi</span>
+                                <button type="button" class="mt-2 px-5 py-2.5 bg-blue-600 text-white shadow-md hover:bg-blue-700 rounded-xl text-xs sm:text-sm font-bold transition inline-flex items-center gap-2 justify-center">
                                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path>
                                     </svg>
-                                    Chọn tệp từ thiết bị
+                                    Duyệt tệp từ thiết bị (.docx)
                                 </button>
                             </div>
                             
-                            <span id="docx-file-name" class="text-xs text-blue-600 font-semibold bg-blue-50 px-3 py-1 rounded-full border border-blue-100 mt-1 hidden"></span></u>
+                            <span id="docx-file-name" class="text-xs md:text-sm text-blue-700 font-bold bg-blue-100 px-4 py-1.5 rounded-full border border-blue-200 mt-1 hidden"></span>
                             <input type="file" id="import-file" accept=".docx" class="hidden" onchange="const f = this.files[0]; if(f){ document.getElementById('docx-file-name').textContent = 'Đã chọn: ' + f.name; document.getElementById('docx-file-name').classList.remove('hidden'); }">
                         </div>
                     </div>
 
-                    <div id="import-progress-container" class="mb-4 hidden p-4 bg-blue-50/50 border border-blue-100 rounded-xl">
+                    <!-- Thanh tiến trình Import -->
+                    <div id="import-progress-container" class="mb-5 hidden p-4 bg-blue-50/50 border border-blue-100 rounded-2xl">
                         <div class="flex justify-between items-center mb-1.5 text-xs font-semibold text-blue-600">
-                            <span id="import-progress-status" class="flex items-center gap-1">
+                            <span id="import-progress-status" class="flex items-center gap-1.5">
                                 <svg class="animate-spin h-3.5 w-3.5 text-blue-500" fill="none" viewBox="0 0 24 24">
                                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                                 </svg>
-                                Đang xử lý dữ liệu...
-                            </span></u>
-                            <span id="import-progress-percent" class="font-bold">0%</span></u>
+                                Đang xử lý bóc tách dữ liệu câu hỏi từ file Word...
+                            </span>
+                            <span id="import-progress-percent" class="font-bold">0%</span>
                         </div>
                         <div class="w-full bg-gray-100 rounded-full h-2.5 overflow-hidden p-[1px] border border-gray-200">
                             <div id="import-progress-bar" class="bg-blue-600 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
                         </div>
                     </div>
-                    <div class="flex justify-end gap-2">
-                        <button id="import-btn-cancel" onclick="closeModal()" class="px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition">Hủy</button>
-                        <button id="import-btn-submit" onclick="importQuestions()" class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition">Import</button>
+
+                    <!-- Nút thao tác -->
+                    <div class="flex justify-end items-center gap-2.5 pt-3 border-t border-gray-100">
+                        <button id="import-btn-cancel" onclick="closeModal()" class="px-5 py-2.5 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200 transition text-sm">Hủy bỏ</button>
+                        <button id="import-btn-submit" onclick="importQuestions()" class="px-6 py-2.5 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition shadow-md text-sm flex items-center gap-2">
+                            <span>📥</span>
+                            <span>Bắt đầu Import</span>
+                        </button>
                     </div>
                 </div>
             `;
-            showModal(modalContent, '3xl', true);
+            showModal(modalContent, 'import-word', true);
         }
 
         window.importQuestions = async function importQuestions() {
