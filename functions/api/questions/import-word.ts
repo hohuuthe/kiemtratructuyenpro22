@@ -69,7 +69,10 @@ export function validateBatchPayload(body:any) {
                     :opts[src.field.slice(-1)]?.text)||'';
             if(seenTokens.has(src.token))errors.push(label+': mã công thức gốc bị lặp: '+src.token);
             seenTokens.add(src.token);
-            if(!String(location).includes('
+            if(!String(location).includes('$'+src.latex+'$')) {
+                errors.push(label+': công thức đã xác minh không có trong trường '+src.field);
+            }
+        }
         if(errors.length>25)break;
     }
     return errors;
