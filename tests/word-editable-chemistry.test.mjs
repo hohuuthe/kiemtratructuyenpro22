@@ -147,7 +147,7 @@ test('Annotated industrial chemistry arrow remains a native editable Word equati
   assert.ok(!xml.includes('\\ce{'));
 });
 
-test('Embedded isotope in scientific math is converted exactly once', () => {
+test('Embedded isotope in scientific math is converted exactly once', async () => {
   const input=String.raw`N=\frac{[\ce{^{235}_{92}U}]}{V}`;
   const normalized=expandMhchemForWordMath(input);
   assert.ok(!normalized.includes('\\ce{'));
