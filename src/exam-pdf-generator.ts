@@ -682,7 +682,7 @@ function repairMissingBackslashes(str: string): string {
  * Identical, lossless input pipeline across student exam, previews and PDFs.
  * Text and formulas are escaped/typeset once by the shared renderer.
  */
-function cleanHTMLText(str: any): string {
+export function cleanHTMLText(str: any): string {
     if (str === null || str === undefined) return '';
     const source = typeof str === 'object' ? getOptionText(str) : String(str);
     return renderScientificContent(source);
