@@ -37,7 +37,7 @@ export function attachScientificEditorPreviews(root, renderContent, typesetRoot)
     body.innerHTML = value.trim()
       ? renderContent(value)
       : '<span class="scientific-editor-preview-empty">Nội dung xem trước xuất hiện tại đây.</span>';
-    if (value.trim() && typeof typesetRoot === 'function') typesetRoot(body);
+    if (value.trim() && body.querySelector('.scientific-mathjax-pending') && typeof typesetRoot === 'function') typesetRoot(body);
   };
   for (const field of root.querySelectorAll('input[id], textarea[id]')) {
     if (isScientificEditorField(field)) refresh(field);
