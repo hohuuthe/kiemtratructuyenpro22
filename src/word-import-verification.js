@@ -117,7 +117,9 @@ export function verifyImportedWordQuestions(rawQuestions, documentReport) {
         return q;
     });
     const unmatched=[...originalRecords.keys()].filter(token=>!usedTokens.has(token));
-    const documentIssues=[...(documentReport?.issues||[])];
+    // Formula-specific diagnostics live on the actual question and can be
+    // resolved there; document-wide blockers are only structural/media issues.
+    const documentIssues=[...(documentReport?.issues||[]).filter(issue=>issue.kind!=='formula')];
     if(unmatched.length)documentIssues.push({kind:'formula',reason:'Công thức Word không được gắn vào câu hỏi: '+unmatched.join(', ')});
     return {
         questions, documentIssues,
