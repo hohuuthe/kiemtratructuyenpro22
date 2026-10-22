@@ -7,7 +7,7 @@ import { Math as WordMath } from 'docx/math';
 import { makeWordMathRun, parseFormattedText, generateExamDocx } from '../src/exam-docx-generator.ts';
 import { standaloneMhchemCommand, makeEditableChemistryEquation, makeEditableUnitEquation, expandMhchemForWordMath } from '../src/word-editable-chemistry.js';
 import { repairLegacyScientificLatexForWord } from '../src/word-legacy-latex-repair.js';
-import { makeEditableWordBorderedArray } from '../src/word-editable-array.js';
+import { makeEditableWordBorderedArray, makeEditableWordAlignedEquation } from '../src/word-editable-array.js';
 
 const samples = [
   String.raw`\ce{H2O}`,
@@ -266,4 +266,26 @@ test('Array \hline and first-column vertical rule survive as true editable OMML 
   const borderCells=(xml.match(/<m:borderBox>/g)||[]).length;
   assert.equal(allMathCells-borderCells,9,'exactly nine editable matrix cells');
   assert.ok(!xml.includes('hline'), 'source formatting macro must not leak into DOCX');
+});
+
+
+test('Legacy aligned LaTeX keeps three real editable equation rows and alignment', async () => {
+  const fixture=JSON.parse(readFileSync('tests/fixtures/scientific-formulas-516.json','utf8'));
+  for(const id of ['STR-003','STR-022']){
+    const raw=fixture.cases.find(x=>x.id===id)?.latex;
+    assert.ok(raw,'Missing fixture '+id);
+    const cleaned=repairLegacyScientificLatexForWord(raw);
+    const equation=makeEditableWordAlignedEquation(cleaned.latex);
+    assert.ok(equation instanceof WordMath,'No native aligned builder for '+id);
+    const xml=await xmlFor(parseFormattedText(raw));
+    assert.match(xml,/<m:eqArr>/,'Word must contain a genuine equation array: '+id);
+    const arr=/<m:eqArr>[\s\S]*?<\/m:eqArr>/.exec(xml)?.[0];
+    assert.ok(arr,'Missing equation array content: '+id);
+    assert.equal((arr.match(/<m:e>/g)||[]).length,3,'Must have three separate rows: '+id);
+    assert.ok(!arr.includes(String.raw`\begin{aligned}`),'No bare TeX environment in Word: '+id);
+    if(id==='STR-003') assert.match(arr,/<m:f>/,'Fractions must stay editable');
+    for(const letter of (id==='STR-003'?['f','x']:['U','P','E'])) {
+      assert.ok(arr.includes(letter),'Missing mathematical symbol '+letter+' in '+id);
+    }
+  }
 });
