@@ -126,8 +126,9 @@ test('The actual review modal calls the shared renderer and typesetter', () => {
 
 
 test('Historical JSON question content matches the student exam data decoding', () => {
-  const canonical = String.raw`Cho $\\frac{\\sqrt{x}}{2}$, ion $\\ce{SO4^{2-}}$`;
+  const canonical = String.raw`Cho $\frac{\sqrt{x}}{2}$, ion $\ce{SO4^{2-}}$`;
   const persisted = JSON.stringify({ text: canonical, metadata: 'imported from Word' });
+  assert.ok(renderScientificContent(canonical).includes('katex') || renderScientificContent(canonical).includes('scientific-mathjax-pending'));
   assert.equal(getExamReviewText(persisted), canonical);
   assert.equal(getExamReviewText({ text: canonical }), canonical);
   assert.equal(renderExamReviewMath(persisted), renderScientificContent(canonical));
