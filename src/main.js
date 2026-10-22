@@ -11518,6 +11518,7 @@ D. Phát biểu SAI</pre>
                 return;
             }
 
+            container.replaceChildren();
             const blockers=(wordImportVerification?.documentIssues||[]);
             if(blockers.length) {
                 const alert=document.createElement('div');
