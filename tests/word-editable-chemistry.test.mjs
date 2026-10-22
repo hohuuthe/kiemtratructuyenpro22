@@ -260,6 +260,10 @@ test('Array \hline and first-column vertical rule survive as true editable OMML 
   assert.match(xml, /<m:borderBox>/, 'horizontal and vertical rules must not disappear');
   assert.equal((xml.match(/<m:mr>/g)||[]).length,3,'exactly three data rows');
   assert.equal((xml.match(/<m:borderBox>/g)||[]).length,5,'five ruled cells (3 vertical + 3 header - intersection)');
-  assert.equal((xml.match(/<m:e>/g)||[]).length,9,'exactly nine editable cells');
+  // MathBox owns an inner <m:e> in addition to its parent matrix cell.
+  // Count the 9 matrix cells separately from the 5 editable border contents.
+  const allMathCells=(xml.match(/<m:e>/g)||[]).length;
+  const borderCells=(xml.match(/<m:borderBox>/g)||[]).length;
+  assert.equal(allMathCells-borderCells,9,'exactly nine editable matrix cells');
   assert.ok(!xml.includes('hline'), 'source formatting macro must not leak into DOCX');
 });
