@@ -6,6 +6,7 @@ import {
 import { Math as WordMath, latexToMath } from 'docx/math';
 import { splitScientificContent } from './scientific-formula-tokenizer.js';
 import { splitLabeledScientificRecords } from './scientific-formula-records.js';
+import { standaloneMhchemCommand, makeEditableChemistryEquation, makeEditableUnitEquation, expandMhchemForWordMath } from './word-editable-chemistry.js';
 
 export interface ExamExportHeaderOptions {
     soGiaoDuc?: string;
@@ -90,23 +91,21 @@ function unwrapWordFormula(source: string): string {
 }
 
 export function makeWordMathRun(source: string, defaultBold = false): WordMath | TextRun {
-    let latex = String(source || '');
-    // Convert simple mhchem species to editable Office Math; never guess reactions.
-    const simpleChemical = /^\\ce\{([A-Za-z0-9()^{}+\-]+)\}$/.exec(latex);
-    if (simpleChemical) {
-        let body = simpleChemical[1];
-        const charge = /\^\{(\d*[+-])\}$/.exec(body) || /\^([+-])$/.exec(body);
-        if (charge) body = body.slice(0, charge.index);
-        const tokens = body.match(/(?:[A-Z][a-z]?|[()])\d*/g);
-        if (tokens && tokens.join('') === body) {
-            const wordBody = tokens.map(token => token.replace(/(\d+)$/, '_{$1}')).join('');
-            latex = '\\mathrm{' + wordBody + '}' + (charge ? '^{' + charge[1] + '}' : '');
-        }
-    }
+    const original = String(source ?? '').trim();
+    const chemistry = standaloneMhchemCommand(original);
     try {
+        if (chemistry?.kind === 'ce') return makeEditableChemistryEquation(chemistry.body);
+        if (chemistry?.kind === 'pu') return makeEditableUnitEquation(chemistry.body);
+        // For an expression with an embedded ion (e.g. \frac{[\ce{H+}]}{...}),
+        // expand chemical species without breaking outer editable fractions.
+        const latex = /\\(?:ce|pu)\s*\{/.test(original)
+            ? expandMhchemForWordMath(original) : original;
         return new WordMath({ children: latexToMath(latex) });
     } catch (error) {
-        console.warn('[ScientificWord] Unsupported LaTeX retained verbatim:', error);
+        // Never silently claim the unrendered LaTeX is a Word equation.
+        // Keep original source visible rather than substituting a guessed value;
+        // tests cover the supported chemistry catalogue with native OMML.
+        console.warn('[ScientificWord] Unrendered formula, needs support:', original, error);
         return new TextRun({ text: source, font: 'Cambria Math', size: 26, bold: defaultBold });
     }
 }
