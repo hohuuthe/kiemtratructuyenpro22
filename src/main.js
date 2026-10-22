@@ -12,7 +12,7 @@ import { generateExamDocx, makeWordMathRun } from './exam-docx-generator.ts';
 import { buildQuestionBankExportInventory, buildQuestionBankExportPlan } from './question-bank-word-selection.js';
 import { generateQuestionBankDocx } from './question-bank-docx-generator.ts';
 import { inspectScientificDocx, WORD_IMPORT_ENGINE_VERSION } from './word-omml-reader.js';
-import { verifyImportedWordQuestions, checkWordImportBeforeSave } from './word-import-verification.js';
+import { verifyImportedWordQuestions, checkWordImportBeforeSave, correctImportedWordEquation } from './word-import-verification.js';
 import { splitScientificContent } from './scientific-formula-tokenizer.js';
 import { splitLabeledScientificRecords } from './scientific-formula-records.js';
 import { generateExamPdfBlob } from './exam-pdf-generator.ts';
@@ -11566,7 +11566,15 @@ D. Phát biểu SAI</pre>
                         ' công thức/vấn đề cần kiểm tra ' + (q.__wordReviewed ? '— Đã xác nhận' : '— Chưa xác nhận') + '</div>' +
                         q.__wordImportIssues.map(issue=>
                             '<p class="mt-1 text-amber-800">' + escapeHTML(issue.field||'Word') +
-                            ': ' + escapeHTML(String(issue.reason||'').slice(0,220)) + '</p>'
+                            ': ' + escapeHTML(String(issue.reason||'').slice(0,220)) + '</p>' +
+                            (typeof issue.token==='string' && /^__WMATH_[0-9]{6}__$/.test(issue.token)
+                                ? '<div class="mt-2 flex gap-2 flex-wrap">' +
+                                  '<input id="word-correction-'+index+'-'+issue.token+
+                                  '" class="flex-1 min-w-0 border border-amber-300 rounded p-2 font-mono" ' +
+                                  'placeholder="Nhập công thức LaTeX chuẩn" aria-label="Mã LaTeX sửa công thức Word"/>' +
+                                  '<button type="button" onclick="correctWordImportFormula('+index+',\\''+
+                                  issue.token+'\\')" class="p-2 bg-blue-600 text-white rounded-lg font-bold">'+
+                                  'Kiểm tra & áp dụng</button></div>' : '')
                         ).join('') +
                         '<label class="block mt-2 font-semibold"><input type="checkbox" '+
                         (q.__wordReviewed ? 'checked ' : '')+
@@ -11603,6 +11611,20 @@ D. Phát biểu SAI</pre>
 
             queueMathJax(container);
         }
+
+        window.correctWordImportFormula = function(index,sourceToken) {
+            const q=pendingImportQuestions[index];
+            if(!q) return;
+            const input=document.getElementById('word-correction-'+index+'-'+sourceToken);
+            try {
+                const text=String(input?.value||'').trim();
+                correctImportedWordEquation(q,sourceToken,text);
+                renderImportPreview();
+                showToast('Đã chuyển Equation sang LaTeX được kiểm chứng; cần đối chiếu lại Word gốc.','success');
+            } catch(error) {
+                showToast('Công thức chưa hợp lệ: '+(error.message||error),'error');
+            }
+        };
 
         window.acknowledgeWordImportQuestion = function(index,checked) {
             const q=pendingImportQuestions[index];
