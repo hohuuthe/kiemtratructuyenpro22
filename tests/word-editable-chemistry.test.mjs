@@ -131,3 +131,47 @@ test('Diagnostic coverage for all 516 valid-source scientific formulas', () => {
   console.log('[ScientificWord] 516-fixture Office Math coverage',JSON.stringify({total:516,native:natives,nonMath:unsupported.slice(0,90),nonMathCount:unsupported.length}));
   assert.ok(natives>=450,'Unexpected regression in conversion of interdisciplinary standard formulas');
 });
+
+
+test('Annotated industrial chemistry arrow remains a native editable Word equation', async () => {
+  const complex=String.raw`\ce{N2(g) + 3H2(g) <=>[\text{Fe},\,$450^{\circ}$\mathrm C][\text{áp suất}] 2NH3(g)}`;
+  const run=makeWordMathRun(complex);
+  assert.ok(run instanceof WordMath, 'Labeled reaction must never fall back to raw TeX');
+  const xml=await xmlFor([run]);
+  assert.match(xml, /<m:sSubSup>|<m:sSup>/);
+  assert.ok(xml.includes('Fe'));
+  assert.ok(xml.includes('450'));
+  assert.ok(xml.includes('áp suất'));
+  assert.ok(xml.includes('⇌'));
+  assert.ok(!xml.includes('\\text{'));
+  assert.ok(!xml.includes('\\ce{'));
+});
+
+test('Embedded isotope in scientific math is converted exactly once', () => {
+  const input=String.raw`N=\frac{[\ce{^{235}_{92}U}]}{V}`;
+  const normalized=expandMhchemForWordMath(input);
+  assert.ok(!normalized.includes('\\ce{'));
+  assert.ok(!normalized.includes('\\mathrm{\\mathrm{'));
+  const xml=await xmlFor([makeWordMathRun(input)]);
+  assert.match(xml, /<m:f\b/);
+  assert.ok(!xml.includes('\\ce{'));
+});
+
+test('Common standalone math and biology nomenclature are editable rather than literal TeX', async () => {
+  const sources=[
+    String.raw`|x-3|\le 5`,
+    String.raw`A\cup B,\quad A\cap B,\quad A\setminus B`,
+    String.raw`P\Rightarrow Q,\quad P\Leftrightarrow Q`,
+    String.raw`A\oplus B`,
+    String.raw`x\ll1`,
+    String.raw`x\sim y,\quad x\propto y`,
+    String.raw`\texttt{5'-ATGCCATTA-3'}`,
+    String.raw`3{,}14159`,
+    String.raw`3:1`,
+    String.raw`1:50\,000`,
+  ];
+  for (const src of sources) {
+    const runs=parseFormattedText(src);
+    assert.ok(runs.some(x=>x instanceof WordMath),'Source should be editable math: '+src);
+  }
+});
