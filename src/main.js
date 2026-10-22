@@ -11811,11 +11811,28 @@ D. Phát biểu SAI</pre>
                 }));
                 const uploadImage=async(source,where)=>{
                     if(!source||!source.startsWith('data:image/'))return source||'';
-                    const result=await window.uploadCompressedImage(source);
-                    if(typeof result!=='string'||!/^https:\/\//.test(result)){
-                        throw new Error('Không tải được ảnh lên R2 tại '+where);
+                    // Never use lossy client-side compression for imported
+                    // scientific figures and scanned formula originals.
+                    const response=await fetch('/api/upload-image',{
+                        method:'POST',
+                        headers:{
+                            'Content-Type':'application/json',
+                            'Authorization':'Bearer '+(localStorage.getItem('auth_token')||'')
+                        },
+                        body:JSON.stringify({base64:source})
+                    });
+                    if(!response.ok)throw new Error('Không tải được hình gốc lên R2 tại '+where);
+                    const result=await response.json();
+                    if(result.storage==='cloudflare_r2' && /^https:\/\//.test(result.url||'')){
+                        return result.url;
                     }
-                    return result;
+                    // Only accept the server's uncompressed exact-data fallback,
+                    // with explicit database size validation later.
+                    if(result.storage==='database_base64_compressed' &&
+                        result.url===source && source.length<=900000){
+                        return source;
+                    }
+                    throw new Error('R2 chưa sẵn sàng; không thể bảo toàn ảnh gốc tại '+where);
                 };
                 for(let i=0;i<records.length;i++){
                     const q=records[i];
