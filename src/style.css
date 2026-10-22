@@ -482,3 +482,11 @@ button { touch-action: manipulation; }
   overscroll-behavior-x: contain;
   -webkit-overflow-scrolling: touch;
 }
+
+/* Catalog equations in student questions: retain the teacher's label, typeset
+   only the expression, and allow long formulas to scroll independently. */
+.scientific-record { display:block; margin:0.22rem 0; line-height:1.6; overflow-x:auto; max-width:100%; }
+.scientific-record-meta { font-weight:600; white-space:normal; margin-right:0.4em; }
+.scientific-record .scientific-rendered-math { display:inline-block; max-width:100%; vertical-align:middle; }
+.scientific-record .katex-display { font-weight:normal; }
+.scientific-record mjx-container { max-width:100%; overflow-x:auto; }

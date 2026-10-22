@@ -7,6 +7,7 @@
 
 import katex from 'katex';
 import { splitScientificContent } from './scientific-formula-tokenizer.js';
+import { splitLabeledScientificRecords } from './scientific-formula-records.js';
 import 'katex/dist/contrib/mhchem.js';
 import 'katex/dist/katex.min.css';
 
@@ -258,7 +259,7 @@ export function renderKatexToString(rawLatex: string, isDisplay: boolean = false
     if (!source) return '';
     // KaTeX mhchem registration varies across bundlers. MathJax is already
     // configured with mhchem, so always use it for chemistry notation.
-    if (/\\\\(?:ce|pu)\\b/.test(source)) {
+    if (source.includes('\\ce{') || source.includes('\\pu{')) {
         const safe = sanitizeHtml(source);
         const tag = isDisplay ? 'div' : 'span';
         return '<' + tag + ' class="tex2jax_ignore formula-source-fallback scientific-mathjax-pending" data-scientific-latex="' + safe + '" data-scientific-display="' + (isDisplay ? 'true' : 'false') + '" role="note">' + safe + '</' + tag + '>';
@@ -320,6 +321,23 @@ export function autoWrapRawTeXCommands(text: string): string {
 /** Render only confidently recognized math. Leave ambiguous or invalid markup visible. */
 export function renderScientificContent(content: string): string {
     if (content === null || content === undefined) return '';
+    // Paste/import fixtures often contain "MAT-008 | Description | equation".
+    // The first two fields are metadata, not LaTeX. Preserve them and render
+    // the third field as one complete expression, even without delimiters.
+    const records = splitLabeledScientificRecords(String(content));
+    if (records) return records.map((record) => {
+        if (record.type !== 'record') return formatMarkdownText(record.value);
+        const math = record.formula || '';
+        const wrapped = /^\$\$[\s\S]*\$\$/.test(math) ? math.slice(2,-2)
+            : /^\$[^$]*\$/.test(math) ? math.slice(1,-1)
+            : math.startsWith('\\(') && math.endsWith('\\)') ? math.slice(2,-2)
+            : math.startsWith('\\[') && math.endsWith('\\]') ? math.slice(2,-2)
+            : math;
+        const isDisplay = /^\$\$/.test(math) || math.startsWith('\\[') || /\\begin\{(?:aligned|cases|matrix|pmatrix|bmatrix)/.test(wrapped);
+        return '<div class="scientific-record"><span class="scientific-record-meta">' +
+            sanitizeHtml(record.id + ' | ' + record.label + ' | ') +
+            '</span>' + renderKatexToString(wrapped, isDisplay) + '</div>';
+    }).join('');
     const tokens = splitScientificContent(String(content));
     return tokens.map((token) => {
         if (token.type === 'math') {
