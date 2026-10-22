@@ -7,6 +7,7 @@ import { Math as WordMath, latexToMath } from 'docx/math';
 import { splitScientificContent } from './scientific-formula-tokenizer.js';
 import { splitLabeledScientificRecords } from './scientific-formula-records.js';
 import { standaloneMhchemCommand, makeEditableChemistryEquation, makeEditableUnitEquation, expandMhchemForWordMath } from './word-editable-chemistry.js';
+import { repairLegacyScientificLatexForWord } from './word-legacy-latex-repair.js';
 
 export interface ExamExportHeaderOptions {
     soGiaoDuc?: string;
@@ -142,8 +143,9 @@ export function makeWordMathRun(source: string, defaultBold = false): WordMath |
         if (chemistry?.kind === 'pu') return makeEditableUnitEquation(chemistry.body);
         // For an expression with an embedded ion (e.g. \frac{[\ce{H+}]}{...}),
         // expand chemical species without breaking outer editable fractions.
-        const latex = /\\(?:ce|pu)\s*\{/.test(original)
-            ? expandMhchemForWordMath(original) : original;
+        const repaired = repairLegacyScientificLatexForWord(original);
+        const latex = /\\(?:ce|pu)\s*\{/.test(repaired.latex)
+            ? expandMhchemForWordMath(repaired.latex) : repaired.latex;
         return new WordMath({ children: latexToMath(normalizeWordMathAliases(latex)) });
     } catch (error) {
         // Never silently claim the unrendered LaTeX is a Word equation.
