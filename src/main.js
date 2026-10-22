@@ -6,7 +6,9 @@ import { typesetScientificMath } from './scientific-formula-typeset.js';
 import { attachScientificEditorPreviews } from './scientific-formula-editor-preview.js';
 import JSZip from 'jszip';
 import * as docx from 'docx';
-import { generateExamDocx } from './exam-docx-generator.ts';
+import { generateExamDocx, makeWordMathRun } from './exam-docx-generator.ts';
+import { splitScientificContent } from './scientific-formula-tokenizer.js';
+import { splitLabeledScientificRecords } from './scientific-formula-records.js';
 import { generateExamPdfBlob } from './exam-pdf-generator.ts';
 import { generateExamAnswerExcel } from './exam-excel-generator.ts';
 import { 
@@ -12143,10 +12145,20 @@ D. Phát biểu SAI</pre>
             function traverse(node, currentOptions) {
                 if (node.nodeType === 3) { // Text node
                     if (node.textContent) {
-                        runs.push(new TextRun({
-                            ...currentOptions,
-                            text: node.textContent
-                        }));
+                        const records = splitLabeledScientificRecords(node.textContent);
+                        const parts = records
+                            ? records.flatMap((record, i) => record.type === 'record'
+                                ? [{ type: 'text', value: (i ? '\n' : '') + record.id + ' | ' + record.label + ' | ' },
+                                   { type: 'math', value: record.formula }]
+                                : [{ type: 'text', value: record.value }])
+                            : splitScientificContent(node.textContent);
+                        for (const part of parts) {
+                            if (part.type === 'math') {
+                                runs.push(makeWordMathRun(part.value, Boolean(currentOptions.bold)));
+                            } else if (part.value) {
+                                runs.push(new TextRun({ ...currentOptions, text: part.value }));
+                            }
+                        }
                     }
                 } else if (node.nodeType === 1) { // Element node
                     const tagName = node.tagName.toLowerCase();
