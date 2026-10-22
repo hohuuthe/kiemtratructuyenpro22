@@ -7,6 +7,7 @@ import katex from 'katex';
 import 'katex/dist/contrib/mhchem.js';
 import { Math as WordMath } from 'docx/math';
 import { makeWordMathRun } from './exam-docx-generator.ts';
+import { expandMhchemForWordMath, standaloneMhchemCommand, parseChemicalMath } from './word-editable-chemistry.js';
 import { splitScientificContent } from './scientific-formula-tokenizer.js';
 import { findIncompleteWordFractions } from './question-bank-docx-generator.ts';
 import { WORD_FORMULA_TOKEN, WORD_IMPORT_ENGINE_VERSION } from './word-omml-reader.js';
@@ -29,8 +30,18 @@ export function validateScientificLatexForImport(latex) {
         }
     }
     try {
-        katex.renderToString(value,{throwOnError:true,strict:'warn',trust:false,output:'html'});
-    } catch(e) { return {ok:false,reason:'KaTeX không nhận dạng: '+String(e?.message||e).slice(0,200)}; }
+        if(/\\(?:ce|pu)\s*\{/.test(value)) {
+            // KaTeX's mhchem registration is not reliable across bundlers;
+            // the student renderer uses MathJax for chemistry. Validate the
+            // exact syntax against the Word chemistry parser and expand it
+            // losslessly for Office Math instead of rejecting valid \ce.
+            const standalone=standaloneMhchemCommand(value);
+            if(standalone?.kind==='ce') parseChemicalMath(standalone.body);
+            expandMhchemForWordMath(value);
+        } else {
+            katex.renderToString(value,{throwOnError:true,strict:'warn',trust:false,output:'html'});
+        }
+    } catch(e) { return {ok:false,reason:'Bộ kiểm chứng công thức không nhận dạng: '+String(e?.message||e).slice(0,200)}; }
     // A formula that renders on-screen but cannot round-trip to native
     // Office Math is held for explicit review rather than approved by guess.
     try {
