@@ -74,22 +74,29 @@ export function parseFormattedText(textInput: any, defaultBold = false): (TextRu
             if (part.value) runs.push(...parseFormattedTextLegacy(part.value, defaultBold));
             continue;
         }
-        let latex = part.value;
-        // mhchem is MathJax syntax; preserve chemistry semantics for the subset
-        // which can be represented faithfully in Word's native equation model.
-        const simpleChemical = /^\\ce\{([A-Za-z0-9()]+)\}$/.exec(latex);
-        if (simpleChemical) {
-            const body = simpleChemical[1].replace(/([A-Za-z)])(\d+)/g, '$1_{$2}');
-            latex = '\\mathrm{' + body + '}';
-        }
-        try {
-            runs.push(new WordMath({ children: latexToMath(latex) }));
-        } catch (error) {
-            console.warn('[ScientificWord] Unsupported LaTeX retained verbatim:', error);
-            runs.push(new TextRun({ text: part.value, font: 'Cambria Math', size: 26, bold: defaultBold }));
-        }
+        runs.push(makeWordMathRun(part.value, defaultBold));
     }
     return runs;
+}
+
+
+/**
+ * Native OMML for formulas supported by docx/math. Never rewrite an
+ * unrecognized expression into an approximate equation.
+ */
+export function makeWordMathRun(source: string, defaultBold = false): WordMath | TextRun {
+    let latex = String(source || '');
+    const simpleChemical = /^\\ce\{([A-Za-z0-9()]+)\}$/.exec(latex);
+    if (simpleChemical) {
+        const body = simpleChemical[1].replace(/([A-Za-z)])(\d+)/g, '$1_{$2}');
+        latex = '\\mathrm{' + body + '}';
+    }
+    try {
+        return new WordMath({ children: latexToMath(latex) });
+    } catch (error) {
+        console.warn('[ScientificWord] Unsupported LaTeX retained verbatim:', error);
+        return new TextRun({ text: source, font: 'Cambria Math', size: 26, bold: defaultBold });
+    }
 }
 
 function parseFormattedTextLegacy(textInput: any, defaultBold = false): TextRun[] {
