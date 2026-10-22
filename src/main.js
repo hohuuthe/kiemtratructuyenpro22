@@ -11572,8 +11572,9 @@ D. Phát biểu SAI</pre>
                                   '<input id="word-correction-'+index+'-'+issue.token+
                                   '" class="flex-1 min-w-0 border border-amber-300 rounded p-2 font-mono" ' +
                                   'placeholder="Nhập công thức LaTeX chuẩn" aria-label="Mã LaTeX sửa công thức Word"/>' +
-                                  '<button type="button" onclick="correctWordImportFormula('+index+',\\''+
-                                  issue.token+'\\')" class="p-2 bg-blue-600 text-white rounded-lg font-bold">'+
+                                  '<button type="button" data-index="'+index+
+                                  '" data-token="'+issue.token+
+                                  '" onclick="correctWordImportFormula(this.dataset.index,this.dataset.token)" class="p-2 bg-blue-600 text-white rounded-lg font-bold">'+
                                   'Kiểm tra & áp dụng</button></div>' : '')
                         ).join('') +
                         '<label class="block mt-2 font-semibold"><input type="checkbox" '+
