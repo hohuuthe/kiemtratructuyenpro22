@@ -143,6 +143,651 @@ export function verifyImportedWordQuestions(rawQuestions, documentReport) {
         }
     };
 }
+
+/** Apply an explicit, teacher-entered conversion to one original OMML token. */
+export function correctImportedWordEquation(q, sourceToken, editedLatex) {
+    const source=(q?.__wordFormulaSources||[]).find(x=>x.token===sourceToken);
+    if(!source)throw new Error('Không tìm thấy nguồn Equation Word cần sửa');
+    const verdict=validateScientificLatexForImport(editedLatex);
+    if(!verdict.ok)throw new Error(verdict.reason);
+    let targetField=source.field,oldValue,set;
+    if(targetField==='content'||targetField==='answer') {
+        oldValue=String(q[targetField]||'');
+        set=value=>{q[targetField]=value;};
+    } else if(/^option\.[A-D]$/.test(targetField)) {
+        const key=targetField.split('.')[1],choice=q.options?.[key];
+        oldValue=optionText(choice);
+        set=value=>{
+            if(typeof choice==='string')q.options[key]=value;
+            else q.options[key]={...choice,text:value};
+        };
+    } else throw new Error('Trường công thức Word không hợp lệ: '+targetField);
+    if(!oldValue.includes(sourceToken) && !oldValue.includes('
+export function checkWordImportBeforeSave(questions, documentIssues = []) {
+    const errors=[];
+    if(!Array.isArray(questions)||!questions.length)errors.push('Không có câu hỏi để lưu');
+    if(documentIssues.length)errors.push('Tài liệu còn '+documentIssues.length+' vấn đề về cấu trúc, hình ảnh hoặc công thức chưa được xử lý.');
+    const ids=new Set();
+    (questions||[]).forEach((q,i)=>{
+        const where='Câu '+(i+1);
+        if(!q.id || ids.has(String(q.id)))errors.push(where+': thiếu hoặc trùng ID câu hỏi');
+        ids.add(String(q.id));
+        if(!q.content?.trim())errors.push(where+': thiếu nội dung câu hỏi');
+        if(!allowedTypes.has(q.type)||!allowedLevels.has(q.level))errors.push(where+': phân loại không hợp lệ');
+        if(!q.answer?.trim())errors.push(where+': thiếu đáp án');
+        if(q.type==='4-1'||q.type==='TF4') {
+            for(const key of ['A','B','C','D']) if(!optionText(q.options?.[key]).trim()) errors.push(where+': thiếu phương án '+key);
+        }
+        const text=[String(q.content||''),String(q.answer||''),...['A','B','C','D'].map(k=>optionText(q.options?.[k]))].join('\n');
+        if(markedTokens(text).length)errors.push(where+': vẫn còn công thức Word chưa chuyển đổi');
+        for(const expr of findIncompleteWordFractions(text)) errors.push(where+': LaTeX thiếu tử/mẫu '+expr.slice(0,60));
+        for(const token of splitScientificContent(text)){
+            if(token.type!=='math')continue;
+            const v=validateScientificLatexForImport(token.value);
+            if(!v.ok)errors.push(where+': '+v.reason);
+        }
+        if(q.__wordImportIssues?.length && !q.__wordReviewed)errors.push(where+': cần xác nhận sau khi chỉnh sửa '+q.__wordImportIssues.length+' lỗi');
+        for(const source of q.__wordFormulaSources||[]) {
+            if(!['verified','manual_verified'].includes(source.status)) {
+                errors.push(where+': Equation Word gốc chưa chuyển đổi/được duyệt: '+source.token);
+                continue;
+            }
+            const textForField=source.field==='content'?String(q.content||''):
+                source.field==='answer'?String(q.answer||''):
+                /^option\.[A-D]$/.test(source.field)?
+                    optionText(q.options?.[source.field.split('.')[1]]):'';
+            if(!source.latex||!textForField.includes('
+        // A reviewed exception must still be replaced by a valid editable
+        // equation. Never allow a teacher to approve an unresolved token.
+    });
+    return {ok:!errors.length,errors,questionCount:questions?.length||0};
+}
++source.latex+'
+export function checkWordImportBeforeSave(questions, documentIssues = []) {
+    const errors=[];
+    if(!Array.isArray(questions)||!questions.length)errors.push('Không có câu hỏi để lưu');
+    if(documentIssues.length)errors.push('Tài liệu còn '+documentIssues.length+' vấn đề về cấu trúc, hình ảnh hoặc công thức chưa được xử lý.');
+    const ids=new Set();
+    (questions||[]).forEach((q,i)=>{
+        const where='Câu '+(i+1);
+        if(!q.id || ids.has(String(q.id)))errors.push(where+': thiếu hoặc trùng ID câu hỏi');
+        ids.add(String(q.id));
+        if(!q.content?.trim())errors.push(where+': thiếu nội dung câu hỏi');
+        if(!allowedTypes.has(q.type)||!allowedLevels.has(q.level))errors.push(where+': phân loại không hợp lệ');
+        if(!q.answer?.trim())errors.push(where+': thiếu đáp án');
+        if(q.type==='4-1'||q.type==='TF4') {
+            for(const key of ['A','B','C','D']) if(!optionText(q.options?.[key]).trim()) errors.push(where+': thiếu phương án '+key);
+        }
+        const text=[String(q.content||''),String(q.answer||''),...['A','B','C','D'].map(k=>optionText(q.options?.[k]))].join('\n');
+        if(markedTokens(text).length)errors.push(where+': vẫn còn công thức Word chưa chuyển đổi');
+        for(const expr of findIncompleteWordFractions(text)) errors.push(where+': LaTeX thiếu tử/mẫu '+expr.slice(0,60));
+        for(const token of splitScientificContent(text)){
+            if(token.type!=='math')continue;
+            const v=validateScientificLatexForImport(token.value);
+            if(!v.ok)errors.push(where+': '+v.reason);
+        }
+        if(q.__wordImportIssues?.length && !q.__wordReviewed)errors.push(where+': cần xác nhận sau khi chỉnh sửa '+q.__wordImportIssues.length+' lỗi');
+        if(q.__wordFormulaSources?.some(x=>x.status==='review') && !q.__wordReviewed)errors.push(where+': có công thức gốc chưa được duyệt');
+        // A reviewed exception must still be replaced by a valid editable
+        // equation. Never allow a teacher to approve an unresolved token.
+    });
+    return {ok:!errors.length,errors,questionCount:questions?.length||0};
+}
+)) {
+        throw new Error('Đã sửa nội dung câu hỏi nhưng công thức không còn đúng vị trí gốc; cần kiểm tra lại.');
+    }
+    const tokenToReplace=oldValue.includes(sourceToken)?sourceToken:'
+export function checkWordImportBeforeSave(questions, documentIssues = []) {
+    const errors=[];
+    if(!Array.isArray(questions)||!questions.length)errors.push('Không có câu hỏi để lưu');
+    if(documentIssues.length)errors.push('Tài liệu còn '+documentIssues.length+' vấn đề về cấu trúc, hình ảnh hoặc công thức chưa được xử lý.');
+    const ids=new Set();
+    (questions||[]).forEach((q,i)=>{
+        const where='Câu '+(i+1);
+        if(!q.id || ids.has(String(q.id)))errors.push(where+': thiếu hoặc trùng ID câu hỏi');
+        ids.add(String(q.id));
+        if(!q.content?.trim())errors.push(where+': thiếu nội dung câu hỏi');
+        if(!allowedTypes.has(q.type)||!allowedLevels.has(q.level))errors.push(where+': phân loại không hợp lệ');
+        if(!q.answer?.trim())errors.push(where+': thiếu đáp án');
+        if(q.type==='4-1'||q.type==='TF4') {
+            for(const key of ['A','B','C','D']) if(!optionText(q.options?.[key]).trim()) errors.push(where+': thiếu phương án '+key);
+        }
+        const text=[String(q.content||''),String(q.answer||''),...['A','B','C','D'].map(k=>optionText(q.options?.[k]))].join('\n');
+        if(markedTokens(text).length)errors.push(where+': vẫn còn công thức Word chưa chuyển đổi');
+        for(const expr of findIncompleteWordFractions(text)) errors.push(where+': LaTeX thiếu tử/mẫu '+expr.slice(0,60));
+        for(const token of splitScientificContent(text)){
+            if(token.type!=='math')continue;
+            const v=validateScientificLatexForImport(token.value);
+            if(!v.ok)errors.push(where+': '+v.reason);
+        }
+        if(q.__wordImportIssues?.length && !q.__wordReviewed)errors.push(where+': cần xác nhận sau khi chỉnh sửa '+q.__wordImportIssues.length+' lỗi');
+        if(q.__wordFormulaSources?.some(x=>x.status==='review') && !q.__wordReviewed)errors.push(where+': có công thức gốc chưa được duyệt');
+        // A reviewed exception must still be replaced by a valid editable
+        // equation. Never allow a teacher to approve an unresolved token.
+    });
+    return {ok:!errors.length,errors,questionCount:questions?.length||0};
+}
++source.latex+'
+export function checkWordImportBeforeSave(questions, documentIssues = []) {
+    const errors=[];
+    if(!Array.isArray(questions)||!questions.length)errors.push('Không có câu hỏi để lưu');
+    if(documentIssues.length)errors.push('Tài liệu còn '+documentIssues.length+' vấn đề về cấu trúc, hình ảnh hoặc công thức chưa được xử lý.');
+    const ids=new Set();
+    (questions||[]).forEach((q,i)=>{
+        const where='Câu '+(i+1);
+        if(!q.id || ids.has(String(q.id)))errors.push(where+': thiếu hoặc trùng ID câu hỏi');
+        ids.add(String(q.id));
+        if(!q.content?.trim())errors.push(where+': thiếu nội dung câu hỏi');
+        if(!allowedTypes.has(q.type)||!allowedLevels.has(q.level))errors.push(where+': phân loại không hợp lệ');
+        if(!q.answer?.trim())errors.push(where+': thiếu đáp án');
+        if(q.type==='4-1'||q.type==='TF4') {
+            for(const key of ['A','B','C','D']) if(!optionText(q.options?.[key]).trim()) errors.push(where+': thiếu phương án '+key);
+        }
+        const text=[String(q.content||''),String(q.answer||''),...['A','B','C','D'].map(k=>optionText(q.options?.[k]))].join('\n');
+        if(markedTokens(text).length)errors.push(where+': vẫn còn công thức Word chưa chuyển đổi');
+        for(const expr of findIncompleteWordFractions(text)) errors.push(where+': LaTeX thiếu tử/mẫu '+expr.slice(0,60));
+        for(const token of splitScientificContent(text)){
+            if(token.type!=='math')continue;
+            const v=validateScientificLatexForImport(token.value);
+            if(!v.ok)errors.push(where+': '+v.reason);
+        }
+        if(q.__wordImportIssues?.length && !q.__wordReviewed)errors.push(where+': cần xác nhận sau khi chỉnh sửa '+q.__wordImportIssues.length+' lỗi');
+        if(q.__wordFormulaSources?.some(x=>x.status==='review') && !q.__wordReviewed)errors.push(where+': có công thức gốc chưa được duyệt');
+        // A reviewed exception must still be replaced by a valid editable
+        // equation. Never allow a teacher to approve an unresolved token.
+    });
+    return {ok:!errors.length,errors,questionCount:questions?.length||0};
+}
+;
+    if(oldValue.split(tokenToReplace).length!==2)throw new Error('Công thức bị lặp, không tự chọn vị trí để thay.');
+    set(oldValue.replace(tokenToReplace,'
+export function checkWordImportBeforeSave(questions, documentIssues = []) {
+    const errors=[];
+    if(!Array.isArray(questions)||!questions.length)errors.push('Không có câu hỏi để lưu');
+    if(documentIssues.length)errors.push('Tài liệu còn '+documentIssues.length+' vấn đề về cấu trúc, hình ảnh hoặc công thức chưa được xử lý.');
+    const ids=new Set();
+    (questions||[]).forEach((q,i)=>{
+        const where='Câu '+(i+1);
+        if(!q.id || ids.has(String(q.id)))errors.push(where+': thiếu hoặc trùng ID câu hỏi');
+        ids.add(String(q.id));
+        if(!q.content?.trim())errors.push(where+': thiếu nội dung câu hỏi');
+        if(!allowedTypes.has(q.type)||!allowedLevels.has(q.level))errors.push(where+': phân loại không hợp lệ');
+        if(!q.answer?.trim())errors.push(where+': thiếu đáp án');
+        if(q.type==='4-1'||q.type==='TF4') {
+            for(const key of ['A','B','C','D']) if(!optionText(q.options?.[key]).trim()) errors.push(where+': thiếu phương án '+key);
+        }
+        const text=[String(q.content||''),String(q.answer||''),...['A','B','C','D'].map(k=>optionText(q.options?.[k]))].join('\n');
+        if(markedTokens(text).length)errors.push(where+': vẫn còn công thức Word chưa chuyển đổi');
+        for(const expr of findIncompleteWordFractions(text)) errors.push(where+': LaTeX thiếu tử/mẫu '+expr.slice(0,60));
+        for(const token of splitScientificContent(text)){
+            if(token.type!=='math')continue;
+            const v=validateScientificLatexForImport(token.value);
+            if(!v.ok)errors.push(where+': '+v.reason);
+        }
+        if(q.__wordImportIssues?.length && !q.__wordReviewed)errors.push(where+': cần xác nhận sau khi chỉnh sửa '+q.__wordImportIssues.length+' lỗi');
+        if(q.__wordFormulaSources?.some(x=>x.status==='review') && !q.__wordReviewed)errors.push(where+': có công thức gốc chưa được duyệt');
+        // A reviewed exception must still be replaced by a valid editable
+        // equation. Never allow a teacher to approve an unresolved token.
+    });
+    return {ok:!errors.length,errors,questionCount:questions?.length||0};
+}
++editedLatex+'
+export function checkWordImportBeforeSave(questions, documentIssues = []) {
+    const errors=[];
+    if(!Array.isArray(questions)||!questions.length)errors.push('Không có câu hỏi để lưu');
+    if(documentIssues.length)errors.push('Tài liệu còn '+documentIssues.length+' vấn đề về cấu trúc, hình ảnh hoặc công thức chưa được xử lý.');
+    const ids=new Set();
+    (questions||[]).forEach((q,i)=>{
+        const where='Câu '+(i+1);
+        if(!q.id || ids.has(String(q.id)))errors.push(where+': thiếu hoặc trùng ID câu hỏi');
+        ids.add(String(q.id));
+        if(!q.content?.trim())errors.push(where+': thiếu nội dung câu hỏi');
+        if(!allowedTypes.has(q.type)||!allowedLevels.has(q.level))errors.push(where+': phân loại không hợp lệ');
+        if(!q.answer?.trim())errors.push(where+': thiếu đáp án');
+        if(q.type==='4-1'||q.type==='TF4') {
+            for(const key of ['A','B','C','D']) if(!optionText(q.options?.[key]).trim()) errors.push(where+': thiếu phương án '+key);
+        }
+        const text=[String(q.content||''),String(q.answer||''),...['A','B','C','D'].map(k=>optionText(q.options?.[k]))].join('\n');
+        if(markedTokens(text).length)errors.push(where+': vẫn còn công thức Word chưa chuyển đổi');
+        for(const expr of findIncompleteWordFractions(text)) errors.push(where+': LaTeX thiếu tử/mẫu '+expr.slice(0,60));
+        for(const token of splitScientificContent(text)){
+            if(token.type!=='math')continue;
+            const v=validateScientificLatexForImport(token.value);
+            if(!v.ok)errors.push(where+': '+v.reason);
+        }
+        if(q.__wordImportIssues?.length && !q.__wordReviewed)errors.push(where+': cần xác nhận sau khi chỉnh sửa '+q.__wordImportIssues.length+' lỗi');
+        if(q.__wordFormulaSources?.some(x=>x.status==='review') && !q.__wordReviewed)errors.push(where+': có công thức gốc chưa được duyệt');
+        // A reviewed exception must still be replaced by a valid editable
+        // equation. Never allow a teacher to approve an unresolved token.
+    });
+    return {ok:!errors.length,errors,questionCount:questions?.length||0};
+}
+));
+    source.latex=String(editedLatex).trim();
+    source.status='manual_verified';
+    source.reason='';
+    q.__wordImportIssues=(q.__wordImportIssues||[]).filter(x=>x.token!==sourceToken);
+    q.__wordReviewed=false;
+    return q;
+}
+
+/** Validate manual edits and require explicit acknowledgement of exceptions. */
+export function checkWordImportBeforeSave(questions, documentIssues = []) {
+    const errors=[];
+    if(!Array.isArray(questions)||!questions.length)errors.push('Không có câu hỏi để lưu');
+    if(documentIssues.length)errors.push('Tài liệu còn '+documentIssues.length+' vấn đề về cấu trúc, hình ảnh hoặc công thức chưa được xử lý.');
+    const ids=new Set();
+    (questions||[]).forEach((q,i)=>{
+        const where='Câu '+(i+1);
+        if(!q.id || ids.has(String(q.id)))errors.push(where+': thiếu hoặc trùng ID câu hỏi');
+        ids.add(String(q.id));
+        if(!q.content?.trim())errors.push(where+': thiếu nội dung câu hỏi');
+        if(!allowedTypes.has(q.type)||!allowedLevels.has(q.level))errors.push(where+': phân loại không hợp lệ');
+        if(!q.answer?.trim())errors.push(where+': thiếu đáp án');
+        if(q.type==='4-1'||q.type==='TF4') {
+            for(const key of ['A','B','C','D']) if(!optionText(q.options?.[key]).trim()) errors.push(where+': thiếu phương án '+key);
+        }
+        const text=[String(q.content||''),String(q.answer||''),...['A','B','C','D'].map(k=>optionText(q.options?.[k]))].join('\n');
+        if(markedTokens(text).length)errors.push(where+': vẫn còn công thức Word chưa chuyển đổi');
+        for(const expr of findIncompleteWordFractions(text)) errors.push(where+': LaTeX thiếu tử/mẫu '+expr.slice(0,60));
+        for(const token of splitScientificContent(text)){
+            if(token.type!=='math')continue;
+            const v=validateScientificLatexForImport(token.value);
+            if(!v.ok)errors.push(where+': '+v.reason);
+        }
+        if(q.__wordImportIssues?.length && !q.__wordReviewed)errors.push(where+': cần xác nhận sau khi chỉnh sửa '+q.__wordImportIssues.length+' lỗi');
+        if(q.__wordFormulaSources?.some(x=>x.status==='review') && !q.__wordReviewed)errors.push(where+': có công thức gốc chưa được duyệt');
+        // A reviewed exception must still be replaced by a valid editable
+        // equation. Never allow a teacher to approve an unresolved token.
+    });
+    return {ok:!errors.length,errors,questionCount:questions?.length||0};
+}
++source.latex+'
+        // A reviewed exception must still be replaced by a valid editable
+        // equation. Never allow a teacher to approve an unresolved token.
+    });
+    return {ok:!errors.length,errors,questionCount:questions?.length||0};
+}
++source.latex+'
+export function checkWordImportBeforeSave(questions, documentIssues = []) {
+    const errors=[];
+    if(!Array.isArray(questions)||!questions.length)errors.push('Không có câu hỏi để lưu');
+    if(documentIssues.length)errors.push('Tài liệu còn '+documentIssues.length+' vấn đề về cấu trúc, hình ảnh hoặc công thức chưa được xử lý.');
+    const ids=new Set();
+    (questions||[]).forEach((q,i)=>{
+        const where='Câu '+(i+1);
+        if(!q.id || ids.has(String(q.id)))errors.push(where+': thiếu hoặc trùng ID câu hỏi');
+        ids.add(String(q.id));
+        if(!q.content?.trim())errors.push(where+': thiếu nội dung câu hỏi');
+        if(!allowedTypes.has(q.type)||!allowedLevels.has(q.level))errors.push(where+': phân loại không hợp lệ');
+        if(!q.answer?.trim())errors.push(where+': thiếu đáp án');
+        if(q.type==='4-1'||q.type==='TF4') {
+            for(const key of ['A','B','C','D']) if(!optionText(q.options?.[key]).trim()) errors.push(where+': thiếu phương án '+key);
+        }
+        const text=[String(q.content||''),String(q.answer||''),...['A','B','C','D'].map(k=>optionText(q.options?.[k]))].join('\n');
+        if(markedTokens(text).length)errors.push(where+': vẫn còn công thức Word chưa chuyển đổi');
+        for(const expr of findIncompleteWordFractions(text)) errors.push(where+': LaTeX thiếu tử/mẫu '+expr.slice(0,60));
+        for(const token of splitScientificContent(text)){
+            if(token.type!=='math')continue;
+            const v=validateScientificLatexForImport(token.value);
+            if(!v.ok)errors.push(where+': '+v.reason);
+        }
+        if(q.__wordImportIssues?.length && !q.__wordReviewed)errors.push(where+': cần xác nhận sau khi chỉnh sửa '+q.__wordImportIssues.length+' lỗi');
+        if(q.__wordFormulaSources?.some(x=>x.status==='review') && !q.__wordReviewed)errors.push(where+': có công thức gốc chưa được duyệt');
+        // A reviewed exception must still be replaced by a valid editable
+        // equation. Never allow a teacher to approve an unresolved token.
+    });
+    return {ok:!errors.length,errors,questionCount:questions?.length||0};
+}
+)) {
+        throw new Error('Đã sửa nội dung câu hỏi nhưng công thức không còn đúng vị trí gốc; cần kiểm tra lại.');
+    }
+    const tokenToReplace=oldValue.includes(sourceToken)?sourceToken:'
+export function checkWordImportBeforeSave(questions, documentIssues = []) {
+    const errors=[];
+    if(!Array.isArray(questions)||!questions.length)errors.push('Không có câu hỏi để lưu');
+    if(documentIssues.length)errors.push('Tài liệu còn '+documentIssues.length+' vấn đề về cấu trúc, hình ảnh hoặc công thức chưa được xử lý.');
+    const ids=new Set();
+    (questions||[]).forEach((q,i)=>{
+        const where='Câu '+(i+1);
+        if(!q.id || ids.has(String(q.id)))errors.push(where+': thiếu hoặc trùng ID câu hỏi');
+        ids.add(String(q.id));
+        if(!q.content?.trim())errors.push(where+': thiếu nội dung câu hỏi');
+        if(!allowedTypes.has(q.type)||!allowedLevels.has(q.level))errors.push(where+': phân loại không hợp lệ');
+        if(!q.answer?.trim())errors.push(where+': thiếu đáp án');
+        if(q.type==='4-1'||q.type==='TF4') {
+            for(const key of ['A','B','C','D']) if(!optionText(q.options?.[key]).trim()) errors.push(where+': thiếu phương án '+key);
+        }
+        const text=[String(q.content||''),String(q.answer||''),...['A','B','C','D'].map(k=>optionText(q.options?.[k]))].join('\n');
+        if(markedTokens(text).length)errors.push(where+': vẫn còn công thức Word chưa chuyển đổi');
+        for(const expr of findIncompleteWordFractions(text)) errors.push(where+': LaTeX thiếu tử/mẫu '+expr.slice(0,60));
+        for(const token of splitScientificContent(text)){
+            if(token.type!=='math')continue;
+            const v=validateScientificLatexForImport(token.value);
+            if(!v.ok)errors.push(where+': '+v.reason);
+        }
+        if(q.__wordImportIssues?.length && !q.__wordReviewed)errors.push(where+': cần xác nhận sau khi chỉnh sửa '+q.__wordImportIssues.length+' lỗi');
+        if(q.__wordFormulaSources?.some(x=>x.status==='review') && !q.__wordReviewed)errors.push(where+': có công thức gốc chưa được duyệt');
+        // A reviewed exception must still be replaced by a valid editable
+        // equation. Never allow a teacher to approve an unresolved token.
+    });
+    return {ok:!errors.length,errors,questionCount:questions?.length||0};
+}
++source.latex+'
+export function checkWordImportBeforeSave(questions, documentIssues = []) {
+    const errors=[];
+    if(!Array.isArray(questions)||!questions.length)errors.push('Không có câu hỏi để lưu');
+    if(documentIssues.length)errors.push('Tài liệu còn '+documentIssues.length+' vấn đề về cấu trúc, hình ảnh hoặc công thức chưa được xử lý.');
+    const ids=new Set();
+    (questions||[]).forEach((q,i)=>{
+        const where='Câu '+(i+1);
+        if(!q.id || ids.has(String(q.id)))errors.push(where+': thiếu hoặc trùng ID câu hỏi');
+        ids.add(String(q.id));
+        if(!q.content?.trim())errors.push(where+': thiếu nội dung câu hỏi');
+        if(!allowedTypes.has(q.type)||!allowedLevels.has(q.level))errors.push(where+': phân loại không hợp lệ');
+        if(!q.answer?.trim())errors.push(where+': thiếu đáp án');
+        if(q.type==='4-1'||q.type==='TF4') {
+            for(const key of ['A','B','C','D']) if(!optionText(q.options?.[key]).trim()) errors.push(where+': thiếu phương án '+key);
+        }
+        const text=[String(q.content||''),String(q.answer||''),...['A','B','C','D'].map(k=>optionText(q.options?.[k]))].join('\n');
+        if(markedTokens(text).length)errors.push(where+': vẫn còn công thức Word chưa chuyển đổi');
+        for(const expr of findIncompleteWordFractions(text)) errors.push(where+': LaTeX thiếu tử/mẫu '+expr.slice(0,60));
+        for(const token of splitScientificContent(text)){
+            if(token.type!=='math')continue;
+            const v=validateScientificLatexForImport(token.value);
+            if(!v.ok)errors.push(where+': '+v.reason);
+        }
+        if(q.__wordImportIssues?.length && !q.__wordReviewed)errors.push(where+': cần xác nhận sau khi chỉnh sửa '+q.__wordImportIssues.length+' lỗi');
+        if(q.__wordFormulaSources?.some(x=>x.status==='review') && !q.__wordReviewed)errors.push(where+': có công thức gốc chưa được duyệt');
+        // A reviewed exception must still be replaced by a valid editable
+        // equation. Never allow a teacher to approve an unresolved token.
+    });
+    return {ok:!errors.length,errors,questionCount:questions?.length||0};
+}
+;
+    if(oldValue.split(tokenToReplace).length!==2)throw new Error('Công thức bị lặp, không tự chọn vị trí để thay.');
+    set(oldValue.replace(tokenToReplace,'
+export function checkWordImportBeforeSave(questions, documentIssues = []) {
+    const errors=[];
+    if(!Array.isArray(questions)||!questions.length)errors.push('Không có câu hỏi để lưu');
+    if(documentIssues.length)errors.push('Tài liệu còn '+documentIssues.length+' vấn đề về cấu trúc, hình ảnh hoặc công thức chưa được xử lý.');
+    const ids=new Set();
+    (questions||[]).forEach((q,i)=>{
+        const where='Câu '+(i+1);
+        if(!q.id || ids.has(String(q.id)))errors.push(where+': thiếu hoặc trùng ID câu hỏi');
+        ids.add(String(q.id));
+        if(!q.content?.trim())errors.push(where+': thiếu nội dung câu hỏi');
+        if(!allowedTypes.has(q.type)||!allowedLevels.has(q.level))errors.push(where+': phân loại không hợp lệ');
+        if(!q.answer?.trim())errors.push(where+': thiếu đáp án');
+        if(q.type==='4-1'||q.type==='TF4') {
+            for(const key of ['A','B','C','D']) if(!optionText(q.options?.[key]).trim()) errors.push(where+': thiếu phương án '+key);
+        }
+        const text=[String(q.content||''),String(q.answer||''),...['A','B','C','D'].map(k=>optionText(q.options?.[k]))].join('\n');
+        if(markedTokens(text).length)errors.push(where+': vẫn còn công thức Word chưa chuyển đổi');
+        for(const expr of findIncompleteWordFractions(text)) errors.push(where+': LaTeX thiếu tử/mẫu '+expr.slice(0,60));
+        for(const token of splitScientificContent(text)){
+            if(token.type!=='math')continue;
+            const v=validateScientificLatexForImport(token.value);
+            if(!v.ok)errors.push(where+': '+v.reason);
+        }
+        if(q.__wordImportIssues?.length && !q.__wordReviewed)errors.push(where+': cần xác nhận sau khi chỉnh sửa '+q.__wordImportIssues.length+' lỗi');
+        if(q.__wordFormulaSources?.some(x=>x.status==='review') && !q.__wordReviewed)errors.push(where+': có công thức gốc chưa được duyệt');
+        // A reviewed exception must still be replaced by a valid editable
+        // equation. Never allow a teacher to approve an unresolved token.
+    });
+    return {ok:!errors.length,errors,questionCount:questions?.length||0};
+}
++editedLatex+'
+export function checkWordImportBeforeSave(questions, documentIssues = []) {
+    const errors=[];
+    if(!Array.isArray(questions)||!questions.length)errors.push('Không có câu hỏi để lưu');
+    if(documentIssues.length)errors.push('Tài liệu còn '+documentIssues.length+' vấn đề về cấu trúc, hình ảnh hoặc công thức chưa được xử lý.');
+    const ids=new Set();
+    (questions||[]).forEach((q,i)=>{
+        const where='Câu '+(i+1);
+        if(!q.id || ids.has(String(q.id)))errors.push(where+': thiếu hoặc trùng ID câu hỏi');
+        ids.add(String(q.id));
+        if(!q.content?.trim())errors.push(where+': thiếu nội dung câu hỏi');
+        if(!allowedTypes.has(q.type)||!allowedLevels.has(q.level))errors.push(where+': phân loại không hợp lệ');
+        if(!q.answer?.trim())errors.push(where+': thiếu đáp án');
+        if(q.type==='4-1'||q.type==='TF4') {
+            for(const key of ['A','B','C','D']) if(!optionText(q.options?.[key]).trim()) errors.push(where+': thiếu phương án '+key);
+        }
+        const text=[String(q.content||''),String(q.answer||''),...['A','B','C','D'].map(k=>optionText(q.options?.[k]))].join('\n');
+        if(markedTokens(text).length)errors.push(where+': vẫn còn công thức Word chưa chuyển đổi');
+        for(const expr of findIncompleteWordFractions(text)) errors.push(where+': LaTeX thiếu tử/mẫu '+expr.slice(0,60));
+        for(const token of splitScientificContent(text)){
+            if(token.type!=='math')continue;
+            const v=validateScientificLatexForImport(token.value);
+            if(!v.ok)errors.push(where+': '+v.reason);
+        }
+        if(q.__wordImportIssues?.length && !q.__wordReviewed)errors.push(where+': cần xác nhận sau khi chỉnh sửa '+q.__wordImportIssues.length+' lỗi');
+        if(q.__wordFormulaSources?.some(x=>x.status==='review') && !q.__wordReviewed)errors.push(where+': có công thức gốc chưa được duyệt');
+        // A reviewed exception must still be replaced by a valid editable
+        // equation. Never allow a teacher to approve an unresolved token.
+    });
+    return {ok:!errors.length,errors,questionCount:questions?.length||0};
+}
+));
+    source.latex=String(editedLatex).trim();
+    source.status='manual_verified';
+    source.reason='';
+    q.__wordImportIssues=(q.__wordImportIssues||[]).filter(x=>x.token!==sourceToken);
+    q.__wordReviewed=false;
+    return q;
+}
+
+/** Validate manual edits and require explicit acknowledgement of exceptions. */
+export function checkWordImportBeforeSave(questions, documentIssues = []) {
+    const errors=[];
+    if(!Array.isArray(questions)||!questions.length)errors.push('Không có câu hỏi để lưu');
+    if(documentIssues.length)errors.push('Tài liệu còn '+documentIssues.length+' vấn đề về cấu trúc, hình ảnh hoặc công thức chưa được xử lý.');
+    const ids=new Set();
+    (questions||[]).forEach((q,i)=>{
+        const where='Câu '+(i+1);
+        if(!q.id || ids.has(String(q.id)))errors.push(where+': thiếu hoặc trùng ID câu hỏi');
+        ids.add(String(q.id));
+        if(!q.content?.trim())errors.push(where+': thiếu nội dung câu hỏi');
+        if(!allowedTypes.has(q.type)||!allowedLevels.has(q.level))errors.push(where+': phân loại không hợp lệ');
+        if(!q.answer?.trim())errors.push(where+': thiếu đáp án');
+        if(q.type==='4-1'||q.type==='TF4') {
+            for(const key of ['A','B','C','D']) if(!optionText(q.options?.[key]).trim()) errors.push(where+': thiếu phương án '+key);
+        }
+        const text=[String(q.content||''),String(q.answer||''),...['A','B','C','D'].map(k=>optionText(q.options?.[k]))].join('\n');
+        if(markedTokens(text).length)errors.push(where+': vẫn còn công thức Word chưa chuyển đổi');
+        for(const expr of findIncompleteWordFractions(text)) errors.push(where+': LaTeX thiếu tử/mẫu '+expr.slice(0,60));
+        for(const token of splitScientificContent(text)){
+            if(token.type!=='math')continue;
+            const v=validateScientificLatexForImport(token.value);
+            if(!v.ok)errors.push(where+': '+v.reason);
+        }
+        if(q.__wordImportIssues?.length && !q.__wordReviewed)errors.push(where+': cần xác nhận sau khi chỉnh sửa '+q.__wordImportIssues.length+' lỗi');
+        if(q.__wordFormulaSources?.some(x=>x.status==='review') && !q.__wordReviewed)errors.push(where+': có công thức gốc chưa được duyệt');
+        // A reviewed exception must still be replaced by a valid editable
+        // equation. Never allow a teacher to approve an unresolved token.
+    });
+    return {ok:!errors.length,errors,questionCount:questions?.length||0};
+}
+)) {
+                errors.push(where+': Công thức '+source.token+' không còn ở vị trí được xác nhận.');
+            } else if(!validateScientificLatexForImport(source.latex).ok) {
+                errors.push(where+': Công thức '+source.token+' không còn hợp lệ.');
+            }
+        }
+        // A reviewed exception must still be replaced by a valid editable
+        // equation. Never allow a teacher to approve an unresolved token.
+    });
+    return {ok:!errors.length,errors,questionCount:questions?.length||0};
+}
++source.latex+'
+export function checkWordImportBeforeSave(questions, documentIssues = []) {
+    const errors=[];
+    if(!Array.isArray(questions)||!questions.length)errors.push('Không có câu hỏi để lưu');
+    if(documentIssues.length)errors.push('Tài liệu còn '+documentIssues.length+' vấn đề về cấu trúc, hình ảnh hoặc công thức chưa được xử lý.');
+    const ids=new Set();
+    (questions||[]).forEach((q,i)=>{
+        const where='Câu '+(i+1);
+        if(!q.id || ids.has(String(q.id)))errors.push(where+': thiếu hoặc trùng ID câu hỏi');
+        ids.add(String(q.id));
+        if(!q.content?.trim())errors.push(where+': thiếu nội dung câu hỏi');
+        if(!allowedTypes.has(q.type)||!allowedLevels.has(q.level))errors.push(where+': phân loại không hợp lệ');
+        if(!q.answer?.trim())errors.push(where+': thiếu đáp án');
+        if(q.type==='4-1'||q.type==='TF4') {
+            for(const key of ['A','B','C','D']) if(!optionText(q.options?.[key]).trim()) errors.push(where+': thiếu phương án '+key);
+        }
+        const text=[String(q.content||''),String(q.answer||''),...['A','B','C','D'].map(k=>optionText(q.options?.[k]))].join('\n');
+        if(markedTokens(text).length)errors.push(where+': vẫn còn công thức Word chưa chuyển đổi');
+        for(const expr of findIncompleteWordFractions(text)) errors.push(where+': LaTeX thiếu tử/mẫu '+expr.slice(0,60));
+        for(const token of splitScientificContent(text)){
+            if(token.type!=='math')continue;
+            const v=validateScientificLatexForImport(token.value);
+            if(!v.ok)errors.push(where+': '+v.reason);
+        }
+        if(q.__wordImportIssues?.length && !q.__wordReviewed)errors.push(where+': cần xác nhận sau khi chỉnh sửa '+q.__wordImportIssues.length+' lỗi');
+        if(q.__wordFormulaSources?.some(x=>x.status==='review') && !q.__wordReviewed)errors.push(where+': có công thức gốc chưa được duyệt');
+        // A reviewed exception must still be replaced by a valid editable
+        // equation. Never allow a teacher to approve an unresolved token.
+    });
+    return {ok:!errors.length,errors,questionCount:questions?.length||0};
+}
+)) {
+        throw new Error('Đã sửa nội dung câu hỏi nhưng công thức không còn đúng vị trí gốc; cần kiểm tra lại.');
+    }
+    const tokenToReplace=oldValue.includes(sourceToken)?sourceToken:'
+export function checkWordImportBeforeSave(questions, documentIssues = []) {
+    const errors=[];
+    if(!Array.isArray(questions)||!questions.length)errors.push('Không có câu hỏi để lưu');
+    if(documentIssues.length)errors.push('Tài liệu còn '+documentIssues.length+' vấn đề về cấu trúc, hình ảnh hoặc công thức chưa được xử lý.');
+    const ids=new Set();
+    (questions||[]).forEach((q,i)=>{
+        const where='Câu '+(i+1);
+        if(!q.id || ids.has(String(q.id)))errors.push(where+': thiếu hoặc trùng ID câu hỏi');
+        ids.add(String(q.id));
+        if(!q.content?.trim())errors.push(where+': thiếu nội dung câu hỏi');
+        if(!allowedTypes.has(q.type)||!allowedLevels.has(q.level))errors.push(where+': phân loại không hợp lệ');
+        if(!q.answer?.trim())errors.push(where+': thiếu đáp án');
+        if(q.type==='4-1'||q.type==='TF4') {
+            for(const key of ['A','B','C','D']) if(!optionText(q.options?.[key]).trim()) errors.push(where+': thiếu phương án '+key);
+        }
+        const text=[String(q.content||''),String(q.answer||''),...['A','B','C','D'].map(k=>optionText(q.options?.[k]))].join('\n');
+        if(markedTokens(text).length)errors.push(where+': vẫn còn công thức Word chưa chuyển đổi');
+        for(const expr of findIncompleteWordFractions(text)) errors.push(where+': LaTeX thiếu tử/mẫu '+expr.slice(0,60));
+        for(const token of splitScientificContent(text)){
+            if(token.type!=='math')continue;
+            const v=validateScientificLatexForImport(token.value);
+            if(!v.ok)errors.push(where+': '+v.reason);
+        }
+        if(q.__wordImportIssues?.length && !q.__wordReviewed)errors.push(where+': cần xác nhận sau khi chỉnh sửa '+q.__wordImportIssues.length+' lỗi');
+        if(q.__wordFormulaSources?.some(x=>x.status==='review') && !q.__wordReviewed)errors.push(where+': có công thức gốc chưa được duyệt');
+        // A reviewed exception must still be replaced by a valid editable
+        // equation. Never allow a teacher to approve an unresolved token.
+    });
+    return {ok:!errors.length,errors,questionCount:questions?.length||0};
+}
++source.latex+'
+export function checkWordImportBeforeSave(questions, documentIssues = []) {
+    const errors=[];
+    if(!Array.isArray(questions)||!questions.length)errors.push('Không có câu hỏi để lưu');
+    if(documentIssues.length)errors.push('Tài liệu còn '+documentIssues.length+' vấn đề về cấu trúc, hình ảnh hoặc công thức chưa được xử lý.');
+    const ids=new Set();
+    (questions||[]).forEach((q,i)=>{
+        const where='Câu '+(i+1);
+        if(!q.id || ids.has(String(q.id)))errors.push(where+': thiếu hoặc trùng ID câu hỏi');
+        ids.add(String(q.id));
+        if(!q.content?.trim())errors.push(where+': thiếu nội dung câu hỏi');
+        if(!allowedTypes.has(q.type)||!allowedLevels.has(q.level))errors.push(where+': phân loại không hợp lệ');
+        if(!q.answer?.trim())errors.push(where+': thiếu đáp án');
+        if(q.type==='4-1'||q.type==='TF4') {
+            for(const key of ['A','B','C','D']) if(!optionText(q.options?.[key]).trim()) errors.push(where+': thiếu phương án '+key);
+        }
+        const text=[String(q.content||''),String(q.answer||''),...['A','B','C','D'].map(k=>optionText(q.options?.[k]))].join('\n');
+        if(markedTokens(text).length)errors.push(where+': vẫn còn công thức Word chưa chuyển đổi');
+        for(const expr of findIncompleteWordFractions(text)) errors.push(where+': LaTeX thiếu tử/mẫu '+expr.slice(0,60));
+        for(const token of splitScientificContent(text)){
+            if(token.type!=='math')continue;
+            const v=validateScientificLatexForImport(token.value);
+            if(!v.ok)errors.push(where+': '+v.reason);
+        }
+        if(q.__wordImportIssues?.length && !q.__wordReviewed)errors.push(where+': cần xác nhận sau khi chỉnh sửa '+q.__wordImportIssues.length+' lỗi');
+        if(q.__wordFormulaSources?.some(x=>x.status==='review') && !q.__wordReviewed)errors.push(where+': có công thức gốc chưa được duyệt');
+        // A reviewed exception must still be replaced by a valid editable
+        // equation. Never allow a teacher to approve an unresolved token.
+    });
+    return {ok:!errors.length,errors,questionCount:questions?.length||0};
+}
+;
+    if(oldValue.split(tokenToReplace).length!==2)throw new Error('Công thức bị lặp, không tự chọn vị trí để thay.');
+    set(oldValue.replace(tokenToReplace,'
+export function checkWordImportBeforeSave(questions, documentIssues = []) {
+    const errors=[];
+    if(!Array.isArray(questions)||!questions.length)errors.push('Không có câu hỏi để lưu');
+    if(documentIssues.length)errors.push('Tài liệu còn '+documentIssues.length+' vấn đề về cấu trúc, hình ảnh hoặc công thức chưa được xử lý.');
+    const ids=new Set();
+    (questions||[]).forEach((q,i)=>{
+        const where='Câu '+(i+1);
+        if(!q.id || ids.has(String(q.id)))errors.push(where+': thiếu hoặc trùng ID câu hỏi');
+        ids.add(String(q.id));
+        if(!q.content?.trim())errors.push(where+': thiếu nội dung câu hỏi');
+        if(!allowedTypes.has(q.type)||!allowedLevels.has(q.level))errors.push(where+': phân loại không hợp lệ');
+        if(!q.answer?.trim())errors.push(where+': thiếu đáp án');
+        if(q.type==='4-1'||q.type==='TF4') {
+            for(const key of ['A','B','C','D']) if(!optionText(q.options?.[key]).trim()) errors.push(where+': thiếu phương án '+key);
+        }
+        const text=[String(q.content||''),String(q.answer||''),...['A','B','C','D'].map(k=>optionText(q.options?.[k]))].join('\n');
+        if(markedTokens(text).length)errors.push(where+': vẫn còn công thức Word chưa chuyển đổi');
+        for(const expr of findIncompleteWordFractions(text)) errors.push(where+': LaTeX thiếu tử/mẫu '+expr.slice(0,60));
+        for(const token of splitScientificContent(text)){
+            if(token.type!=='math')continue;
+            const v=validateScientificLatexForImport(token.value);
+            if(!v.ok)errors.push(where+': '+v.reason);
+        }
+        if(q.__wordImportIssues?.length && !q.__wordReviewed)errors.push(where+': cần xác nhận sau khi chỉnh sửa '+q.__wordImportIssues.length+' lỗi');
+        if(q.__wordFormulaSources?.some(x=>x.status==='review') && !q.__wordReviewed)errors.push(where+': có công thức gốc chưa được duyệt');
+        // A reviewed exception must still be replaced by a valid editable
+        // equation. Never allow a teacher to approve an unresolved token.
+    });
+    return {ok:!errors.length,errors,questionCount:questions?.length||0};
+}
++editedLatex+'
+export function checkWordImportBeforeSave(questions, documentIssues = []) {
+    const errors=[];
+    if(!Array.isArray(questions)||!questions.length)errors.push('Không có câu hỏi để lưu');
+    if(documentIssues.length)errors.push('Tài liệu còn '+documentIssues.length+' vấn đề về cấu trúc, hình ảnh hoặc công thức chưa được xử lý.');
+    const ids=new Set();
+    (questions||[]).forEach((q,i)=>{
+        const where='Câu '+(i+1);
+        if(!q.id || ids.has(String(q.id)))errors.push(where+': thiếu hoặc trùng ID câu hỏi');
+        ids.add(String(q.id));
+        if(!q.content?.trim())errors.push(where+': thiếu nội dung câu hỏi');
+        if(!allowedTypes.has(q.type)||!allowedLevels.has(q.level))errors.push(where+': phân loại không hợp lệ');
+        if(!q.answer?.trim())errors.push(where+': thiếu đáp án');
+        if(q.type==='4-1'||q.type==='TF4') {
+            for(const key of ['A','B','C','D']) if(!optionText(q.options?.[key]).trim()) errors.push(where+': thiếu phương án '+key);
+        }
+        const text=[String(q.content||''),String(q.answer||''),...['A','B','C','D'].map(k=>optionText(q.options?.[k]))].join('\n');
+        if(markedTokens(text).length)errors.push(where+': vẫn còn công thức Word chưa chuyển đổi');
+        for(const expr of findIncompleteWordFractions(text)) errors.push(where+': LaTeX thiếu tử/mẫu '+expr.slice(0,60));
+        for(const token of splitScientificContent(text)){
+            if(token.type!=='math')continue;
+            const v=validateScientificLatexForImport(token.value);
+            if(!v.ok)errors.push(where+': '+v.reason);
+        }
+        if(q.__wordImportIssues?.length && !q.__wordReviewed)errors.push(where+': cần xác nhận sau khi chỉnh sửa '+q.__wordImportIssues.length+' lỗi');
+        if(q.__wordFormulaSources?.some(x=>x.status==='review') && !q.__wordReviewed)errors.push(where+': có công thức gốc chưa được duyệt');
+        // A reviewed exception must still be replaced by a valid editable
+        // equation. Never allow a teacher to approve an unresolved token.
+    });
+    return {ok:!errors.length,errors,questionCount:questions?.length||0};
+}
+));
+    source.latex=String(editedLatex).trim();
+    source.status='manual_verified';
+    source.reason='';
+    q.__wordImportIssues=(q.__wordImportIssues||[]).filter(x=>x.token!==sourceToken);
+    q.__wordReviewed=false;
+    return q;
+}
+
 /** Validate manual edits and require explicit acknowledgement of exceptions. */
 export function checkWordImportBeforeSave(questions, documentIssues = []) {
     const errors=[];
