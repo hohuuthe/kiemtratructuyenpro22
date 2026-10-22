@@ -12,6 +12,7 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
+    "@xmldom/xmldom": "^0.9.12",
     "@aws-sdk/client-s3": "^3.1072.0",
     "@google/genai": "^1.29.0",
     "@neondatabase/serverless": "^1.2.0",
