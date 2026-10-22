@@ -11336,6 +11336,18 @@ D. Phát biểu SAI</pre>
                 const headings=lines.filter(line=>
                     /^Câu\s*\d+[:.]?/i.test(String(line.text||'').replace(/\[\[\/?(?:U|B)\]\]/g,'').trim())
                 ).length;
+                const mappedImages=parsedQuestions.reduce((total,q)=>{
+                    const choices=q.options && typeof q.options==='object' ? q.options : {};
+                    const optionImages=['A','B','C','D'].filter(k=>Boolean(choices[k]?.image)).length;
+                    return total + Number(Boolean(q.image)) + optionImages + Number(Boolean(choices.answerImage));
+                },0);
+                if(documentReport.imageCount!==mappedImages){
+                    verification.documentIssues.push({
+                        kind:'image_count',
+                        reason:'Word có '+documentReport.imageCount+' ảnh nhưng câu hỏi phân tích chỉ liên kết '+
+                            mappedImages+' ảnh. Không được bỏ mất hoặc tự ghép nhầm ảnh.'
+                    });
+                }
                 if(headings!==parsedQuestions.length){
                     verification.documentIssues.push({
                         kind:'count',
