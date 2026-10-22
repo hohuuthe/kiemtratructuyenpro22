@@ -1,0 +1,39 @@
+name: Scientific formula browser acceptance
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - '.github/workflows/scientific-formula-browser.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  browser-acceptance:
+    name: Chromium desktop, mobile, editors and exports
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Install isolated browser runner
+        run: |
+          npm install --no-save --no-audit --no-fund playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Perform visual and export acceptance
+        run: node tests/scientific-formula-browser-acceptance.mjs
+      - name: Upload screenshot, generated files and acceptance JSON
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scientific-formula-visual-acceptance
+          path: artifacts/formula-visual-qa/
+          retention-days: 14
+          if-no-files-found: warn

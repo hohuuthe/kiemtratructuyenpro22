@@ -3,6 +3,9 @@ import {
     WidthType, AlignmentType, PageNumber, BorderStyle, UnderlineType,
     ImageRun, Footer
 } from 'docx';
+import { Math as WordMath, latexToMath } from 'docx/math';
+import { splitScientificContent } from './scientific-formula-tokenizer.js';
+import { splitLabeledScientificRecords } from './scientific-formula-records.js';
 
 export interface ExamExportHeaderOptions {
     soGiaoDuc?: string;
@@ -50,7 +53,58 @@ export function getOptionText(optValue: any): string {
 /**
  * Parses simple HTML / formatting tags (<sup>, <sub>, <b>, <i>, math markers) into docx TextRun array.
  */
-export function parseFormattedText(textInput: any, defaultBold = false): TextRun[] {
+/**
+ * Same TeX tokenization as the student view, converted into editable Word math.
+ * A failed Word conversion displays exact source (never a guessed equation).
+ */
+export function parseFormattedText(textInput: any, defaultBold = false): (TextRun | WordMath)[] {
+    if (textInput === null || textInput === undefined) return [];
+    const original = typeof textInput === 'object' ? getOptionText(textInput) : String(textInput);
+    const records = splitLabeledScientificRecords(original);
+    const parts: Array<{ type: string; value: string; display?: boolean }> = records
+        ? records.flatMap((record, i) => record.type === 'record'
+            ? [{ type: 'text', value: (i ? '\n' : '') + record.id + ' | ' + record.label + ' | ' },
+               { type: 'math', value: unwrapWordFormula(record.formula) }]
+            : [{ type: 'text', value: record.value }])
+        : splitScientificContent(original);
+    if (!parts.some(part => part.type === 'math')) return parseFormattedTextLegacy(original, defaultBold);
+    const runs: (TextRun | WordMath)[] = [];
+    for (const part of parts) {
+        if (part.type !== 'math') {
+            if (part.value) runs.push(...parseFormattedTextLegacy(part.value, defaultBold));
+            continue;
+        }
+        runs.push(makeWordMathRun(part.value, defaultBold));
+    }
+    return runs;
+}
+
+
+/**
+ * Native OMML for formulas supported by docx/math. Never rewrite an
+ * unrecognized expression into an approximate equation.
+ */
+function unwrapWordFormula(source: string): string {
+    const parts = splitScientificContent(source);
+    return parts.length === 1 && parts[0].type === 'math' ? parts[0].value : source;
+}
+
+export function makeWordMathRun(source: string, defaultBold = false): WordMath | TextRun {
+    let latex = String(source || '');
+    const simpleChemical = /^\\ce\{([A-Za-z0-9()]+)\}$/.exec(latex);
+    if (simpleChemical) {
+        const body = simpleChemical[1].replace(/([A-Za-z)])(\d+)/g, '$1_{$2}');
+        latex = '\\mathrm{' + body + '}';
+    }
+    try {
+        return new WordMath({ children: latexToMath(latex) });
+    } catch (error) {
+        console.warn('[ScientificWord] Unsupported LaTeX retained verbatim:', error);
+        return new TextRun({ text: source, font: 'Cambria Math', size: 26, bold: defaultBold });
+    }
+}
+
+function parseFormattedTextLegacy(textInput: any, defaultBold = false): TextRun[] {
     if (textInput === null || textInput === undefined) return [];
     let text = textInput;
     if (typeof text === 'object') {

@@ -78,17 +78,10 @@ export function formatAnswerDisplay(type: string, rawAnswer: any, options?: any)
     return ansStr;
   }
 
-  // 3. Trả lời ngắn & Tự luận
-  const cleanAns = String(ans || '')
-    .replace(/<[^>]*>/g, '')
-    .replace(/\\\((.*?)\\\)/gs, '$1')
-    .replace(/\\\[(.*?)\\\]/gs, '$1')
-    .replace(/\$\$(.*?)\$\$/gs, '$1')
-    .replace(/\$(.*?)\$/gs, '$1')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  return cleanAns;
+  // Excel cells are plain text, not an equation-rendering canvas.
+  // Preserve LaTeX and delimiters EXACTLY for subsequent editing/printing.
+  // Never strip $...$, \\( ... \\), braces or mhchem markup.
+  return String(ans ?? '').replace(/<br\s*\/?\s*>/gi, '\n').trim();
 }
 
 /**
@@ -180,14 +173,8 @@ export function generateExamAnswerExcel(
     for (let i = 0; i < doc.questions.length; i++) {
       const q = doc.questions[i];
       const qNum = i + 1;
-      const cleanContent = String(q.content || '')
-        .replace(/<[^>]*>/g, '')
-        .replace(/\\\((.*?)\\\)/gs, '$1')
-        .replace(/\\\[(.*?)\\\]/gs, '$1')
-        .replace(/\$\$(.*?)\$\$/gs, '$1')
-        .replace(/\$(.*?)\$/gs, '$1')
-        .replace(/\s+/g, ' ')
-        .trim();
+      // Keep editable source in Excel rather than discarding math delimiters.
+      const cleanContent = String(q.content ?? '').trim();
 
       detailRows.push([
         doc.maDe,

@@ -514,3 +514,37 @@ button { touch-action: manipulation; }
 .scientific-record::-webkit-scrollbar {
   display: none;
 }
+
+/* Shared authoring previews, deliberately outside the saved question text. */
+.scientific-editor-preview {
+  width: 100%;
+  max-width: 100%;
+  margin-top: .4rem;
+  margin-bottom: .5rem;
+  padding: .55rem .7rem;
+  border: 1px solid #cbd5e1;
+  border-radius: .6rem;
+  background: #f8fafc;
+  color: #1e293b;
+  font-size: .92rem;
+  line-height: 1.7;
+}
+.scientific-editor-preview-title {
+  color: #475569;
+  font-size: .7rem;
+  font-weight: 700;
+  letter-spacing: .025em;
+  margin-bottom: .2rem;
+}
+.scientific-editor-preview-body {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overflow-wrap: anywhere;
+}
+.scientific-editor-preview-empty { color: #94a3b8; font-style: italic; }
+.scientific-editor-preview mjx-container:not([display="true"]) {
+  display: inline-block;
+  overflow: visible !important;
+}
+.scientific-bank-option { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }

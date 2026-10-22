@@ -1,5 +1,7 @@
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
+import { renderScientificContent } from './scientific-formula-engine';
+import { typesetScientificMath } from './scientific-formula-typeset.js';
 import { extractOptionsABCD, getOptionText, estimatePageCount, ExamExportHeaderOptions, ExamExportQuestion } from './exam-docx-generator';
 
 export async function generateExamPdfBlob(
@@ -43,13 +45,13 @@ export async function generateExamPdfBlob(
     container.style.padding = '0px';
     container.style.boxSizing = 'border-box';
 
-    // CSS triệt tiêu hoàn toàn lỗi màu đỏ và thông báo lỗi tràn chữ từ MathJax
+    // Match the student-view styling. Never silently hide invalid equations.
     const styleEl = document.createElement('style');
     styleEl.innerHTML = `
         .MathJax, .MathJax_Display { font-size: 1.08em !important; color: #000000 !important; margin: 2px 0 !important; }
         mjx-container[jax="CHTML"] { line-height: 1.4 !important; color: #000000 !important; display: inline-block !important; }
-        .mjx-error, .MathJax_Error, [data-mjx-error], .mjx-merror, [data-mjx-err] { color: #000000 !important; background: transparent !important; border: none !important; padding: 0 !important; display: none !important; }
-        .mjx-merror * { color: #000000 !important; }
+        .scientific-math-unresolved { color: #9a3412; border-bottom: 1px dashed #fdba74; }
+        mjx-container:not([display="true"]) { overflow: visible !important; }
         .pdf-block { page-break-inside: avoid; break-inside: avoid; }
     `;
     container.appendChild(styleEl);
@@ -148,40 +150,21 @@ export async function generateExamPdfBlob(
     `;
 
     container.innerHTML = html;
+    container.prepend(styleEl);
     document.body.appendChild(container);
 
     try {
         // Yield ngắn giúp trình duyệt cập nhật giao diện mượt mà
         await new Promise(r => setTimeout(r, 30));
 
-        // Render công thức toán, lý, hóa, sinh bằng MathJax
+        // Match exactly the KaTeX/MathJax pathway used in the student exam.
+        // Unsupported TeX remains visibly flagged; never delete the formula.
         if (typeof window !== 'undefined' && (window as any).MathJax) {
-            try {
-                if ((window as any).MathJax.typesetPromise) {
-                    await (window as any).MathJax.typesetPromise([container]);
-                } else if ((window as any).MathJax.startup && (window as any).MathJax.startup.promise) {
-                    await (window as any).MathJax.startup.promise;
-                    if ((window as any).MathJax.typesetPromise) {
-                        await (window as any).MathJax.typesetPromise([container]);
-                    }
-                }
-            } catch (mathErr) {
-                console.warn("MathJax typeset notice in PDF generator:", mathErr);
-            }
+            await typesetScientificMath(container, (window as any).MathJax);
         }
-
-        // Loại bỏ thông báo lỗi MathJax nếu có
-        container.querySelectorAll('.mjx-error, .MathJax_Error, [data-mjx-error], .mjx-merror, [data-mjx-err]').forEach(el => {
-            el.remove();
-        });
-        container.querySelectorAll('span, div, p, code').forEach(el => {
-            const text = el.textContent || '';
-            if (text.includes('Missing superscript') || text.includes('Missing subscript') || text.includes('Missing open brace') || text.includes('Math Processing Error')) {
-                if (text.length < 120) {
-                    el.remove();
-                }
-            }
-        });
+        if (container.querySelector('.scientific-math-unresolved, .scientific-mathjax-pending')) {
+            throw new Error('Có công thức chưa thể hiển thị chính xác trong PDF. Vui lòng kiểm tra cú pháp LaTeX hoặc kết nối thư viện MathJax.');
+        }
 
         // Chờ tải toàn bộ hình ảnh trong câu hỏi và đáp án nếu có
         const imgs = container.querySelectorAll('img');
@@ -699,70 +682,14 @@ function repairMissingBackslashes(str: string): string {
 /**
  * Xử lý & chuẩn hóa toàn bộ công thức Toán, Lý, Hóa, Sinh, ký hiệu đặc biệt cho MathJax trong PDF.
  */
-function cleanHTMLText(str: any): string {
+/**
+ * Identical, lossless input pipeline across student exam, previews and PDFs.
+ * Text and formulas are escaped/typeset once by the shared renderer.
+ */
+export function cleanHTMLText(str: any): string {
     if (str === null || str === undefined) return '';
-    let text = typeof str === 'object' ? getOptionText(str) : String(str);
-    if (!text) return '';
-
-    text = repairMissingBackslashes(text);
-
-    text = text.replace(/(\$\$|\\\[|\\\(|\$|\\ce\{|\\pu\{|\\begin\{)(.*?)(\$\$|\\\]|\\\)|(?:\$|\}|\end\{[^}]+\}))/gs, (m) => {
-        return m.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ');
-    });
-
-    const mathBlocks: string[] = [];
-    const saveBlock = (latexCode: string) => {
-        mathBlocks.push(latexCode);
-        return `@@MATH_${mathBlocks.length - 1}@@`;
-    };
-
-    text = text.replace(/\$\$(.*?)\$\$/gs, (_, p1) => saveBlock(`\\(\\displaystyle ${p1}\\)`));
-    text = text.replace(/\\\[(.*?)\\\]/gs, (_, p1) => saveBlock(`\\(\\displaystyle ${p1}\\)`));
-    text = text.replace(/\\begin\{(align|gather|equation|alignat|multline)\*?\}(.*?)\\end\{\1\*?\}/gs, (match) => saveBlock(`\\[${match}\\]`));
-    text = text.replace(/\\begin\{([^}]+)\}(.*?)\\end\{\1\}/gs, (match) => saveBlock(`\\(${match}\\)`));
-    text = text.replace(/\\\((.*?)\\\)/gs, (_, p1) => saveBlock(`\\(${p1}\\)`));
-    text = text.replace(/\\ce\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/g, (match) => saveBlock(`\\(${match}\\)`));
-    text = text.replace(/\\pu\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/g, (match) => saveBlock(`\\(${match}\\)`));
-    text = text.replace(/\$((?:\\\$|[^$])+?)\$/gs, (_, p1) => saveBlock(`\\(${p1}\\)`));
-
-    // Tự động nhận diện phản ứng & công thức hóa học trần
-    text = text.replace(/((?:\d*[A-Z][a-z]?\d*|\([A-Za-z0-9]+\)\d*|\s|\+|\(|\))+(?:->|<=>|⇌|\u2192|\u21C4)(?:\d*[A-Z][a-z]?\d*|\([A-Za-z0-9]+\)\d*|\s|\+|\(|\))+)/g, (match) => {
-        if (match.includes('@@MATH_')) return match;
-        return saveBlock(`\\(\\ce{${match.trim()}}\\)`);
-    });
-    text = text.replace(/\b([A-Z][a-z]?\d*)\^\{?([\+\-]?\d+|\d+[\+\-])\}?/g, (_, elem, charge) => {
-        if (elem.includes('@@MATH_')) return elem;
-        return saveBlock(`\\(\\ce{${elem}^{${charge}}}\\)`);
-    });
-
-    // Tự động bọc lệnh TeX trần không có $...$
-    text = autoWrapRawTeX(text);
-    text = text.replace(/\\\((.*?)\\\)/gs, (_, p1) => saveBlock(`\\(${p1}\\)`));
-
-    text = text.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    text = text.replace(/&lt;sup&gt;/gi, '<sup>').replace(/&lt;\/sup&gt;/gi, '</sup>');
-    text = text.replace(/&lt;sub&gt;/gi, '<sub>').replace(/&lt;\/sub&gt;/gi, '</sub>');
-    text = text.replace(/&lt;b&gt;/gi, '<b>').replace(/&lt;\/b&gt;/gi, '</b>');
-    text = text.replace(/&lt;strong&gt;/gi, '<strong>').replace(/&lt;\/strong&gt;/gi, '</strong>');
-    text = text.replace(/&lt;i&gt;/gi, '<i>').replace(/&lt;\/i&gt;/gi, '</i>');
-    text = text.replace(/&lt;em&gt;/gi, '<em>').replace(/&lt;\/em&gt;/gi, '</em>');
-    text = text.replace(/&lt;u&gt;/gi, '<u>').replace(/&lt;\/u&gt;/gi, '</u>');
-    text = text.replace(/&lt;mark&gt;/gi, '<mark>').replace(/&lt;\/mark&gt;/gi, '</mark>');
-    text = text.replace(/&lt;p&gt;/gi, '<p>').replace(/&lt;\/p&gt;/gi, '</p>');
-    text = text.replace(/&lt;div&gt;/gi, '<div>').replace(/&lt;\/div&gt;/gi, '</div>');
-    text = text.replace(/&lt;span&gt;/gi, '<span>').replace(/&lt;\/span&gt;/gi, '</span>');
-    text = text.replace(/&lt;br\s*\/?&gt;/gi, '<br>');
-
-    let loopCount = 0;
-    while (/@@MATH_\d+@@/.test(text) && loopCount < 5) {
-        text = text.replace(/@@MATH_(\d+)@@/g, (_, p1) => {
-            let math = mathBlocks[Number(p1)] || '';
-            return `<span class="tex2jax_process">${math}</span>`;
-        });
-        loopCount++;
-    }
-
-    return text;
+    const source = typeof str === 'object' ? getOptionText(str) : String(str);
+    return renderScientificContent(source);
 }
 
 function escapeHtml(str: string): string {
