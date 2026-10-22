@@ -90,7 +90,14 @@ function omml(node, depth = 0) {
         case 'r': {
             const parts = children(node, 't');
             if (!parts.length) throw new Error('Ký hiệu trong Equation Word không có nội dung m:t');
-            return escapeMathRun(parts.map(textOf).join(''));
+            const raw=parts.map(textOf).join('');
+            if(raw.includes('\\'))throw new Error('Equation chứa backslash dạng ký tự, không được tự hiểu là lệnh LaTeX');
+            const escaped=escapeMathRun(raw);
+            const style=attr(child(child(node,'rPr'),'sty'),'val');
+            // Word's m:sty="p" marks upright symbols. Preserve
+            // chemical element symbols and scientific units as roman math.
+            if(style==='p' && /^[\p{L}]+$/u.test(raw))return '\\mathrm{'+escaped+'}';
+            return escaped;
         }
         case 't': return escapeMathRun(textOf(node));
         case 'f': return '\\frac{' + val(node, 'num') + '}{' + val(node, 'den') + '}';
