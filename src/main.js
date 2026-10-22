@@ -9,6 +9,8 @@ import { attachScientificEditorPreviews } from './scientific-formula-editor-prev
 import JSZip from 'jszip';
 import * as docx from 'docx';
 import { generateExamDocx, makeWordMathRun } from './exam-docx-generator.ts';
+import { buildQuestionBankExportInventory, buildQuestionBankExportPlan } from './question-bank-word-selection.js';
+import { generateQuestionBankDocx } from './question-bank-docx-generator.ts';
 import { splitScientificContent } from './scientific-formula-tokenizer.js';
 import { splitLabeledScientificRecords } from './scientific-formula-records.js';
 import { generateExamPdfBlob } from './exam-pdf-generator.ts';
@@ -12350,574 +12352,361 @@ D. Phát biểu SAI</pre>
             return tempDiv.innerHTML;
         }
 
+        // The Word export modal owns an immutable snapshot of the exact
+        // authenticated teacher's bank. The same pure plan powers its counters
+        // and DOCX creation, so displayed totals cannot silently diverge.
+        let bankWordExportInventory = null;
+        let bankWordExportOpening = false;
+
+        async function loadVerifiedQuestionBankWordInventory() {
+            if (!currentUser?.id) throw new Error('Vui lòng đăng nhập lại tài khoản giáo viên.');
+            const token = localStorage.getItem('auth_token') || '';
+            if (!token) throw new Error('Thiếu phiên đăng nhập để xác minh ngân hàng câu hỏi.');
+
+            // Always fetch fresh database data, not a search-filtered page or
+            // a stale browser cache. The normal loader reads in 1000-row chunks.
+            const freshQuestions = await fetchAllQuestionsChunked();
+            const inventory = buildQuestionBankExportInventory(freshQuestions, currentUser.id);
+            const countResponse = await fetch(
+                '/api/questions?count=true&teacherId=' + encodeURIComponent(currentUser.id),
+                { headers: { 'Authorization': 'Bearer ' + token } }
+            );
+            if (!countResponse.ok) throw new Error('Không thể xác minh tổng số câu trên cơ sở dữ liệu (' + countResponse.status + ').');
+            const countPayload = await countResponse.json();
+            const authoritativeCount = Number(countPayload?.count);
+            if (!Number.isSafeInteger(authoritativeCount) || authoritativeCount < 0 ||
+                inventory.totalAvailable !== authoritativeCount) {
+                throw new Error('Ngân hàng câu hỏi đang tải thiếu hoặc dữ liệu vừa thay đổi: đã tải ' +
+                    inventory.totalAvailable + ' / hệ thống có ' + countPayload?.count +
+                    ' câu. Hãy kiểm tra kết nối và thử lại, không xuất dữ liệu thiếu.');
+            }
+            return inventory;
+        }
+
+        function currentBankWordExportChoices() {
+            const modal = document.getElementById('export-word-modal');
+            if (!modal || !bankWordExportInventory) throw new Error('Form xuất Word chưa sẵn sàng.');
+            return Array.from(modal.querySelectorAll('input.exp-group-checkbox:checked')).map(cb => {
+                const groupIndex = Number(cb.getAttribute('data-export-group'));
+                const group = bankWordExportInventory.groups[groupIndex];
+                if (!group) throw new Error('Bài học/dạng câu được chọn không hợp lệ.');
+                const input = modal.querySelector('#exp-count-' + groupIndex);
+                const raw = String(input?.value ?? '').trim();
+                return {
+                    lesson: group.lesson,
+                    type: group.type,
+                    // NaN deliberately fails strict validation rather than
+                    // silently turning a blank/malformed field into zero.
+                    count: /^\d+$/.test(raw) ? Number(raw) : NaN
+                };
+            });
+        }
+
+        function currentBankWordSortMode() {
+            return document.querySelector('#export-word-modal input[name="exp-sort-mode"]:checked')?.value || 'by_type';
+        }
+
+        window.updateWordExportSelectionStats = function updateWordExportSelectionStats() {
+            const modal = document.getElementById('export-word-modal');
+            if (!modal || !bankWordExportInventory) return null;
+            const lessonCount = modal.querySelector('#exp-selected-lessons');
+            const questionCount = modal.querySelector('#exp-selected-questions');
+            const typeSummary = modal.querySelector('#exp-selected-types');
+            const status = modal.querySelector('#exp-validation');
+            const button = modal.querySelector('#btn-execute-export-word');
+            try {
+                const plan = buildQuestionBankExportPlan(
+                    bankWordExportInventory, currentBankWordExportChoices(), currentBankWordSortMode()
+                );
+                if (lessonCount) lessonCount.textContent = String(plan.selectedLessons);
+                if (questionCount) questionCount.textContent = String(plan.totalSelected);
+                if (typeSummary) {
+                    const names = { '4-1': 'Trắc nghiệm', TF4: 'Đúng/Sai', SQ: 'Trả lời ngắn', TL: 'Tự luận' };
+                    typeSummary.textContent = Object.entries(plan.perType)
+                        .map(([type, count]) => (names[type] || type) + ': ' + count)
+                        .join('  •  ') || 'Chưa chọn câu hỏi';
+                }
+                if (status) {
+                    status.textContent = plan.totalSelected > 0
+                        ? 'Sẽ xuất chính xác ' + plan.totalSelected + ' câu hỏi từ ' + plan.selectedLessons + ' bài.'
+                        : 'Chọn ít nhất một nhóm và số lượng câu hỏi lớn hơn 0.';
+                    status.className = plan.totalSelected > 0
+                        ? 'text-xs font-semibold text-emerald-700'
+                        : 'text-xs font-semibold text-amber-700';
+                }
+                if (button && !button.dataset.exporting) button.disabled = plan.totalSelected === 0;
+                return plan;
+            } catch (error) {
+                if (lessonCount) lessonCount.textContent = '—';
+                if (questionCount) questionCount.textContent = '—';
+                if (typeSummary) typeSummary.textContent = 'Vui lòng sửa lại số lượng câu hỏi.';
+                if (status) {
+                    status.textContent = error.message || String(error);
+                    status.className = 'text-xs font-semibold text-red-700';
+                }
+                if (button) button.disabled = true;
+                return null;
+            }
+        };
+
+        window.syncAllExportLessonParents = function syncAllExportLessonParents() {
+            const modal = document.getElementById('export-word-modal');
+            if (!modal || !bankWordExportInventory) return;
+            bankWordExportInventory.lessonKeys.forEach((_, index) => {
+                const parent = modal.querySelector('#exp-lesson-' + index);
+                const children = Array.from(modal.querySelectorAll('.exp-type-' + index));
+                if (!parent) return;
+                parent.checked = children.some(cb => cb.checked);
+                parent.indeterminate = parent.checked && !children.every(cb => cb.checked);
+            });
+        };
+
+        window.updateTypeFilterButtonsUI = function updateTypeFilterButtonsUI() {
+            const modal = document.getElementById('export-word-modal');
+            if (!modal) return;
+            window.syncAllExportLessonParents();
+            ['4-1', 'TF4', 'SQ', 'TL'].forEach(type => {
+                const btn = modal.querySelector('.btn-filter-type[data-type="' + type + '"]');
+                if (!btn) return;
+                const checkboxes = Array.from(modal.querySelectorAll('.exp-group-checkbox[data-type="' + type + '"]'));
+                btn.style.display = checkboxes.length ? '' : 'none';
+                const all = checkboxes.length > 0 && checkboxes.every(cb => cb.checked);
+                const some = checkboxes.some(cb => cb.checked);
+                btn.className = 'btn-filter-type px-2.5 py-1 text-xs font-semibold rounded-lg border transition cursor-pointer ' +
+                    (all ? 'bg-blue-600 border-blue-600 text-white'
+                        : some ? 'bg-blue-100 border-blue-300 text-blue-800'
+                               : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-100');
+                const icon = btn.querySelector('.type-icon');
+                if (icon) icon.textContent = all ? '✓' : some ? '◐' : '○';
+            });
+            window.updateWordExportSelectionStats();
+        };
+
+        window.toggleAllExportLessons = function toggleAllExportLessons(checked) {
+            const modal = document.getElementById('export-word-modal');
+            if (!modal) return;
+            modal.querySelectorAll('.exp-group-checkbox').forEach(cb => { cb.checked = checked; });
+            window.updateTypeFilterButtonsUI();
+        };
+
+        window.toggleExportType = function toggleExportType(type) {
+            const modal = document.getElementById('export-word-modal');
+            if (!modal) return;
+            const cbs = Array.from(modal.querySelectorAll('.exp-group-checkbox[data-type="' + type + '"]'));
+            if (!cbs.length) return;
+            const next = !cbs.every(cb => cb.checked);
+            cbs.forEach(cb => { cb.checked = next; });
+            window.updateTypeFilterButtonsUI();
+        };
+
+        window.toggleAllExportTypes = function toggleAllExportTypes(checked) {
+            window.toggleAllExportLessons(checked);
+        };
+
+        window.syncExportLessonParent = function syncExportLessonParent() {
+            window.updateTypeFilterButtonsUI();
+        };
+
+        window.toggleExportLesson = function toggleExportLesson(index, checked) {
+            const modal = document.getElementById('export-word-modal');
+            if (!modal) return;
+            modal.querySelectorAll('.exp-type-' + index).forEach(cb => { cb.checked = checked; });
+            window.updateTypeFilterButtonsUI();
+        };
+
         window.exportQuestions = async function exportQuestions() {
+            if (bankWordExportOpening) return;
             if (!currentUser) {
                 showToast('Bạn chưa đăng nhập!', 'error');
                 return;
             }
-
-            const authorQuestions = questions.filter(q => q.creatorId === currentUser.id);
-
-            if (authorQuestions.length === 0) {
-                showToast('Không có câu hỏi nào của bạn để export!', 'warning');
-                return;
-            }
-
-            // Phân tích dữ liệu: Nhóm theo bài, trong mỗi bài nhóm theo loại câu hỏi
-            const lessonData = {};
-            authorQuestions.forEach(q => {
-                const l = q.lesson || 'Chung';
-                const t = q.type || 'Khác';
-                if (!lessonData[l]) lessonData[l] = {};
-                if (!lessonData[l][t]) lessonData[l][t] = 0;
-                lessonData[l][t]++;
-            });
-
-            const lessonKeys = Object.keys(lessonData).sort((a,b) => a.localeCompare(b, undefined, {numeric:true}));
-
-            window.toggleAllExportLessons = function(checked) {
-                document.querySelectorAll('#export-word-modal input[type="checkbox"]').forEach(cb => {
-                    cb.checked = checked;
-                });
-                if (typeof window.updateTypeFilterButtonsUI === 'function') {
-                    window.updateTypeFilterButtonsUI();
+            bankWordExportOpening = true;
+            try {
+                const inventory = await loadVerifiedQuestionBankWordInventory();
+                if (!inventory.totalAvailable) {
+                    showToast('Tài khoản của bạn chưa có câu hỏi để xuất Word.', 'warning');
+                    return;
                 }
-            };
+                bankWordExportInventory = inventory;
+                const lessonsHtml = inventory.lessonKeys.map((lesson, lessonIndex) => {
+                    const groups = inventory.groups
+                        .map((group, index) => ({ ...group, index }))
+                        .filter(group => group.lesson === lesson);
+                    const groupRows = groups.map(group =>
+                        '<div class="flex items-center justify-between gap-3 py-1.5">' +
+                          '<label class="flex items-center gap-2 min-w-0 text-xs sm:text-sm text-gray-700 cursor-pointer">' +
+                            '<input type="checkbox" checked class="exp-group-checkbox exp-type-' + lessonIndex +
+                                ' w-4 h-4 rounded text-blue-600 shrink-0" data-export-group="' + group.index +
+                                '" data-type="' + escapeHTML(group.type) + '" onchange="syncExportLessonParent()">' +
+                            '<span>' + escapeHTML(
+                                group.type === '4-1' ? 'Trắc nghiệm (4-1)' :
+                                group.type === 'TF4' ? 'Đúng/Sai (TF4)' :
+                                group.type === 'SQ' ? 'Trả lời ngắn (SQ)' :
+                                group.type === 'TL' ? 'Tự luận (TL)' : group.type
+                            ) + '</span>' +
+                          '</label>' +
+                          '<div class="flex items-center gap-1.5 shrink-0">' +
+                            '<input id="exp-count-' + group.index + '" type="number" min="0" max="' + group.available +
+                                '" step="1" value="' + group.available +
+                                '" class="w-16 px-1.5 py-1 border border-gray-300 rounded-lg text-center font-bold text-xs sm:text-sm" ' +
+                                'oninput="updateWordExportSelectionStats()" onchange="updateWordExportSelectionStats()" ' +
+                                'aria-label="Số câu cần xuất">' +
+                            '<span class="text-xs text-gray-500">/ ' + group.available + ' câu</span>' +
+                          '</div>' +
+                        '</div>'
+                    ).join('');
+                    const available = groups.reduce((total, group) => total + group.available, 0);
+                    return '<section class="border border-gray-200 rounded-xl p-3 bg-white">' +
+                        '<div class="flex items-center gap-2 border-b border-gray-100 pb-2 mb-2">' +
+                            '<input id="exp-lesson-' + lessonIndex +
+                                '" type="checkbox" checked class="w-4 h-4 rounded text-blue-600 cursor-pointer" ' +
+                                'onchange="toggleExportLesson(' + lessonIndex + ', this.checked)">' +
+                            '<label for="exp-lesson-' + lessonIndex +
+                                '" class="text-xs sm:text-sm font-bold text-gray-800 cursor-pointer flex-1">Bài: ' +
+                                escapeHTML(lesson) + '</label>' +
+                            '<span class="text-xs text-gray-500">' + available + ' câu</span>' +
+                        '</div><div class="pl-3 sm:pl-5">' + groupRows + '</div></section>';
+                }).join('');
 
-            window.toggleExportType = function(targetType) {
-                const modal = document.getElementById('export-word-modal');
-                if (!modal) return;
-                
-                const typeCbs = Array.from(modal.querySelectorAll(`input[data-type="${targetType}"]`));
-                if (typeCbs.length === 0) return;
+                const buttonFor = (type, title) =>
+                    '<button type="button" data-type="' + type +
+                    '" onclick="toggleExportType(\'' + type + '\')" class="btn-filter-type px-2.5 py-1 text-xs font-semibold rounded-lg border border-blue-300 bg-blue-600 text-white cursor-pointer">' +
+                    '<span class="type-icon">✓</span> ' + title + '</button>';
 
-                const allChecked = typeCbs.every(cb => cb.checked);
-                const newChecked = !allChecked;
-
-                typeCbs.forEach(cb => {
-                    cb.checked = newChecked;
-                });
-
-                if (typeof window.syncAllExportLessonParents === 'function') {
-                    window.syncAllExportLessonParents();
-                }
-                if (typeof window.updateTypeFilterButtonsUI === 'function') {
-                    window.updateTypeFilterButtonsUI();
-                }
-            };
-
-            window.toggleAllExportTypes = function(checked) {
-                document.querySelectorAll('input[data-lesson][data-type]').forEach(cb => {
-                    cb.checked = checked;
-                });
-                if (typeof window.syncAllExportLessonParents === 'function') {
-                    window.syncAllExportLessonParents();
-                }
-                if (typeof window.updateTypeFilterButtonsUI === 'function') {
-                    window.updateTypeFilterButtonsUI();
-                }
-            };
-
-            window.syncAllExportLessonParents = function() {
-                lessonKeys.forEach((_, idx) => {
-                    const childCbs = Array.from(document.querySelectorAll(`.exp-type-${idx}`));
-                    const parentCb = document.getElementById(`exp-lesson-${idx}`);
-                    if (parentCb) {
-                        parentCb.checked = childCbs.length > 0 && childCbs.some(c => c.checked);
-                    }
-                });
-            };
-
-            window.syncExportLessonParent = function(idx) {
-                const childCbs = Array.from(document.querySelectorAll(`.exp-type-${idx}`));
-                const parentCb = document.getElementById(`exp-lesson-${idx}`);
-                if (parentCb) {
-                    parentCb.checked = childCbs.length > 0 && childCbs.some(c => c.checked);
-                }
-                if (typeof window.updateTypeFilterButtonsUI === 'function') {
-                    window.updateTypeFilterButtonsUI();
-                }
-            };
-
-            window.updateTypeFilterButtonsUI = function() {
-                const modal = document.getElementById('export-word-modal');
-                if (!modal) return;
-                const types = ['4-1', 'TF4', 'SQ', 'TL'];
-                types.forEach(t => {
-                    const btn = modal.querySelector(`.btn-filter-type[data-type="${t}"]`);
-                    if (!btn) return;
-                    const cbs = Array.from(modal.querySelectorAll(`input[data-type="${t}"]`));
-                    if (cbs.length === 0) {
-                        btn.style.display = 'none';
-                        return;
-                    }
-                    const someChecked = cbs.some(c => c.checked);
-                    const allChecked = cbs.every(c => c.checked);
-
-                    if (allChecked) {
-                        btn.className = 'btn-filter-type px-2.5 py-1 text-xs font-bold rounded-lg bg-blue-600 text-white shadow-xs transition cursor-pointer flex items-center gap-1 active:scale-95';
-                        const icon = btn.querySelector('.type-icon');
-                        if (icon) icon.textContent = '✓';
-                    } else if (someChecked) {
-                        btn.className = 'btn-filter-type px-2.5 py-1 text-xs font-bold rounded-lg bg-blue-100 text-blue-800 border border-blue-300 shadow-2xs transition cursor-pointer flex items-center gap-1 active:scale-95';
-                        const icon = btn.querySelector('.type-icon');
-                        if (icon) icon.textContent = '◐';
-                    } else {
-                        btn.className = 'btn-filter-type px-2.5 py-1 text-xs font-medium rounded-lg bg-white border border-gray-300 text-gray-600 hover:bg-gray-100 transition cursor-pointer flex items-center gap-1 active:scale-95';
-                        const icon = btn.querySelector('.type-icon');
-                        if (icon) icon.textContent = '○';
-                    }
-                });
-            };
-
-            const modalHtml = `
-            <div id="export-word-modal" class="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
-                <div class="bg-white rounded-2xl shadow-2xl w-full max-w-xl overflow-hidden flex flex-col max-h-[90vh] border border-gray-100">
-                    <div class="px-5 py-4 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-indigo-50 flex justify-between items-center">
-                        <div class="flex items-center gap-2.5">
-                            <span class="p-2 bg-blue-600 text-white rounded-xl shadow-xs">
-                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
-                            </span>
-                            <div>
-                                <h3 class="font-black text-base md:text-lg text-gray-900 leading-tight">Tùy chọn xuất file Word</h3>
-                                <p class="text-xs text-gray-500 font-medium">Ngân hàng của bạn: <span class="font-bold text-blue-600">${authorQuestions.length}</span> câu hỏi</p>
-                            </div>
-                        </div>
-                        <button onclick="document.getElementById('export-word-modal').remove()" class="text-gray-400 hover:text-red-500 p-1 rounded-lg transition cursor-pointer">
-                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-                        </button>
-                    </div>
-
-                    <div class="p-4 sm:p-5 overflow-y-auto flex-1 space-y-4">
-                        <!-- Thanh công cụ chọn nhanh -->
-                        <div class="bg-gray-50/90 border border-gray-200 rounded-xl p-3 space-y-2.5">
-                            <!-- Hàng 1: Chọn bài -->
-                            <div class="flex flex-wrap items-center justify-between gap-2 text-xs">
-                                <span class="font-bold text-gray-800 flex items-center gap-1">
-                                    <span>📚</span> Chọn bài học:
-                                </span>
-                                <div class="flex items-center gap-1.5">
-                                    <button type="button" onclick="toggleAllExportLessons(true)" class="px-2.5 py-1 font-semibold rounded-lg bg-white border border-gray-300 text-blue-700 hover:bg-blue-50 transition cursor-pointer shadow-2xs">
-                                        ✓ Chọn tất cả bài
-                                    </button>
-                                    <button type="button" onclick="toggleAllExportLessons(false)" class="px-2.5 py-1 font-semibold rounded-lg bg-white border border-gray-300 text-gray-600 hover:bg-gray-100 transition cursor-pointer shadow-2xs">
-                                        ✕ Bỏ chọn tất cả bài
-                                    </button>
-                                </div>
-                            </div>
-
-                            <!-- Hàng 2: Lọc dạng câu (Chọn nhiều dạng cùng lúc) -->
-                            <div class="pt-2 border-t border-gray-200/80 space-y-1.5">
-                                <div class="flex flex-wrap items-center justify-between gap-2 text-xs">
-                                    <span class="font-bold text-gray-800 flex items-center gap-1">
-                                        <span>🎯</span> Lọc dạng câu: <span class="text-[11px] font-normal text-gray-500">(cho phép bật/tắt nhiều dạng cùng lúc)</span>
-                                    </span>
-                                    <div class="flex items-center gap-1 text-xs">
-                                        <button type="button" onclick="toggleAllExportTypes(true)" class="px-2 py-0.5 text-[11px] font-bold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer">
-                                            Chọn tất cả dạng
-                                        </button>
-                                        <span class="text-gray-300">|</span>
-                                        <button type="button" onclick="toggleAllExportTypes(false)" class="px-2 py-0.5 text-[11px] font-bold text-gray-500 hover:text-gray-700 hover:underline cursor-pointer">
-                                            Bỏ chọn dạng
-                                        </button>
-                                    </div>
-                                </div>
-                                <div class="flex flex-wrap items-center gap-1.5 pt-0.5">
-                                    <button type="button" data-type="4-1" onclick="toggleExportType('4-1')" class="btn-filter-type px-2.5 py-1 text-xs font-bold rounded-lg bg-blue-600 text-white shadow-xs transition cursor-pointer flex items-center gap-1 active:scale-95" title="Bật/Tắt Trắc nghiệm 4 lựa chọn">
-                                        <span class="type-icon">✓</span> Trắc nghiệm (4-1)
-                                    </button>
-                                    <button type="button" data-type="TF4" onclick="toggleExportType('TF4')" class="btn-filter-type px-2.5 py-1 text-xs font-bold rounded-lg bg-blue-600 text-white shadow-xs transition cursor-pointer flex items-center gap-1 active:scale-95" title="Bật/Tắt Đúng/Sai">
-                                        <span class="type-icon">✓</span> Đúng/Sai (TF4)
-                                    </button>
-                                    <button type="button" data-type="SQ" onclick="toggleExportType('SQ')" class="btn-filter-type px-2.5 py-1 text-xs font-bold rounded-lg bg-blue-600 text-white shadow-xs transition cursor-pointer flex items-center gap-1 active:scale-95" title="Bật/Tắt Trả lời ngắn">
-                                        <span class="type-icon">✓</span> Trả lời ngắn (SQ)
-                                    </button>
-                                    <button type="button" data-type="TL" onclick="toggleExportType('TL')" class="btn-filter-type px-2.5 py-1 text-xs font-bold rounded-lg bg-blue-600 text-white shadow-xs transition cursor-pointer flex items-center gap-1 active:scale-95" title="Bật/Tắt Tự luận">
-                                        <span class="type-icon">✓</span> Tự luận (TL)
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Khối tùy chọn sắp xếp câu hỏi -->
-                        <div class="bg-gradient-to-r from-blue-50/80 to-indigo-50/80 border border-blue-200/80 rounded-xl p-3 space-y-2">
-                            <label class="block text-xs font-bold text-blue-950 flex items-center gap-1.5">
-                                <span>🔀</span> Thứ tự sắp xếp câu hỏi trong file Word:
-                            </label>
-                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                                <label class="flex items-start gap-2 p-2.5 bg-white rounded-xl border border-blue-200 shadow-2xs cursor-pointer hover:border-blue-400 transition">
-                                    <input type="radio" name="exp-sort-mode" value="by_type" checked class="mt-0.5 text-blue-600 focus:ring-blue-500">
-                                    <div>
-                                        <div class="font-bold text-gray-900">Theo dạng câu hỏi</div>
-                                        <div class="text-[11px] text-gray-500">Gộp Trắc nghiệm 4-1 ➔ Đúng/Sai ➔ Trả lời ngắn ➔ Tự luận</div>
-                                    </div>
-                                </label>
-                                <label class="flex items-start gap-2 p-2.5 bg-white rounded-xl border border-blue-200 shadow-2xs cursor-pointer hover:border-blue-400 transition">
-                                    <input type="radio" name="exp-sort-mode" value="by_lesson" class="mt-0.5 text-blue-600 focus:ring-blue-500">
-                                    <div>
-                                        <div class="font-bold text-gray-900">Theo bài học</div>
-                                        <div class="text-[11px] text-gray-500">Gộp theo Bài 1 ➔ Bài 2 ➔ Bài 3... (trong mỗi bài có đủ dạng)</div>
-                                    </div>
-                                </label>
-                            </div>
-                        </div>
-
-                        <!-- Danh sách chi tiết các bài học -->
-                        <div class="space-y-3">
-                            <div class="text-xs font-bold text-gray-700 flex items-center justify-between">
-                                <span>Chi tiết các bài học và số lượng câu hỏi:</span>
-                                <span class="text-gray-500 font-normal">Đã chọn ${lessonKeys.length} bài</span>
-                            </div>
-                            ${lessonKeys.map((lesson, index) => {
-                                const types = lessonData[lesson];
-                                return `
-                                <div class="border border-gray-200 rounded-xl p-3 bg-white shadow-2xs">
-                                    <div class="flex items-center mb-2 pb-2 border-b border-gray-100">
-                                        <input type="checkbox" id="exp-lesson-${index}" class="w-4 h-4 text-blue-600 rounded mr-2 cursor-pointer" checked onchange="document.querySelectorAll('.exp-type-${index}').forEach(cb => cb.checked = this.checked); if(typeof updateTypeFilterButtonsUI === 'function') updateTypeFilterButtonsUI();">
-                                        <label for="exp-lesson-${index}" class="font-bold text-gray-800 flex-1 cursor-pointer text-xs sm:text-sm">Bài: ${lesson}</label>
-                                    </div>
-                                    <div class="ml-4 sm:ml-6 space-y-2">
-                                        ${Object.keys(types).map((type, tIndex) => `
-                                            <div class="flex items-center justify-between mb-1.5">
-                                                <div class="flex items-center flex-1">
-                                                    <input type="checkbox" data-lesson="${lesson.replace(/"/g, '&quot;')}" data-type="${type}" id="exp-type-${index}-${tIndex}" class="w-4 h-4 text-blue-500 rounded mr-2 exp-type-${index} cursor-pointer" checked onchange="syncExportLessonParent(${index})">
-                                                    <label for="exp-type-${index}-${tIndex}" class="text-xs sm:text-sm text-gray-700 cursor-pointer">
-                                                        ${type === '4-1' ? 'Trắc nghiệm 4 lựa chọn' : type === 'TF4' ? 'Đúng/Sai' : type === 'SQ' ? 'Trả lời ngắn' : type === 'TL' ? 'Tự luận' : type} 
-                                                    </label>
-                                                </div>
-                                                <div class="flex items-center gap-1">
-                                                    <input type="number" id="exp-count-${index}-${tIndex}" class="w-14 sm:w-16 px-1.5 py-1 text-xs sm:text-sm border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-center font-bold" min="0" max="${types[type]}" value="${types[type]}" title="Số câu cần xuất" oninput="if(this.value !== '') { let v = parseInt(this.value); let m = parseInt(this.max); if(v > m) this.value = m; if(v < 0) this.value = 0; }" onblur="if(this.value === '' || parseInt(this.value) < 0) this.value = 0; else if(parseInt(this.value) > parseInt(this.max)) this.value = this.max;">
-                                                    <label for="exp-count-${index}-${tIndex}" class="text-xs text-gray-500 whitespace-nowrap">/ ${types[type]} câu</label>
-                                                </div>
-                                            </div>
-                                        `).join('')}
-                                    </div>
-                                </div>
-                                `;
-                            }).join('')}
-                        </div>
-                    </div>
-
-                    <div class="p-4 border-t border-gray-200 bg-gray-50 flex items-center justify-end gap-3">
-                        <button onclick="document.getElementById('export-word-modal').remove()" class="px-4 py-2 border border-gray-300 text-gray-700 bg-white rounded-xl hover:bg-gray-100 transition font-semibold text-xs sm:text-sm cursor-pointer">
-                            Hủy bỏ
-                        </button>
-                        <button id="btn-execute-export-word" onclick="executeExportWord()" class="px-6 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 transition font-bold flex items-center gap-2 shadow-md shadow-blue-500/20 text-xs sm:text-sm cursor-pointer">
-                            <span>📤</span> Thực hiện Xuất Word
-                        </button>
-                    </div>
-                </div>
-            </div>
-            `;
-            
-            const oldModal = document.getElementById('export-word-modal');
-            if (oldModal) oldModal.remove();
-            document.body.insertAdjacentHTML('beforeend', modalHtml);
-            if (typeof window.updateTypeFilterButtonsUI === 'function') {
+                const modalHtml =
+                    '<div id="export-word-modal" class="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">' +
+                      '<div class="bg-white rounded-2xl shadow-2xl w-full max-w-xl overflow-hidden flex flex-col max-h-[90vh] border border-gray-100">' +
+                        '<div class="px-5 py-4 border-b bg-gradient-to-r from-blue-50 to-indigo-50 flex items-center justify-between gap-3">' +
+                          '<div><h3 class="font-black text-base md:text-lg text-gray-900">📤 Tùy chọn xuất file Word</h3>' +
+                          '<p class="text-xs text-gray-500">Ngân hàng của bạn: <strong class="text-blue-700">' + inventory.totalAvailable + '</strong> câu hỏi, ' +
+                              '<strong>' + inventory.lessonKeys.length + '</strong> bài học</p></div>' +
+                          '<button type="button" onclick="document.getElementById(\'export-word-modal\').remove()" ' +
+                            'class="p-2 text-gray-500 hover:text-red-600 text-lg cursor-pointer" aria-label="Đóng">✕</button>' +
+                        '</div>' +
+                        '<div class="p-4 sm:p-5 overflow-y-auto flex-1 space-y-4">' +
+                          '<div class="bg-blue-50 border border-blue-200 rounded-xl p-3 space-y-2">' +
+                            '<div class="flex items-center justify-between gap-2">' +
+                              '<span class="text-xs font-bold text-blue-900">📚 Chọn bài học</span>' +
+                              '<div class="flex items-center gap-2">' +
+                                '<button type="button" onclick="toggleAllExportLessons(true)" class="text-xs text-blue-700 font-semibold underline">Chọn tất cả</button>' +
+                                '<button type="button" onclick="toggleAllExportLessons(false)" class="text-xs text-gray-600 font-semibold underline">Bỏ tất cả</button>' +
+                              '</div>' +
+                            '</div>' +
+                            '<div class="flex flex-wrap gap-1.5 border-t border-blue-100 pt-2">' +
+                              buttonFor('4-1', 'Trắc nghiệm') +
+                              buttonFor('TF4', 'Đúng/Sai') +
+                              buttonFor('SQ', 'Trả lời ngắn') +
+                              buttonFor('TL', 'Tự luận') +
+                            '</div>' +
+                            '<div class="flex items-center gap-2 text-xs">' +
+                              '<button type="button" onclick="toggleAllExportTypes(true)" class="text-blue-700 font-semibold underline">Chọn tất cả dạng</button>' +
+                              '<button type="button" onclick="toggleAllExportTypes(false)" class="text-gray-600 font-semibold underline">Bỏ chọn dạng</button>' +
+                            '</div>' +
+                          '</div>' +
+                          '<div class="rounded-xl border border-emerald-200 bg-emerald-50 p-3 space-y-1" aria-live="polite">' +
+                            '<div class="font-bold text-sm text-emerald-900">Đã chọn <span id="exp-selected-lessons">0</span> bài / <span id="exp-selected-questions">0</span> câu hỏi</div>' +
+                            '<div id="exp-selected-types" class="text-xs text-emerald-800"></div>' +
+                            '<div id="exp-validation" class="text-xs font-semibold text-emerald-700"></div>' +
+                          '</div>' +
+                          '<fieldset class="rounded-xl border border-blue-200 p-3">' +
+                            '<legend class="text-xs font-bold text-gray-800 px-1">🔀 Thứ tự câu hỏi trong Word</legend>' +
+                            '<div class="flex flex-wrap gap-4 text-xs">' +
+                              '<label class="cursor-pointer"><input type="radio" name="exp-sort-mode" value="by_type" checked onchange="updateWordExportSelectionStats()"> Theo dạng câu hỏi</label>' +
+                              '<label class="cursor-pointer"><input type="radio" name="exp-sort-mode" value="by_lesson" onchange="updateWordExportSelectionStats()"> Theo bài học</label>' +
+                            '</div>' +
+                          '</fieldset>' +
+                          '<div class="text-xs font-bold text-gray-700">Chi tiết bài học và số lượng câu hỏi hiện có</div>' +
+                          '<div class="space-y-2">' + lessonsHtml + '</div>' +
+                        '</div>' +
+                        '<div class="p-4 border-t bg-gray-50 flex items-center justify-end gap-3">' +
+                          '<button type="button" onclick="document.getElementById(\'export-word-modal\').remove()" class="px-4 py-2 text-sm border border-gray-300 rounded-xl text-gray-700 cursor-pointer">Hủy</button>' +
+                          '<button type="button" id="btn-execute-export-word" onclick="executeExportWord()" ' +
+                            'class="px-5 py-2.5 text-sm bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl font-bold cursor-pointer">📤 Thực hiện Xuất Word</button>' +
+                        '</div>' +
+                      '</div>' +
+                    '</div>';
+                document.getElementById('export-word-modal')?.remove();
+                document.body.insertAdjacentHTML('beforeend', modalHtml);
                 window.updateTypeFilterButtonsUI();
+            } catch (error) {
+                console.error('[WordBank] Cannot load verified export inventory:', error);
+                showToast('Không thể thống kê chính xác để xuất Word: ' + (error.message || error), 'error');
+            } finally {
+                bankWordExportOpening = false;
             }
-        }
+        };
 
         window.executeExportWord = async function executeExportWord() {
-            const btn = document.getElementById('btn-execute-export-word');
-            if (btn) {
-                btn.disabled = true;
-                btn.innerHTML = '<svg class="animate-spin h-4 w-4 mr-2 text-white inline flex-shrink-0" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Đang xuất...';
-            }
-
-            // Thu thập các checkbox được chọn và số lượng tương ứng
-            const selectedFilters = [];
-            document.querySelectorAll('input[data-lesson][data-type]:checked').forEach(cb => {
-                const idParts = cb.id.split('-');
-                const idx = idParts[2];
-                const tIdx = idParts[3];
-                const countInput = document.getElementById(`exp-count-${idx}-${tIdx}`);
-                const count = countInput ? parseInt(countInput.value) || 0 : 0;
-                
-                if (count > 0) {
-                    selectedFilters.push({
-                        lesson: cb.getAttribute('data-lesson'),
-                        type: cb.getAttribute('data-type'),
-                        count: count
-                    });
-                }
-            });
-
-            if (selectedFilters.length === 0) {
-                showToast('Bạn chưa chọn loại câu hỏi nào (hoặc số lượng bằng 0)!', 'warning');
-                if (btn) {
-                    btn.disabled = false;
-                    btn.innerHTML = '<span>📤</span> Thực hiện Xuất Word';
-                }
+            const modal = document.getElementById('export-word-modal');
+            const button = modal?.querySelector('#btn-execute-export-word');
+            if (!modal || !bankWordExportInventory || !button || button.dataset.exporting) return;
+            const initialPlan = window.updateWordExportSelectionStats();
+            if (!initialPlan || initialPlan.totalSelected === 0) {
+                showToast('Vui lòng chọn số câu hợp lệ trước khi xuất Word.', 'warning');
                 return;
             }
-
-            let filteredQuestions = questions.filter(q => q.creatorId === currentUser.id);
-
-            // Tiếp tục bộ lọc và cắt số lượng
-            let finalQuestions = [];
-            selectedFilters.forEach(filter => {
-                const matched = filteredQuestions.filter(q => {
-                    const l = q.lesson || 'Chung';
-                    const t = q.type || 'Khác';
-                    return filter.lesson === l && filter.type === t;
-                });
-                
-                if (filter.count > 0 && matched.length > 0) {
-                    finalQuestions = finalQuestions.concat(matched.slice(0, filter.count));
-                }
-            });
-
-            filteredQuestions = finalQuestions;
-
-            if (filteredQuestions.length === 0) {
-                showToast('Không có câu hỏi nào khớp với lựa chọn!', 'warning');
-                if (btn) {
-                    btn.disabled = false;
-                    btn.innerHTML = '<span>📤</span> Thực hiện Xuất Word';
-                }
-                return;
-            }
-
+            button.dataset.exporting = 'true';
+            button.disabled = true;
+            const originalLabel = button.textContent;
+            button.textContent = '⏳ Đang xác minh và tạo Word...';
             try {
-                const docxLib = (typeof window !== 'undefined' && window.docx) ? window.docx : docx;
-                const sortMode = document.querySelector('input[name="exp-sort-mode"]:checked')?.value || 'by_type';
-                const typeOrder = { '4-1': 1, 'TF4': 2, 'SQ': 3, 'TL': 4 };
-
-                const sortedQuestions = [...filteredQuestions].sort((a, b) => {
-                    const lessonA = (a.lesson || '').toString();
-                    const lessonB = (b.lesson || '').toString();
-
-                    if (sortMode === 'by_lesson') {
-                        // Ưu tiên sắp xếp theo bài học trước, sau đó tới loại câu hỏi
-                        const lessonComp = lessonA.localeCompare(lessonB, undefined, { numeric: true, sensitivity: 'base' });
-                        if (lessonComp !== 0) return lessonComp;
-
-                        const orderA = typeOrder[a.type] || 99;
-                        const orderB = typeOrder[b.type] || 99;
-                        return orderA - orderB;
-                    } else {
-                        // Mặc định: Ưu tiên sắp xếp theo dạng câu hỏi trước, sau đó tới bài học
-                        const orderA = typeOrder[a.type] || 99;
-                        const orderB = typeOrder[b.type] || 99;
-                        if (orderA !== orderB) return orderA - orderB;
-                        
-                        return lessonA.localeCompare(lessonB, undefined, { numeric: true, sensitivity: 'base' });
+                const selectedChoices = currentBankWordExportChoices();
+                const sortMode = currentBankWordSortMode();
+                const freshInventory = await loadVerifiedQuestionBankWordInventory();
+                const freshPlan = buildQuestionBankExportPlan(freshInventory, selectedChoices, sortMode);
+                if (freshPlan.totalSelected !== initialPlan.totalSelected ||
+                    freshPlan.selectedLessons !== initialPlan.selectedLessons ||
+                    JSON.stringify(freshPlan.ids) !== JSON.stringify(initialPlan.ids)) {
+                    throw new Error('Ngân hàng vừa thay đổi thứ tự hoặc số lượng câu hỏi. Hãy mở lại form để chọn chính xác.');
+                }
+                // Same selected IDs are not enough when another browser has
+                // edited question text, answers or options during this session.
+                const before = new Map(bankWordExportInventory.questions.map(q => [q.id, q]));
+                for (const q of freshPlan.questions) {
+                    const old = before.get(q.id);
+                    const signature = row => JSON.stringify([
+                        row.type, row.level, row.lesson, row.content, row.options, row.answer, row.image
+                    ]);
+                    if (!old || signature(old) !== signature(q)) {
+                        throw new Error('Nội dung câu hỏi đã thay đổi (ID ' + q.id + '). Hãy mở lại form xuất để đồng bộ.');
                     }
-                });
-
-                const children = [
-                    new docxLib.Paragraph({
-                        children: [
-                            new docxLib.TextRun({
-                                text: "NGÂN HÀNG CÂU HỎI TRẮC NGHIỆM",
-                                bold: true,
-                                size: 32, // 16pt for title
-                            }),
-                        ],
-                        alignment: docxLib.AlignmentType.CENTER,
-                        spacing: { after: 400 },
-                    }),
-                ];
-
-                for (let index = 0; index < sortedQuestions.length; index++) {
-                    const q = sortedQuestions[index];
-                    
-                    // Giữ nguyên 100% tên bài học gốc từ người dùng, tuyệt đối không cắt xén/thay đổi
-                    const lessonTag = (q.lesson || '').toString().trim();
-                    const tagPrefix = lessonTag ? `[${lessonTag}][${q.level || 'NB'}][${q.type || '4-1'}] ` : `[${q.level || 'NB'}][${q.type || '4-1'}] `;
-
-                    // 1. Question content
-                    children.push(new docxLib.Paragraph({
-                        children: [
-                            new docxLib.TextRun({
-                                text: `Câu ${index + 1}: `,
-                                bold: true,
-                            }),
-                            new docxLib.TextRun({
-                                text: tagPrefix,
-                                italics: true,
-                                color: "666666",
-                            }),
-                            ...parseHtmlToTextRuns(q.content),
-                        ],
-                        spacing: { before: 180, after: 60 },
-                    }));
-
-                    // 2. Question image
-                    if (q.image) {
-                        try {
-                            const dims = await getImageDimensions(q.image);
-                            const maxWidth = 450;
-                            let width = dims.width || 300;
-                            let height = dims.height || 200;
-                            if (width > maxWidth) {
-                                const ratio = maxWidth / width;
-                                width = maxWidth;
-                                height = height * ratio;
-                            }
-                            const imgData = await convertImageToUint8Array(q.image);
-                            if (imgData && imgData.length > 0) {
-                                children.push(new docxLib.Paragraph({
-                                    children: [
-                                        new docxLib.ImageRun({
-                                            data: imgData,
-                                            transformation: { width, height },
-                                        }),
-                                    ],
-                                    spacing: { before: 40, after: 60 },
-                                }));
-                            }
-                        } catch (imgErr) {
-                            console.warn("Lỗi nhúng ảnh câu hỏi:", imgErr);
-                        }
-                    }
-
-                    // 3. Options (Căn đều thẳng hàng lề trái không bị thụt vào)
-                    let optsObj = q.options || {};
-                    if (typeof optsObj === 'string') {
-                        try { optsObj = JSON.parse(optsObj); } catch(e) { optsObj = {}; }
-                    }
-
-                    if (q.type === '4-1' || q.type === 'TF4') {
-                        const opts = ['A', 'B', 'C', 'D'];
-                        for (const opt of opts) {
-                            if (optsObj && optsObj[opt] !== undefined && optsObj[opt] !== null) {
-                                const optVal = optsObj[opt];
-                                const optText = typeof optVal === 'object' ? (optVal.text || optVal.content || optVal.value || '') : String(optVal || '');
-                                const optImage = typeof optVal === 'object' ? (optVal.image || optVal.answerImage) : null;
-                                
-                                children.push(new docxLib.Paragraph({
-                                    children: [
-                                        new docxLib.TextRun({
-                                            text: `${opt}. `,
-                                            bold: true,
-                                        }),
-                                        ...parseHtmlToTextRuns(optText),
-                                    ],
-                                    spacing: { before: 20, after: 20 },
-                                }));
-
-                                if (optImage) {
-                                    try {
-                                        const oDims = await getImageDimensions(optImage);
-                                        const maxOptWidth = 200;
-                                        let oW = oDims.width || 150;
-                                        let oH = oDims.height || 100;
-                                        if (oW > maxOptWidth) {
-                                            const ratio = maxOptWidth / oW;
-                                            oW = maxOptWidth;
-                                            oH = oH * ratio;
-                                        }
-                                        const optImgData = await convertImageToUint8Array(optImage);
-                                        if (optImgData && optImgData.length > 0) {
-                                            children.push(new docxLib.Paragraph({
-                                                children: [
-                                                    new docxLib.ImageRun({
-                                                        data: optImgData,
-                                                        transformation: { width: oW, height: oH },
-                                                    }),
-                                                ],
-                                                spacing: { before: 20, after: 40 },
-                                            }));
-                                        }
-                                    } catch (optImgErr) {
-                                        console.warn("Lỗi nhúng ảnh phương án:", optImgErr);
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // 4. Answer (Hiển thị màu đỏ, đậm, thẳng hàng lề trái)
-                    let ansDisplay = '';
-                    if (q.type === '4-1' || q.type === 'mcq' || q.type === 'trac_nghiem') {
-                        ansDisplay = typeof q.answer === 'string' ? q.answer.trim().toUpperCase() : String(q.answer || '').trim().toUpperCase();
-                    } else if (q.type === 'TF4') {
-                        ansDisplay = typeof q.answer === 'string' ? q.answer.trim().toUpperCase() : (typeof q.answer === 'object' ? JSON.stringify(q.answer) : String(q.answer || '').trim());
-                    } else {
-                        ansDisplay = typeof q.answer === 'object' ? JSON.stringify(q.answer) : String(q.answer || '').trim();
-                    }
-
-                    children.push(new docxLib.Paragraph({
-                        children: [
-                            new docxLib.TextRun({
-                                text: `Đáp án: `,
-                                bold: true,
-                                color: "FF0000",
-                            }),
-                            new docxLib.TextRun({
-                                text: ansDisplay,
-                                bold: true,
-                                color: "FF0000",
-                            }),
-                        ],
-                        spacing: { before: 40, after: 180 },
-                    }));
                 }
 
-                const doc = new docxLib.Document({
-                    styles: {
-                        default: {
-                            document: {
-                                run: {
-                                    font: "Times New Roman",
-                                    size: 26, // 13pt (half-points)
-                                },
-                                paragraph: {
-                                    spacing: {
-                                        line: 240, // Single spacing (twips)
-                                        lineRule: "auto",
-                                    },
-                                },
-                            },
-                        },
-                    },
-                    sections: [{
-                        properties: {
-                            page: {
-                                margin: {
-                                    top: 1134,    // 2cm (twips: 1cm = 567)
-                                    bottom: 1134, // 2cm
-                                    left: 1134,   // 2cm
-                                    right: 851,   // 1.5cm (850.5 rounded)
-                                },
-                            },
-                        },
-                        children: children,
-                    }],
-                });
-
-                docxLib.Packer.toBlob(doc).then(blob => {
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = `NganHangCauHoi_${new Date().toISOString().slice(0, 10)}.docx`;
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                    URL.revokeObjectURL(url);
-                    showToast('Đã export câu hỏi ra file Word!', 'success');
-                    
-                    const modal = document.getElementById('export-word-modal');
-                    if (modal) modal.remove();
-                }).catch(err => {
-                    console.error('Export error:', err);
-                    showToast('Lỗi export file Word: ' + (err.message || err), 'error');
-                    if (btn) {
-                        btn.disabled = false;
-                        btn.innerHTML = '<span>📤</span></u> Thực hiện Xuất';
+                const blob = await generateQuestionBankDocx(freshPlan, {
+                    resolveImage: async (imageUrl, description) => {
+                        const bytes = await convertImageToUint8Array(imageUrl);
+                        if (!bytes?.length) throw new Error(description + ': không thể tải ảnh trong câu hỏi.');
+                        const dims = await getImageDimensions(imageUrl);
+                        return { data: bytes, width: dims.width, height: dims.height };
                     }
                 });
-
+                if (!(blob instanceof Blob) || blob.size < 1000) {
+                    throw new Error('File Word không được tạo đúng định dạng.');
+                }
+                const fileUrl = URL.createObjectURL(blob);
+                const download = document.createElement('a');
+                download.href = fileUrl;
+                download.download = 'NganHangCauHoi_' + new Date().toISOString().slice(0, 10) + '.docx';
+                document.body.appendChild(download);
+                download.click();
+                download.remove();
+                setTimeout(() => URL.revokeObjectURL(fileUrl), 30000);
+                showToast('Đã tạo Word với đúng ' + freshPlan.totalSelected + ' câu từ ' +
+                    freshPlan.selectedLessons + ' bài. Các công thức hỗ trợ là Equation chỉnh sửa được.', 'success');
+                modal.remove();
+                bankWordExportInventory = null;
             } catch (error) {
-                console.error('Export error:', error);
-                showToast('Lỗi khi chuẩn bị dữ liệu xuất Word: ' + (error.message || error), 'error');
-                const btn = document.getElementById('btn-execute-export-word');
-                if (btn) {
-                    btn.disabled = false;
-                    btn.innerHTML = '<span>📤</span></u> Thực hiện Xuất';
+                console.error('[WordBank] Export failed:', error);
+                showToast('Không thể xuất file Word đầy đủ: ' + (error.message || error), 'error');
+                const status = modal.querySelector('#exp-validation');
+                if (status) {
+                    status.textContent = error.message || String(error);
+                    status.className = 'text-xs font-semibold text-red-700';
                 }
+            } finally {
+                button.dataset.exporting = '';
+                button.textContent = originalLabel;
+                if (modal.isConnected) window.updateWordExportSelectionStats();
             }
         }
 
