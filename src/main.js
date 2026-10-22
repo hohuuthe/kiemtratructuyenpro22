@@ -1,4 +1,5 @@
 
+import 'katex/dist/katex.min.css';
 import './style.css';
 import './pwa-manager.js';
 import './teacher-assignment.js';
