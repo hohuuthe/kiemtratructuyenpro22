@@ -76,6 +76,7 @@ export function verifyImportedWordQuestions(rawQuestions, documentReport) {
     if(!Array.isArray(rawQuestions)) throw new Error('Không có danh sách câu hỏi hợp lệ');
     const originalRecords=new Map((documentReport?.formulas||[]).map(f=>[f.token,f]));
     const usedTokens=new Set();
+    const tokenUseCounts=new Map();
     const questions=rawQuestions.map((original,index)=>{
         const q={...original,options:original.options && typeof original.options==='object'
             ? JSON.parse(JSON.stringify(original.options)) : {}};
@@ -86,6 +87,7 @@ export function verifyImportedWordQuestions(rawQuestions, documentReport) {
             let normalized=text.replace(new RegExp(WORD_FORMULA_TOKEN.source,'g'), token=>{
                 const record=originalRecords.get(token);
                 usedTokens.add(token);
+                tokenUseCounts.set(token,(tokenUseCounts.get(token)||0)+1);
                 if(!record) {
                     issues.push({field,reason:'Không tìm thấy công thức trong dữ liệu Word gốc',token});
                     return token;
@@ -128,10 +130,12 @@ export function verifyImportedWordQuestions(rawQuestions, documentReport) {
         return q;
     });
     const unmatched=[...originalRecords.keys()].filter(token=>!usedTokens.has(token));
+    const repeated=[...tokenUseCounts.entries()].filter(([,n])=>n>1).map(([token])=>token);
     // Formula-specific diagnostics live on the actual question and can be
     // resolved there; document-wide blockers are only structural/media issues.
     const documentIssues=[...(documentReport?.issues||[]).filter(issue=>issue.kind!=='formula')];
     if(unmatched.length)documentIssues.push({kind:'formula',reason:'Công thức Word không được gắn vào câu hỏi: '+unmatched.join(', ')});
+    if(repeated.length)documentIssues.push({kind:'structure',reason:'Một Equation Word bị gán cho nhiều câu hỏi/đáp án: '+repeated.join(', ')});
     return {
         questions, documentIssues,
         stats:{
