@@ -120,6 +120,7 @@ try {
     ];
     const [word,pdf,excel]=await Promise.all([import('/src/exam-docx-generator.ts'),import('/src/exam-pdf-generator.ts'),import('/src/exam-excel-generator.ts')]);
     const produced=[];
+    window.__qaExports = {};
     for(const [name,fn] of [
       ['docx',()=>word.generateExamDocx(header,questions)],
       ['xlsx',()=>excel.generateExamAnswerExcel(header,[{maDe:'9001',questions}])],
@@ -127,25 +128,28 @@ try {
     ]){
       try{
         const value=await fn();
-        let ab;
-        if(value instanceof Blob)ab=await value.arrayBuffer();
-        else if(value instanceof ArrayBuffer)ab=value;
-        else if(ArrayBuffer.isView(value))ab=value.buffer.slice(value.byteOffset,value.byteOffset+value.byteLength);
-        else throw new Error('Unsupported return type: '+typeof value);
-        const array=new Uint8Array(ab);
-        const step=24000;
-        const chunks=[];
-        for(let i=0;i<array.length;i+=step)chunks.push(Array.from(array.subarray(i,i+step)));
-        produced.push({name,chunks,size:array.length});
+        const mime=name==='pdf'?'application/pdf':name==='docx'?'application/vnd.openxmlformats-officedocument.wordprocessingml.document':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+        const blob=value instanceof Blob ? value : new Blob([value],{type:mime});
+        window.__qaExports[name]=blob;
+        produced.push({name,size:blob.size});
       }catch(err){produced.push({name,error:String(err?.stack||err)})}
     }
     return produced;
   });
   for(const item of files){
     check('Actual browser export '+item.name,!item.error && item.size>500,'size='+item.size+' '+(item.error||''));
-    if(item.chunks){
-      const flat=item.chunks.flat();
-      writeFileSync(root+'/sample.'+item.name,Buffer.from(flat));
+    if(!item.error){
+      const pending=page.waitForEvent('download',{timeout:30000});
+      await page.evaluate(name=>{
+        const link=document.createElement('a');
+        link.href=URL.createObjectURL(window.__qaExports[name]);
+        link.download='sample.'+name;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      },item.name);
+      const download=await pending;
+      await download.saveAs(root+'/sample.'+item.name);
       report.files.push('sample.'+item.name);
     }
   }
