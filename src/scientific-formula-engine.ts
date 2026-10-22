@@ -265,7 +265,7 @@ export function renderKatexToString(rawLatex: string, isDisplay: boolean = false
             trust: false,
             maxExpand: 1000,
             maxSize: 20,
-            macros: { '\\\\degree': '^{\\\\circ}' }
+            macros: { '\\degree': '^{\\circ}' }
         });
     } catch (error) {
         // A wrong guess is worse than a visible source formula in an exam.
