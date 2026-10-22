@@ -111,3 +111,23 @@ test('Four-type exam DOCX preserves native editable chemistry and mathematics ac
   assert.ok(!xml.includes('\\ce{'));
   assert.ok(docx.byteLength>5000);
 });
+
+test('Diagnostic coverage for all 516 valid-source scientific formulas', () => {
+  const fixture=JSON.parse(readFileSync('tests/fixtures/scientific-formulas-516.json','utf8'));
+  const regular=fixture.cases.filter(item=>!item.special);
+  assert.equal(regular.length,516);
+  let natives=0;
+  const unsupported=[];
+  for(const item of regular){
+    const content=String(item.latex||'');
+    try{
+      const parsed=parseFormattedText(content);
+      if(parsed.some(x=>x instanceof WordMath)) natives++;
+      else unsupported.push(item.id);
+    }catch(err){
+      unsupported.push(item.id+':'+String(err?.message||err).slice(0,70));
+    }
+  }
+  console.log('[ScientificWord] 516-fixture Office Math coverage',JSON.stringify({total:516,native:natives,nonMath:unsupported.slice(0,90),nonMathCount:unsupported.length}));
+  assert.ok(natives>=450,'Unexpected regression in conversion of interdisciplinary standard formulas');
+});
