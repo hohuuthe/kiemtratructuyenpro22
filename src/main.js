@@ -11490,7 +11490,10 @@ D. Phát biểu SAI</pre>
             if (!container) return;
 
             if (totalCountEl) {
-                totalCountEl.textContent = `Tổng cộng: ${pendingImportQuestions.length} câu`;
+                const remaining=pendingImportQuestions.filter(q=>q.__wordImportIssues?.length&&!q.__wordReviewed).length;
+                const formulas=pendingImportQuestions.flatMap(q=>q.__wordFormulaSources||[]).length;
+                totalCountEl.textContent='Tổng '+pendingImportQuestions.length+
+                    ' câu | '+formulas+' Equation | '+remaining+' câu cần kiểm tra';
             }
 
             if (pendingImportQuestions.length === 0) {
@@ -11515,6 +11518,18 @@ D. Phát biểu SAI</pre>
                             </button>
                         </div>
                     </div>
+                    ${(q.__wordImportIssues||[]).length ?
+                        '<div class="mb-2 rounded-lg p-3 bg-amber-50 border border-amber-200 text-xs">' +
+                        '<div class="font-bold text-amber-900">⚠️ Có ' + q.__wordImportIssues.length +
+                        ' công thức/vấn đề cần kiểm tra ' + (q.__wordReviewed ? '— Đã xác nhận' : '— Chưa xác nhận') + '</div>' +
+                        q.__wordImportIssues.map(issue=>
+                            '<p class="mt-1 text-amber-800">' + escapeHTML(issue.field||'Word') +
+                            ': ' + escapeHTML(String(issue.reason||'').slice(0,220)) + '</p>'
+                        ).join('') +
+                        '<label class="block mt-2 font-semibold"><input type="checkbox" '+
+                        (q.__wordReviewed ? 'checked ' : '')+
+                        'onchange="acknowledgeWordImportQuestion('+index+',this.checked)" /> Tôi đã đối chiếu Word gốc và chỉnh sửa chính xác công thức của câu này</label>' +
+                        '</div>' : '<div class="mb-2 text-xs text-emerald-700">✓ Đã kiểm tra cấu trúc công thức</div>'}
                     <div class="mb-3">
                         <div class="text-sm font-semibold text-gray-800 mb-2">
                             <span class="text-blue-600">Câu ${index + 1}:</span></u> ${formatContent(q.content)}
@@ -11545,6 +11560,20 @@ D. Phát biểu SAI</pre>
 
             queueMathJax(container);
         }
+
+        window.acknowledgeWordImportQuestion = function(index,checked) {
+            const q=pendingImportQuestions[index];
+            if(!q) return;
+            q.__wordReviewed=Boolean(checked);
+            if(checked) {
+                const validation=checkWordImportBeforeSave([q],[]);
+                if(!validation.ok){
+                    q.__wordReviewed=false;
+                    showToast('Câu chưa thể duyệt: '+validation.errors.slice(0,2).join('; '),'warning');
+                }
+            }
+            renderImportPreview();
+        };
 
         function deletePendingQuestion(index) {
             pendingImportQuestions.splice(index, 1);
@@ -11687,8 +11716,9 @@ D. Phát biểu SAI</pre>
                     }
                 }
 
+                q.__wordReviewed=false;
                 showImportPreviewModal();
-                showToast('Đã cập nhật câu hỏi!', 'success');
+                showToast('Đã cập nhật. Kiểm tra và xác nhận công thức trước khi lưu.','success');
             } catch (err) {
                 console.error('Lỗi khi cập nhật câu hỏi xem trước:', err);
                 showToast('❌ Có lỗi: ' + err.message, 'error');
@@ -11697,111 +11727,107 @@ D. Phát biểu SAI</pre>
         window.updatePendingQuestion = updatePendingQuestion;
 
         async function finalizeImport() {
-            if (pendingImportQuestions.length === 0) return;
-
-            const progressContainer = document.getElementById('finalize-progress-container');
-            const progressStatus = document.getElementById('finalize-progress-status');
-            const progressPercent = document.getElementById('finalize-progress-percent');
-            const progressBar = document.getElementById('finalize-progress-bar');
-            const progressDetail = document.getElementById('finalize-progress-detail');
-
-            const btnCancel = document.getElementById('finalize-btn-cancel');
-            const btnSubmit = document.getElementById('finalize-btn-submit');
-
-            if (progressContainer) progressContainer.classList.remove('hidden');
-            if (btnCancel) btnCancel.disabled = true;
-            if (btnSubmit) {
-                btnSubmit.disabled = true;
-                btnSubmit.classList.add('opacity-50', 'cursor-not-allowed');
+            if(!pendingImportQuestions?.length)return;
+            const button=document.getElementById('finalize-btn-submit');
+            const cancel=document.getElementById('finalize-btn-cancel');
+            if(button?.disabled)return;
+            const check=checkWordImportBeforeSave(
+                pendingImportQuestions,wordImportVerification?.documentIssues||[]
+            );
+            if(!check.ok){
+                showToast('Chưa thể lưu: '+check.errors.slice(0,3).join('; '),'error');
+                return;
             }
-
-            const total = pendingImportQuestions.length;
-
-            // Scan and upload/compress any Base64 strings inside q.image or options image
-            for (let idx = 0; idx < total; idx++) {
-                const q = pendingImportQuestions[idx];
-                const currentPercent = Math.round((idx / total) * 100);
-                
-                if (progressPercent) progressPercent.textContent = `${currentPercent}%`;
-                if (progressBar) progressBar.style.width = `${currentPercent}%`;
-                if (progressDetail) progressDetail.textContent = `Đang xử lý câu hỏi ${idx + 1}/${total}...`;
-
-                if (q.image && q.image.startsWith('data:image')) {
-                    if (progressDetail) progressDetail.textContent = `Đang tối ưu & tải ảnh của câu hỏi ${idx + 1}/${total}...`;
-                    try {
-                        q.image = await window.uploadCompressedImage(q.image);
-                    } catch (err) {
-                        console.error("Docx q.image upload error:", err);
+            if(!wordImportFileMeta?.fileName||!currentUser?.id){
+                showToast('Thiếu phiên import đã xác minh. Vui lòng nhập lại file Word.','error');
+                return;
+            }
+            if(pendingImportQuestions.length>400){
+                showToast('Mỗi lượt tối đa 400 câu. Hãy chia file Word thay vì nhập thiếu.','error');
+                return;
+            }
+            if(button){button.disabled=true;button.textContent='Đang kiểm chứng và lưu...';}
+            if(cancel)cancel.disabled=true;
+            document.getElementById('finalize-progress-container')?.classList.remove('hidden');
+            const update=message=>{
+                const status=document.getElementById('finalize-progress-status');
+                if(status)status.textContent=message;
+            };
+            try{
+                const records=pendingImportQuestions.map(q=>({
+                    id:q.id,type:q.type,level:q.level,lesson:q.lesson,
+                    content:q.content,answer:q.answer,image:q.image||'',
+                    options:JSON.parse(JSON.stringify(q.options||{})),
+                    formulaSources:(q.__wordFormulaSources||[]).map(src=>({
+                        token:src.token,field:src.field,sourceType:src.sourceType,
+                        sourceOmml:src.sourceOmml,latex:src.latex,
+                        status:src.status==='verified'?'verified':'manual_verified',
+                        engineVersion:src.engineVersion
+                    })),
+                    reviewPending:false,importIssues:[]
+                }));
+                const uploadImage=async(source,where)=>{
+                    if(!source||!source.startsWith('data:image/'))return source||'';
+                    const result=await window.uploadCompressedImage(source);
+                    if(typeof result!=='string'||!/^https:\/\//.test(result)){
+                        throw new Error('Không tải được ảnh lên R2 tại '+where);
                     }
-                }
-                if (q.options && typeof q.options === 'object') {
-                    for (let key in q.options) {
-                        if (q.options[key] && q.options[key].image && q.options[key].image.startsWith('data:image')) {
-                            if (progressDetail) progressDetail.textContent = `Đang tải ảnh lựa chọn [${key}] câu ${idx + 1}/${total}...`;
-                            try {
-                                q.options[key].image = await window.uploadCompressedImage(q.options[key].image);
-                            } catch (err) {
-                                console.error("Docx option image upload error:", err);
-                            }
+                    return result;
+                };
+                for(let i=0;i<records.length;i++){
+                    const q=records[i];
+                    update('Đang bảo toàn hình ảnh và nội dung câu '+(i+1)+'/'+records.length);
+                    q.image=await uploadImage(q.image,'câu '+(i+1));
+                    for(const key of Object.keys(q.options)){
+                        const item=q.options[key];
+                        if(item && typeof item==='object' && item.image){
+                            item.image=await uploadImage(item.image,'phương án '+key+' câu '+(i+1));
+                        }
+                        if(key==='answerImage' && typeof item==='string'){
+                            q.options[key]=await uploadImage(item,'ảnh đáp án câu '+(i+1));
                         }
                     }
                 }
-            }
-
-            if (progressPercent) progressPercent.textContent = '95%';
-            if (progressBar) progressBar.style.width = '95%';
-            if (progressDetail) progressDetail.textContent = 'Đang lưu danh sách câu hỏi vào cơ sở dữ liệu...';
-            await new Promise(resolve => setTimeout(resolve, 300));
-
-            questions.push(...pendingImportQuestions);
-            updateStudentTeacherFilter && updateStudentTeacherFilter();
-            updateExamTeacherFilter && updateExamTeacherFilter();
-            await saveQuestionsToDB(pendingImportQuestions);
-
-            if (progressPercent) progressPercent.textContent = '98%';
-            if (progressBar) progressBar.style.width = '98%';
-            if (progressDetail) progressDetail.textContent = 'Đang đồng bộ dữ liệu ngân hàng câu hỏi...';
-
-            // Tải lại toàn bộ ngân hàng câu hỏi từ CSDL để đảm bảo đầy đủ và chính xác theo vai trò
-            if (typeof loadQuestions === 'function') {
-                await loadQuestions(true);
-            }
-
-            if (progressPercent) progressPercent.textContent = '100%';
-            if (progressBar) progressBar.style.width = '100%';
-            if (progressDetail) progressDetail.textContent = 'Hoàn tất import!';
-            await new Promise(resolve => setTimeout(resolve, 200));
-            
-            const count = pendingImportQuestions.length;
-            const importedTypes = [...new Set(pendingImportQuestions.map(q => String(q.type || '').toUpperCase()))];
-            pendingImportQuestions = [];
-            
-            closeModal();
-
-            // Nếu tab câu hỏi hiện tại không có câu hỏi nào nhưng có loại câu hỏi vừa import, tự động chuyển tab
-            if (importedTypes.length > 0) {
-                const hasQuestionsInCurrentTab = questions.some(q => matchesQuestionType(q, questionTypeFilter) && isUserQuestionCreator(q));
-                if (!hasQuestionsInCurrentTab) {
-                    let targetType = importedTypes[0];
-                    if (targetType === 'TRAC_NGHIEM') targetType = '4-1';
-                    if (targetType === 'DUNG_SAI' || targetType === 'TF-4') targetType = 'TF4';
-                    if (targetType === 'TRA_LOI_NGAN') targetType = 'SQ';
-                    if (targetType === 'TU_LUAN') targetType = 'TL';
-                    if (typeof setQuestionTypeFilter === 'function') {
-                        setQuestionTypeFilter(targetType);
-                    }
+                update('Đang ghi nguyên vẹn '+records.length+' câu vào Neon PostgreSQL...');
+                const response=await fetch('/api/questions/import-word',{
+                    method:'POST',
+                    headers:{
+                        'Content-Type':'application/json',
+                        'Authorization':'Bearer '+(localStorage.getItem('auth_token')||'')
+                    },
+                    body:JSON.stringify({
+                        batchId:crypto.randomUUID(),
+                        fileName:wordImportFileMeta.fileName,
+                        sourceSha256:wordImportFileMeta.sourceSha256,
+                        engineVersion:WORD_IMPORT_ENGINE_VERSION,
+                        questions:records
+                    })
+                });
+                const receipt=await response.json();
+                if(!response.ok||!receipt.success||
+                    receipt.count!==records.length||receipt.expected!==records.length){
+                    const detail=(receipt.issues||[]).slice(0,3).join('; ');
+                    throw new Error(receipt.error||detail||'CSDL không xác nhận đủ số câu');
                 }
+                const count=records.length;
+                pendingImportQuestions=[];
+                wordImportVerification=null;
+                wordImportFileMeta=null;
+                closeModal();
+                await loadQuestions(true);
+                updateQuestionStats?.();
+                updateLessonFilter?.();
+                renderQuestionsList?.();
+                showToast('Import thành công '+count+
+                    ' câu (đã xác minh sau lưu). Biên nhận '+String(receipt.batchId).slice(0,8),'success');
+            }catch(error){
+                console.error('[WordImport] Transaction failed:',error);
+                showToast('Import chưa hoàn tất: '+(error.message||error)+
+                    '. Dữ liệu xem trước vẫn được giữ.','error');
+            }finally{
+                if(button?.isConnected){button.disabled=false;button.textContent='LƯU VÀO NGÂN HÀNG';}
+                if(cancel?.isConnected)cancel.disabled=false;
             }
-
-            updateStats && updateStats();
-            updateQuestionStats && updateQuestionStats();
-            updateLessonFilter && updateLessonFilter();
-            renderQuestionsList && renderQuestionsList();
-            
-            if (typeof updateExamGlobalStats === 'function') updateExamGlobalStats();
-            if (typeof checkExamConfigSufficiency === 'function') checkExamConfigSufficiency();
-            
-            showToast(`🎉 Đã thêm thành công ${count} câu hỏi vào ngân hàng!`, 'success');
         }
 
         function parseQuestionsFromObjects(lines, answerFormat = 'default') {
