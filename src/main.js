@@ -11,6 +11,8 @@ import * as docx from 'docx';
 import { generateExamDocx, makeWordMathRun } from './exam-docx-generator.ts';
 import { buildQuestionBankExportInventory, buildQuestionBankExportPlan } from './question-bank-word-selection.js';
 import { generateQuestionBankDocx } from './question-bank-docx-generator.ts';
+import { inspectScientificDocx, WORD_IMPORT_ENGINE_VERSION } from './word-omml-reader.js';
+import { verifyImportedWordQuestions, checkWordImportBeforeSave } from './word-import-verification.js';
 import { splitScientificContent } from './scientific-formula-tokenizer.js';
 import { splitLabeledScientificRecords } from './scientific-formula-records.js';
 import { generateExamPdfBlob } from './exam-pdf-generator.ts';
@@ -10828,6 +10830,9 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             }
         };
 
+        let wordImportVerification = null;
+        let wordImportFileMeta = null;
+
         window.showImportModal = function showImportModal() {
             const modalContent = `
                 <div class="p-4 sm:p-6 md:p-8 w-full">
@@ -11110,6 +11115,16 @@ D. Phát biểu SAI</pre>
                 
                 let arrayBuffer = await file.arrayBuffer();
                 const answerFormat = document.getElementById('import-answer-format')?.value || 'default';
+                if(file.size>24*1024*1024 || !/\.docx$/i.test(file.name)){
+                    throw new Error('File không đúng định dạng DOCX hoặc vượt quá 24 MB.');
+                }
+                const digest = await crypto.subtle.digest('SHA-256',new Uint8Array(arrayBuffer));
+                const sourceSha256 = Array.from(new Uint8Array(digest)).map(x=>x.toString(16).padStart(2,'0')).join('');
+                const documentReport = await inspectScientificDocx(arrayBuffer);
+                const useOriginalXml = documentReport.formulas.length>0 || documentReport.issues.length>0;
+                wordImportVerification = null;
+                wordImportFileMeta = {fileName:file.name,sourceSha256,report:documentReport};
+
                 
                 updateProgress('Bắt đầu giải nén & chuyển đổi định dạng tài liệu...', 40);
                 await new Promise(resolve => setTimeout(resolve, 300));
@@ -11196,7 +11211,7 @@ D. Phát biểu SAI</pre>
                 
                 let result;
                 try {
-                    result = await mammoth.convertToHtml({ arrayBuffer }, options);
+                    result = useOriginalXml ? {value:''} : await mammoth.convertToHtml({ arrayBuffer }, options);
                 } catch (mammothError) {
                     console.error('Mammoth error:', mammothError);
                     showImportErrorModal([{
@@ -11306,11 +11321,21 @@ D. Phát biểu SAI</pre>
                 }
 
                 elements.forEach(el => processElement(el));
+                // Ignore flattened HTML for true Word Equation / OLE content.
+                // Preserve paragraph order and original OMML provenance.
+                if(useOriginalXml){
+                    lines.splice(0,lines.length,...documentReport.lines);
+                }
+
 
                 updateProgress('Đang phân tích cấu trúc câu hỏi & đối soát định dạng...', 85);
                 await new Promise(resolve => setTimeout(resolve, 200));
 
                 const { questions: parsedQuestions, errors } = parseQuestionsFromObjects(lines, answerFormat);
+                const verification=verifyImportedWordQuestions(parsedQuestions,documentReport);
+                wordImportVerification=verification;
+                wordImportFileMeta.verification=verification;
+
 
                 if (errors.length > 0) {
                     showImportErrorModal(errors);
@@ -11332,11 +11357,11 @@ D. Phát biểu SAI</pre>
                 updateProgress('Nạp câu hỏi thành công! Đang tải bản xem trước...', 100);
                 await new Promise(resolve => setTimeout(resolve, 200));
 
-                pendingImportQuestions = parsedQuestions;
+                pendingImportQuestions = verification.questions;
                 showImportPreviewModal();
             } catch (error) {
                 console.error('Import error:', error);
-                showToast('Lỗi đọc file Word!', 'error');
+                showToast('Lỗi đọc hoặc kiểm chứng Word: '+(error.message||error),'error');
             } finally {
                 if (btnCancel) btnCancel.disabled = false;
                 if (btnSubmit) {
@@ -11832,12 +11857,16 @@ D. Phát biểu SAI</pre>
                         level = temp;
                     }
 
-                    // Chuẩn hóa và dự phòng nếu không nằm trong định dạng hợp lệ
-                    if (!validTypes.includes(type)) {
-                        type = '4-1';
-                    }
-                    if (!validLevels.includes(level)) {
-                        level = 'NB';
+                    // No guessing: an invalid classification is a source error.
+                    if(!validTypes.includes(type)||!validLevels.includes(level)){
+                        errors.push({
+                            type:'format',
+                            line:startLine,
+                            text:'Câu '+questionNumber,
+                            message:'Loại/mức độ không hợp lệ ['+type+']['+level+']. Không tự đổi sang [4-1][NB].'
+                        });
+                        i++;
+                        continue;
                     }
 
                     // Nếu nội dung trống nhưng dòng đó có ảnh, hoặc dòng tiếp theo chỉ có ảnh
@@ -11972,22 +12001,9 @@ D. Phát biểu SAI</pre>
                             i++;
                         }
                         
-                        // --- HẬU XỬ LÝ HÌNH ẢNH (CHỐNG NHẦM LẪN ẢNH CÂU HỎI VÀ ĐÁP ÁN) ---
-                        // Nếu chỉ có ĐÚNG 1 đáp án có chứa ảnh, 
-                        // trong khi các đáp án khác không có ảnh, và câu hỏi đang KHÔNG có ảnh.
-                        // Đồng thời đáp án này có chứa chữ Text (VD: "D. Đồ thị").
-                        // Thì 99% đây là bức ảnh của Câu hỏi bị trôi xuống dưới cùng.
-                        let optsWithImages = ['A', 'B', 'C', 'D'].filter(opt => question.options[opt] && question.options[opt].image);
-                        if (optsWithImages.length === 1) {
-                            let theOnlyOpt = optsWithImages[0];
-                            if (question.options[theOnlyOpt].text.trim() !== '') {
-                                if (!question.image) {
-                                    question.image = question.options[theOnlyOpt].image;
-                                    question.options[theOnlyOpt].image = '';
-                                }
-                            }
-                        }
-                        
+                        // Never guess that an option image belongs to the stem.
+                        // Keep source association and show it in teacher preview.
+
                         // Đánh giá Trọng số Đáp án
                         let strongCandidates = [];
                         let weakCandidates = [];
