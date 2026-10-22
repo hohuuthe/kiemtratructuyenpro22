@@ -301,7 +301,7 @@ CREATE TABLE IF NOT EXISTS word_import_batches (
 );
 CREATE TABLE IF NOT EXISTS word_import_items (
     batch_id TEXT NOT NULL REFERENCES word_import_batches(id),
-    question_id TEXT NOT NULL REFERENCES questions(id),
+    question_id TEXT NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
     PRIMARY KEY(batch_id, question_id)
 );
 CREATE TABLE IF NOT EXISTS question_formula_sources (
