@@ -8,7 +8,7 @@ import { splitScientificContent } from './scientific-formula-tokenizer.js';
 import { splitLabeledScientificRecords } from './scientific-formula-records.js';
 import { standaloneMhchemCommand, makeEditableChemistryEquation, makeEditableUnitEquation, expandMhchemForWordMath } from './word-editable-chemistry.js';
 import { repairLegacyScientificLatexForWord } from './word-legacy-latex-repair.js';
-import { makeEditableWordBorderedArray } from './word-editable-array.js';
+import { makeEditableWordBorderedArray, makeEditableWordAlignedEquation } from './word-editable-array.js';
 
 export interface ExamExportHeaderOptions {
     soGiaoDuc?: string;
@@ -155,6 +155,8 @@ export function makeWordMathRun(source: string, defaultBold = false): WordMath |
         const repaired = repairLegacyScientificLatexForWord(original);
         const borderedArray = makeEditableWordBorderedArray(repaired.latex);
         if (borderedArray) return borderedArray;
+        const aligned = makeEditableWordAlignedEquation(repaired.latex);
+        if (aligned) return aligned;
         const latex = /\\(?:ce|pu)\s*\{/.test(repaired.latex)
             ? expandMhchemForWordMath(repaired.latex) : repaired.latex;
         return new WordMath({ children: latexToMath(normalizeWordMathAliases(latex)) });
