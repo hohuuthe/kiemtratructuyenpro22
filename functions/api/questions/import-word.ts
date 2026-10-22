@@ -27,6 +27,7 @@ export function validateBatchPayload(body:any) {
     }
     if(typeof body.batchId!=='string'||!/^[0-9a-z-]{12,80}$/i.test(body.batchId)) errors.push('Mã phiên import không hợp lệ');
     if(typeof body.fileName!=='string'||!body.fileName.toLowerCase().endsWith('.docx')||body.fileName.length>260)errors.push('Tên file Word không hợp lệ');
+    if(typeof body.sourceSha256!=='string'||!/^[0-9a-f]{64}$/i.test(body.sourceSha256))errors.push('SHA-256 file Word không hợp lệ');
     const ids=new Set<string>();
     for(let i=0;i<questions.length;i++) {
         const q=questions[i], label='Câu '+(i+1);
@@ -67,6 +68,7 @@ export async function persistVerifiedWordImport(sql:any,userId:string,body:any) 
     const batchId=body.batchId;
     // Schema DDL outside the data transaction is idempotent.
     await sql.query('CREATE TABLE IF NOT EXISTS word_import_batches (id TEXT PRIMARY KEY, creator_id TEXT NOT NULL, file_name TEXT NOT NULL, source_sha256 TEXT NOT NULL, expected_count INTEGER NOT NULL, imported_count INTEGER NOT NULL, engine_version TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP)',[]);
+    await sql.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_word_import_file_once ON word_import_batches(creator_id,source_sha256)',[]);
     await sql.query('CREATE TABLE IF NOT EXISTS word_import_items (batch_id TEXT NOT NULL REFERENCES word_import_batches(id), question_id TEXT NOT NULL REFERENCES questions(id) ON DELETE CASCADE, PRIMARY KEY(batch_id,question_id))',[]);
     await sql.query('CREATE TABLE IF NOT EXISTS question_formula_sources (question_id TEXT NOT NULL REFERENCES questions(id) ON DELETE CASCADE, source_token TEXT NOT NULL, field_name TEXT NOT NULL, source_type TEXT NOT NULL, source_omml TEXT NOT NULL, normalized_latex TEXT NOT NULL, review_status TEXT NOT NULL, engine_version TEXT NOT NULL, batch_id TEXT NOT NULL, PRIMARY KEY(question_id,source_token,field_name))',[]);
     const queries:any[]=[];
