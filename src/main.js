@@ -4,6 +4,7 @@ import './style.css';
 import './pwa-manager.js';
 import './teacher-assignment.js';
 import { typesetScientificMath } from './scientific-formula-typeset.js';
+import { renderExamDetailQuestion, renderExamDetailOptions } from './exam-detail-formula-renderer.js';
 import { attachScientificEditorPreviews } from './scientific-formula-editor-preview.js';
 import JSZip from 'jszip';
 import * as docx from 'docx';
@@ -15345,7 +15346,7 @@ CẤU TRÚC JSON:
                 } catch(e) {
                     console.error("Lazy load details error:", e);
                 }
-                if(btn) { btn.disabled = false; btn.innerHTML = '<span>👁️</span></u> Xem chi tiết'; }
+                if(btn) { btn.disabled = false; btn.innerHTML = '<span>👁️</span> Xem chi tiết'; }
             }
 
             // Lấy config đúng để hiển thị điểm tối đa chính xác
@@ -15403,7 +15404,7 @@ CẤU TRÚC JSON:
                             </div>
                         </div>
                         <div class="text-right">
-                            <p class="text-xs font-bold text-green-600">${s.correct}/${s.total} <span class="text-gray-400 font-normal text-[10px]">đúng</span></u></p>
+                            <p class="text-xs font-bold text-green-600">${s.correct}/${s.total} <span class="text-gray-400 font-normal text-[10px]">đúng</span></p>
                             ${type === 'TF4' ? `<p class="text-[9px] text-purple-600 font-bold">Ý: ${s.correctStatements || 0}/${s.totalStatements || 0}</p>` : ''}
                         </div>
                     </div>
@@ -15452,14 +15453,17 @@ CẤU TRÚC JSON:
                     statusClass = 'bg-purple-50 border-red-300';
                     statusIcon = '❌';
                 }
+                // Render each stored option with the exact KaTeX/MathJax pipeline of the student exam.
+                // This is a read-only presentation change; no answer or scoring data is mutated.
+                const optionsHtml = renderExamDetailOptions(d.question, d.userAnswer, d.correctAnswer, appSettings.answerFontSize || 20);
                 const scoreDisplay = `<p class="text-base font-semibold mt-1">Điểm đạt được: ${(d.score || 0).toFixed(2)}</p>`;
                 const userAnsColor = d.isCorrect ? 'text-green-600' : (!isAnswered ? 'text-yellow-600' : 'text-purple-600');
 
                 let answerDisplay = '';
                 if (d.question.type === '4-1') {
                     answerDisplay = `
-                        <p class="text-sm md:text-base break-words mt-1">Đáp án của bạn: <span class="font-bold ${userAnsColor}">${escapeHTML(d.userAnswer) || 'Chưa trả lời'}</span></u></p>
-                        <p class="text-sm md:text-base break-words mt-1">Đáp án đúng: <span class="font-bold text-green-600">${escapeHTML(d.correctAnswer)}</span></u></p>
+                        <div class="text-sm md:text-base break-words mt-1">Đáp án của học sinh: <div class="exam-detail-answer inline-block font-bold ${userAnsColor}">${formatContent(d.userAnswer) || 'Chưa trả lời'}</div></div>
+                        <div class="text-sm md:text-base break-words mt-1">Đáp án đúng: <div class="exam-detail-answer inline-block font-bold text-green-700">${formatContent(d.correctAnswer)}</div></div>
                         ${scoreDisplay}
                     `;
                 } else if (d.question.type === 'TF4') {
@@ -15472,21 +15476,21 @@ CẤU TRÚC JSON:
                             const userResponse = userAnswers[opt];
                             const isMatch = isCorrectStatement === userResponse;
                             const colorClass = isMatch ? 'text-green-600' : 'text-purple-600';
-                            userAnsHtml.push(`<span class="${colorClass}">${opt}: ${userResponse ? 'Đ' : 'S'}</span></u>`);
+                            userAnsHtml.push(`<span class="${colorClass}">${opt}: ${userResponse ? 'Đ' : 'S'}</span>`);
                         } else {
-                            userAnsHtml.push(`<span class="text-black">${opt}: Chưa trả lời</span></u>`);
+                            userAnsHtml.push(`<span class="text-black">${opt}: Chưa trả lời</span>`);
                         }
                     });
 
                     answerDisplay = `
-                        <p class="text-sm md:text-base break-words mt-1">Đáp án của bạn: <span class="font-bold">${userAnsHtml.join(', ')}</span></u></p>
-                        <p class="text-sm md:text-base break-words mt-1">Đáp án đúng: <span class="font-bold text-green-600">${escapeHTML(d.correctAnswer)} (chỉ các phát biểu đúng)</span></u></p>
+                        <p class="text-sm md:text-base break-words mt-1">Đáp án của bạn: <span class="font-bold">${userAnsHtml.join(', ')}</span></p>
+                        <p class="text-sm md:text-base break-words mt-1">Đáp án đúng: <span class="font-bold text-green-600">${escapeHTML(d.correctAnswer)} (chỉ các phát biểu đúng)</span></p>
                         ${scoreDisplay}
                     `;
                 } else if (d.question.type === 'SQ') {
                     answerDisplay = `
-                        <p class="text-sm md:text-base break-words mt-1">Đáp án của bạn: <span class="font-bold ${userAnsColor}">${formatContent(d.userAnswer) || 'Chưa trả lời'}</span></u></p>
-                        <p class="text-sm md:text-base break-words mt-1">Đáp án đúng: <span class="font-bold text-green-600">${formatContent(d.correctAnswer)}</span></u></p>
+                        <div class="text-sm md:text-base break-words mt-1">Đáp án của học sinh: <div class="exam-detail-answer inline-block font-bold ${userAnsColor}">${formatContent(d.userAnswer) || 'Chưa trả lời'}</div></div>
+                        <div class="text-sm md:text-base break-words mt-1">Đáp án đúng: <div class="exam-detail-answer inline-block font-bold text-green-700">${formatContent(d.correctAnswer)}</div></div>
                         ${(d.question.options && d.question.options.answerImage) ? `<img src="${d.question.options.answerImage}" class="mt-1 max-w-[200px] h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage(this.src)">` : ''}
                         ${scoreDisplay}
                     `;
@@ -15505,7 +15509,7 @@ CẤU TRÚC JSON:
                             <div class="text-green-800 break-words">${formatContent(d.correctAnswer)}</div>
                             ${(d.question.options && d.question.options.answerImage) ? `<img src="${d.question.options.answerImage}" class="mt-2 max-w-[200px] h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage(this.src)">` : ''}
                         </div>
-                        ${d.aiFeedback ? `<div class="mt-2 text-base text-purple-700 bg-purple-50 p-2 rounded border border-purple-100 break-words">🤖 Nhận xét: ${d.aiFeedback}</div>` : ''}
+                        ${d.aiFeedback ? `<div class="mt-2 text-base text-purple-700 bg-purple-50 p-2 rounded border border-purple-100 break-words">🤖 Nhận xét: ${formatContent(d.aiFeedback)}</div>` : ''}
                         <div class="mt-3 flex flex-wrap items-center gap-3 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
                             <div class="flex items-center gap-2">
                                 <label class="text-sm font-bold text-yellow-800 whitespace-nowrap">Chấm điểm:</label>
@@ -15519,7 +15523,7 @@ CẤU TRÚC JSON:
                                     class="w-20 px-2 py-1 border-2 ${isExamCreator ? 'border-yellow-300 focus:border-yellow-500' : 'border-gray-200 bg-gray-100 cursor-not-allowed'} rounded focus:outline-none font-bold text-center"
                                 >
                             </div>
-                            <span class="text-[10px] text-yellow-600 font-medium italic">(Tối đa: ${targetConfig.pointsTL || 1})</span></u>
+                            <span class="text-[10px] text-yellow-600 font-medium italic">(Tối đa: ${targetConfig.pointsTL || 1})</span>
                             ${isExamCreator ? `
                             <button 
                                 id="ai-grade-btn-${resultId}-${i}"
@@ -15537,10 +15541,11 @@ CẤU TRÚC JSON:
                 return `
                     <div class="p-3 sm:p-4 border-2 rounded-lg ${statusClass} mb-0 overflow-hidden shadow-sm">
                         <div class="flex items-start gap-2">
-                            <span class="text-2xl flex-shrink-0">${statusIcon}</span></u>
+                            <span class="text-2xl flex-shrink-0">${statusIcon}</span>
                             <div class="flex-1 min-w-0">
-                                <p class="font-semibold text-gray-800 text-sm md:text-base lg:text-lg mb-2 break-words">Câu ${i + 1}: ${formatContent(d.question.content)}</p>
+                                ${renderExamDetailQuestion(d.question, i, appSettings.questionFontSize || 24)}
                                 ${d.question.image ? `<img src="${d.question.image}" class="max-w-full h-auto mb-2 rounded border shadow-sm cursor-zoom-in hover:scale-[1.01] transition-transform" style="max-height: 250px; object-fit: contain;" onclick="zoomImage(this.src)">` : ''}
+                                ${optionsHtml}
                                 ${answerDisplay}
                             </div>
                         </div>
@@ -15558,7 +15563,7 @@ CẤU TRÚC JSON:
                             ${(result.donvi || result.studentClass) ? `<span class="text-gray-600 font-medium text-sm sm:text-base">(${escapeHTML(result.donvi || result.studentClass)})</span>` : ''}
                         </div>
                         <p class="text-base sm:text-lg font-bold text-purple-600">${escapeHTML(result.examName)}</p>
-                        <p class="text-xs font-semibold text-gray-600 italic mt-0.5">Người tạo đề thi: <span class="text-purple-600">${accountsMap[examToCreatorMap[result.examName]] || result.examCreator || ho_ten_khach_hang}</span></u></p>
+                        <p class="text-xs font-semibold text-gray-600 italic mt-0.5">Người tạo đề thi: <span class="text-purple-600">${accountsMap[examToCreatorMap[result.examName]] || result.examCreator || ho_ten_khach_hang}</span></p>
                         <p class="text-xs text-gray-400 mt-0.5">${window.formatVNTime(result.timestamp)}</p>
                     </div>
                     ${result.cheatWarningCount > 0 ? `
@@ -15608,10 +15613,9 @@ CẤU TRÚC JSON:
                 modalEl.classList.add('always-scrollbar-y');
             }
 
-            setTimeout(() => {
-                const container = document.getElementById('modal-content');
-                if(container) queueMathJax(container);
-            }, 100);
+            // Typeset this modal immediately as in renderCurrentQuestion (student view).
+            // queueMathJax handles MathJax readiness and its own retry when necessary.
+            if (modalEl) queueMathJax(modalEl);
         }
 
         window.onRankingCheckboxChange = function(el) {
