@@ -108,7 +108,35 @@ export async function persistVerifiedWordImport(sql:any,userId:string,body:any) 
     );
     const count=Number(result[0]?.n??-1);
     if(count!==body.questions.length)throw new Error('Lỗi đối soát sau ghi: '+count+'/'+body.questions.length);
-    return {success:true,batchId,count,expected:body.questions.length};
+    const persisted=await sql.query(
+        'SELECT q.id,q.type,q.level,q.lesson,q.content,q.options,q.answer,q.image FROM questions q JOIN word_import_items i ON q.id=i.question_id WHERE i.batch_id=$1 AND q.creator_id=$2',
+        [batchId,userId]
+    );
+    if(!Array.isArray(persisted)||persisted.length!==body.questions.length) {
+        throw new Error('CSDL không trả về toàn bộ nội dung câu hỏi vừa nhập');
+    }
+    const expected=new Map(body.questions.map((q:any)=>[String(q.id),q]));
+    for(const saved of persisted){
+        const original:any=expected.get(String(saved.id));
+        const storedOptions=typeof saved.options==='string'?JSON.parse(saved.options||'{}'):saved.options;
+        if(!original||saved.type!==original.type||saved.level!==original.level||
+            String(saved.lesson)!==String(original.lesson)||
+            String(saved.content)!==String(original.content)||
+            String(saved.answer)!==String(original.answer)||
+            String(saved.image||'')!==String(original.image||'')||
+            JSON.stringify(storedOptions)!==JSON.stringify(original.options||{})){
+            throw new Error('Dữ liệu câu hỏi sau lưu sai lệch với nguồn đã duyệt: '+String(saved.id));
+        }
+    }
+    const formulaCount=body.questions.reduce((sum:number,q:any)=>sum+q.formulaSources.length,0);
+    const sourceRecords=await sql.query(
+        'SELECT COUNT(*)::integer AS n FROM question_formula_sources WHERE batch_id=$1',
+        [batchId]
+    );
+    if(Number(sourceRecords[0]?.n??-1)!==formulaCount){
+        throw new Error('Số lượng công thức gốc sau lưu không đúng: '+formulaCount);
+    }
+    return {success:true,batchId,count,expected:body.questions.length,formulaCount};
 }
 export const onRequestPost:PagesFunction<Env> = async(context)=>{
     const auth=context.request.headers.get('Authorization')||'';
