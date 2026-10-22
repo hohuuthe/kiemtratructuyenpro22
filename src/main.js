@@ -11333,6 +11333,23 @@ D. Phát biểu SAI</pre>
 
                 const { questions: parsedQuestions, errors } = parseQuestionsFromObjects(lines, answerFormat);
                 const verification=verifyImportedWordQuestions(parsedQuestions,documentReport);
+                const headings=lines.filter(line=>
+                    /^Câu\s*\d+[:.]?/i.test(String(line.text||'').replace(/\[\[\/?(?:U|B)\]\]/g,'').trim())
+                ).length;
+                if(headings!==parsedQuestions.length){
+                    verification.documentIssues.push({
+                        kind:'count',
+                        reason:'Phát hiện '+headings+' tiêu đề câu hỏi trong Word nhưng chỉ phân tích được '+
+                            parsedQuestions.length+' câu. Không được tự động bỏ sót.'
+                    });
+                }
+                for(const err of errors){
+                    verification.documentIssues.push({
+                        kind:'structure',
+                        reason:'Dòng '+(err.line||'?')+': '+(err.message||err.type||'Lỗi cấu trúc câu hỏi')
+                    });
+                }
+                verification.stats.documentIssues=verification.documentIssues.length;
                 wordImportVerification=verification;
                 wordImportFileMeta.verification=verification;
 
@@ -11501,7 +11518,19 @@ D. Phát biểu SAI</pre>
                 return;
             }
 
-            container.innerHTML = pendingImportQuestions.map((q, index) => `
+            const blockers=(wordImportVerification?.documentIssues||[]);
+            if(blockers.length) {
+                const alert=document.createElement('div');
+                alert.className='mb-3 rounded-xl border border-red-300 bg-red-50 p-3 text-sm';
+                alert.innerHTML='<p class="font-black text-red-800">⚠️ File Word còn '+
+                    blockers.length+' lỗi cấu trúc / hình ảnh; chưa được phép lưu.</p>'+
+                    blockers.slice(0,20).map(x=>
+                        '<p class="mt-1 text-xs text-red-700">• '+
+                        escapeHTML(String(x.reason||'Lỗi không xác định').slice(0,300))+'</p>'
+                    ).join('');
+                container.replaceChildren(alert);
+            }
+            const cards = pendingImportQuestions.map((q, index) => 
                 <div class="p-4 border-2 border-gray-100 rounded-xl bg-white hover:border-blue-100 transition shadow-sm">
                     <div class="flex justify-between items-start mb-3">
                         <div class="flex flex-wrap gap-2">
@@ -11557,6 +11586,7 @@ D. Phát biểu SAI</pre>
                     `}
                 </div>
             `).join('');
+            container.insertAdjacentHTML('beforeend',cards);
 
             queueMathJax(container);
         }
