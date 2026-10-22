@@ -5,7 +5,7 @@
  * rules with MathBox borders on the corresponding equation cells; this keeps
  * the entire table inside Word's equation editor (no image or HTML fallback).
  */
-import { Math as WordMath, MathBox, MathMatrix, MathRun, latexToMath } from 'docx/math';
+import { Math as WordMath, MathBox, MathMatrix, MathEquationArray, MathRun, latexToMath } from 'docx/math';
 
 export function makeEditableWordBorderedArray(source) {
     const input = String(source || '').trim();
@@ -58,4 +58,68 @@ export function makeEditableWordBorderedArray(source) {
     return new WordMath({
         children: [new MathMatrix({rows:renderedRows, columnAlignment:alignment})],
     });
+}
+
+
+/**
+ * Build a real Word equation array for aligned multiline LaTeX instead of
+ * serializing the alignment '&' into a single apparent equation line.
+ * Source validation is conservative: malformed rows are left to the caller's
+ * normal (non-destructive) handling rather than guessed.
+ */
+export function makeEditableWordAlignedEquation(source) {
+    const input = String(source ?? '').trim();
+    const environment = /^\\begin\{(aligned|align)\}([\s\S]*?)\\end\{\1\}$/.exec(input);
+    if (!environment) return null;
+
+    // Only split at depth zero. Fractions, groups and escaped tokens must
+    // never be mistaken for alignment points or row separators.
+    function splitStructure(text, separator) {
+        const parts = [];
+        let depth = 0, start = 0;
+        for (let i = 0; i < text.length; i++) {
+            const char = text[i];
+            if (char === '\\') {
+                if (text[i + 1] === '\\') {
+                    if (separator === '\\\\' && depth === 0) {
+                        parts.push(text.slice(start, i));
+                        start = i + 2;
+                    }
+                    i++;
+                    continue;
+                }
+                if (text[i + 1] === '{' || text[i + 1] === '}' || text[i + 1] === '&') {
+                    i++;
+                    continue;
+                }
+            }
+            if (char === '{') { depth++; continue; }
+            if (char === '}') {
+                depth--;
+                if (depth < 0) return null;
+                continue;
+            }
+            if (separator === '&' && char === '&' && depth === 0) {
+                parts.push(text.slice(start, i));
+                start = i + 1;
+            }
+        }
+        if (depth !== 0) return null;
+        parts.push(text.slice(start));
+        return parts;
+    }
+
+    const sourceRows = splitStructure(environment[2], '\\\\');
+    if (!sourceRows || sourceRows.length < 2 || sourceRows.length > 128) return null;
+    const rows = [];
+    for (const row of sourceRows) {
+        const segments = splitStructure(row, '&');
+        if (!segments || !segments.length || segments.length > 8 ||
+            segments.every(segment => !segment.trim())) return null;
+        rows.push({
+            parts: segments.map(segment =>
+                segment.trim() ? latexToMath(segment.trim()) : [new MathRun(' ')])
+        });
+    }
+    return new WordMath({ children: [new MathEquationArray({ rows })] });
 }
