@@ -6,6 +6,7 @@
  */
 
 import katex from 'katex';
+import { splitScientificContent } from './scientific-formula-tokenizer.js';
 import 'katex/dist/contrib/mhchem.js';
 import 'katex/dist/katex.min.css';
 
@@ -253,24 +254,24 @@ export function autoHealSyntaxErrors(latex: string): string {
 // =========================================================================
 
 export function renderKatexToString(rawLatex: string, isDisplay: boolean = false): string {
-    const unescaped = unescapeHtmlInsideMath(rawLatex);
-    const clean = normalizeLatexInput(unescaped);
+    // Do not silently rewrite mathematical meaning: keep authors' TeX intact.
+    const source = unescapeHtmlInsideMath(String(rawLatex ?? '')).trim();
+    if (!source) return '';
     try {
-        return katex.renderToString(clean, {
+        return katex.renderToString(source, {
             displayMode: isDisplay,
-            throwOnError: false,
-            strict: 'ignore', // Không vỡ trang khi gặp ký tự tiếng Việt trong \mathrm hay text
-            trust: false,     // Chặn hoàn toàn mã độc/XSS từ trong LaTeX
-            macros: {
-                '\\alignat': '\\alignedat',
-                '\\endalignat': '\\endalignedat',
-                '\\parallel': '\\mathrel{\\mkern2mu\\|\\mkern2mu}',
-                '\\degree': '^{\\circ}'
-            }
+            throwOnError: true,
+            strict: 'warn',
+            trust: false,
+            maxExpand: 1000,
+            maxSize: 20,
+            macros: { '\\degree': '^{\\circ}' }
         });
-    } catch (e: any) {
-        console.warn('KaTeX fallback notice:', e);
-        return `<span class="katex-fallback font-mono text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">${sanitizeHtml(clean)}</span>`;
+    } catch (error) {
+        // A wrong guess is worse than a visible source formula in an exam.
+        console.warn('[ScientificFormula] Unsupported or invalid expression:', error);
+        const tag = isDisplay ? 'div' : 'span';
+        return `<${tag} class="formula-source-fallback" role="note" title="Công thức không hợp lệ hoặc thư viện chưa hỗ trợ">${sanitizeHtml(source)}</${tag}>`;
     }
 }
 
@@ -307,127 +308,16 @@ export function autoWrapRawTeXCommands(text: string): string {
 // TẦNG 3: BỘ PHÂN TÍCH VĂN BẢN HỖN HỢP DELIMITER + MARKDOWN + TIỀN TỆ (DEL-001..DEL-010)
 // =========================================================================
 
+/** Render only confidently recognized math. Leave ambiguous or invalid markup visible. */
 export function renderScientificContent(content: string): string {
-    if (!content && content !== (0 as any)) return '';
-    let text = String(content);
-
-    // Bước 0: Bảo vệ ký tự tiền tệ \$
-    const ESCAPED_DOLLAR = '___ESCAPED_DOLLAR_TOKEN___';
-    text = text.replace(/\\\$/g, ESCAPED_DOLLAR);
-
-    // Bước 1: Bảo vệ tiền tệ thông thường ví dụ $20, $15, $100.50 (DEL-009, NEG-011, STR-027)
-    const CURRENCY_TOKEN_PREFIX = '___CURRENCY_VAL_';
-    const currencyMap: string[] = [];
-    text = text.replace(/\$([0-9]+(?:[.,][0-9]{1,2})?)(?=\s|,|\.|\)|;|$)/g, (_m, p1) => {
-        const idx = currencyMap.length;
-        currencyMap.push(p1);
-        return `${CURRENCY_TOKEN_PREFIX}${idx}___`;
-    });
-
-    // Bước 2: Nhận diện phản ứng hóa học tự nhiên có mũi tên (->, <=>, ⇌) nếu chưa bọc \ce{...}
-    text = text.replace(/((?:\d*[A-Z][a-z]?\d*|\([A-Za-z0-9]+\)\d*|\s|\+|\(|\))+(?:->|<=>|⇌|\u2192|\u21C4)(?:\d*[A-Z][a-z]?\d*|\([A-Za-z0-9]+\)\d*|\s|\+|\(|\))+)/g, (match) => {
-        if (match.includes('\\ce{') || match.includes('$')) return match;
-        return `\\ce{${match.trim()}}`;
-    });
-
-    // Nhận diện ion hóa học có điện tích: e.g. Ba^2+, SO4^2-, Cl^-, Fe^3+ nếu chưa bọc
-    text = text.replace(/\b([A-Z][a-z]?(?:\d+)?)\^\{?([\+\-]?\d+|\d+[\+\-])\}?/g, (match, elem, charge) => {
-        if (match.includes('\\ce{') || match.includes('$')) return match;
-        return `\\ce{${elem}^{${charge}}}`;
-    });
-
-    // Bước 3: Tự động phát hiện công thức trần không có delimiter ($ hoặc \()
-    text = autoWrapRawTeXCommands(text);
-
-    // Bước 4: Tokenizer nhận diện đầy đủ công thức (kể cả không có delimiter $)
-    const tokens: Array<{ type: 'text' | 'math'; value: string; isDisplay?: boolean }> = [];
-
-    // Danh sách các mẫu nhận diện theo thứ tự ưu tiên:
-    // 1. Display $$ ... $$
-    // 2. Display \[ ... \]
-    // 3. Môi trường đa dòng: \begin{cases} ... \end{cases}, \begin{matrix} ... \end{matrix}, v.v. (kể cả khi KHÔNG có $)
-    // 4. Lệnh Hóa học \ce{...} (kể cả khi KHÔNG có $)
-    // 5. Lệnh Đơn vị \pu{...} (kể cả khi KHÔNG có $)
-    // 6. Inline \( ... \)
-    // 7. Inline $ ... $
-    const mathPattern = /(\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\]|\\begin\{(?:cases|matrix|pmatrix|bmatrix|vmatrix|Vmatrix|aligned|alignedat|align\*?|gather\*?|equation\*?|array)\}[\s\S]*?\\end\{(?:cases|matrix|pmatrix|bmatrix|vmatrix|Vmatrix|aligned|alignedat|align\*?|gather\*?|equation\*?|array)\}|\\ce\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}|\\pu\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}|\\\([\s\S]*?\\\)|\$[^$\n]+?\$)/g;
-
-    let lastIndex = 0;
-    let match: RegExpExecArray | null;
-
-    while ((match = mathPattern.exec(text)) !== null) {
-        const textBefore = text.slice(lastIndex, match.index);
-        if (textBefore) {
-            tokens.push({ type: 'text', value: textBefore });
+    if (content === null || content === undefined) return '';
+    const tokens = splitScientificContent(String(content));
+    return tokens.map((token) => {
+        if (token.type === 'math') {
+            return renderKatexToString(token.value, token.display);
         }
-
-        const rawMatched = match[0];
-        let mathBody = '';
-        let isDisplay = false;
-
-        if (rawMatched.startsWith('$$') && rawMatched.endsWith('$$')) {
-            mathBody = rawMatched.slice(2, -2);
-            isDisplay = true;
-        } else if (rawMatched.startsWith('\\[') && rawMatched.endsWith('\\]')) {
-            mathBody = rawMatched.slice(2, -2);
-            isDisplay = true;
-        } else if (rawMatched.startsWith('\\begin{')) {
-            mathBody = rawMatched;
-            isDisplay = true;
-        } else if (rawMatched.startsWith('\\ce{') || rawMatched.startsWith('\\pu{')) {
-            mathBody = rawMatched;
-            isDisplay = false;
-        } else if (rawMatched.startsWith('\\(') && rawMatched.endsWith('\\)')) {
-            mathBody = rawMatched.slice(2, -2);
-            isDisplay = false;
-        } else if (rawMatched.startsWith('$') && rawMatched.endsWith('$')) {
-            const inner = rawMatched.slice(1, -1);
-            // Phân biệt: Nếu bên trong $...$ chỉ là câu từ tiếng Việt không có bất kỳ ký hiệu toán học nào
-            const trimmed = inner.trim();
-            const hasMathIndicators = /[\\^_{}=\+\-\*\/<>≤≥≠≈±×÷]|^\s*[a-zA-Z]\s*$|\d+[a-zA-Z]|\b(?:sin|cos|tan|cot|log|ln|lim)\b/.test(trimmed);
-            
-            if (!hasMathIndicators && trimmed.length > 8 && !trimmed.includes('\\')) {
-                // Đây là văn bản tự nhiên có 2 dấu $, không phải công thức toán
-                tokens.push({ type: 'text', value: rawMatched });
-                lastIndex = mathPattern.lastIndex;
-                continue;
-            }
-
-            mathBody = trimmed;
-            isDisplay = false;
-        }
-
-        tokens.push({ type: 'math', value: mathBody, isDisplay });
-        lastIndex = mathPattern.lastIndex;
-    }
-
-    const remainingText = text.slice(lastIndex);
-    if (remainingText) {
-        tokens.push({ type: 'text', value: remainingText });
-    }
-
-    // Bước 5: Render từng token
-    // Math token: render bằng KaTeX + mhchem
-    // Text token: format markdown + khôi phục thẻ HTML an toàn (<b>, <sup>, <sub>, <img>, <br>)
-    const htmlParts = tokens.map(tok => {
-        if (tok.type === 'math') {
-            return renderKatexToString(tok.value, tok.isDisplay || false);
-        } else {
-            return formatMarkdownText(tok.value);
-        }
-    });
-
-    let finalHtml = htmlParts.join('');
-
-    // Khôi phục tiền tệ
-    currencyMap.forEach((val, idx) => {
-        finalHtml = finalHtml.replace(new RegExp(`${CURRENCY_TOKEN_PREFIX}${idx}___`, 'g'), `$${val}`);
-    });
-
-    // Khôi phục escaped dollar \$
-    finalHtml = finalHtml.replace(new RegExp(ESCAPED_DOLLAR, 'g'), '$');
-
-    return finalHtml;
+        return formatMarkdownText(token.value);
+    }).join('');
 }
 
 function formatMarkdownText(str: string): string {
