@@ -2,6 +2,8 @@
 import './style.css';
 import './pwa-manager.js';
 import './teacher-assignment.js';
+import { typesetScientificMath } from './scientific-formula-typeset.js';
+import { attachScientificEditorPreviews } from './scientific-formula-editor-preview.js';
 import JSZip from 'jszip';
 import * as docx from 'docx';
 import { generateExamDocx } from './exam-docx-generator.ts';
@@ -736,47 +738,20 @@ if (contentTypeConfig && contentTypeConfig.includes("application/json")) {
         }
 
         function queueMathJax(element) {
-            const targetEl = element || document.body;
-            if (!targetEl) return;
-            const renderPending = async () => {
-                const math = window.MathJax;
-                if (!math) return;
-                for (const node of Array.from(targetEl.querySelectorAll('.scientific-mathjax-pending'))) {
-                    if (!node.isConnected) continue;
-                    const latex = node.getAttribute('data-scientific-latex') || '';
-                    const display = node.getAttribute('data-scientific-display') === 'true';
-                    try {
-                        // Render the unsupported KaTeX expression, without parsing HTML.
-                        if (typeof math.tex2chtmlPromise === 'function') {
-                            const output = await math.tex2chtmlPromise(latex, { display });
-                            if (output && node.isConnected && !output.querySelector('merror, .mjx-merror, [data-mjx-error]')) {
-                                node.replaceWith(output);
-                                continue;
-                            }
-                        }
-                    } catch (error) {
-                        console.warn('[ScientificFormula] MathJax fallback failed:', error);
-                    }
-                    // Never discard a difficult formula: keep escaped source visible.
-                    node.classList.remove('scientific-mathjax-pending');
-                    node.setAttribute('title', 'Cú pháp nguồn chưa được hỗ trợ. Cần kiểm tra lại công thức.');
-                }
-            };
-            if (window.MathJax && window.MathJax.typesetPromise) {
-                mathJaxPromise = mathJaxPromise.then(async () => {
-                    await renderPending();
-                    // KaTeX output is marked tex2jax_ignore: MathJax must not
-                    // parse formulas a second time and corrupt their structure.
-                    await window.MathJax.typesetPromise([targetEl]);
-                }).catch(err => console.warn('MathJax typeset notice:', err));
-            } else if (window.MathJax && window.MathJax.startup && window.MathJax.startup.promise) {
-                window.MathJax.startup.promise.then(() => queueMathJax(targetEl)).catch(() => {});
-            } else {
-                // Do not create unbounded retries if the CDN is inaccessible.
-                if (!targetEl.__scientificMathRetry) {
-                    targetEl.__scientificMathRetry = true;
-                    setTimeout(() => { targetEl.__scientificMathRetry = false; queueMathJax(targetEl); }, 1000);
-                }
+            const root = element || document.body;
+            if (!root) return;
+            const math = window.MathJax;
+            if (math && typeof math.typesetPromise === 'function') {
+                // Serial execution prevents racing one MathJax state against another.
+                mathJaxPromise = mathJaxPromise.then(() => {
+                    if (root !== document.body && !root.isConnected) return;
+                    return typesetScientificMath(root, window.MathJax);
+                }).catch(error => console.warn('[ScientificMath] Render notice:', error));
+            } else if (math && math.startup && math.startup.promise) {
+                math.startup.promise.then(() => queueMathJax(root)).catch(() => {});
+            } else if (!root.__scientificMathRetry) {
+                root.__scientificMathRetry = true;
+                setTimeout(() => { root.__scientificMathRetry = false; if(root.isConnected) queueMathJax(root); }, 1000);
             }
         }
 
@@ -993,6 +968,7 @@ if (contentTypeConfig && contentTypeConfig.includes("application/json")) {
                 if (!liveInput || !livePreview) return;
                 const val = liveInput.value || '';
                 livePreview.innerHTML = window.renderScientificContent(val) || '<span class="text-gray-400 italic">Nhập công thức ở trên để xem trước...</span>';
+                queueMathJax(livePreview);
             };
 
             document.getElementById('btn-render-test-formula')?.addEventListener('click', updateLivePreview);
@@ -4771,6 +4747,9 @@ if (contentType && contentType.includes("application/json")) {
 
             container.classList.remove('hidden');
             container.style.display = 'flex';
+            // Teacher/AI/import editors receive the exam renderer; raw text is untouched.
+            attachScientificEditorPreviews(el, formatContent, queueMathJax);
+            queueMathJax(el);
         }
 
         window.closeModal = closeModal;
@@ -10094,6 +10073,15 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                         </div>
 
                         ${q.image ? `<div><img src="${q.image}" alt="Question" class="max-w-full sm:max-w-md h-auto rounded cursor-zoom-in hover:scale-[1.01] transition-transform border border-gray-100" onclick="zoomImage('${q.image}')"></div>` : ''}
+                        ${(q.type === '4-1' || q.type === 'TF4') && q.options ? `
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+                                ${['A','B','C','D'].map(key => {
+                                    const opt = q.options[key];
+                                    const txt = typeof opt === 'object' ? (opt?.text || '') : String(opt || '');
+                                    return txt ? `<div class="scientific-bank-option px-2 py-1 rounded-lg bg-slate-50 border border-slate-100"><strong>${key}.</strong> ${formatContent(txt)}</div>` : '';
+                                }).join('')}
+                            </div>
+                        ` : ''}
 
                         <!-- Footer đáp án & Nút hành động bổ sung -->
                         <div class="w-full pt-2 border-t border-gray-100 text-xs sm:text-sm text-gray-600 flex flex-wrap items-center justify-between gap-2">
@@ -10340,6 +10328,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             } else {
                 container.innerHTML = '<div class="p-4 bg-purple-50 border border-purple-200 rounded-xl text-sm text-purple-700">✏️ <strong>Câu hỏi tự luận ngắn:</strong> Thí sinh sẽ nhập trực tiếp kết quả vào ô trả lời.</div>';
             }
+            attachScientificEditorPreviews(document.getElementById('modal-content'), formatContent, queueMathJax);
         }
 
         function compressImage(base64Str, maxWidth = 900, maxHeight = 900, quality = 0.7) {
