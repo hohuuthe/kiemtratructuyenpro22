@@ -45,13 +45,13 @@ export async function generateExamPdfBlob(
     container.style.padding = '0px';
     container.style.boxSizing = 'border-box';
 
-    // CSS triệt tiêu hoàn toàn lỗi màu đỏ và thông báo lỗi tràn chữ từ MathJax
+    // Match the student-view styling. Never silently hide invalid equations.
     const styleEl = document.createElement('style');
     styleEl.innerHTML = `
         .MathJax, .MathJax_Display { font-size: 1.08em !important; color: #000000 !important; margin: 2px 0 !important; }
         mjx-container[jax="CHTML"] { line-height: 1.4 !important; color: #000000 !important; display: inline-block !important; }
-        .mjx-error, .MathJax_Error, [data-mjx-error], .mjx-merror, [data-mjx-err] { color: #000000 !important; background: transparent !important; border: none !important; padding: 0 !important; display: none !important; }
-        .mjx-merror * { color: #000000 !important; }
+        .scientific-math-unresolved { color: #9a3412; border-bottom: 1px dashed #fdba74; }
+        mjx-container:not([display="true"]) { overflow: visible !important; }
         .pdf-block { page-break-inside: avoid; break-inside: avoid; }
     `;
     container.appendChild(styleEl);
@@ -150,6 +150,7 @@ export async function generateExamPdfBlob(
     `;
 
     container.innerHTML = html;
+    container.prepend(styleEl);
     document.body.appendChild(container);
 
     try {
@@ -160,6 +161,9 @@ export async function generateExamPdfBlob(
         // Unsupported TeX remains visibly flagged; never delete the formula.
         if (typeof window !== 'undefined' && (window as any).MathJax) {
             await typesetScientificMath(container, (window as any).MathJax);
+        }
+        if (container.querySelector('.scientific-math-unresolved, .scientific-mathjax-pending')) {
+            throw new Error('Có công thức chưa thể hiển thị chính xác trong PDF. Vui lòng kiểm tra cú pháp LaTeX hoặc kết nối thư viện MathJax.');
         }
 
         // Chờ tải toàn bộ hình ảnh trong câu hỏi và đáp án nếu có
