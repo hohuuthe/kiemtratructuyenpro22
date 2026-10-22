@@ -118,10 +118,16 @@ export const onRequestPost:PagesFunction<Env> = async(context)=>{
         if(errors.length)return reply({success:false,error:'Dữ liệu nhập Word chưa đạt kiểm chứng',issues:errors},422);
         if(!db?.isNeon||!db?.connectionUrl)return reply({error:'CSDL không hỗ trợ giao dịch nhập Word an toàn'},503);
         const sql=neon(db.connectionUrl);
+        // Distinguish a deliberate duplicate import from a partial write.
+        // Schema may not yet exist on a first import; check only if present.
+        try {
+            const existing=await sql.query('SELECT id,imported_count FROM word_import_batches WHERE creator_id=$1 AND source_sha256=$2 LIMIT 1',[String(user.id),body.sourceSha256]);
+            if(existing.length)return reply({success:false,error:'File Word này đã được nhập trước đó. Mã phiên: '+existing[0].id,count:existing[0].imported_count},409);
+        }catch(e:any){if(!/does not exist/i.test(String(e?.message||e)))throw e;}
         const response=await persistVerifiedWordImport(sql,String(user.id),body);
         return reply(response,201);
     } catch(e:any) {
         console.error('[WordImport] atomic import failed:',String(e?.message||e).slice(0,200));
-        return reply({success:false,error:'Không thể lưu toàn bộ file Word trong một giao dịch. Không ghi một phần dữ liệu.'},500);
+        return reply({success:false,error:'Không xác nhận được biên nhận Import. Nếu kết nối lỗi sau khi commit, dữ liệu có thể đã lưu; hãy kiểm tra ngân hàng và lịch sử nhập trước khi thử lại.'},500);
     }
 };
