@@ -25,7 +25,7 @@ const dataset = [
     content:'Hệ $\\begin{cases}x>0\\\\x<2\\end{cases}$',answer:'x=1' },
   { id:'B07',creatorId:owner,lesson:'',type:'TF4',content:'Lý thuyết tổng hợp', options:{A:'Đúng', B:'Sai', C:'Đúng', D:'Sai'},answer:{A:true,B:false,C:true,D:false} },
   { id:'B08',creatorId:owner,lesson:'Bài 3',type:'TL',
-    content:'Biểu thức $\\sqrt{2},answer:'$\\pu{123 kJ*mol-1}$' },
+    content:'Biểu thức $\\sqrt{2}$',answer:'$\\pu{123 kJ*mol-1}$' },
   { id:'OTHER',creatorId:'teacher-B',lesson:'Bài 2',type:'4-1',content:'Không thuộc giáo viên đang xuất',answer:'B' }
 ];
 
