@@ -93,6 +93,14 @@ test('Embedded image relationship resolves exact raster bytes; two images flag a
     assert.ok(duplicate.issues.some(i=>i.kind==='image'));
     assert.equal(duplicate.lines[0].images.length,2);
 });
+test('Chemistry and scientific units validate with Word-native editor even when KaTeX lacks mhchem',()=>{
+    assert.equal(validateScientificLatexForImport('\\ce{H2SO4}').ok,true);
+    assert.equal(validateScientificLatexForImport('\\ce{2H2 + O2 -> 2H2O}').ok,true);
+    assert.equal(validateScientificLatexForImport('\\ce{SO4^{2-}}').ok,true);
+    assert.equal(validateScientificLatexForImport('\\pu{123 kJ*mol-1}').ok,true);
+    assert.equal(validateScientificLatexForImport('\\ce{H2O').ok,false);
+});
+
 test('Malformed formulas and invalid question fields fail strict gate',()=>{
     assert.equal(validateScientificLatexForImport('\\frac{f(x+h)-f(x)}').ok,false);
     assert.equal(validateScientificLatexForImport('\\frac{f(x+h)-f(x)}{h}').ok,true);
