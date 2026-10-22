@@ -279,6 +279,8 @@ export async function inspectScientificDocx(arrayBuffer) {
     }
     async function parseParagraph(node) {
         paragraphCount++;
+        if(descendants(node,'numPr').length) issues.push({kind:'numbering',reason:'Có danh sách đánh số tự động Word; cần đối chiếu thứ tự A-D và số câu.'});
+        if(descendants(node,'ins').length) issues.push({kind:'revision',reason:'Có nội dung Word Track Changes chưa được chấp nhận trước import.'});
         const parts = [], images = [];
         const mark = n => {
             const pre = firstDesc(n,'rPr');
@@ -334,10 +336,12 @@ export async function inspectScientificDocx(arrayBuffer) {
         for(const part of elements(node)) await visit(part);
         const text=parts.join('').trim();
         if(images.length>1) issues.push({kind:'image',reason:'Đoạn Word có nhiều ảnh cần xác minh vị trí; không tự loại bỏ ảnh.'});
+        if(images.length && text) issues.push({kind:'image',reason:'Ảnh nằm cùng đoạn với văn bản; cần tách ảnh khỏi câu hoặc đối chiếu vị trí trước khi lưu.'});
         if(text || images.length) lines.push({text,image:images[0]||'',images});
     }
     async function parseTable(node) {
         for(const row of children(node,'tr')) {
+            if(children(row,'tc').length>1) issues.push({kind:'table',reason:'Bảng Word nhiều cột chưa bảo toàn cấu trúc khi chuyển thành câu hỏi; cần xem lại nguồn.'});
             const columns=[];
             const rowImages=[];
             for(const cell of children(row,'tc')) {
