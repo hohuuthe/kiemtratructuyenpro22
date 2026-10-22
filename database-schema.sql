@@ -299,6 +299,7 @@ CREATE TABLE IF NOT EXISTS word_import_batches (
     engine_version TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+CREATE UNIQUE INDEX IF NOT EXISTS idx_word_import_file_once ON word_import_batches(creator_id,source_sha256);
 CREATE TABLE IF NOT EXISTS word_import_items (
     batch_id TEXT NOT NULL REFERENCES word_import_batches(id),
     question_id TEXT NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
