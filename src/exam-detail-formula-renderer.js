@@ -53,7 +53,18 @@ export function normalizeExamReviewDetails(rawDetails) {
         }
         if (!question || typeof question !== 'object' || Array.isArray(question)) question = {};
         const options = decodeObject(question.options);
-        return { ...entry, question: { ...question,
+        const type = String(question.type || '').trim().toLowerCase();
+        const normalizedType = (type === 'trac_nghiem' || type === 'mcq' || type === '4-1') ? '4-1'
+            : (type === 'tf4' || type === 'dung_sai' || type === 'true_false') ? 'TF4'
+            : (type === 'sq' || type === 'tra_loi_ngan' || type === 'short_answer') ? 'SQ'
+            : (type === 'tl' || type === 'tu_luan' || type === 'essay') ? 'TL'
+            : question.type;
+        let userAnswer = entry.userAnswer;
+        if (normalizedType === 'TF4' && typeof userAnswer === 'string') {
+            const value = decodeObject(userAnswer);
+            if (value && typeof value === 'object' && !Array.isArray(value)) userAnswer = value;
+        }
+        return { ...entry, userAnswer, question: { ...question, type: normalizedType,
             options: options && typeof options === 'object' ? options : {} } };
     });
 }
