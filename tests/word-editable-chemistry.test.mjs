@@ -7,6 +7,7 @@ import { Math as WordMath } from 'docx/math';
 import { makeWordMathRun, parseFormattedText, generateExamDocx } from '../src/exam-docx-generator.ts';
 import { standaloneMhchemCommand, makeEditableChemistryEquation, makeEditableUnitEquation, expandMhchemForWordMath } from '../src/word-editable-chemistry.js';
 import { repairLegacyScientificLatexForWord } from '../src/word-legacy-latex-repair.js';
+import { makeEditableWordBorderedArray } from '../src/word-editable-array.js';
 
 const samples = [
   String.raw`\ce{H2O}`,
@@ -246,4 +247,19 @@ test('All 516 ordinary fixture formulas export as native editable Word Math', as
   }
   assert.equal(regular.length,516);
   assert.deepEqual(nonEditable,[],'All provided scientific fixtures must be editable native Word equations');
+});
+
+
+test('Array \hline and first-column vertical rule survive as true editable OMML borders', async () => {
+  const src=String.raw`\begin{array}{c|cc}&A&B\hline A&1&0\B&0&1\end{array}`;
+  const repair=repairLegacyScientificLatexForWord(src);
+  const direct=makeEditableWordBorderedArray(repair.latex);
+  assert.ok(direct instanceof WordMath);
+  const xml=await xmlFor(parseFormattedText(src));
+  assert.match(xml, /<m:m>/, 'must remain an editable native 3x3 Word matrix');
+  assert.match(xml, /<m:borderBox>/, 'horizontal and vertical rules must not disappear');
+  assert.equal((xml.match(/<m:mr>/g)||[]).length,3,'exactly three data rows');
+  assert.equal((xml.match(/<m:borderBox>/g)||[]).length,5,'five ruled cells (3 vertical + 3 header - intersection)');
+  assert.equal((xml.match(/<m:e>/g)||[]).length,9,'exactly nine editable cells');
+  assert.ok(!xml.includes('hline'), 'source formatting macro must not leak into DOCX');
 });
