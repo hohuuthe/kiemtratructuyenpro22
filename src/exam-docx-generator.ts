@@ -62,6 +62,14 @@ export function getOptionText(optValue: any): string {
 export function parseFormattedText(textInput: any, defaultBold = false): (TextRun | WordMath)[] {
     if (textInput === null || textInput === undefined) return [];
     const original = typeof textInput === 'object' ? getOptionText(textInput) : String(textInput);
+    // Historical bare multi-row TeX with damaged row delimiters must be
+    // recovered AS A WHOLE before the shared student tokenizer fragments it.
+    // Only isolated formulas qualify; never consume the surrounding prose.
+    const repair = repairLegacyScientificLatexForWord(original);
+    if (repair.changed && /^(?:\\begin\{|\\det\\begin\{|[A-Za-z]=\\begin\{|\\angle\b)/.test(original.trim())) {
+        const math = makeWordMathRun(original, defaultBold);
+        if (math instanceof WordMath) return [math];
+    }
     const records = splitLabeledScientificRecords(original);
     const parts: Array<{ type: string; value: string; display?: boolean }> = records
         ? records.flatMap((record, i) => record.type === 'record'
