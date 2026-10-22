@@ -190,7 +190,7 @@ test('Legacy repair touches delimiters only and does not change mathematical ope
     assert.ok(clean.changed,id + ' must have a repair');
     assert.ok(clean.repairs.length,id + ' must have a diagnostic reason');
     assert.equal(repairLegacyScientificLatexForWord(clean.latex).latex,clean.latex,'idempotent '+id);
-    assert.ok(clean.latex.includes('1') || id==='MAT-079' || id==='MAT-086' || id==='MAT-088','operands unchanged '+id);
+    assert.equal(clean.latex.replace(/[\\\\$]/g,''),raw.replace(/[\\\\$]/g,''),'visible operands remain unchanged '+id);
   }
   const alreadyValid = [
     String.raw`\begin{pmatrix}a&b\\c&d\end{pmatrix}`,
