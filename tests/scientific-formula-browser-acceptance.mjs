@@ -199,6 +199,280 @@ try {
   });
   check('Exam detail fits mobile viewport',widths.scroll<=widths.client+4,JSON.stringify(widths));
   await page.setViewportSize({width:1365,height:850});
+
+  // Regression for the ACTUAL "Chi tiết bài thi" UI, not just detached HTML
+  // from renderExamDetailQuestion. Exercise old persisted JSON snapshots.
+  const actualReviewQA = await page.evaluate(async () => {
+    if (typeof window.__openExamDetailScientificFixture !== 'function') {
+      throw new Error('Vite DEV end-to-end review fixture is missing');
+    }
+    const details = [
+      {question:JSON.stringify({id:101,type:'4-1',
+        content:JSON.stringify({text:'Tính $\\frac{\\sqrt{x}}{2}$ và $E=mc^2
+}catch(error){
+  report.errors.push({label:'Browser acceptance failed',detail:String(error.stack||error)});
+}finally{
+  if(browser)await browser.close();
+  vite.kill('SIGTERM');
+  report.passed=report.checks.filter(x=>x.passed).length;
+  report.failed=report.checks.filter(x=>!x.passed).length+report.errors.filter(x=>x.label==='Browser acceptance failed'||x.label==='pageerror').length;
+  writeFileSync(root+'/results.json',JSON.stringify(report,null,2));
+  console.log('SCIENTIFIC_VISUAL_ACCEPTANCE '+JSON.stringify({passed:report.passed,failed:report.failed,files:report.files,errors:report.errors.slice(0,10),measured:report.measured}));
+  if(report.failed || report.errors.length)process.exitCode=1;
+}
+}),
+        options:JSON.stringify({A:{text:'$\\frac{1}{2}
+}catch(error){
+  report.errors.push({label:'Browser acceptance failed',detail:String(error.stack||error)});
+}finally{
+  if(browser)await browser.close();
+  vite.kill('SIGTERM');
+  report.passed=report.checks.filter(x=>x.passed).length;
+  report.failed=report.checks.filter(x=>!x.passed).length+report.errors.filter(x=>x.label==='Browser acceptance failed'||x.label==='pageerror').length;
+  writeFileSync(root+'/results.json',JSON.stringify(report,null,2));
+  console.log('SCIENTIFIC_VISUAL_ACCEPTANCE '+JSON.stringify({passed:report.passed,failed:report.failed,files:report.files,errors:report.errors.slice(0,10),measured:report.measured}));
+  if(report.failed || report.errors.length)process.exitCode=1;
+}
+},B:{text:'$\\ce{H2O}
+}catch(error){
+  report.errors.push({label:'Browser acceptance failed',detail:String(error.stack||error)});
+}finally{
+  if(browser)await browser.close();
+  vite.kill('SIGTERM');
+  report.passed=report.checks.filter(x=>x.passed).length;
+  report.failed=report.checks.filter(x=>!x.passed).length+report.errors.filter(x=>x.label==='Browser acceptance failed'||x.label==='pageerror').length;
+  writeFileSync(root+'/results.json',JSON.stringify(report,null,2));
+  console.log('SCIENTIFIC_VISUAL_ACCEPTANCE '+JSON.stringify({passed:report.passed,failed:report.failed,files:report.files,errors:report.errors.slice(0,10),measured:report.measured}));
+  if(report.failed || report.errors.length)process.exitCode=1;
+}
+},
+          C:{text:'$\\begin{pmatrix}a&b\\\\c&d\\end{pmatrix}
+}catch(error){
+  report.errors.push({label:'Browser acceptance failed',detail:String(error.stack||error)});
+}finally{
+  if(browser)await browser.close();
+  vite.kill('SIGTERM');
+  report.passed=report.checks.filter(x=>x.passed).length;
+  report.failed=report.checks.filter(x=>!x.passed).length+report.errors.filter(x=>x.label==='Browser acceptance failed'||x.label==='pageerror').length;
+  writeFileSync(root+'/results.json',JSON.stringify(report,null,2));
+  console.log('SCIENTIFIC_VISUAL_ACCEPTANCE '+JSON.stringify({passed:report.passed,failed:report.failed,files:report.files,errors:report.errors.slice(0,10),measured:report.measured}));
+  if(report.failed || report.errors.length)process.exitCode=1;
+}
+},D:{text:'$\\pi
+}catch(error){
+  report.errors.push({label:'Browser acceptance failed',detail:String(error.stack||error)});
+}finally{
+  if(browser)await browser.close();
+  vite.kill('SIGTERM');
+  report.passed=report.checks.filter(x=>x.passed).length;
+  report.failed=report.checks.filter(x=>!x.passed).length+report.errors.filter(x=>x.label==='Browser acceptance failed'||x.label==='pageerror').length;
+  writeFileSync(root+'/results.json',JSON.stringify(report,null,2));
+  console.log('SCIENTIFIC_VISUAL_ACCEPTANCE '+JSON.stringify({passed:report.passed,failed:report.failed,files:report.files,errors:report.errors.slice(0,10),measured:report.measured}));
+  if(report.failed || report.errors.length)process.exitCode=1;
+}
+}}),
+        answer:'A'}),userAnswer:'B',correctAnswer:'A',score:0,isCorrect:false},
+      {question:{id:102,type:'tf4',
+        content:{text:'Xét phản ứng $\\ce{2H2 + O2 -> 2H2O}$ và $\\ce{SO4^{2-}}
+}catch(error){
+  report.errors.push({label:'Browser acceptance failed',detail:String(error.stack||error)});
+}finally{
+  if(browser)await browser.close();
+  vite.kill('SIGTERM');
+  report.passed=report.checks.filter(x=>x.passed).length;
+  report.failed=report.checks.filter(x=>!x.passed).length+report.errors.filter(x=>x.label==='Browser acceptance failed'||x.label==='pageerror').length;
+  writeFileSync(root+'/results.json',JSON.stringify(report,null,2));
+  console.log('SCIENTIFIC_VISUAL_ACCEPTANCE '+JSON.stringify({passed:report.passed,failed:report.failed,files:report.files,errors:report.errors.slice(0,10),measured:report.measured}));
+  if(report.failed || report.errors.length)process.exitCode=1;
+}
+},
+        options:{A:{text:'$\\ce{NH4+}
+}catch(error){
+  report.errors.push({label:'Browser acceptance failed',detail:String(error.stack||error)});
+}finally{
+  if(browser)await browser.close();
+  vite.kill('SIGTERM');
+  report.passed=report.checks.filter(x=>x.passed).length;
+  report.failed=report.checks.filter(x=>!x.passed).length+report.errors.filter(x=>x.label==='Browser acceptance failed'||x.label==='pageerror').length;
+  writeFileSync(root+'/results.json',JSON.stringify(report,null,2));
+  console.log('SCIENTIFIC_VISUAL_ACCEPTANCE '+JSON.stringify({passed:report.passed,failed:report.failed,files:report.files,errors:report.errors.slice(0,10),measured:report.measured}));
+  if(report.failed || report.errors.length)process.exitCode=1;
+}
+},B:{text:'$\\forall x\\in\\mathbb{R}
+}catch(error){
+  report.errors.push({label:'Browser acceptance failed',detail:String(error.stack||error)});
+}finally{
+  if(browser)await browser.close();
+  vite.kill('SIGTERM');
+  report.passed=report.checks.filter(x=>x.passed).length;
+  report.failed=report.checks.filter(x=>!x.passed).length+report.errors.filter(x=>x.label==='Browser acceptance failed'||x.label==='pageerror').length;
+  writeFileSync(root+'/results.json',JSON.stringify(report,null,2));
+  console.log('SCIENTIFIC_VISUAL_ACCEPTANCE '+JSON.stringify({passed:report.passed,failed:report.failed,files:report.files,errors:report.errors.slice(0,10),measured:report.measured}));
+  if(report.failed || report.errors.length)process.exitCode=1;
+}
+},
+          C:{text:'$p^2+2pq+q^2=1
+}catch(error){
+  report.errors.push({label:'Browser acceptance failed',detail:String(error.stack||error)});
+}finally{
+  if(browser)await browser.close();
+  vite.kill('SIGTERM');
+  report.passed=report.checks.filter(x=>x.passed).length;
+  report.failed=report.checks.filter(x=>!x.passed).length+report.errors.filter(x=>x.label==='Browser acceptance failed'||x.label==='pageerror').length;
+  writeFileSync(root+'/results.json',JSON.stringify(report,null,2));
+  console.log('SCIENTIFIC_VISUAL_ACCEPTANCE '+JSON.stringify({passed:report.passed,failed:report.failed,files:report.files,errors:report.errors.slice(0,10),measured:report.measured}));
+  if(report.failed || report.errors.length)process.exitCode=1;
+}
+},D:{text:'$\\sqrt{a^2+b^2}
+}catch(error){
+  report.errors.push({label:'Browser acceptance failed',detail:String(error.stack||error)});
+}finally{
+  if(browser)await browser.close();
+  vite.kill('SIGTERM');
+  report.passed=report.checks.filter(x=>x.passed).length;
+  report.failed=report.checks.filter(x=>!x.passed).length+report.errors.filter(x=>x.label==='Browser acceptance failed'||x.label==='pageerror').length;
+  writeFileSync(root+'/results.json',JSON.stringify(report,null,2));
+  console.log('SCIENTIFIC_VISUAL_ACCEPTANCE '+JSON.stringify({passed:report.passed,failed:report.failed,files:report.files,errors:report.errors.slice(0,10),measured:report.measured}));
+  if(report.failed || report.errors.length)process.exitCode=1;
+}
+}},
+        answer:'A&C'},userAnswer:'{"A":true,"C":false}',correctAnswer:'A&C',score:0.5,isCorrect:false},
+      {question:{id:103,type:'SQ',content:'Tính $\\int_0^1 x^2\\,dx$ và $\\sum_{i=1}^{n}i
+}catch(error){
+  report.errors.push({label:'Browser acceptance failed',detail:String(error.stack||error)});
+}finally{
+  if(browser)await browser.close();
+  vite.kill('SIGTERM');
+  report.passed=report.checks.filter(x=>x.passed).length;
+  report.failed=report.checks.filter(x=>!x.passed).length+report.errors.filter(x=>x.label==='Browser acceptance failed'||x.label==='pageerror').length;
+  writeFileSync(root+'/results.json',JSON.stringify(report,null,2));
+  console.log('SCIENTIFIC_VISUAL_ACCEPTANCE '+JSON.stringify({passed:report.passed,failed:report.failed,files:report.files,errors:report.errors.slice(0,10),measured:report.measured}));
+  if(report.failed || report.errors.length)process.exitCode=1;
+}
+},
+        userAnswer:'$\\frac{1}{3}
+}catch(error){
+  report.errors.push({label:'Browser acceptance failed',detail:String(error.stack||error)});
+}finally{
+  if(browser)await browser.close();
+  vite.kill('SIGTERM');
+  report.passed=report.checks.filter(x=>x.passed).length;
+  report.failed=report.checks.filter(x=>!x.passed).length+report.errors.filter(x=>x.label==='Browser acceptance failed'||x.label==='pageerror').length;
+  writeFileSync(root+'/results.json',JSON.stringify(report,null,2));
+  console.log('SCIENTIFIC_VISUAL_ACCEPTANCE '+JSON.stringify({passed:report.passed,failed:report.failed,files:report.files,errors:report.errors.slice(0,10),measured:report.measured}));
+  if(report.failed || report.errors.length)process.exitCode=1;
+}
+,correctAnswer:'$\\frac{1}{3}
+}catch(error){
+  report.errors.push({label:'Browser acceptance failed',detail:String(error.stack||error)});
+}finally{
+  if(browser)await browser.close();
+  vite.kill('SIGTERM');
+  report.passed=report.checks.filter(x=>x.passed).length;
+  report.failed=report.checks.filter(x=>!x.passed).length+report.errors.filter(x=>x.label==='Browser acceptance failed'||x.label==='pageerror').length;
+  writeFileSync(root+'/results.json',JSON.stringify(report,null,2));
+  console.log('SCIENTIFIC_VISUAL_ACCEPTANCE '+JSON.stringify({passed:report.passed,failed:report.failed,files:report.files,errors:report.errors.slice(0,10),measured:report.measured}));
+  if(report.failed || report.errors.length)process.exitCode=1;
+}
+,score:1,isCorrect:true},
+      {question:{id:104,type:'TL',content:'Giải hệ $\\begin{cases}x+y=3\\\\x-y=1\\end{cases}
+}catch(error){
+  report.errors.push({label:'Browser acceptance failed',detail:String(error.stack||error)});
+}finally{
+  if(browser)await browser.close();
+  vite.kill('SIGTERM');
+  report.passed=report.checks.filter(x=>x.passed).length;
+  report.failed=report.checks.filter(x=>!x.passed).length+report.errors.filter(x=>x.label==='Browser acceptance failed'||x.label==='pageerror').length;
+  writeFileSync(root+'/results.json',JSON.stringify(report,null,2));
+  console.log('SCIENTIFIC_VISUAL_ACCEPTANCE '+JSON.stringify({passed:report.passed,failed:report.failed,files:report.files,errors:report.errors.slice(0,10),measured:report.measured}));
+  if(report.failed || report.errors.length)process.exitCode=1;
+}
+},
+        userAnswer:{text:'$x=2
+}catch(error){
+  report.errors.push({label:'Browser acceptance failed',detail:String(error.stack||error)});
+}finally{
+  if(browser)await browser.close();
+  vite.kill('SIGTERM');
+  report.passed=report.checks.filter(x=>x.passed).length;
+  report.failed=report.checks.filter(x=>!x.passed).length+report.errors.filter(x=>x.label==='Browser acceptance failed'||x.label==='pageerror').length;
+  writeFileSync(root+'/results.json',JSON.stringify(report,null,2));
+  console.log('SCIENTIFIC_VISUAL_ACCEPTANCE '+JSON.stringify({passed:report.passed,failed:report.failed,files:report.files,errors:report.errors.slice(0,10),measured:report.measured}));
+  if(report.failed || report.errors.length)process.exitCode=1;
+}
+,image:''},correctAnswer:'$x=2,\\;y=1
+}catch(error){
+  report.errors.push({label:'Browser acceptance failed',detail:String(error.stack||error)});
+}finally{
+  if(browser)await browser.close();
+  vite.kill('SIGTERM');
+  report.passed=report.checks.filter(x=>x.passed).length;
+  report.failed=report.checks.filter(x=>!x.passed).length+report.errors.filter(x=>x.label==='Browser acceptance failed'||x.label==='pageerror').length;
+  writeFileSync(root+'/results.json',JSON.stringify(report,null,2));
+  console.log('SCIENTIFIC_VISUAL_ACCEPTANCE '+JSON.stringify({passed:report.passed,failed:report.failed,files:report.files,errors:report.errors.slice(0,10),measured:report.measured}));
+  if(report.failed || report.errors.length)process.exitCode=1;
+}
+,score:0,isCorrect:false}
+    ];
+    return window.__openExamDetailScientificFixture(JSON.stringify(details));
+  });
+  check('Actual Chi tiết bài thi leaves saved result content unchanged',
+    actualReviewQA?.detailsUntouched===true,JSON.stringify(actualReviewQA));
+  await page.locator('#modal-content .exam-detail-review').waitFor({state:'visible',timeout:12000});
+  await page.waitForFunction(() =>
+    document.querySelector('#modal-content .exam-detail-review') &&
+    !document.querySelector('#modal-content .exam-detail-review .scientific-mathjax-pending'),
+    null,{timeout:30000});
+  const realReview = await page.evaluate(() => {
+    const root=document.querySelector('#modal-content .exam-detail-review');
+    const questionNodes=[...root.querySelectorAll('.exam-detail-question')];
+    const optionNodes=[...root.querySelectorAll('.exam-detail-option')];
+    const allMath=root.querySelectorAll('.katex, mjx-container[jax="CHTML"]');
+    const errors=root.querySelectorAll('.scientific-math-unresolved,merror,.mjx-merror');
+    const q0=questionNodes[0];
+    const font=getComputedStyle(q0).fontSize;
+    const baseline=document.createElement('div');
+    baseline.className='responsive-q-text';
+    baseline.style.setProperty('--base-q-size',q0.style.getPropertyValue('--base-q-size'));
+    baseline.style.position='absolute';
+    baseline.textContent='câu hỏi mẫu';
+    document.body.append(baseline);
+    const baselineFont=getComputedStyle(baseline).fontSize;
+    baseline.remove();
+    return {questions:questionNodes.length,options:optionNodes.length,math:allMath.length,
+      errors:errors.length,font,baselineFont,
+      hasJsonArtifacts:questionNodes.some(q=>q.textContent.includes('"text"')),
+      hasAllTypes:['4-1','TF4','SQ','TL'].length===questionNodes.length,
+      hasOriginalParagraph:questionNodes.some(q=>q.tagName.toLowerCase()==='p'),
+      chemicalMath:!!root.querySelector('mjx-container[jax="CHTML"]'),
+      scrollNodes:questionNodes.map(q=>({width:q.clientWidth,scroll:q.scrollWidth}))};
+  });
+  check('Actual modal has four complete original questions and eight rendered options',
+    realReview.questions===4 && realReview.options===8,JSON.stringify(realReview));
+  check('Actual modal has scientific math in all question types',
+    realReview.math>=12 && realReview.errors===0,JSON.stringify(realReview));
+  check('Actual modal chemistry uses working MathJax',
+    realReview.chemicalMath,JSON.stringify(realReview));
+  check('Actual modal strips legacy JSON wrapper but preserves original formula',
+    !realReview.hasJsonArtifacts,JSON.stringify(realReview));
+  check('Actual modal uses exactly the student font settings and valid block HTML',
+    realReview.font===realReview.baselineFont && !realReview.hasOriginalParagraph,JSON.stringify(realReview));
+  await page.locator('#modal-content').screenshot({path:root+'/real-exam-detail-desktop.png'});
+  report.files.push('real-exam-detail-desktop.png');
+  await page.setViewportSize({width:390,height:844});
+  await page.locator('#modal-content').screenshot({path:root+'/real-exam-detail-mobile.png'});
+  report.files.push('real-exam-detail-mobile.png');
+  const realMobile = await page.evaluate(() => {
+    const el=document.querySelector('#modal-content .exam-detail-review');
+    const wide=[...el.querySelectorAll('.scientific-rendered-math')].filter(x=>x.scrollWidth>x.clientWidth+2);
+    const clipped=[...el.querySelectorAll('.exam-detail-question')].filter(x=>x.scrollWidth>x.clientWidth+5);
+    return {questionClipped:clipped.length,wideMathScrollers:wide.length,
+      modalWidth:el.clientWidth,modalScrollWidth:el.scrollWidth,viewport:innerWidth};
+  });
+  check('Actual modal remains readable on mobile with bounded formula overflow',
+    realMobile.questionClipped===0 && realMobile.modalScrollWidth<=realMobile.modalWidth+5,
+    JSON.stringify(realMobile));
+  await page.setViewportSize({width:1365,height:850});
   await page.close();
 }catch(error){
   report.errors.push({label:'Browser acceptance failed',detail:String(error.stack||error)});
