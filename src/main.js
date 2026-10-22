@@ -15465,7 +15465,7 @@ CẤU TRÚC JSON:
                 // Render each stored option with the exact KaTeX/MathJax pipeline of the student exam.
                 // This is a read-only presentation change; no answer or scoring data is mutated.
                 const optionsHtml = renderExamDetailOptions(d.question, d.userAnswer, d.correctAnswer, appSettings.answerFontSize || 20);
-                const scoreDisplay = `<p class="text-base font-semibold mt-1">Điểm đạt được: ${(d.score || 0).toFixed(2)}</p>`;
+                const scoreDisplay = `<p class="text-base font-semibold mt-1">Điểm đạt được: ${(Number(d.score) || 0).toFixed(2)}</p>`;
                 const userAnsColor = d.isCorrect ? 'text-green-600' : (!isAnswered ? 'text-yellow-600' : 'text-purple-600');
 
                 let answerDisplay = '';
