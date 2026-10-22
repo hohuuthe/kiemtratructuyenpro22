@@ -12149,7 +12149,7 @@ D. Phát biểu SAI</pre>
                         const parts = records
                             ? records.flatMap((record, i) => record.type === 'record'
                                 ? [{ type: 'text', value: (i ? '\n' : '') + record.id + ' | ' + record.label + ' | ' },
-                                   { type: 'math', value: record.formula }]
+                                   { type: 'math', value: (() => { const t = splitScientificContent(record.formula); return t.length === 1 && t[0].type === 'math' ? t[0].value : record.formula; })() }]
                                 : [{ type: 'text', value: record.value }])
                             : splitScientificContent(node.textContent);
                         for (const part of parts) {
