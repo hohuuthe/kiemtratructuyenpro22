@@ -4752,7 +4752,7 @@ if (contentType && contentType.includes("application/json")) {
             container.style.display = 'flex';
             // Teacher/AI/import editors receive the exam renderer; raw text is untouched.
             attachScientificEditorPreviews(el, formatContent, queueMathJax);
-            queueMathJax(el);
+            if (el.querySelector('.scientific-mathjax-pending')) queueMathJax(el);
         }
 
         window.closeModal = closeModal;
