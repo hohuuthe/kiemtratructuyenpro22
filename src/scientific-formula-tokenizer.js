@@ -52,9 +52,10 @@ function isCurrencyStart(source, index) {
   if (source[index] !== '$') return false;
   const rest = source.slice(index + 1);
   const m = /^(\d+(?:[.,]\d{1,2})?)(?=$|[\s,.;!?)])/u.exec(rest);
-  // A dollar followed by digits can still be LaTeX: $5!=120$, $3+4$.
-  const remaining = rest.slice((m && m[1].length) || 0);
-  return !!m && !/[=^_+*<>]/.test(rest.slice(0, rest.indexOf('
+  if (!m) return false;
+  const nextDollar = rest.indexOf('$');
+  const mathCandidate = nextDollar < 0 ? rest : rest.slice(0, nextDollar);
+  return !/[=^_+*<>]/.test(mathCandidate);
 }
 function looksLikeStandaloneMath(text) {
   const t = text.trim();
