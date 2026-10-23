@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveTenantFromHostname, resolveTenantFromRequest } from '../src/tenant-host-map.ts';
+import { resolveTenantFromHostname, resolveTenantFromRequest, applicationSlugFromPath } from '../src/tenant-host-map.ts';
+import { getTenantDatabaseUrl } from '../functions/api/neon-adapter.ts';
 import { accountSessionState, isAccountEnabled, isUnexpiredAccountToken } from '../src/security-session.ts';
 
 const tenants = { TENANT_HOST_MAP: JSON.stringify({
@@ -45,4 +46,24 @@ test('Page and Node exam endpoints require atomic conflict protection and no nam
     assert.doesNotMatch(source,/r\.exam_id\s*=\s*e\.id\s+OR\s+r\.exam_name\s*=\s*e\.name/);
   }
   assert.doesNotMatch(node,/const fallbackRes\s*=\s*await executeSqlQuery\(`DELETE FROM results WHERE CAST\(id AS TEXT\) = \?/);
+});
+
+test('Path /v1 resolves to env.v1; no slug only uses NEON_DATABASE_URL, without fallback', () => {
+ const base='postgresql://user:pw@default.invalid/default';
+ const first='postgresql://user:pw@v1.invalid/db1';
+ const second='postgresql://user:pw@v2.invalid/db2';
+ const env={NEON_DATABASE_URL:base,v1:first,v2:second};
+ const url='https://test.pages.dev';
+ assert.equal(resolveTenantFromRequest({url:url+'/api/health'},env),'default');
+ assert.equal(resolveTenantFromRequest({url:url+'/v1'},env),'v1');
+ assert.equal(resolveTenantFromRequest({url:url+'/v1/'},env),'v1');
+ assert.equal(resolveTenantFromRequest({url:url+'/v2'},env),'v2');
+ assert.equal(resolveTenantFromRequest({url:url+'/api/health',headers:new Headers({'X-Tenant-Slug':'v1'})},env),'v1');
+ assert.equal(getTenantDatabaseUrl(env,'default').url.split('?')[0],base);
+ assert.equal(getTenantDatabaseUrl(env,'v1').url.split('?')[0],first);
+ assert.equal(getTenantDatabaseUrl(env,'v2').url.split('?')[0],second);
+ assert.equal(getTenantDatabaseUrl(env,'v3').url,'');
+ assert.equal(applicationSlugFromPath('/api/exams'),'');
+ assert.throws(()=>resolveTenantFromRequest({url:url+'/api/exams?tenant=v2',headers:new Headers({'X-Tenant-Slug':'v1'})},env));
+ assert.throws(()=>resolveTenantFromRequest({url:url+'/v1',headers:new Headers({'X-Tenant-Slug':'v2'})},env));
 });
