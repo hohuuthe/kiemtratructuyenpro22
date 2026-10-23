@@ -40,6 +40,9 @@ jobs:
           if ! grep -q "fetch('/api/auth/me'" src/main.js; then
             python3 scripts/security-audit-20261023/14-credential-session-dom.py
           fi
+          if grep -q "headers.set('X-Tenant-Slug'" src/main.js; then
+            python3 scripts/security-audit-20261023/16-tenant-preview-auth-compat.py
+          fi
       - name: Install locked dependencies
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Parse frontend and TypeScript source
@@ -108,7 +111,7 @@ jobs:
           fi
           git restore --source=HEAD .github/workflows/formula-check.yml
           git add -u
-          git add -f functions/api/_middleware.ts functions/_middleware.ts functions/api/exam/attempt-envelope.ts functions/api/exam/submission.ts functions/api/auth/me.ts src/security-policy.ts src/pages-api-dispatch.ts src/safe-image-url.js public/_headers tests/excel-security-version.test.mjs tests/safe-image-url.test.mjs tests/client-credential-retention.test.mjs docs/SECURITY_AUDIT_20261023_APPLIED.json
+          git add -f functions/api/_middleware.ts functions/_middleware.ts functions/api/exam/attempt-envelope.ts functions/api/exam/submission.ts functions/api/auth/me.ts src/security-policy.ts src/pages-api-dispatch.ts src/safe-image-url.js public/_headers tests/excel-security-version.test.mjs tests/safe-image-url.test.mjs tests/client-credential-retention.test.mjs tests/tenant-fetch-compatibility.test.mjs docs/SECURITY_AUDIT_20261023_APPLIED.json
           git diff --cached --binary > artifacts/security-audit/tested-source.patch
           if git diff --cached --quiet; then git rev-parse HEAD > artifacts/security-audit/tested-source.sha; exit 0; fi
           git config user.name 'KTTT security regression'
