@@ -1,4 +1,4 @@
-import { verifyJWT, getDynamicSecret, hashToken, getDatabase } from './utils';
+import { verifyAuthSession, verifyJWT, getDynamicSecret, hashToken, getDatabase } from './utils';
 
 interface Env {
   NEON_DATABASE_URL?: string;
@@ -107,7 +107,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         const authHeader = request.headers.get("authorization");
         if (authHeader && authHeader.startsWith("Bearer ")) {
             try {
-                const verifiedUser = await verifyJWT(authHeader.substring(7), SECRET);
+                const verifiedUser = await verifyAuthSession(authHeader.substring(7), SECRET, db);
                 if (verifiedUser && (verifiedUser.id || verifiedUser.user_id)) {
                     authenticatedUserId = verifiedUser.user_id || verifiedUser.id;
                     if (verifiedUser.full_name) {
