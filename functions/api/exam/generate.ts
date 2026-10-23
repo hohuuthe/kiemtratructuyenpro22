@@ -184,7 +184,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             } catch(e) {}
         }
         const isAdmin = tokenUser && tokenUser.role === 'admin';
-        const isTeacher = tokenUser && (tokenUser.target_audience === 'Giáo viên' || tokenUser.role === 'teacher' || String(tokenUser.id) === String(activeExamConfig.creator_id || effectiveTeacherId));
+        const isTeacher = !!tokenUser && String(tokenUser.id) === String(dbExam?.creator_id || effectiveTeacherId) && (tokenUser.target_audience === 'Giáo viên' || tokenUser.role === 'teacher');
 
         if (dbExam && String(dbExam.creator_id) !== String(teacherId)) {
             return new Response(JSON.stringify({error:'Đề thi không thuộc giáo viên đã chọn'}), {status:403,headers:corsHeaders});
@@ -545,7 +545,8 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             examConfig: makeGradeSessionConfig(activeExamConfig),
             maxCheatWarnings: maxCheatWarningsFromDB,
             teacherId: effectiveTeacherId,
-            timestamp: Date.now()
+            timestamp: Date.now(),
+            exp: Math.floor(Date.now() / 1000) + Math.max(3600, Math.min(8 * 3600, (Number(activeExamConfig.time_limit || 45) + 60) * 60))
         };
 
         const token = await signJWT(payload, SECRET);
