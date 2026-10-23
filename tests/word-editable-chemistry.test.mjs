@@ -22,6 +22,8 @@ const samples = [
   String.raw`\ce{N2 + 3H2 <=> 2NH3}`,
   String.raw`\ce{2AgCl ->[h\nu] 2Ag + Cl2}`,
   String.raw`\ce{2H2O2 ->[MnO2] 2H2O + O2}`,
+  String.raw`\ce{CaCO3 ->[t^o] CaO + CO2}`,
+  String.raw`\ce{CaCO3 ->[t^\\circ] CaO + CO2}`,
   String.raw`\ce{Fe^{3}+ + 3OH- -> Fe(OH)3 v}`,
   String.raw`\ce{CaCO3 + 2HCl -> CaCl2 + CO2 ^ + H2O}`,
   String.raw`\ce{CH3-CH(OH)-COOH}`,
@@ -140,7 +142,8 @@ test('Annotated industrial chemistry arrow remains a native editable Word equati
   const run=makeWordMathRun(complex);
   assert.ok(run instanceof WordMath, 'Labeled reaction must never fall back to raw TeX');
   const xml=await xmlFor([run]);
-  assert.match(xml, /<m:sSubSup>|<m:sSup>/);
+  assert.match(xml, /<m:limUpp>/, 'Conditions belong above reaction arrow, not beside it');
+  assert.match(xml, /<m:limLow>/, 'Second reaction condition belongs below reaction arrow');
   assert.ok(xml.includes('Fe'));
   assert.ok(xml.includes('450'));
   assert.ok(xml.includes('áp suất'));
