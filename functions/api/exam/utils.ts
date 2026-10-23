@@ -86,7 +86,7 @@ export function isLiveAccount(row: any): boolean {
     const notExpired = (value: any) => {
       if (!value) return true;
       const raw = String(value).trim();
-      const date = /^\\d{4}-\\d{2}-\\d{2}$/.test(raw)
+      const date = /^\d{4}-\d{2}-\d{2}$/.test(raw)
         ? raw + 'T23:59:59.999+07:00' : raw;
       const at = Date.parse(date);
       return Number.isFinite(at) && at >= now;
