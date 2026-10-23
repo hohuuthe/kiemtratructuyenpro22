@@ -38,7 +38,7 @@ function assertHeatingArrow(xml,expectedMinimum=1) {
         if(!base||!annotation)return false;
         const arrow=nodes(base,'t').map(t=>t.textContent).join('');
         const upper=nodes(annotation,'t').map(t=>t.textContent).join('');
-        if(!arrow.includes('⟶')||!upper.includes('t')||!upper.includes('°'))return false;
+        if(!/[⟶⇌⟷]/u.test(arrow)||!upper.includes('t')||!upper.includes('°'))return false;
         assert.ok(nodes(annotation,'sSup').length,'Temperature ° must be a real superscript on t');
         assert.ok(!upper.includes('^o')&&!upper.includes('\\circ'),'Do not print literal source control characters');
         assert.equal(nodes(base,'sSup').length,0,'Temperature must NOT be a superscript of the arrow itself');
