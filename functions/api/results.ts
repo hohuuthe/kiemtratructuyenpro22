@@ -39,6 +39,9 @@ export async function onRequestGet(context:any) {
   const db=getDatabase(context),url=new URL(context.request.url);
   const user=await actor(context,db);
   const id=url.searchParams.get('id'),examId=url.searchParams.get('examId') || url.searchParams.get('exam_id');
+  // Guest listing must never report an empty result as though the ranking loaded.
+  // Explicit shared exam codes remain accessible to the intended public lookup.
+  if(!user && !id && !examId) return reply({data:[],error:'Authentication required',code:'AUTH_REQUIRED'},401);
   const scope=ownership(user);
   const clauses:string[]=[],params:any[]=[];
   if(id){clauses.push('r.id=?');params.push(id);}
