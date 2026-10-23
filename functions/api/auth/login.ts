@@ -102,7 +102,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         full_name: finalFullName,
         username: account.username,
         donvi: account.donvi || '',
-        lop: account.lop || ''
+        lop: account.lop || '',
+        iat: Math.floor(Date.now() / 1000),
+        exp: Math.floor(Date.now() / 1000) + 12 * 3600
     }, SECRET);
 
     // Never return password hashes to the browser, even after successful login.
