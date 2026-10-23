@@ -849,7 +849,7 @@ async function startServer() {
       let query = "";
       const queryParams: any[] = [];
       if (isAdmin) {
-        query = `SELECT accounts.id, accounts.user_id, accounts.username, accounts.password, accounts.role, accounts.is_active, accounts.expiry_date, accounts.created_at,
+        query = `SELECT accounts.id, accounts.user_id, accounts.username, accounts.role, accounts.is_active, accounts.expiry_date, accounts.created_at,
                         users.full_name,
                         users.phone_number,
                         users.target_audience,
@@ -2126,17 +2126,19 @@ async function startServer() {
       await executeSqlQuery('ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS revision INTEGER NOT NULL DEFAULT 1', []);
       let existingRecord: any = null;
       if (id) {
-        const { results } = await executeSqlQuery("SELECT id, creator_id, revision FROM exam_configs WHERE id = ?", [id]);
+        const { results } = await executeSqlQuery("SELECT id, creator_id, updated_at FROM exam_configs WHERE id = ?", [id]);
         if (results && results.length > 0) existingRecord = results[0];
       }
       if (!existingRecord) {
-        const { results } = await executeSqlQuery("SELECT id, creator_id, revision FROM exam_configs WHERE name = ? AND creator_id = ?", [name.trim(), assignedCreatorId]);
+        const { results } = await executeSqlQuery("SELECT id, creator_id, updated_at FROM exam_configs WHERE name = ? AND creator_id = ?", [name.trim(), assignedCreatorId]);
         if (results && results.length > 0) existingRecord = results[0];
       }
 
+      if (id && !existingRecord) return res.status(404).json({ error: 'Đề thi cần cập nhật không còn tồn tại' });
       if (existingRecord) {
-        const expectedRevision = Number(body.revision);
-        if (!Number.isInteger(expectedRevision) || expectedRevision < 1) {
+        if (!id) return res.status(409).json({ error: 'Tên đề đã tồn tại; không được tự ghi đè', code: 'DUPLICATE_EXAM_NAME' });
+        const expectedRevision = String(body.expected_updated_at ?? '');
+        if (body.expected_updated_at === undefined || expectedRevision !== String(existingRecord.updated_at ?? '')) {
           return res.status(409).json({ error: 'Phiên bản đề thi đã thay đổi. Vui lòng nạp lại.', code: 'EXAM_VERSION_REQUIRED' });
         }
         if (!isAdmin && existingRecord.creator_id !== user.id) {
@@ -2151,8 +2153,8 @@ async function startServer() {
             immediate_feedback = ?, show_score = ?, show_details = ?,
             sq_case_sensitive = ?, sq_punctuation_sensitive = ?, auto_grade_essay = ?,
             counts_detail = ?, chedodethi = ?, mabaomatdethi = ?, target_lop = ?, lop = ?, target_donvi = ?, donvi = ?, tg_bd = ?, tg_kt = ?,
-            ai_prompt = ?, is_shared_results = ?, max_cheat_warnings = ?, max_attempts = ?, ai_grading_key = ?, tieu_de_bai_thi = ?, updated_at = ?, revision = revision + 1
-          WHERE id = ? AND revision = ?
+            ai_prompt = ?, is_shared_results = ?, max_cheat_warnings = ?, max_attempts = ?, ai_grading_key = ?, tieu_de_bai_thi = ?, updated_at = ?
+          WHERE id = ? AND updated_at IS NOT DISTINCT FROM ?
         `;
 
         const updateResult = await executeSqlQuery(updateSql, [
@@ -2162,13 +2164,13 @@ async function startServer() {
           safeImmediateFeedback, safeShowScore, safeShowDetails,
           safeSqCaseSensitive, safeSqPunctuationSensitive, safeAutoGradeEssay,
           safeCountsDetail, chedodethiVal, mabaomatdethiVal, targetLopVal, targetLopVal, targetDonviVal, targetDonviVal, tgBdVal, tgKtVal,
-          aiPromptVal, safeIsShared, maxCheatWarningsVal, maxAttemptsVal, aiGradingKeyVal, tieuDeBaiThiVal, now, existingRecord.id, expectedRevision
+          aiPromptVal, safeIsShared, maxCheatWarningsVal, maxAttemptsVal, aiGradingKeyVal, tieuDeBaiThiVal, now, existingRecord.id, existingRecord.updated_at ?? null
         ]);
 
         if (Number(updateResult.changes || 0) !== 1) return res.status(409).json({ error: 'Đề thi đã được lưu trên thiết bị khác. Vui lòng tải lại.', code: 'EXAM_CONFLICT' });
-        return res.json({ success: true, type: 'updated', revision: expectedRevision + 1, id: existingRecord.id, error: null });
+        return res.json({ success: true, type: 'updated', updated_at: now, id: existingRecord.id, error: null });
       } else {
-        const newId = (id && /^\d+$/.test(String(id))) ? Number(id) : (typeof id === 'number' ? id : (Math.floor(Date.now() / 1000) + Math.floor(Math.random() * 1000)));
+        const newId = crypto.randomUUID();
         const insertSql = `
           INSERT INTO exam_configs (
             id, name, creator_id, time_limit, count_41, count_tf4, count_sq, count_tl,
@@ -2191,7 +2193,7 @@ async function startServer() {
           aiPromptVal, safeIsShared, maxCheatWarningsVal, maxAttemptsVal, aiGradingKeyVal, tieuDeBaiThiVal, now, now
         ]);
 
-        return res.json({ success: true, type: 'inserted', revision: 1, id: newId, error: null });
+        return res.json({ success: true, type: 'inserted', updated_at: now, id: newId, error: null });
       }
     } catch (e: any) {
       if (e && e.message && e.message.includes("hạn mức dữ liệu")) {
