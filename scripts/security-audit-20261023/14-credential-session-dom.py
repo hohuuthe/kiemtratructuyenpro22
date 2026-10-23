@@ -32,7 +32,7 @@ change("""                // Luôn lưu lại thông tin đăng nhập thành c�
                 localStorage.setItem('remember_password', password);
                 localStorage.setItem('is_auto_login', 'true');""","""                // Never persist reusable passwords in the browser.
                 localStorage.removeItem('remember_password');
-                const keepSignedIn=isAutoLogin||!!rememberCheckbox?.checked;
+                const keepSignedIn=isAutoLogin||!!document.getElementById('remember-login')?.checked||!!document.getElementById('rememberMe')?.checked;
                 localStorage.setItem('remember_username',String(data.username||username));
                 localStorage.setItem('is_auto_login',keepSignedIn?'true':'false');""")
 change("isAdminLoggedIn = (roleLower === 'admin' || audienceLower === 'admin' || audienceLower === 'quản trị viên');","isAdminLoggedIn = roleLower === 'admin';")
@@ -51,7 +51,7 @@ for indent in ['            ','                ']:
    n-=1
    if n==0:break
  s=s[:a]+s[i+1:]
-s,changed=re.subn(r'onclick="zoomImage\('\$\{[^}\n]+\}'\)"','onclick="zoomImage(this.src)"',s)
+s,changed=re.subn(r"onclick=\"zoomImage\('\$\{[^}\n]+\}'\)\"", 'onclick="zoomImage(this.src)"',s)
 assert changed>=5,changed
 # Never persist third-party API credentials in cached settings.
 s=s.replace("localStorage.setItem('appSettings', JSON.stringify(appSettings));","localStorage.setItem('appSettings', JSON.stringify({...appSettings, aiGradingKey: ''}));")
