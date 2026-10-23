@@ -24,7 +24,7 @@ jobs:
       - name: Formula tokenizer regression tests
         run: node --test tests/scientific-formula-tokenizer.test.mjs tests/scientific-formula-acceptance.test.mjs tests/scientific-formula-student-view.test.mjs
       - name: Cross-surface scientific formula export tests
-        run: node --import tsx --test tests/scientific-formula-unified.test.mjs tests/exam-export-regression.test.mjs tests/exam-detail-formula-parity.test.mjs tests/word-editable-chemistry.test.mjs tests/question-bank-word-export.test.mjs tests/question-bank-fraction-regression.test.mjs
+        run: node --import tsx --test tests/scientific-formula-unified.test.mjs tests/exam-export-regression.test.mjs tests/exam-word-smart-options.test.mjs tests/exam-detail-formula-parity.test.mjs tests/word-editable-chemistry.test.mjs tests/question-bank-word-export.test.mjs tests/question-bank-fraction-regression.test.mjs
       - name: Verified Word Office Math import and database transaction tests
         run: node --import tsx --test tests/word-import-omml.test.mjs tests/word-import-transaction.test.mjs
       - name: Word answer-grading contract and formula tokenizer regression
@@ -40,7 +40,7 @@ jobs:
       - name: Word OMML heating-arrow roundtrip and both export paths
         run: node --import tsx --test tests/word-import-chemistry-heat-roundtrip.test.mjs
       - name: Exam management and editor tab business contract
-        run: node --test tests/exam-tab-separation.test.mjs tests/question-list-single-actions.test.mjs
+        run: node --test tests/exam-tab-separation.test.mjs tests/question-list-single-actions.test.mjs tests/exam-config-table-layout.test.mjs tests/exam-export-modal-layout.test.mjs
       - name: Runtime authentication revocation tests
         run: node --import tsx --test tests/security-session-runtime.test.ts
       - name: Tenant / revocation / CAS integration contracts

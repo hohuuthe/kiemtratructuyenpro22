@@ -599,3 +599,107 @@ button { touch-action: manipulation; }
   background: transparent;
   box-shadow: none;
 }
+
+
+/* Exam management: dense, readable and responsive without hiding exam names. */
+#exam-configs-table-scroll { max-width: 100%; }
+.exam-configs-table {
+  table-layout: fixed;
+  min-width: 1020px;
+  width: 100%;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.exam-configs-table th, .exam-configs-table td {
+  padding: 7px 4px;
+  vertical-align: middle;
+  min-width: 0;
+}
+.exam-configs-table th { white-space: normal; overflow-wrap: break-word; }
+.exam-configs-table th:nth-child(1) { width: 3%; }
+.exam-configs-table th:nth-child(2) { width: 6%; }
+.exam-configs-table th:nth-child(3) { width: 22%; }
+.exam-configs-table th:nth-child(4) { width: 8%; }
+.exam-configs-table th:nth-child(5) { width: 10%; }
+.exam-configs-table th:nth-child(6) { width: 18%; }
+.exam-configs-table th:nth-child(7) { width: 6%; }
+.exam-configs-table th:nth-child(8) { width: 10%; }
+.exam-configs-table th:nth-child(9) { width: 9%; }
+.exam-configs-table th:nth-child(10) { width: 8%; }
+.exam-configs-table thead th { background: #f8fafc; }
+.exam-configs-table tbody tr:nth-child(even) { background-color: #fafbff; }
+.exam-configs-table tbody tr:hover { background-color: #f5f3ff; }
+.exam-configs-table .exam-config-title-column,
+.exam-configs-table .exam-config-title-cell {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+.exam-configs-table .exam-config-scope-column {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+.exam-configs-table .exam-config-scope-list {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: .25rem;
+  min-width: 0;
+  max-width: 100%;
+}
+.exam-configs-table .exam-config-scope-tag {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  padding: .2rem .35rem;
+  border-radius: .4rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  line-height: 1.45;
+}
+.exam-configs-table .exam-config-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: .2rem;
+}
+.exam-configs-table .exam-config-row-actions button {
+  padding: .22rem .35rem;
+  font-size: 11px;
+  line-height: 1.35;
+}
+@media (min-width: 1600px) {
+  .exam-configs-table { font-size: 13px; }
+}
+
+/* Dedicated exam Word/Excel export dialog. Stable dimensions while progress changes. */
+#modal-content.exam-export-modal {
+  box-sizing: border-box;
+  width: min(760px, calc(100vw - 24px));
+  min-width: 0;
+  max-width: min(760px, calc(100vw - 24px));
+  height: min(740px, calc(100dvh - 32px));
+  min-height: 0;
+  max-height: min(740px, calc(100dvh - 32px));
+  overflow-x: hidden;
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+}
+#modal-content.exam-export-modal .exam-export-body { min-width: 0; overflow-wrap: anywhere; }
+#modal-content.exam-export-modal .exam-export-body input { min-width: 0; max-width: 100%; }
+#modal-content.exam-export-modal #export-made-note-box { min-height: 3rem; overflow-wrap: anywhere; }
+#modal-content.exam-export-modal #export-docx-progress-container { overflow-wrap: anywhere; }
+@media (max-width: 639px) {
+  #modal-content.exam-export-modal {
+    width: calc(100vw - 16px);
+    max-width: calc(100vw - 16px);
+    height: min(740px, calc(100dvh - 16px));
+    max-height: min(740px, calc(100dvh - 16px));
+    border-radius: 16px;
+  }
+  #modal-content.exam-export-modal .exam-export-body { padding: 16px; }
+}

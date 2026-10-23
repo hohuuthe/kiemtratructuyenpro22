@@ -16,7 +16,6 @@ import { inspectScientificDocx, WORD_IMPORT_ENGINE_VERSION } from './word-omml-r
 import { verifyImportedWordQuestions, checkWordImportBeforeSave, correctImportedWordEquation, normalizeWordImportAnswer } from './word-import-verification.js';
 import { splitScientificContent } from './scientific-formula-tokenizer.js';
 import { splitLabeledScientificRecords } from './scientific-formula-records.js';
-import { generateExamPdfBlob } from './exam-pdf-generator.ts';
 import { generateExamAnswerExcel } from './exam-excel-generator.ts';
 import { 
     renderScientificContent, 
@@ -4723,7 +4722,7 @@ if (contentType && contentType.includes("application/json")) {
             // Reset custom style overrides if any
             el.style.width = '';
             el.style.backgroundColor = '';
-            el.classList.remove('always-scrollbar-y');
+            el.classList.remove('always-scrollbar-y', 'exam-export-modal');
             
             el.innerHTML = content;
             
@@ -4745,7 +4744,7 @@ if (contentType && contentType.includes("application/json")) {
                 'max-w-2xl', 'max-w-3xl', 'max-w-4xl', 'max-w-5xl', 'max-w-6xl', 'max-w-7xl', 'xl:max-w-6xl', '2xl:max-w-7xl',
                 'w-[98vw]', 'w-[96vw]', 'w-[92vw]', 'w-full',
                 'h-[94vh]', 'max-h-[94vh]', 'max-h-[92vh]', 'max-h-[90vh]', 'sm:max-h-[92vh]', 'sm:max-h-[90vh]', 
-                'md:max-w-[98vw]', 'md:h-[95vh]', 'max-w-[98vw]', 'h-[95vh]', 'max-w-sm', 'max-w-md'
+                'md:max-w-[98vw]', 'md:h-[95vh]', 'max-w-[98vw]', 'h-[95vh]', 'max-w-sm', 'max-w-md', 'lg:max-w-5xl', 'md:w-full'
             );
 
             if (fullScreen === true || fullScreen === 'full') {
@@ -4754,6 +4753,9 @@ if (contentType && contentType.includes("application/json")) {
                 el.classList.add('w-[96vw]', 'md:w-full', 'max-w-5xl', 'xl:max-w-6xl', '2xl:max-w-7xl', 'max-h-[94vh]', 'sm:max-h-[92vh]', 'overflow-y-auto');
             } else if (fullScreen === 'wide' || fullScreen === '4xl' || fullScreen === '5xl' || fullScreen === 'large') {
                 el.classList.add('w-full', 'max-w-4xl', 'lg:max-w-5xl', 'max-h-[92vh]', 'sm:max-h-[90vh]', 'overflow-y-auto');
+            } else if (fullScreen === 'exam-export') {
+                // Export dialog has fixed viewport-safe dimensions and its own scrolling.
+                el.classList.add('exam-export-modal', 'overflow-y-auto');
             } else if (fullScreen === '3xl' || fullScreen === 'medium') {
                 el.classList.add('w-full', 'max-w-3xl', 'max-h-[92vh]', 'sm:max-h-[90vh]', 'overflow-y-auto');
             } else if (fullScreen === 'compact' || fullScreen === 'sm' || fullScreen === 'small') {
@@ -5389,7 +5391,7 @@ if (contentType && contentType.includes("application/json")) {
                 let lopBadge = '';
                 if (mode === 'Đề cho đơn vị' || mode === 'Đề thi cho đơn vị') {
                     if (donvi || lop) {
-                        lopBadge = `<div class="flex flex-col gap-1">${donvi ? `<span class="px-2 py-0.5 bg-purple-100 text-purple-800 text-[11px] font-semibold rounded border border-purple-200" title="Đơn vị áp dụng">🏫 ${escapeHTML(donvi)}</span>` : ''}${lop ? `<span class="px-2 py-0.5 bg-blue-100 text-blue-800 text-[11px] font-bold rounded border border-blue-200" title="Lớp áp dụng">🏷️ ${escapeHTML(lop)}</span>` : ''}</div>`;
+                        lopBadge = `<div class="exam-config-scope-list">${donvi ? `<span class="exam-config-scope-tag bg-purple-50 text-purple-800 text-[11px] font-semibold border border-purple-100" title="Đơn vị áp dụng">🏫 ${escapeHTML(donvi)}</span>` : ''}${lop ? `<span class="exam-config-scope-tag bg-blue-50 text-blue-800 text-[11px] font-semibold border border-blue-100" title="Lớp áp dụng">🏷️ ${escapeHTML(lop)}</span>` : ''}</div>`;
                     } else {
                         lopBadge = `<span class="text-xs text-gray-400 italic">Tất cả đơn vị & lớp</span>`;
                     }
@@ -5423,36 +5425,36 @@ if (contentType && contentType.includes("application/json")) {
                 if (maxCheat > 0) {
                     features.push(`<span class="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-rose-50 text-rose-700 text-[10px] font-medium rounded border border-rose-200" title="Giám sát cảnh báo rời màn hình">⚠️ Giám sát: ${maxCheat}l</span>`);
                 }
-                const featuresHtml = features.length > 0 ? `<div class="flex flex-wrap gap-1 justify-center max-w-[150px]">${features.join('')}</div>` : '<span class="text-gray-300">-</span>';
+                const featuresHtml = features.length > 0 ? `<div class="flex flex-wrap gap-1 justify-center">${features.join('')}</div>` : '<span class="text-gray-300">-</span>';
 
                 const escapedName = escapeHTML(item.name || 'Không tên');
                 const creator = item.creatorName || item.creator_name || accountsMap[item.creator_id || item.creatorId] || 'Hệ thống';
                 const isCreator = currentUser && (String(item.creator_id || item.creatorId) === String(currentUser.id) || isAdminLoggedIn);
 
                 return `
-                    <tr class="hover:bg-purple-50/50 transition border-b border-gray-100">
+                    <tr class="transition-colors border-b border-slate-100">
                         <td class="py-3 px-3 text-center text-xs font-medium text-gray-500">${globalIdx}</td>
                         <td class="py-3 px-3 text-center text-xs font-mono text-gray-600 whitespace-nowrap">
                             <span class="bg-gray-100 px-2 py-1 rounded text-xs font-bold text-gray-700 select-all">${item.id}</span>
                         </td>
-                        <td class="py-3 px-4 font-semibold text-gray-800 max-w-xs truncate" title="${escapedName}">
+                        <td class="exam-config-title-cell font-semibold text-slate-800" title="${escapedName}">
                             ${escapedName}
                         </td>
-                        <td class="py-3 px-3 whitespace-nowrap">
-                            <span class="text-xs font-semibold text-gray-600">${escapeHTML(creator)}</span>
+                        <td class="text-slate-600 break-words">
+                            <span class="text-xs font-semibold">${escapeHTML(creator)}</span>
                         </td>
-                        <td class="py-3 px-3 whitespace-nowrap">${modeBadge}</td>
-                        <td class="py-3 px-3 whitespace-nowrap">${lopBadge}</td>
+                        <td class="break-words">${modeBadge}</td>
+                        <td class="exam-config-scope-column align-middle">${lopBadge}</td>
                         <td class="py-3 px-3 text-center text-xs text-gray-700 whitespace-nowrap font-medium">${time} phút</td>
-                        <td class="py-3 px-3 text-center text-xs font-semibold text-purple-700 whitespace-nowrap">
+                        <td class="text-center text-xs font-semibold text-purple-700">
                             <span class="font-bold text-purple-800">${totalQ} câu</span>
                             <div class="text-[10px] text-gray-500 mt-0.5 font-normal">${detailStr}</div>
                         </td>
-                        <td class="py-3 px-3 text-center text-xs whitespace-nowrap">
+                        <td class="text-center text-xs">
                             ${featuresHtml}
                         </td>
-                        <td class="py-3 px-3 text-center whitespace-nowrap">
-                            <div class="flex items-center justify-center gap-1.5">
+                        <td class="text-center">
+                            <div class="exam-config-row-actions">
                                 <button onclick="loadExamConfigById('${item.id}')" class="px-2.5 py-1 bg-purple-600 text-white rounded text-xs font-medium hover:bg-purple-700 transition flex items-center gap-1" title="Nạp cấu hình vào khung soạn thảo">
                                     <span>⚙️</span> Nạp
                                 </button>
@@ -5482,7 +5484,7 @@ if (contentType && contentType.includes("application/json")) {
             if (!container) {
                 container = document.createElement('div');
                 container.id = 'exam-configs-pagination-container';
-                container.className = 'flex flex-wrap items-center justify-between gap-3 pt-4 px-2 text-xs text-gray-600 font-medium border-t border-gray-100 mt-2';
+                container.className = 'flex flex-wrap items-center justify-between gap-3 px-3 py-3 text-xs text-slate-600 font-medium border-t border-slate-100';
                 table.parentNode.insertBefore(container, table.nextSibling);
             }
 
@@ -5660,43 +5662,22 @@ if (contentType && contentType.includes("application/json")) {
             };
 
             const modalContent = `
-                <div class="p-4 sm:p-6 text-left w-full max-w-3xl mx-auto">
-                    <div class="flex items-center justify-between pb-3.5 mb-4 border-b border-gray-100">
-                        <div class="flex items-center gap-3">
+                <div class="exam-export-body p-4 sm:p-6 text-left w-full min-w-0">
+                    <div class="flex items-start justify-between pb-3.5 mb-4 border-b border-gray-100">
+                        <div class="flex items-start gap-3 min-w-0 pr-7">
                             <div class="w-11 h-11 rounded-2xl bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-600 text-white flex items-center justify-center shadow-lg shadow-blue-500/20 shrink-0">
                                 <svg class="w-6 h-6 text-amber-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
                                 </svg>
                             </div>
-                            <div>
-                                <h3 class="text-lg sm:text-xl font-black text-gray-800 leading-tight">Xuất đề thi (Word / PDF / Excel đáp án)</h3>
-                                <p class="text-xs sm:text-sm text-gray-500 font-medium">Định dạng A4 chuẩn Bộ GD&ĐT, tùy chọn xuất file Word (.docx) hoặc PDF (.pdf) kèm bảng đáp án Excel</p>
+                            <div class="min-w-0 flex-1">
+                                <h3 class="text-lg sm:text-xl font-black text-gray-800 leading-tight break-words">Xuất đề thi (Word / Excel đáp án)</h3>
+                                <p class="text-xs sm:text-sm text-gray-500 font-medium leading-relaxed">Xuất đề Word (.docx) khổ A4 và bảng đáp án Excel (.xlsx) trong một tệp ZIP.</p>
                             </div>
                         </div>
                     </div>
 
                     <form onsubmit="event.preventDefault(); window.executeDocxExport('${targetExamId}');" class="space-y-4">
-                        <!-- Format Selection (Word / PDF) -->
-                        <div class="bg-gradient-to-r from-blue-50/80 via-indigo-50/80 to-purple-50/80 p-3.5 rounded-2xl border border-blue-200/90 shadow-2xs space-y-2">
-                            <label class="block text-xs md:text-sm font-bold text-gray-800 flex items-center gap-1.5">
-                                <span>📦</span> Chọn định dạng file xuất đề thi:
-                            </label>
-                            <div class="grid grid-cols-2 gap-3">
-                                <label class="flex items-center gap-2.5 p-3 bg-white rounded-xl border-2 border-blue-500 cursor-pointer hover:bg-blue-50/50 transition font-bold text-xs md:text-sm text-blue-900 shadow-2xs has-checked:border-blue-600 has-checked:bg-blue-50">
-                                    <input type="radio" name="export-format" value="docx" checked class="w-4 h-4 text-blue-600 focus:ring-blue-500 cursor-pointer">
-                                    <span class="flex items-center gap-1.5">
-                                        <span class="text-base">📝</span> File Word (.docx)
-                                    </span>
-                                </label>
-                                <label class="flex items-center gap-2.5 p-3 bg-white rounded-xl border-2 border-gray-200 cursor-pointer hover:bg-red-50/50 transition font-bold text-xs md:text-sm text-gray-700 shadow-2xs has-checked:border-red-500 has-checked:bg-red-50">
-                                    <input type="radio" name="export-format" value="pdf" class="w-4 h-4 text-red-600 focus:ring-red-500 cursor-pointer">
-                                    <span class="flex items-center gap-1.5">
-                                        <span class="text-base">📑</span> File PDF (.pdf)
-                                    </span>
-                                </label>
-                            </div>
-                        </div>
-
                         <!-- Prominent Full-Width Exam Title Field -->
                         <div class="bg-blue-50/60 p-3.5 rounded-2xl border border-blue-200/80 space-y-1">
                             <label class="block text-xs md:text-sm font-bold text-blue-950 mb-1 flex items-center gap-1.5">
@@ -5720,8 +5701,8 @@ if (contentType && contentType.includes("application/json")) {
                         </div>
 
                         <!-- Subject & Year Info -->
-                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                            <div class="sm:col-span-2">
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                            <div class="md:col-span-2">
                                 <label class="block text-xs md:text-sm font-bold text-gray-700 mb-1">Môn học / Lớp:</label>
                                 <input type="text" id="docx-export-monhoc" value="${escapeHtml(defaultMon)}" class="w-full px-3.5 py-2 text-xs md:text-sm border border-gray-300 rounded-xl focus:border-blue-500 focus:outline-none bg-white font-medium">
                             </div>
@@ -5737,7 +5718,7 @@ if (contentType && contentType.includes("application/json")) {
                                 <span class="text-amber-600 text-lg">🎲</span>
                                 <span>Tùy chọn bốc câu hỏi ngẫu nhiên & Xuất nhiều mã đề thi:</span>
                             </div>
-                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
                                 <div>
                                     <label class="block text-xs font-bold text-amber-950 mb-1">
                                         Số lượng đề thi cần xuất:
@@ -5815,7 +5796,7 @@ if (contentType && contentType.includes("application/json")) {
                     </form>
                 </div>
             `;
-            showModal(modalContent, '3xl', true);
+            showModal(modalContent, 'exam-export');
             if (window.updateExportMaDeNote) {
                 window.updateExportMaDeNote();
             }
@@ -5825,7 +5806,6 @@ if (contentType && contentType.includes("application/json")) {
             const btn = document.getElementById('btn-submit-docx-export');
             const originalText = btn ? btn.innerHTML : '';
 
-            const exportFormat = document.querySelector('input[name="export-format"]:checked')?.value || 'docx';
             const soGiaoDuc = document.getElementById('docx-export-so')?.value || '';
             const truongHoc = document.getElementById('docx-export-truong')?.value || '';
             const deThiTitle = document.getElementById('docx-export-title')?.value || '';
@@ -5859,8 +5839,7 @@ if (contentType && contentType.includes("application/json")) {
                 if (progressCount && countText) progressCount.innerText = countText;
             };
 
-            const formatName = exportFormat === 'pdf' ? 'PDF' : 'Word';
-            updateProgress(10, `Đang khởi tạo bốc câu hỏi ngẫu nhiên cho ${soLuongDe} mã đề (${formatName})...`, `0 / ${soLuongDe} đề`);
+            updateProgress(10, `Đang khởi tạo bốc câu hỏi ngẫu nhiên cho ${soLuongDe} mã đề (Word)...`, `0 / ${soLuongDe} đề`);
 
             // Nhường lượt vẽ DOM ngay lập tức cho trình duyệt để hiển thị thanh tiến trình tức thì không giật lag
             await new Promise(resolve => setTimeout(resolve, 60));
@@ -5870,9 +5849,6 @@ if (contentType && contentType.includes("application/json")) {
                 let useClientFallback = false;
                 let downloaded = false;
 
-                if (exportFormat === 'pdf') {
-                    useClientFallback = true;
-                } else {
                     // 1. Gọi API Server xuất trọn bộ đề thi Word và file Excel bảng đáp án
                     try {
                         updateProgress(25, `Đang bốc ngẫu nhiên câu hỏi & tạo ${soLuongDe} mã đề thi Word kèm Excel đáp án...`, `0 / ${soLuongDe} đề`);
@@ -5893,7 +5869,7 @@ if (contentType && contentType.includes("application/json")) {
                                 maDe: baseMaDe,
                                 soLuongDe,
                                 thoiGian,
-                                exportFormat
+                                exportFormat: 'docx'
                             })
                         });
 
@@ -5944,11 +5920,10 @@ if (contentType && contentType.includes("application/json")) {
                         console.warn("Server API export failed, switching to client-side generator:", serverErr);
                         useClientFallback = true;
                     }
-                }
 
-                // 2. Chế độ tạo tài liệu phía Client (Hỗ trợ định dạng PDF & Word)
+                // 2. Chế độ tạo tài liệu phía Client: Word và Excel
                 if (useClientFallback && !downloaded) {
-                    console.log(`Running client-side ${formatName} & Excel document generator...`);
+                    console.log('Running client-side Word & Excel document generator...');
                     const headerOpts = {
                         soGiaoDuc,
                         truongHoc,
@@ -5958,7 +5933,7 @@ if (contentType && contentType.includes("application/json")) {
                         thoiGian,
                         maDe: baseMaDe
                     };
-                    await generateDocxClientSide(targetExamId, headerOpts, soLuongDe, updateProgress, exportFormat);
+                    await generateDocxClientSide(targetExamId, headerOpts, soLuongDe, updateProgress);
                 }
 
                 setTimeout(() => {
@@ -5977,7 +5952,7 @@ if (contentType && contentType.includes("application/json")) {
             }
         };
 
-        async function generateDocxClientSide(targetExamId, headerOpts, soLuongDe, updateProgress, exportFormat = 'docx') {
+        async function generateDocxClientSide(targetExamId, headerOpts, soLuongDe, updateProgress) {
             // 1. Tìm cấu hình đề thi mục tiêu từ các nguồn bộ nhớ client
             let targetExam = (window.allExamConfigsList || []).find(e => String(e.id) === String(targetExamId));
             if (!targetExam && window.examsList) {
@@ -6198,7 +6173,6 @@ if (contentType && contentType.includes("application/json")) {
             const generatedFiles = [];
             const examAnswerDocs = [];
             const baseMaDe = headerOpts.maDe || '1201';
-            const isPdfFormat = exportFormat === 'pdf';
 
             for (let v = 0; v < soLuongDe; v++) {
                 const currentMaDe = formatNextMaDe(baseMaDe, v);
@@ -6257,16 +6231,8 @@ if (contentType && contentType.includes("application/json")) {
                 // Yield lượt vẽ cho trình duyệt để đảm bảo giao diện cuộn mượt mà, không bị đơ
                 await new Promise(resolve => setTimeout(resolve, 80));
 
-                let docBlob, fileExt;
-                if (isPdfFormat) {
-                    docBlob = await generateExamPdfBlob(currentHeader, selectedQuestions);
-                    fileExt = 'pdf';
-                } else {
-                    docBlob = await generateExamDocx(currentHeader, selectedQuestions);
-                    fileExt = 'docx';
-                }
-
-                const safeFileName = `De_Thi_${headerOpts.deThiTitle.replace(/[^a-zA-Z0-9_\u00C0-\u1EF9]/g, '_')}_MaDe_${currentMaDe}.${fileExt}`;
+                const docBlob = await generateExamDocx(currentHeader, selectedQuestions);
+                const safeFileName = `De_Thi_${headerOpts.deThiTitle.replace(/[^a-zA-Z0-9_\u00C0-\u1EF9]/g, '_')}_MaDe_${currentMaDe}.docx`;
 
                 generatedFiles.push({
                     maDe: currentMaDe,
@@ -6280,7 +6246,7 @@ if (contentType && contentType.includes("application/json")) {
                 });
 
                 const endPercent = Math.round(((v + 1) / soLuongDe) * 80);
-                if (updateProgress) updateProgress(endPercent, `✅ Đã bốc ngẫu nhiên & tạo thành công mã đề ${currentMaDe} (${isPdfFormat ? 'PDF' : 'Word'})`, `Đã xong ${v + 1} / ${soLuongDe} đề`);
+                if (updateProgress) updateProgress(endPercent, `✅ Đã bốc ngẫu nhiên & tạo thành công mã đề ${currentMaDe} (Word)`, `Đã xong ${v + 1} / ${soLuongDe} đề`);
             }
 
             // 3. Tạo file Excel Bảng đáp án tổng hợp theo các cột mã đề thi
@@ -6302,9 +6268,8 @@ if (contentType && contentType.includes("application/json")) {
                 ? `Bang_Dap_An_MaDe_${startCode}.xlsx`
                 : `Bang_Dap_An_Tong_Hop_Cac_Ma_De_${startCode}_den_${endCode}.xlsx`;
 
-            // 4. Đóng gói toàn bộ file Word/PDF và file Excel đáp án vào file .ZIP
-            const fileTypeName = isPdfFormat ? 'PDF' : 'Word';
-            if (updateProgress) updateProgress(92, `📦 Đang nén các file ${fileTypeName} và file Excel đáp án vào file .ZIP...`, `${soLuongDe} / ${soLuongDe} đề`);
+            // 4. Đóng gói file Word và Excel đáp án vào file .ZIP
+            if (updateProgress) updateProgress(92, `📦 Đang nén các file Word và file Excel đáp án vào file .ZIP...`, `${soLuongDe} / ${soLuongDe} đề`);
             const zip = new JSZip();
             for (const doc of generatedFiles) {
                 zip.file(doc.fileName, doc.blob);
@@ -6340,8 +6305,8 @@ if (contentType && contentType.includes("application/json")) {
                 }, 500);
             }
 
-            if (updateProgress) updateProgress(100, `🎉 Hoàn tất! Đã tải về thành công bộ ${soLuongDe} đề thi ${fileTypeName} kèm file Excel đáp án`, `${soLuongDe} / ${soLuongDe} đề`);
-            showToast(`✅ Đã bốc ngẫu nhiên và xuất thành công bộ ${soLuongDe} mã đề thi ${fileTypeName} kèm file Excel đáp án (.zip)!`, 'success');
+            if (updateProgress) updateProgress(100, `🎉 Hoàn tất! Đã tải về thành công bộ ${soLuongDe} đề thi Word kèm file Excel đáp án`, `${soLuongDe} / ${soLuongDe} đề`);
+            showToast(`✅ Đã bốc ngẫu nhiên và xuất thành công bộ ${soLuongDe} mã đề thi Word kèm file Excel đáp án (.zip)!`, 'success');
 
             return generatedFiles;
         }
