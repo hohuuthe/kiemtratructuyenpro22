@@ -28,7 +28,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     try {
       const stmt = db.prepare(`SELECT * FROM app_settings WHERE id = 1`);
       data = await stmt.first();
-    } catch (queryErr) {}
+    } catch (queryErr) { throw queryErr; }
 
     if (!data) {
       data = {

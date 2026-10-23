@@ -28,6 +28,12 @@ export function resolveTenantFromHostname(hostname: string, env: any): string {
   throw new Error('Hostname is not registered in TENANT_HOST_MAP');
 }
 
-export function resolveTenantFromRequest(request: { url: string }, env: any): string {
-  return resolveTenantFromHostname(new URL(request.url).hostname, env);
+export function resolveTenantFromRequest(request: { url: string; headers?: Headers }, env: any): string {
+  const url=new URL(request.url);
+  const slug=resolveTenantFromHostname(url.hostname,env);
+  const normalize=(value:string)=>value==='root'?'default':value;
+  const supplied=[request.headers?.get?.('x-tenant-slug'),request.headers?.get?.('x-tenant'),...url.searchParams.getAll('tenant'),...url.searchParams.getAll('slug')].filter(Boolean);
+  if(supplied.some(value=>normalize(String(value))!==slug))throw new Error('Untrusted tenant selector');
+  return slug;
 }
+

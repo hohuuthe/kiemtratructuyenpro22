@@ -1,3 +1,4 @@
+import {asFlag} from '../../src/security-policy';
 import { verifyAuthSession, getDynamicSecret, checkIsAdmin, checkIsTeacherOrAdmin, getDatabase } from './exam/utils';
 import { isExamOwner, redactExamForPublic } from './exam/security';
 
@@ -154,7 +155,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
       query += " WHERE ec.creator_id = ?";
       params.push(teacherIdParam);
     } else if (sharedOnly && !isTeacher) {
-      query += " WHERE ec.is_shared_results = 1 OR ec.is_shared_results = 'true' OR ec.is_shared_results = true";
+      query += " WHERE CAST(ec.is_shared_results AS TEXT) IN ('1','true','t')";
     } else if (isTeacher) {
       query += " WHERE ec.creator_id = ?";
       params.push(user.id);
@@ -271,6 +272,12 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
   try {
     const body: any = await request.json();
+    const numericFields=[['time_limit','timeLimit','time'],['count_41','count41','num_trac_nghiem'],['count_tf4','countTF4','num_dung_sai'],['count_sq','countSQ','num_tra_loi_ngan'],['count_tl','countTL','num_tuluan'],['points_41','points41'],['points_tf4','pointsTF4'],['points_sq','pointsSQ'],['points_tl','pointsTL'],['max_attempts','maxAttempts'],['max_cheat_warnings','maxCheatWarnings']];
+    for(const aliases of numericFields) {
+      const v=aliases.map(k=>body[k]).find(v=>v!==undefined&&v!==null);
+      if(v!==undefined&&(!Number.isFinite(Number(v))||Number(v)<0||Number(v)>100000||((aliases[0].startsWith('count_')||aliases[0].startsWith('max_'))&&!Number.isInteger(Number(v)))))return new Response(JSON.stringify({error:'Invalid numeric exam configuration',field:aliases[0]}),{status:400,headers:corsHeaders});
+    }
+
     const {
       id,
       name,
@@ -278,7 +285,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       creatorId
     } = body;
 
-    if (!name || !name.trim()) {
+    if (typeof name!=='string' || !name.trim() || name.length>500) {
       return new Response(JSON.stringify({ error: "Tên đề thi không được để trống" }), { status: 400, headers: corsHeaders });
     }
 
@@ -290,34 +297,36 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     const countTF4Val = Number(body.count_tf4 ?? body.countTF4 ?? body.num_dung_sai ?? 0) || 0;
     const countSQVal = Number(body.count_sq ?? body.countSQ ?? body.num_tra_loi_ngan ?? 0) || 0;
     const countTLVal = Number(body.count_tl ?? body.countTL ?? body.num_tuluan ?? 0) || 0;
-    const points41Val = Number(body.points_41 ?? body.points41 ?? 1) || 1;
-    const pointsTF4Val = Number(body.points_tf4 ?? body.pointsTF4 ?? 1) || 1;
-    const pointsSQVal = Number(body.points_sq ?? body.pointsSQ ?? 1) || 1;
-    const pointsTLVal = Number(body.points_tl ?? body.pointsTL ?? 1) || 1;
+    const points41Val = Number(body.points_41 ?? body.points41 ?? 1);
+    const pointsTF4Val = Number(body.points_tf4 ?? body.pointsTF4 ?? 1);
+    const pointsSQVal = Number(body.points_sq ?? body.pointsSQ ?? 1);
+    const pointsTLVal = Number(body.points_tl ?? body.pointsTL ?? 1);
 
     const safeSelectedLessons = typeof body.selected_lessons === 'object' ? JSON.stringify(body.selected_lessons) : (typeof body.selectedLessons === 'object' ? JSON.stringify(body.selectedLessons) : (body.selected_lessons || body.selectedLessons || '[]'));
     const safeAccessControl = typeof body.access_control === 'object' ? JSON.stringify(body.access_control) : (typeof body.accessControl === 'object' ? JSON.stringify(body.accessControl) : (body.access_control || body.accessControl || null));
     const safeTf4Points = typeof body.tf4_points === 'object' ? JSON.stringify(body.tf4_points) : (typeof body.tf4Points === 'object' ? JSON.stringify(body.tf4Points) : (body.tf4_points || body.tf4Points || null));
     const safeCountsDetail = typeof body.counts_detail === 'object' ? JSON.stringify(body.counts_detail) : (typeof body.countsDetail === 'object' ? JSON.stringify(body.countsDetail) : (body.counts_detail || body.countsDetail || null));
-    const safeIsShared = (body.is_shared_results || body.isSharedResults) ? 1 : 0;
-    const safeImmediateFeedback = (body.immediate_feedback || body.immediateFeedback) ? 1 : 0;
-    const safeShowScore = (body.show_score ?? body.showScore ?? 1) ? 1 : 0;
-    const safeShowDetails = (body.show_details ?? body.showDetails ?? 1) ? 1 : 0;
-    const safeSqCaseSensitive = (body.sq_case_sensitive || body.sqCaseSensitive) ? 1 : 0;
-    const safeSqPunctuationSensitive = (body.sq_punctuation_sensitive || body.sqPunctuationSensitive) ? 1 : 0;
-    const safeAutoGradeEssay = (body.auto_grade_essay ?? body.autoGradeEssay ?? 1) ? 1 : 0;
-    const safeTf4ScoringMode = (body.tf4_scoring_mode ?? body.tf4ScoringMode ?? 0) ? 1 : 0;
+    const safeIsShared = asFlag(body.is_shared_results ?? body.isSharedResults,false) ? 1 : 0;
+    const safeImmediateFeedback = asFlag(body.immediate_feedback ?? body.immediateFeedback,false) ? 1 : 0;
+    const safeShowScore = asFlag(body.show_score ?? body.showScore,true) ? 1 : 0;
+    const safeShowDetails = asFlag(body.show_details ?? body.showDetails,true) ? 1 : 0;
+    const safeSqCaseSensitive = asFlag(body.sq_case_sensitive ?? body.sqCaseSensitive,false) ? 1 : 0;
+    const safeSqPunctuationSensitive = asFlag(body.sq_punctuation_sensitive ?? body.sqPunctuationSensitive,false) ? 1 : 0;
+    const safeAutoGradeEssay = asFlag(body.auto_grade_essay ?? body.autoGradeEssay,false) ? 1 : 0;
+    const safeTf4ScoringMode = asFlag(body.tf4_scoring_mode ?? body.tf4ScoringMode,false) ? 1 : 0;
     const maxAttemptsVal = Math.max(0, Number(body.max_attempts ?? body.maxAttempts ?? 0) || 0);
     const chedodethiVal = body.chedodethi || 'Đề công khai';
     const mabaomatdethiVal = body.mabaomatdethi || '';
-    const targetLopVal = (body.target_lop ?? body.targetLop ?? body.lop ?? '').trim();
+    const targetLopVal = String(body.target_lop ?? body.targetLop ?? body.lop ?? '').trim();
+    const targetDonviVal=String(body.target_donvi ?? body.targetDonvi ?? body.donvi ?? '').trim();
+    const maxCheatVal=Math.max(1,Number(body.max_cheat_warnings ?? body.maxCheatWarnings ?? 5));
     const tgBdVal = body.tg_bd || null;
     const tgKtVal = body.tg_kt || null;
     const aiPromptVal = body.ai_prompt ?? body.aiPrompt ?? '';
     const aiGradingKeyVal = body.ai_grading_key ?? body.aiGradingKey ?? null;
     const tieuDeBaiThiVal = (body.tieu_de_bai_thi ?? body.tieuDeBaiThi ?? '').trim();
-    const safeKeepRawScore = (body.keep_raw_score || body.keepRawScore) ? 1 : 0;
-    const now = new Date().toISOString();
+    const safeKeepRawScore = asFlag(body.keep_raw_score ?? body.keepRawScore,false) ? 1 : 0;
+    let now = new Date().toISOString();
 
     // Kiểm tra xem đề đã tồn tại chưa (theo id hoặc theo name + creator_id)
     let existingRecord: any = null;
@@ -331,6 +340,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
     if (id && !existingRecord) return new Response(JSON.stringify({error:'Đề thi cần cập nhật không tồn tại'}), {status:404,headers:corsHeaders});
     if (existingRecord) {
+      now = new Date(Math.max(Date.now(), (Date.parse(existingRecord.updated_at || '') || 0) + 1)).toISOString();
       if (!id) return new Response(JSON.stringify({error:'Tên đề đã tồn tại. Không tự ghi đè đề cũ.',code:'DUPLICATE_EXAM_NAME'}), {status:409,headers:corsHeaders});
       if (body.expected_updated_at === undefined || body.expected_updated_at === null ||
           String(body.expected_updated_at) !== String(existingRecord.updated_at ?? '')) {
@@ -348,7 +358,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
           selected_lessons = ?, tf4_scoring_mode = ?, tf4_points = ?, access_control = ?,
           immediate_feedback = ?, show_score = ?, show_details = ?,
           sq_case_sensitive = ?, sq_punctuation_sensitive = ?, auto_grade_essay = ?,
-          counts_detail = ?, chedodethi = ?, mabaomatdethi = ?, target_lop = ?, lop = ?, tg_bd = ?, tg_kt = ?,
+          counts_detail = ?, chedodethi = ?, mabaomatdethi = ?, target_lop = ?, lop = ?, target_donvi = ?, donvi = ?, max_cheat_warnings = ?, tg_bd = ?, tg_kt = ?,
           ai_prompt = ?, ai_grading_key = ?, tieu_de_bai_thi = ?, is_shared_results = ?, max_attempts = ?, keep_raw_score = ?, updated_at = ?
         WHERE id = ? AND updated_at IS NOT DISTINCT FROM ?
       `;
@@ -359,7 +369,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         safeSelectedLessons, safeTf4ScoringMode, safeTf4Points, safeAccessControl,
         safeImmediateFeedback, safeShowScore, safeShowDetails,
         safeSqCaseSensitive, safeSqPunctuationSensitive, safeAutoGradeEssay,
-        safeCountsDetail, chedodethiVal, mabaomatdethiVal, targetLopVal, targetLopVal, tgBdVal, tgKtVal,
+        safeCountsDetail, chedodethiVal, mabaomatdethiVal, targetLopVal, targetLopVal, targetDonviVal, targetDonviVal, maxCheatVal, tgBdVal, tgKtVal,
         aiPromptVal, aiGradingKeyVal, tieuDeBaiThiVal, safeIsShared, maxAttemptsVal, safeKeepRawScore, now, existingRecord.id, existingRecord.updated_at ?? null
       ).run();
       if (updateResult.meta?.changes !== 1) return new Response(JSON.stringify({error:'Đề đã thay đổi đồng thời, hãy nạp lại.',code:'EXAM_VERSION_CONFLICT'}), {status:409,headers:corsHeaders});
@@ -375,9 +385,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
           selected_lessons, tf4_scoring_mode, tf4_points, access_control,
           immediate_feedback, show_score, show_details,
           sq_case_sensitive, sq_punctuation_sensitive, auto_grade_essay,
-          counts_detail, chedodethi, mabaomatdethi, target_lop, lop, tg_bd, tg_kt,
+          counts_detail, chedodethi, mabaomatdethi, target_lop, lop, target_donvi, donvi, max_cheat_warnings, tg_bd, tg_kt,
           ai_prompt, is_shared_results, ai_grading_key, max_attempts, keep_raw_score, tieu_de_bai_thi, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
 
       await db.prepare(insertSql).bind(
@@ -386,7 +396,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         safeSelectedLessons, safeTf4ScoringMode, safeTf4Points, safeAccessControl,
         safeImmediateFeedback, safeShowScore, safeShowDetails,
         safeSqCaseSensitive, safeSqPunctuationSensitive, safeAutoGradeEssay,
-        safeCountsDetail, chedodethiVal, mabaomatdethiVal, targetLopVal, targetLopVal, tgBdVal, tgKtVal,
+        safeCountsDetail, chedodethiVal, mabaomatdethiVal, targetLopVal, targetLopVal, targetDonviVal, targetDonviVal, maxCheatVal, tgBdVal, tgKtVal,
         aiPromptVal, safeIsShared, aiGradingKeyVal, maxAttemptsVal, safeKeepRawScore, tieuDeBaiThiVal, now, now
       ).run();
 
@@ -407,6 +417,12 @@ export const onRequestDelete: PagesFunction<Env> = async (context) => {
   if (!id) {
     try {
       const body: any = await request.json();
+    const numericFields=[['time_limit','timeLimit','time'],['count_41','count41','num_trac_nghiem'],['count_tf4','countTF4','num_dung_sai'],['count_sq','countSQ','num_tra_loi_ngan'],['count_tl','countTL','num_tuluan'],['points_41','points41'],['points_tf4','pointsTF4'],['points_sq','pointsSQ'],['points_tl','pointsTL'],['max_attempts','maxAttempts'],['max_cheat_warnings','maxCheatWarnings']];
+    for(const aliases of numericFields) {
+      const v=aliases.map(k=>body[k]).find(v=>v!==undefined&&v!==null);
+      if(v!==undefined&&(!Number.isFinite(Number(v))||Number(v)<0||Number(v)>100000||((aliases[0].startsWith('count_')||aliases[0].startsWith('max_'))&&!Number.isInteger(Number(v)))))return new Response(JSON.stringify({error:'Invalid numeric exam configuration',field:aliases[0]}),{status:400,headers:corsHeaders});
+    }
+
       id = body?.id;
     } catch {}
   }

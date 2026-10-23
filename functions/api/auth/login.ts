@@ -54,7 +54,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
     // Lấy tài khoản theo username kết hợp thông tin hồ sơ người dùng từ bảng users
     const stmt = db.prepare(`
-      SELECT accounts.id, accounts.user_id, accounts.username, accounts.password, accounts.role, accounts.is_active, accounts.expiry_date, accounts.created_at,
+      SELECT accounts.xmin::text AS account_revision, users.xmin::text AS profile_revision, accounts.id, accounts.user_id, accounts.username, accounts.password, accounts.role, accounts.is_active, accounts.expiry_date, accounts.created_at,
              users.full_name, users.phone_number, users.target_audience, users.donvi, users.lop, users.gender, users.dob, users.address, users.occupation, users.payment_status, users.payment_method, users.is_active AS profile_active, users.expiry_date AS profile_expiry_date
       FROM accounts 
       LEFT JOIN users ON users.id = COALESCE(accounts.user_id, accounts.id)
@@ -80,7 +80,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     if (!result.password.startsWith('pbkdf2:sha256:')) {
         try {
             const upgradedHash = await hashPasswordPBKDF2(password);
-            await db.prepare(`UPDATE accounts SET password = ? WHERE id = ?`).bind(upgradedHash, result.id).run();
+            const updated = await db.prepare(`UPDATE accounts SET password = ? WHERE id = ? AND password = ? RETURNING xmin::text AS account_revision`).bind(upgradedHash, result.id, result.password).first();
+            if (!updated) throw new Error('Account changed during login');
+            result.account_revision = updated.account_revision;
             result.password = upgradedHash;
         } catch (upgradeErr) {
             console.warn("Không thể tự động nâng cấp hash mật khẩu:", upgradeErr);
@@ -95,7 +97,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
     // Ký JWT
     const SECRET = await getDynamicSecret(db, env.JWT_SECRET);
-    const token = await signAuthSession(account, { 
+    const token = await signAuthSession(result, { 
         id: account.id,
         user_id: account.user_id || account.id,
         role: account.role, 
@@ -107,7 +109,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     }, SECRET, String(db.connectionUrl || ''));
 
     // Never return password hashes to the browser, even after successful login.
-    const { password: _passwordHash, ...safeAccount } = account;
+    const { password: _passwordHash, account_revision: _ar, profile_revision: _pr, ...safeAccount } = account;
     return new Response(JSON.stringify({
         data: safeAccount,
         token: token,

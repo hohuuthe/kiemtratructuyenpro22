@@ -1,3 +1,4 @@
+import {canonicalRole} from '../../../src/security-policy';
 /**
  * Explicit response allowlists for exam data sent to untrusted clients.
  * A signed JWT is readable by its holder; never put passwords, AI keys or prompts in it.
@@ -23,8 +24,8 @@ export function isExamOwner(user: any, row: any): boolean {
   if (!user || !row) return false;
   const role = String(user.role || '').trim().toLowerCase();
   const audience = String(user.target_audience || '').trim().toLowerCase();
-  if (role === 'admin' || audience === 'admin' || audience === 'quản trị viên') return true;
-  return !!row.creator_id && String(row.creator_id) === String(user.id);
+  if (canonicalRole(role) === 'admin') return true;
+  return canonicalRole(role) === 'teacher' && !!row.creator_id && [String(user.id),String(user.user_id || user.id)].includes(String(row.creator_id));
 }
 export function redactExamForPublic(row: any): any {
   const safe: any = {};
@@ -49,7 +50,7 @@ const gradeFields = [
   'tf4ScoringMode','tf4_scoring_mode','sqCaseSensitive','sq_case_sensitive',
   'sqPunctuationSensitive','sq_punctuation_sensitive','autoGradeEssay',
   'auto_grade_essay','keepRawScore','keep_raw_score','scoringScale',
-  'showDetails','show_details'
+  'showDetails','show_details','showScore','show_score'
 ];
 export function makeGradeSessionConfig(row: any): any {
   const safe: any = {};

@@ -12,8 +12,9 @@ const tenants = { TENANT_HOST_MAP: JSON.stringify({
 test('hostname alone selects a tenant; headers / query / referer cannot switch', () => {
   const request = (host, tenant) => ({url:'https://' + host + '/api/results?tenant='+tenant,
     headers:new Headers({'x-tenant-slug':tenant,Referer:'https://school-b.example.vn/'})});
-  assert.equal(resolveTenantFromRequest(request('school-a.example.vn','school_b'),tenants),'school_a');
-  assert.equal(resolveTenantFromRequest(request('school-b.example.vn','school_a'),tenants),'school_b');
+  assert.throws(()=>resolveTenantFromRequest(request('school-a.example.vn','school_b'),tenants));
+  assert.equal(resolveTenantFromRequest(request('school-a.example.vn','school_a'),tenants),'school_a');
+  assert.throws(()=>resolveTenantFromRequest(request('school-b.example.vn','school_a'),tenants));
   assert.equal(resolveTenantFromHostname('exam.example.vn',tenants),'default');
   assert.throws(()=>resolveTenantFromHostname('evil.example.vn',tenants));
   assert.throws(()=>resolveTenantFromHostname('school-a.example.vn.evil.com',tenants));
@@ -36,7 +37,8 @@ test('Page and Node exam endpoints require atomic conflict protection and no nam
   const fs=await import('node:fs');
   const page=fs.readFileSync('functions/api/exams.ts','utf8');
   const node=fs.readFileSync('server.ts','utf8');
-  for (const source of [page,node]) {
+  assert.match(node,/dispatchPagesApi/);
+  for (const source of [page]) {
     assert.match(source,/updated_at IS NOT DISTINCT FROM \?/);
     assert.match(source,/updateResult/);
     assert.match(source,/409/);

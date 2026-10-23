@@ -21,7 +21,9 @@ test('Security release: real API handlers on two isolated PostgreSQL engines (of
   neonConfig.fetchFunction=async(url:any,options:any)=>{
     assert.equal(url,endpoint,'Unexpected network destination');
     const headers=new Headers(options.headers),connection=headers.get('Neon-Connection-String');
-    const which=connection===urls.a?'a':connection===urls.b?'b':null;
+    const parsed=new URL(connection || '');
+    assert.equal(parsed.username,'fixture');assert.equal(parsed.password,'fixture');
+    const which=parsed.hostname==='tenant-a.invalid'&&parsed.pathname==='/testa'?'a':parsed.hostname==='tenant-b.invalid'&&parsed.pathname==='/testb'?'b':null;
     assert.ok(which,'Only two explicit test databases are allowed');
     if(unavailable)return new Response(JSON.stringify({message:'simulated database unavailable',code:'08006'}),{status:503});
     const payload=JSON.parse(options.body),db=engines[which!];calls.push({which,payload});
@@ -52,6 +54,7 @@ test('Security release: real API handlers on two isolated PostgreSQL engines (of
   try {
     const password=await hashPasswordPBKDF2('Fixture-password-2026');
     for(const which of ['a','b'] as const){
+      assert.equal((await shims[which].prepare('SELECT 1 AS driver_preflight').first()).driver_preflight,1);
       await ensureD1SchemaAndIndexes(shims[which]);
       await engines[which].exec('ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS keep_raw_score INTEGER DEFAULT 0; ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS target_donvi TEXT; ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS donvi TEXT;');
       for(const [id,role] of [['admin','admin'],['teacher','teacher'],['other','teacher'],['student','user'],['same-name','user']]){
@@ -142,6 +145,20 @@ test('Security release: real API handlers on two isolated PostgreSQL engines (of
     });
     await t.test('database failures never become fabricated health or successful submissions',async()=>{
       const generated=await issue(await createExam());unavailable=true;try{assert.ok((await request('a','/api/health')).status>=500);assert.ok((await submit(generated,['B'])).status>=500);}finally{unavailable=false;}
+    });
+    await t.test('short image upload capability cannot access grading or management APIs',async()=>{
+      const generated=await issue(await createExam());assert.ok(generated.uploadToken.length<1500);
+      const body={base64:'data:image/png;base64,iVBORw0KGgo='};
+      assert.equal((await request('a','/api/upload-image',{method:'POST',token:generated.uploadToken,body})).status,200);
+      assert.equal((await request('a','/api/exams',{method:'POST',token:generated.uploadToken,body:{name:'Forbidden'}})).status,401);
+      assert.equal((await request('a','/api/upload-image',{method:'POST',token:generated.token,body})).status,401);
+      assert.equal((await request('b','/api/upload-image',{method:'POST',token:generated.uploadToken,body})).status,401);
+    });
+    await t.test('answer images cannot persist active HTML or SVG payloads',async()=>{
+      const generated=await issue(await createExam());
+      for(const image of ['https://image.invalid/a" onerror="alert(1)','javascript:alert(1)','data:image/svg+xml;base64,PHN2Zz4=']) {
+        assert.equal((await submit(generated,[{text:'essay',image}])).status,400);
+      }
     });
     await t.test('tenant fixtures remain physically distinct and transactions were used',async()=>{
       assert.equal((await sql('SELECT count(*)::int AS n FROM results',[],'b')).rows[0].n,3);assert.ok(calls.some(c=>Array.isArray(c.payload.queries)&&c.payload.queries.some((q:any)=>q.query.includes('_submitted_exam_tokens'))));

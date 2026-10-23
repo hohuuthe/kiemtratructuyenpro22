@@ -46,6 +46,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     if (!teacherDonvi && user.donvi) {
       teacherDonvi = user.donvi.trim();
     }
+    if (!teacherDonvi) return new Response(JSON.stringify({data:[],error:null}),{status:200,headers:corsHeaders});
   }
 
   const url = new URL(request.url);

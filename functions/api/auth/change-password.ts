@@ -1,4 +1,4 @@
-import { verifyPasswordPBKDF2, hashPasswordPBKDF2, getDatabase } from '../exam/utils';
+import { verifyPasswordPBKDF2, hashPasswordPBKDF2, getDatabase, isLiveAccount } from '../exam/utils';
 
 export async function onRequestPost(context: any) {
     const { request, env } = context;
@@ -14,7 +14,7 @@ export async function onRequestPost(context: any) {
         const body = await request.json();
         const { username, oldPassword, newPassword } = body;
         
-        if (!username || !oldPassword || !newPassword) {
+        if (![username,oldPassword,newPassword].every(v=>typeof v==='string'&&v.length>0&&v.length<=1024)) {
             return new Response(JSON.stringify({ error: "Vui lòng cung cấp đầy đủ thông tin!" }), { status: 400, headers: corsHeaders });
         }
 
@@ -28,13 +28,14 @@ export async function onRequestPost(context: any) {
         }
 
         const account = results[0];
-        const isValid = await verifyPasswordPBKDF2(oldPassword, account.password);
+        const isValid = isLiveAccount(account) && await verifyPasswordPBKDF2(oldPassword, account.password);
         if (!isValid) {
             return new Response(JSON.stringify({ error: "Tên đăng nhập hoặc mật khẩu cũ không đúng!" }), { status: 400, headers: corsHeaders });
         }
 
         const hashedNewPassword = await hashPasswordPBKDF2(newPassword);
-        await db.prepare("UPDATE accounts SET password = ? WHERE id = ?").bind(hashedNewPassword, account.id).run();
+        const saved=await db.prepare("UPDATE accounts SET password = ? WHERE id = ? AND password = ?").bind(hashedNewPassword, account.id, account.password).run();
+        if(saved.meta.changes!==1)return new Response(JSON.stringify({error:"Account changed; please sign in again"}),{status:409,headers:corsHeaders});
 
         return new Response(JSON.stringify({ data: { success: true }, error: null }), { status: 200, headers: corsHeaders });
     } catch (e: any) {

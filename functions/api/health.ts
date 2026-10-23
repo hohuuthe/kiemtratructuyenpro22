@@ -1,3 +1,4 @@
+import {resolveTenantFromRequest} from '../../src/tenant-host-map';
 import { getEffectiveDb } from './neon-adapter';
 
 interface Env {
@@ -16,14 +17,14 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     'Content-Type': 'application/json'
   };
 
-  const slug = request.headers.get('x-tenant-slug') || '';
+  const slug = resolveTenantFromRequest(request,env);
   let dbStatus = "UNKNOWN";
   let dbError = null;
   let userCount = 0;
 
   try {
     const db = getEffectiveDb(context);
-    const res = await db.prepare("SELECT COUNT(*) as count FROM users").first();
+    const res = await db.prepare("SELECT 1 AS count").first();
     userCount = Number(res?.count || 0);
     dbStatus = "CONNECTED_OK";
   } catch (err: any) {
@@ -41,8 +42,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     },
     database: {
       status: dbStatus,
-      user_count: userCount,
-      error: dbError
+      error: dbStatus === "CONNECTED_OK" ? null : "DATABASE_UNAVAILABLE"
     },
     timestamp: new Date().toISOString()
   }, null, 2), {

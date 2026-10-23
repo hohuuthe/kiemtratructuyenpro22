@@ -93,9 +93,10 @@ test('Server-side exam confidentiality, JWT expiry and cross-owner write guards'
  assert.ok(generate.includes('makeGradeSessionConfig(activeExamConfig)'));
  assert.ok(questions.includes('WHERE questions.creator_id = excluded.creator_id'));
  assert.ok(login.includes('safeAccount'));
- assert.ok(login.includes('signAuthSession(account,'));
+ assert.ok(login.includes('signAuthSession(result,'));
  assert.ok(utils.includes('exp:now + 12*3600'));
- assert.ok(utils.includes('Number(claims.exp) <= now'));
+ assert.ok(utils.includes('claims.exp <= now'));
+ assert.ok(utils.includes("typeof claims.exp !== 'number'"));
 });
 
 test('Security invariants: tenant routing, account secrecy and atomic exam revisions',()=>{
@@ -121,7 +122,7 @@ test('Authentication is bound to live account state and privilege cannot rely on
  const utils=read('functions/api/exam/utils.ts');
  const login=read('functions/api/auth/login.ts');
  for(const p of ["export async function verifyAuthSession(","accountProof(account, secret, tenantKey)","isLiveAccount(account)","decoded.tokenType !== 'auth'","account.role","account.password","profile_expiry_date"])assert.ok(utils.includes(p),p);
- assert.ok(login.includes('signAuthSession(account,'));
+ assert.ok(login.includes('signAuthSession(result,'));
  assert.ok(utils.includes("const actual = await accountProof(account, secret, String(db.connectionUrl || ''))"));
  for(const path of ['functions/api/exams.ts','functions/api/questions.ts','functions/api/results.ts','functions/api/accounts.ts','functions/api/users.ts','functions/api/teacher-classes.ts']) {
    const t=read(path);
@@ -134,7 +135,9 @@ test('Results no longer authorize ambiguous student names or exam-name ownership
  assert.ok(!result.includes('r.exam_name = e.name'));
  assert.ok(!result.includes('row.student_name === user.full_name'));
  assert.ok(!result.includes('r.user_id IS NULL AND r.student_name = ?'));
- assert.ok(result.includes('String(row.user_id) === String(user.id)'));
+ assert.ok(result.includes('user.id'));
+ assert.ok(result.includes('scope.sql'));
+ assert.ok(result.includes('user.user_id')); // Runtime API identity collisions are tested separately.
 });
 test('Two-client conflict SQL has atomic compare-and-swap',()=>{
  const exams=read('functions/api/exams.ts');

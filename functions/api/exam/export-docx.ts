@@ -150,6 +150,10 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       console.error("Lỗi khi tìm cấu hình đề thi từ DB:", dbErr);
     }
 
+    if (!checkIsTeacherOrAdmin(tokenUser) || (!checkIsAdmin(tokenUser) && String(dbExam?.creator_id || teacherId) !== String(tokenUser.id))) {
+      return new Response(JSON.stringify({error:'Exam export is restricted to its owner'}),{status:403,headers:{'Content-Type':'application/json'}});
+    }
+
     const mapRowRead = (row: any) => {
       const mapped: any = {};
       for (const [key, val] of Object.entries(row)) {

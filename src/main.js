@@ -1,3 +1,4 @@
+import {escapeImageSource as safeImageSrc} from './safe-image-url.js';
 
 import 'katex/dist/katex.min.css';
 import { createEmptyExamDraft, mapStoredExamToDraft, resolveExamSaveIdentity } from './exam-editor-safety.js';
@@ -16,8 +17,8 @@ import { inspectScientificDocx, WORD_IMPORT_ENGINE_VERSION } from './word-omml-r
 import { verifyImportedWordQuestions, checkWordImportBeforeSave, correctImportedWordEquation, normalizeWordImportAnswer } from './word-import-verification.js';
 import { splitScientificContent } from './scientific-formula-tokenizer.js';
 import { splitLabeledScientificRecords } from './scientific-formula-records.js';
-import { generateExamPdfBlob } from './exam-pdf-generator.ts';
-import { generateExamAnswerExcel } from './exam-excel-generator.ts';
+const generateExamPdfBlob = async (...args) => (await import('./exam-pdf-generator.ts')).generateExamPdfBlob(...args);
+const generateExamAnswerExcel = async (...args) => (await import('./exam-excel-generator.ts')).generateExamAnswerExcel(...args);
 import { 
     renderScientificContent, 
     renderKatexToString, 
@@ -40,8 +41,9 @@ if (typeof window !== 'undefined') {
         }
     };
     window.confirm = function(msg) {
-        console.warn('Blocked native confirm:', msg);
-        return true; 
+        console.warn('Native confirm requires an explicit custom confirmation:', msg);
+        if (typeof window.showToast === 'function') window.showToast('Vui lòng xác nhận thao tác trong hộp thoại của ứng dụng.', 'warning');
+        return false; 
     };
     window.prompt = function(msg) {
         console.warn('Blocked native prompt:', msg);
@@ -188,13 +190,6 @@ if (typeof window !== 'undefined') {
 
 // Cố tình bọc lại console.error để lọc các thông báo lỗi liên quan đến "Failed to fetch" (do máy chủ restart / mạng yếu)
 // nhằm ngăn chặn hiển thị lỗi này lên màn hình Console và AI Studio.
-const originalConsoleError = console.error;
-console.error = function(...args) {
-    if (args.some(arg => arg && arg.message && (arg.message.includes('Failed to fetch') || arg.message.includes('NetworkError')))) return;
-    if (args.some(arg => typeof arg === 'string' && (arg.includes('Failed to fetch') || arg.includes('NetworkError')))) return;
-    originalConsoleError.apply(console, args);
-};
-
 // Hàm tự động kiểm tra và nạp thư viện ExcelJS/FileSaver nếu chưa sẵn sàng
 async function ensureExcelJSReady() {
     if (typeof window.ExcelJS !== 'undefined' && typeof window.saveAs !== 'undefined') {
@@ -202,7 +197,7 @@ async function ensureExcelJSReady() {
     }
     
     const loadScript = (src) => new Promise((resolve, reject) => {
-        const existing = document.querySelector(`script[src="${src}"]`);
+        const existing = document.querySelector(`script[src="${safeImageSrc(src)}"]`);
         if (existing) {
             if (existing.getAttribute('data-loaded') === 'true') return resolve(true);
             existing.addEventListener('load', () => resolve(true));
@@ -1289,25 +1284,24 @@ if (contentTypeConfig && contentTypeConfig.includes("application/json")) {
         }
 
         function escapeHTML(text) {
-            if (!text && text !== 0) return '';
-            let str = String(text);
-            
-            const mathBlocks = [];
-            const saveBlock = (match) => {
-                mathBlocks.push(match);
-                return `XMBX${mathBlocks.length - 1}XMBX`;
+            return String(text ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
+        }
+        // Confirmation messages support formatting, never active content or attributes.
+        function safeConfirmationHtml(message) {
+            const doc=new DOMParser().parseFromString(String(message ?? ''),'text/html');
+            const tags=new Set(['B','STRONG','I','EM','BR','P','SPAN','UL','OL','LI','DIV']);
+            const clean=node=>{
+                if(node.nodeType===3)return document.createTextNode(node.textContent || '');
+                if(node.nodeType!==1)return document.createTextNode('');
+                if(!tags.has(node.tagName))return document.createTextNode(node.textContent || '');
+                const el=document.createElement(node.tagName.toLowerCase());
+                if(/^[a-zA-Z0-9_ :./\[\]%-]+$/.test(node.className || ''))el.className=node.className;
+                for(const child of node.childNodes)el.appendChild(clean(child));
+                return el;
             };
-            
-            str = str.replace(/(\$\$|\\\[|\\\(|\$|\\ce\{|\\pu\{|\\begin\{)(.*?)(\$\$|\\\]|\\\)|(?:\$|\}|\end\{[^}]+\}))/gs, saveBlock);
-            
-            str = str.replace(/&/g, '&amp;')
-                     .replace(/</g, '&lt;')
-                     .replace(/>/g, '&gt;')
-                     .replace(/"/g, '&quot;')
-                     .replace(/'/g, '&#039;');
-                     
-            str = str.replace(/XMBX(\d+)XMBX/g, (match, p1) => mathBlocks[p1] || '');
-            return str;
+            const wrapper=document.createElement('div');
+            for(const child of doc.body.childNodes)wrapper.appendChild(clean(child));
+            return wrapper.innerHTML;
         }
 
         window.formatContent = formatContent;
@@ -1316,7 +1310,6 @@ if (contentTypeConfig && contentTypeConfig.includes("application/json")) {
         const escapeHtml = escapeHTML;
 
         // ==================== CONFIGURATION ====================
-        const ADMIN_PASSWORD = 'giaovien';
         const doi_tuong = 0; // 0: Mặc định, 1: Dành cho học sinh (ẩn đăng nhập, đổi tiêu đề)
         const thong_tin_khach_hang = "Xin chào thầy cô, chúc thầy cô một ngày vui vẻ."; // Thông tin khách hàng
         const ho_ten_khach_hang = "Giáo viên"; // Họ tên khách hàng (Người tạo đề thi)
@@ -4843,7 +4836,7 @@ if (contentType && contentType.includes("application/json")) {
 
                     <!-- Image Display Area -->
                     <div id="zoom-img-wrapper" class="flex-1 overflow-auto p-3 sm:p-6 flex items-center justify-center bg-slate-950/70 min-h-[300px] max-h-[82vh] cursor-grab active:cursor-grabbing">
-                        <img id="zoom-target-image" src="${src}" alt="Hình ảnh phóng to" class="max-w-full max-h-[76vh] object-contain rounded-lg shadow-xl bg-white/5 border border-white/10 p-1 sm:p-2 transition-transform duration-150 ease-out" style="transform: scale(1) rotate(0deg);">
+                        <img id="zoom-target-image" src="${safeImageSrc(src)}" alt="Hình ảnh phóng to" class="max-w-full max-h-[76vh] object-contain rounded-lg shadow-xl bg-white/5 border border-white/10 p-1 sm:p-2 transition-transform duration-150 ease-out" style="transform: scale(1) rotate(0deg);">
                     </div>
 
                     <!-- Footer / Hint bar -->
@@ -4965,17 +4958,17 @@ if (contentType && contentType.includes("application/json")) {
             const modalContent = `
                 <div class="p-4 sm:p-5 w-full max-w-sm mx-auto flex flex-col">
                     <h3 class="text-base sm:text-lg font-bold text-gray-800 mb-2 flex items-center gap-2 border-b border-gray-100 pb-2 shrink-0">
-                        ${title}
+                        ${escapeHTML(title)}
                     </h3>
                     <div class="text-gray-600 mb-4 text-sm sm:text-base leading-snug overflow-x-hidden shrink-0">
-                        ${message}
+                        ${safeConfirmationHtml(message)}
                     </div>
                     <div class="flex flex-row justify-end gap-2 shrink-0 mt-1">
                         ${cancelText ? `<button onclick="${isSecondary ? 'closeSecondaryModal()' : 'closeModal()'}" class="flex-1 sm:flex-none px-3 py-2 sm:px-4 sm:py-2.5 bg-gray-100 text-gray-700 font-semibold rounded-xl hover:bg-gray-200 transition text-sm text-center border border-gray-200 active:scale-95">
-                            ${cancelText}
+                            ${escapeHTML(cancelText)}
                         </button>` : ''}
                         <button id="confirm-modal-btn" class="flex-1 sm:flex-none px-4 py-2 sm:px-5 sm:py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold rounded-xl hover:from-emerald-700 hover:to-teal-700 shadow-md shadow-emerald-200 transition text-sm text-center active:scale-95">
-                            ${confirmText}
+                            ${escapeHTML(confirmText)}
                         </button>
                     </div>
                 </div>
@@ -6293,7 +6286,7 @@ if (contentType && contentType.includes("application/json")) {
                 namHoc: headerOpts.namHoc || "NĂM HỌC 2026 - 2027",
                 thoiGian: headerOpts.thoiGian || 45
             };
-            const excelBuffer = generateExamAnswerExcel(excelHeaderInfo, examAnswerDocs);
+            const excelBuffer = await generateExamAnswerExcel(excelHeaderInfo, examAnswerDocs);
             const excelBlob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 
             const startCode = generatedFiles[0].maDe;
@@ -7318,7 +7311,7 @@ if (contentType && contentType.includes("application/json")) {
                     
                     configDisplay.innerHTML = `
                         <div class="flex items-center gap-2 mb-3 flex-wrap">
-                            <span class="text-lg font-bold text-purple-800">Thông tin cấu hình đề thi: ${examConfig.name || 'Chưa có tên'}</span></u>
+                            <span class="text-lg font-bold text-purple-800">Thông tin cấu hình đề thi: ${escapeHTML(examConfig.name || 'Chưa có tên')}</span></u>
                             <span class="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-sm font-semibold">${total} câu / ${examConfig.timeLimit} phút</span></u>
                             <span class="px-3 py-1 bg-indigo-100 text-indigo-700 rounded-full text-sm font-semibold">${(examConfig.maxAttempts && examConfig.maxAttempts > 0) ? `Giới hạn: ${examConfig.maxAttempts} lần` : 'Không giới hạn lần làm'}</span></u>
                             <span class="text-sm text-gray-600 font-semibold italic ml-auto">Người tạo đề thi: <span class="text-purple-600">${accountsMap[examConfig.creatorId] || ho_ten_khach_hang}</span></u></span></u>
@@ -7690,7 +7683,8 @@ if (contentType && contentType.includes("application/json")) {
                 
                 const result = await response.json();
                 const examQuestions = result.questions;
-                window.currentExamToken = result.token; // Lưu khóa bảo mật để chấm điểm sau
+                window.currentExamToken = result.token;
+                window.currentExamUploadToken = result.uploadToken || null; // Lưu khóa bảo mật để chấm điểm sau
 
                 // Cập nhật chế độ công bố kết quả ngay lập tức trực tiếp từ phản hồi máy chủ
                 if (result.immediateFeedback !== undefined) {
@@ -8082,7 +8076,7 @@ if (contentType && contentType.includes("application/json")) {
                                 <div class="font-bold text-gray-900 leading-tight responsive-q-text mb-2 md:mb-3" style="--base-q-size: ${appSettings.questionFontSize || 24}px;">
                                     <span class="mr-2 text-blue-500 italic">Câu ${index + 1}:</span></u>${formatContent(q.content)}
                                 </div>
-                                ${q.image ? `<img src="${q.image}" alt="Question image" class="max-w-full h-auto rounded-xl shadow-lg max-h-96 cursor-zoom-in transition-transform hover:scale-[1.02]" onclick="zoomImage(this.src)">` : ''}
+                                ${q.image ? `<img src="${safeImageSrc(q.image)}" alt="Question image" class="max-w-full h-auto rounded-xl shadow-lg max-h-96 cursor-zoom-in transition-transform hover:scale-[1.02]" onclick="zoomImage(this.src)">` : ''}
                             </div>
                             <div class="flex-1">
                                 ${optionsHtml}
@@ -8155,7 +8149,7 @@ if (contentType && contentType.includes("application/json")) {
                             <div class="font-bold text-gray-800 leading-tight responsive-q-text mb-2" style="--base-q-size: ${appSettings.questionFontSize || 24}px;">
                                 <span class="mr-2 text-blue-500 italic">Câu ${index + 1}/${currentExam.questions.length}:</span></u>${formatContent(q.content)}
                             </div>
-                            ${q.image ? `<div class="flex justify-center mb-2"><img src="${q.image}" alt="Question image" class="max-w-full h-auto rounded-xl shadow-md max-h-64 cursor-zoom-in transition-transform hover:scale-[1.02] border border-gray-200" onclick="zoomImage(this.src)"></div>` : ''}
+                            ${q.image ? `<div class="flex justify-center mb-2"><img src="${safeImageSrc(q.image)}" alt="Question image" class="max-w-full h-auto rounded-xl shadow-md max-h-64 cursor-zoom-in transition-transform hover:scale-[1.02] border border-gray-200" onclick="zoomImage(this.src)"></div>` : ''}
                         </div>
                         <div class="flex-1 overflow-y-auto custom-scrollbar pr-1 pb-2">
                             ${optionsHtml}
@@ -8238,7 +8232,7 @@ if (contentType && contentType.includes("application/json")) {
                         <div onclick="selectAnswer('${opt}', ${index})" class="group question-option px-4 py-3 border-2 rounded-2xl cursor-pointer transition-all duration-200 ease-in-out ${optionClass} flex items-center gap-2 min-h-[3rem]">
                             <div class="text-gray-700 font-semibold leading-tight break-words responsive-a-text group-hover:text-gray-900 transition-colors flex-1 min-w-0" style="--base-a-size: ${appSettings.answerFontSize || 20}px;">
                                 <span class="font-black mr-2 ${labelClass} transition-colors">${label}.</span></u>${formatContent(optionData.text)}
-                                ${optionData.image ? `<div class="mt-2"><img src="${optionData.image}" alt="Option ${opt}" class="max-w-full h-20 object-contain rounded-lg cursor-zoom-in hover:scale-105 transition-transform border border-gray-100 shadow-sm bg-white p-1" onclick="event.stopPropagation(); zoomImage(this.src)"></div>` : ''}
+                                ${optionData.image ? `<div class="mt-2"><img src="${safeImageSrc(optionData.image)}" alt="Option ${opt}" class="max-w-full h-20 object-contain rounded-lg cursor-zoom-in hover:scale-105 transition-transform border border-gray-100 shadow-sm bg-white p-1" onclick="event.stopPropagation(); zoomImage(this.src)"></div>` : ''}
                             </div>
                             ${badgeHtml}
                         </div>
@@ -8291,7 +8285,7 @@ if (contentType && contentType.includes("application/json")) {
                             <div class="flex-1 min-w-0 flex items-start gap-2">
                                 <div class="text-gray-700 font-semibold leading-tight break-words responsive-a-text group-hover:text-gray-900 transition-colors flex-1" style="--base-a-size: ${appSettings.answerFontSize || 20}px;">
                                     <span class="font-black mr-2 ${labelClass} transition-colors">${label}.</span></u>${formatContent(optionData.text)}
-                                    ${optionData.image ? `<div class="mt-2"><img src="${optionData.image}" alt="Option ${opt}" class="max-w-full h-16 md:h-20 object-contain rounded-lg cursor-zoom-in hover:scale-105 transition-transform border border-gray-100 shadow-sm bg-white p-1" onclick="event.stopPropagation(); zoomImage(this.src)"></div>` : ''}
+                                    ${optionData.image ? `<div class="mt-2"><img src="${safeImageSrc(optionData.image)}" alt="Option ${opt}" class="max-w-full h-16 md:h-20 object-contain rounded-lg cursor-zoom-in hover:scale-105 transition-transform border border-gray-100 shadow-sm bg-white p-1" onclick="event.stopPropagation(); zoomImage(this.src)"></div>` : ''}
                                 </div>
                             </div>
                             <div class="flex items-center justify-end gap-2 w-full sm:w-auto mt-2 sm:mt-0 flex-shrink-0 border-t sm:border-t-0 border-gray-100 pt-3 sm:pt-0">
@@ -8337,7 +8331,7 @@ if (contentType && contentType.includes("application/json")) {
                         <input type="file" accept="image/*" onchange="handleTLImageUpload(event, ${index})" class="text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-purple-50 file:text-purple-700 hover:file:bg-red-100 cursor-pointer">
                         ${currentImage ? `<button onclick="removeTLImage(${index})" class="px-3 py-1.5 bg-red-100 text-purple-600 rounded-lg text-xs font-bold hover:bg-red-200 transition">Xóa ảnh</button>` : ''}
                     </div>
-                    <img id="tl-image-preview-${index}" src="${currentImage}" class="${currentImage ? '' : 'hidden'} mt-3 max-w-full h-auto max-h-[300px] rounded-xl border border-gray-200 shadow-sm cursor-zoom-in" onclick="zoomImage(this.src)">
+                    <img id="tl-image-preview-${index}" src="${safeImageSrc(currentImage)}" class="${currentImage ? '' : 'hidden'} mt-3 max-w-full h-auto max-h-[300px] rounded-xl border border-gray-200 shadow-sm cursor-zoom-in" onclick="zoomImage(this.src)">
                 </div>
             </div>`;
         }
@@ -9169,6 +9163,7 @@ if (contentType && contentType.includes("application/json")) {
 
                 const result = await response.json();
                 window.currentExamToken = null;
+            window.currentExamUploadToken = null;
                 try { localStorage.removeItem('currentExamToken'); } catch(e) {}
                 
                 const score = result.score;
@@ -9259,6 +9254,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
 }
                 showToast(err.message, 'error');
                 examContainer.innerHTML = window.originalExamInterfaceHTML;
+                if (typeof renderCurrentQuestion === 'function') renderCurrentQuestion();
             }
         }
 
@@ -9403,7 +9399,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                         <p class="text-sm md:text-base break-words mt-1">Đáp án của bạn: <span class="font-bold ${userAnsColor}">${formatContent(d.userAnswer) || 'Chưa trả lời'}</span></u></p>
                         ${showDetails ? `
                             <p class="text-sm md:text-base break-words mt-1">Đáp án đúng: <span class="font-bold text-green-600">${formatContent(d.correctAnswer)}</span></u></p>
-                            ${(d.question.options && d.question.options.answerImage) ? `<img src="${d.question.options.answerImage}" class="mt-1 max-w-xs h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage(this.src)">` : ''}
+                            ${(d.question.options && d.question.options.answerImage) ? `<img src="${safeImageSrc(d.question.options.answerImage)}" class="mt-1 max-w-xs h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage(this.src)">` : ''}
                         ` : ''}
                         ${scoreDisplay}
                     `;
@@ -9415,18 +9411,18 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                         <div class="mt-2 p-3 bg-white rounded-lg border border-blue-100 shadow-inner">
                             <p class="text-xs font-bold text-blue-500 uppercase mb-1">Bài làm của bạn:</p>
                             <div class="text-gray-800 whitespace-pre-wrap leading-relaxed mb-2 break-words">${formatContent(studentAnsText) || (studentAnsImage ? '' : '<i class="text-gray-400">Trống</i>')}</div>
-                            ${studentAnsImage ? `<img src="${studentAnsImage}" class="max-w-xs h-auto rounded-lg border border-gray-200 cursor-zoom-in" onclick="zoomImage(this.src)">` : ''}
+                            ${studentAnsImage ? `<img src="${safeImageSrc(studentAnsImage)}" class="max-w-xs h-auto rounded-lg border border-gray-200 cursor-zoom-in" onclick="zoomImage(this.src)">` : ''}
                         </div>
                         ${d.aiFeedback ? `
                         <div class="mt-2 p-3 bg-purple-50 rounded-lg border border-purple-100">
                             <p class="text-xs font-bold text-purple-600 mb-1">🤖 Nhận xét:</p>
-                            <div class="text-purple-800 break-words">${d.aiFeedback}</div>
+                            <div class="text-purple-800 break-words">${escapeHTML(d.aiFeedback)}</div>
                         </div>` : ''}
                         ${showDetails ? `
                         <div class="mt-2 p-3 bg-green-50 rounded-lg border border-green-100">
                             <p class="text-xs font-bold text-green-600 mb-1">Hướng dẫn chấm:</p>
                             <div class="text-green-800 break-words">${formatContent(d.correctAnswer)}</div>
-                            ${(d.question.options && d.question.options.answerImage) ? `<img src="${d.question.options.answerImage}" class="mt-2 max-w-xs h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage(this.src)">` : ''}
+                            ${(d.question.options && d.question.options.answerImage) ? `<img src="${safeImageSrc(d.question.options.answerImage)}" class="mt-2 max-w-xs h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage(this.src)">` : ''}
                         </div>` : ''}
                         <p class="text-base font-semibold mt-2 ${d.needsGrading ? 'text-orange-600' : 'text-blue-600'} italic break-words">🔔 Trạng thái: ${d.needsGrading ? 'Đang chờ giáo viên chấm điểm' : 'Đã phản hồi'}</p>
                     `;
@@ -9444,7 +9440,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                                     ${d.question.creatorId ? `<span class="px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded text-xs font-semibold">Tác giả: ${accounts.find(a => a.id === d.question.creatorId)?.full_name || 'Không xác định'}</span></u>` : ''}
                                 </div>
                                 <p class="font-semibold text-gray-800 text-sm md:text-base lg:text-lg mb-2 break-words">Câu ${i + 1}: ${formatContent(d.question.content)}</p>
-                                ${d.question.image ? `<img src="${d.question.image}" class="max-w-full h-auto mb-2 rounded border shadow-sm cursor-zoom-in hover:scale-[1.01] transition-transform" style="max-height: 250px; object-fit: contain;" onclick="zoomImage(this.src)">` : ''}
+                                ${d.question.image ? `<img src="${safeImageSrc(d.question.image)}" class="max-w-full h-auto mb-2 rounded border shadow-sm cursor-zoom-in hover:scale-[1.01] transition-transform" style="max-height: 250px; object-fit: contain;" onclick="zoomImage(this.src)">` : ''}
                                 ${answerDisplay}
                             </div>
                         </div>
@@ -9614,6 +9610,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             questions = [];
             questionsLoaded = false;
             window.currentExamToken = null;
+            window.currentExamUploadToken = null;
             currentExam = {
                 questions: [],
                 answers: {},
@@ -9638,7 +9635,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
         // ==================== QUESTIONS MANAGEMENT ====================
         function loginQuestions() {
             const password = document.getElementById('questions-password')?.value || '';
-            if (password === ADMIN_PASSWORD) {
+            if (currentUser && (isAdminLoggedIn || isTeacherLoggedIn)) {
                 document.getElementById('questions-login')?.classList.add('hidden');
                 document.getElementById('questions-panel')?.classList.remove('hidden');
                 updateQuestionStats();
@@ -9651,7 +9648,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
 
         async function loginExams() {
             const password = document.getElementById('exams-password')?.value || '';
-            if (password === ADMIN_PASSWORD) {
+            if (currentUser && (isAdminLoggedIn || isTeacherLoggedIn)) {
                 document.getElementById('exams-login')?.classList.add('hidden');
                 document.getElementById('exams-panel')?.classList.remove('hidden');
                 await initExamPanel();
@@ -10022,7 +10019,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                             ${formatContent(q.content)}
                         </div>
 
-                        ${q.image ? `<div><img src="${q.image}" alt="Question" class="max-w-full sm:max-w-md h-auto rounded cursor-zoom-in hover:scale-[1.01] transition-transform border border-gray-100" onclick="zoomImage('${q.image}')"></div>` : ''}
+                        ${q.image ? `<div><img src="${safeImageSrc(q.image)}" alt="Question" class="max-w-full sm:max-w-md h-auto rounded cursor-zoom-in hover:scale-[1.01] transition-transform border border-gray-100" onclick="zoomImage('${q.image}')"></div>` : ''}
                         ${(q.type === '4-1' || q.type === 'TF4') && q.options ? `
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
                                 ${['A','B','C','D'].map(key => {
@@ -10046,7 +10043,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                             </div>
                         </div>
 
-                        ${q.options && q.options.answerImage ? `<div class="mt-2"><img src="${q.options.answerImage}" alt="Answer Image" class="max-w-full sm:max-w-md h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage('${q.options.answerImage}')"></div>` : ''}
+                        ${q.options && q.options.answerImage ? `<div class="mt-2"><img src="${safeImageSrc(q.options.answerImage)}" alt="Answer Image" class="max-w-full sm:max-w-md h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage('${q.options.answerImage}')"></div>` : ''}
                     </div>
                 `;
             }).join('');
@@ -10339,7 +10336,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             let compressed = base64Str;
             try {
                 compressed = await compressImage(base64Str);
-                const uploadToken = localStorage.getItem('auth_token') || (typeof window !== 'undefined' && window.currentExamToken) || '';
+                const uploadToken = (typeof window !== 'undefined' && window.currentExamUploadToken) || localStorage.getItem('auth_token') || '';
                 const response = await fetch('/api/upload-image', {
                     method: 'POST',
                     headers: { 
@@ -10537,7 +10534,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                                 <div class="mt-2 flex items-center gap-3">
                                     <input type="file" id="edit-q-image" accept="image/*" onchange="handleImageUpload(event, 'edit-q-image-preview')" class="w-full text-xs text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100 cursor-pointer">
                                 </div>
-                                <img id="edit-q-image-preview" src="${q.image || ''}" class="${q.image ? '' : 'hidden'} mt-2 max-h-48 max-w-sm rounded-lg border border-gray-200 shadow-sm object-contain bg-white p-1">
+                                <img id="edit-q-image-preview" src="${safeImageSrc(q.image || '')}" class="${q.image ? '' : 'hidden'} mt-2 max-h-48 max-w-sm rounded-lg border border-gray-200 shadow-sm object-contain bg-white p-1">
                             </div>
                         </div>
 
@@ -10561,7 +10558,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                                                     ${q.options?.[opt]?.image ? `<button type="button" onclick="document.getElementById('edit-q-opt-preview-${opt}').src=''; document.getElementById('edit-q-opt-preview-${opt}').classList.add('hidden');" class="text-red-600 hover:underline">Xóa ảnh</button>` : ''}
                                                 </div>
                                                 <input type="file" id="edit-q-opt-img-${opt}" accept="image/*" onchange="handleImageUpload(event, 'edit-q-opt-preview-${opt}')" class="w-full text-xs text-gray-500 file:mr-2 file:py-1 file:px-2.5 file:rounded-md file:border-0 file:text-xs file:font-medium file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200 cursor-pointer">
-                                                <img id="edit-q-opt-preview-${opt}" src="${q.options?.[opt]?.image || ''}" class="${q.options?.[opt]?.image ? '' : 'hidden'} mt-1.5 max-h-32 rounded-lg border border-gray-200 shadow-xs object-contain bg-white p-1">
+                                                <img id="edit-q-opt-preview-${opt}" src="${safeImageSrc(q.options?.[opt]?.image || '')}" class="${q.options?.[opt]?.image ? '' : 'hidden'} mt-1.5 max-h-32 rounded-lg border border-gray-200 shadow-xs object-contain bg-white p-1">
                                             </div>
                                         </div>
                                     `).join('')}
@@ -10585,7 +10582,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                                 <div class="mt-2 flex items-center gap-3">
                                     <input type="file" id="edit-q-answer-image" accept="image/*" onchange="handleImageUpload(event, 'edit-q-answer-image-preview')" class="w-full text-xs text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100 cursor-pointer">
                                 </div>
-                                <img id="edit-q-answer-image-preview" src="${(q.options && q.options.answerImage) ? q.options.answerImage : ''}" class="${(q.options && q.options.answerImage) ? '' : 'hidden'} mt-2 max-h-48 max-w-sm rounded-lg border border-gray-200 shadow-sm object-contain bg-white p-1">
+                                <img id="edit-q-answer-image-preview" src="${safeImageSrc((q.options && q.options.answerImage) ? q.options.answerImage : '')}" class="${(q.options && q.options.answerImage) ? '' : 'hidden'} mt-2 max-h-48 max-w-sm rounded-lg border border-gray-200 shadow-sm object-contain bg-white p-1">
                             </div>
                         </div>
                     </div>
@@ -11538,7 +11535,7 @@ D. Phát biểu SAI</pre>
                         <div class="text-sm font-semibold text-gray-800 mb-2">
                             <span class="text-blue-600">Câu ${index + 1}:</span></u> ${formatContent(q.content)}
                         </div>
-                        ${q.image ? `<img src="${q.image}" class="max-w-xs h-auto rounded-lg border border-gray-200 mb-2 cursor-zoom-in" onclick="zoomImage('${q.image}')">` : ''}
+                        ${q.image ? `<img src="${safeImageSrc(q.image)}" class="max-w-xs h-auto rounded-lg border border-gray-200 mb-2 cursor-zoom-in" onclick="zoomImage('${q.image}')">` : ''}
                     </div>
                     
                     ${(q.type === '4-1' || q.type === 'TF4') ? `
@@ -11548,7 +11545,7 @@ D. Phát biểu SAI</pre>
                                     <span class="w-5 h-5 flex-shrink-0 flex items-center justify-center rounded-full text-[10px] font-bold ${q.answer.includes(opt) ? 'bg-green-500 text-white' : 'bg-gray-300 text-gray-700'}">${opt}</span></u>
                                     <div class="flex-1">
                                         <div class="text-xs ${q.answer.includes(opt) ? 'text-green-800 font-bold' : 'text-gray-600'}">${formatContent(q.options[opt]?.text || '')}</div>
-                                        ${q.options[opt]?.image ? `<img src="${q.options[opt].image}" class="mt-1 max-w-[100px] h-auto rounded border border-gray-200 cursor-zoom-in" onclick="zoomImage('${q.options[opt].image}')">` : ''}
+                                        ${q.options[opt]?.image ? `<img src="${safeImageSrc(q.options[opt].image)}" class="mt-1 max-w-[100px] h-auto rounded border border-gray-200 cursor-zoom-in" onclick="zoomImage('${q.options[opt].image}')">` : ''}
                                     </div>
                                 </div>
                             `).join('')}
@@ -11556,7 +11553,7 @@ D. Phát biểu SAI</pre>
                     ` : `
                         <div class="p-2 bg-green-50 border border-green-200 rounded-lg mb-3">
                             <div class="text-xs font-bold text-green-700">Đáp án: ${formatContent(q.answer)}</div>
-                            ${q.options && q.options.answerImage ? `<img src="${q.options.answerImage}" class="mt-2 max-w-xs h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage('${q.options.answerImage}')">` : ''}
+                            ${q.options && q.options.answerImage ? `<img src="${safeImageSrc(q.options.answerImage)}" class="mt-2 max-w-xs h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage('${q.options.answerImage}')">` : ''}
                         </div>
                     `}
                 </div>
@@ -11636,7 +11633,7 @@ D. Phát biểu SAI</pre>
                                     <input type="file" id="edit-pending-image" accept="image/*" onchange="handleImageUpload(event, 'edit-pending-image-preview')" class="w-full px-3 py-2 border-2 border-gray-200 rounded-lg text-sm">
                                     <button onclick="document.getElementById('edit-pending-image-preview').src=''; document.getElementById('edit-pending-image-preview').classList.add('hidden');" class="px-2 py-1 bg-red-100 text-purple-600 rounded text-xs hover:bg-red-200">Xóa ảnh</button>
                                 </div>
-                                <img id="edit-pending-image-preview" src="${q.image || ''}" class="${q.image ? '' : 'hidden'} mt-2 max-w-xs rounded-lg border border-gray-300 shadow-sm">
+                                <img id="edit-pending-image-preview" src="${safeImageSrc(q.image || '')}" class="${q.image ? '' : 'hidden'} mt-2 max-w-xs rounded-lg border border-gray-300 shadow-sm">
                             </div>
                         </div>
                         
@@ -11655,7 +11652,7 @@ D. Phát biểu SAI</pre>
                                                 <input type="file" id="edit-pending-opt-img-${opt}" accept="image/*" onchange="handleImageUpload(event, 'edit-pending-opt-preview-${opt}')" class="w-full px-3 py-2 border-2 border-gray-200 rounded-lg text-sm bg-white">
                                                 <button onclick="document.getElementById('edit-pending-opt-preview-${opt}').src=''; document.getElementById('edit-pending-opt-preview-${opt}').classList.add('hidden');" class="px-2 py-1 bg-red-100 text-purple-600 rounded text-xs hover:bg-red-200">Xóa ảnh</button>
                                             </div>
-                                            <img id="edit-pending-opt-preview-${opt}" src="${q.options[opt]?.image || ''}" class="${q.options[opt]?.image ? '' : 'hidden'} mt-2 max-w-[150px] rounded-lg border border-gray-300 shadow-sm">
+                                            <img id="edit-pending-opt-preview-${opt}" src="${safeImageSrc(q.options[opt]?.image || '')}" class="${q.options[opt]?.image ? '' : 'hidden'} mt-2 max-w-[150px] rounded-lg border border-gray-300 shadow-sm">
                                         </div>
                                     </div>
                                 `).join('')}
@@ -11671,7 +11668,7 @@ D. Phát biểu SAI</pre>
                                     <input type="file" id="edit-pending-answer-image" accept="image/*" onchange="handleImageUpload(event, 'edit-pending-answer-image-preview')" class="w-full px-3 py-2 border-2 border-gray-200 rounded-lg text-sm bg-white">
                                     <button onclick="document.getElementById('edit-pending-answer-image-preview').src=''; document.getElementById('edit-pending-answer-image-preview').classList.add('hidden');" class="px-2 py-1 bg-red-100 text-purple-600 rounded text-xs hover:bg-red-200">Xóa ảnh</button>
                                 </div>
-                                <img id="edit-pending-answer-image-preview" src="${(q.options && q.options.answerImage) ? q.options.answerImage : ''}" class="${(q.options && q.options.answerImage) ? '' : 'hidden'} mt-2 max-w-xs rounded-lg border border-gray-300 shadow-sm">
+                                <img id="edit-pending-answer-image-preview" src="${safeImageSrc((q.options && q.options.answerImage) ? q.options.answerImage : '')}" class="${(q.options && q.options.answerImage) ? '' : 'hidden'} mt-2 max-w-xs rounded-lg border border-gray-300 shadow-sm">
                             </div>
                         </div>
                     </div>
@@ -15489,7 +15486,7 @@ CẤU TRÚC JSON:
                     answerDisplay = `
                         <div class="text-sm md:text-base break-words mt-1">Đáp án của học sinh: <div class="exam-detail-answer inline-block font-bold ${userAnsColor}">${formatContent(d.userAnswer) || 'Chưa trả lời'}</div></div>
                         <div class="text-sm md:text-base break-words mt-1">Đáp án đúng: <div class="exam-detail-answer inline-block font-bold text-green-700">${formatContent(d.correctAnswer)}</div></div>
-                        ${(d.question.options && d.question.options.answerImage) ? `<img src="${d.question.options.answerImage}" class="mt-1 max-w-[200px] h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage(this.src)">` : ''}
+                        ${(d.question.options && d.question.options.answerImage) ? `<img src="${safeImageSrc(d.question.options.answerImage)}" class="mt-1 max-w-[200px] h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage(this.src)">` : ''}
                         ${scoreDisplay}
                     `;
                 } else if (d.question.type === 'TL') {
@@ -15500,12 +15497,12 @@ CẤU TRÚC JSON:
                         <div class="mt-2 p-3 bg-white rounded-lg border border-blue-100 shadow-inner">
                             <p class="text-xs font-bold text-blue-500 uppercase mb-1">Bài làm của học sinh:</p>
                             <div class="text-gray-800 whitespace-pre-wrap leading-relaxed mb-2 break-words">${formatContent(studentAnsText) || (studentAnsImage ? '' : '<i class="text-gray-400">Trống</i>')}</div>
-                            ${studentAnsImage ? `<img src="${studentAnsImage}" class="max-w-xs h-auto rounded-lg border border-gray-200 cursor-zoom-in" onclick="zoomImage(this.src)">` : ''}
+                            ${studentAnsImage ? `<img src="${safeImageSrc(studentAnsImage)}" class="max-w-xs h-auto rounded-lg border border-gray-200 cursor-zoom-in" onclick="zoomImage(this.src)">` : ''}
                         </div>
                         <div class="mt-2 p-3 bg-green-50 rounded-lg border border-green-100">
                             <p class="text-xs font-bold text-green-600 mb-1">Hướng dẫn chấm:</p>
                             <div class="text-green-800 break-words">${formatContent(d.correctAnswer)}</div>
-                            ${(d.question.options && d.question.options.answerImage) ? `<img src="${d.question.options.answerImage}" class="mt-2 max-w-[200px] h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage(this.src)">` : ''}
+                            ${(d.question.options && d.question.options.answerImage) ? `<img src="${safeImageSrc(d.question.options.answerImage)}" class="mt-2 max-w-[200px] h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage(this.src)">` : ''}
                         </div>
                         ${d.aiFeedback ? `<div class="mt-2 text-base text-purple-700 bg-purple-50 p-2 rounded border border-purple-100 break-words">🤖 Nhận xét: ${formatContent(d.aiFeedback)}</div>` : ''}
                         <div class="mt-3 flex flex-wrap items-center gap-3 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
@@ -15542,7 +15539,7 @@ CẤU TRÚC JSON:
                             <span class="text-2xl flex-shrink-0">${statusIcon}</span>
                             <div class="exam-detail-item-body flex-1 min-w-0">
                                 ${renderExamDetailQuestion(d.question, i, appSettings.questionFontSize || 24)}
-                                ${d.question.image ? `<img src="${d.question.image}" class="max-w-full h-auto mb-2 rounded border shadow-sm cursor-zoom-in hover:scale-[1.01] transition-transform" style="max-height: 250px; object-fit: contain;" onclick="zoomImage(this.src)">` : ''}
+                                ${d.question.image ? `<img src="${safeImageSrc(d.question.image)}" class="max-w-full h-auto mb-2 rounded border shadow-sm cursor-zoom-in hover:scale-[1.01] transition-transform" style="max-height: 250px; object-fit: contain;" onclick="zoomImage(this.src)">` : ''}
                                 ${optionsHtml}
                                 ${answerDisplay}
                             </div>
@@ -21493,7 +21490,7 @@ CẤU TRÚC JSON:
 
                             <!-- High Quality Large Image Container -->
                             <div class="bg-white p-3 md:p-5 rounded-2xl shadow-2xl border-2 border-amber-300/40 my-3 flex flex-col items-center justify-center relative group min-h-[260px]">
-                                <img id="qr-modal-img" data-qr-current="${imgSrc}" src="${imgSrc}" alt="Mã QR truy cập hệ thống" onerror="if(!this.dataset.retried){this.dataset.retried=true;this.src='/ma-qr.png?t='+Date.now();}" class="w-full max-w-[320px] md:max-w-[400px] aspect-square object-contain mx-auto transition-transform duration-300 group-hover:scale-[1.01]" />
+                                <img id="qr-modal-img" data-qr-current="${imgSrc}" src="${safeImageSrc(imgSrc)}" alt="Mã QR truy cập hệ thống" onerror="if(!this.dataset.retried){this.dataset.retried=true;this.src='/ma-qr.png?t='+Date.now();}" class="w-full max-w-[320px] md:max-w-[400px] aspect-square object-contain mx-auto transition-transform duration-300 group-hover:scale-[1.01]" />
                             </div>
 
                             <!-- Upload Spinner (hidden by default) -->
@@ -22400,7 +22397,7 @@ CẤU TRÚC JSON:
                     optionsHtml = `
                         <div class="mt-2 text-sm p-2 bg-green-50 border border-green-200 rounded">
                             <strong>Đáp án:</strong> ${formatContent(q.answer)}
-                            ${q.options && q.options.answerImage ? `<div class="mt-2 text-xs font-semibold text-green-700">Hình ảnh đáp án:</div><img src="${q.options.answerImage}" class="mt-1 max-w-xs h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage('${q.options.answerImage}')">` : ''}
+                            ${q.options && q.options.answerImage ? `<div class="mt-2 text-xs font-semibold text-green-700">Hình ảnh đáp án:</div><img src="${safeImageSrc(q.options.answerImage)}" class="mt-1 max-w-xs h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage('${q.options.answerImage}')">` : ''}
                         </div>`;
                 }
 
@@ -22540,7 +22537,7 @@ CẤU TRÚC JSON:
                                 <div class="mt-2 flex items-center gap-3">
                                     <input type="file" id="edit-ai-answer-image" accept="image/*" onchange="handleImageUpload(event, 'edit-ai-answer-image-preview')" class="w-full text-xs text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer">
                                 </div>
-                                <img id="edit-ai-answer-image-preview" src="${(q.options && q.options.answerImage) ? q.options.answerImage : ''}" class="${(q.options && q.options.answerImage) ? '' : 'hidden'} mt-2 max-h-48 max-w-sm rounded-lg border border-gray-200 shadow-sm object-contain bg-white p-1">
+                                <img id="edit-ai-answer-image-preview" src="${safeImageSrc((q.options && q.options.answerImage) ? q.options.answerImage : '')}" class="${(q.options && q.options.answerImage) ? '' : 'hidden'} mt-2 max-h-48 max-w-sm rounded-lg border border-gray-200 shadow-sm object-contain bg-white p-1">
                             </div>
                         </div>
                     </div>
@@ -23502,16 +23499,16 @@ CẤU TRÚC JSON:
                         tr.innerHTML = `
                             <td class="px-2 py-1 text-center text-slate-400 font-medium hidden sm:table-cell">${index + 1}</td>
                             <td class="px-2.5 py-1 font-semibold text-slate-800">
-                                <div class="truncate max-w-[120px] sm:max-w-none" title="${student.full_name}">${student.full_name}</div>
+                                <div class="truncate max-w-[120px] sm:max-w-none" title="${escapeHTML(student.full_name)}">${escapeHTML(student.full_name)}</div>
                                 <div class="text-[10px] text-slate-400 font-normal sm:hidden mt-0.5">
-                                    ${student.lop ? `Lớp ${student.lop}` : ''} ${student.donvi ? `• ${student.donvi}` : ''}
+                                    ${student.lop ? `Lớp ${escapeHTML(student.lop)}` : ''} ${student.donvi ? `• ${escapeHTML(student.donvi)}` : ''}
                                 </div>
                                 <div class="text-[10px] text-indigo-500 font-normal sm:hidden mt-0.5">
                                     ${isDone ? `⏱️ ${formatReportTime(timeTaken)}` : ''} ${isDone ? `• 📅 ${formattedDoneAt}` : ''}
                                 </div>
                             </td>
-                            <td class="px-2 py-1 text-center text-slate-500 hidden sm:table-cell">${student.lop || '-'}</td>
-                            <td class="px-2 py-1 text-slate-500 text-left truncate max-w-[120px] hidden md:table-cell" title="${student.donvi || '-'}" >${student.donvi || '-'}</td>
+                            <td class="px-2 py-1 text-center text-slate-500 hidden sm:table-cell">${escapeHTML(student.lop || '-')}</td>
+                            <td class="px-2 py-1 text-slate-500 text-left truncate max-w-[120px] hidden md:table-cell" title="${escapeHTML(student.donvi || '-')}" >${escapeHTML(student.donvi || '-')}</td>
                             <td class="px-2 py-1 text-center">
                                 ${isDone 
                                     ? `<span class="inline-flex items-center px-1.5 py-0.5 rounded bg-green-50 text-green-700 border border-green-150 text-[10px] font-bold">✅ Đã làm</span>` 

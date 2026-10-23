@@ -260,6 +260,7 @@ export function createNeonD1Shim(databaseUrl: string) {
     prepare(queryText: string) {
       let boundParams: any[] = [];
       const stmt = {
+        toQuery() { return sqlClient.query(convertSqliteToPostgres(queryText), boundParams); },
         bind(...args: any[]) {
           boundParams = args.map(p => {
             if (p === undefined) return null;
@@ -280,10 +281,7 @@ export function createNeonD1Shim(databaseUrl: string) {
               }
             };
           } catch (err: any) {
-            if (err.message && err.message.includes('already exists')) {
-              return { results: [], success: true, meta: { changes: 0 } };
-            }
-            console.error('[NEON ERROR in all()]:', err.message, '\nQuery:', queryText, '\nParams:', boundParams);
+            console.error('[NEON] query failed', err.code || 'DATABASE_ERROR');
             throw err;
           }
         },
@@ -293,10 +291,7 @@ export function createNeonD1Shim(databaseUrl: string) {
             const res: any = await sqlClient.query(pgSql, boundParams);
             return (res.rows && res.rows.length > 0) ? res.rows[0] : null;
           } catch (err: any) {
-            if (err.message && err.message.includes('already exists')) {
-              return null;
-            }
-            console.error('[NEON ERROR in first()]:', err.message, '\nQuery:', queryText, '\nParams:', boundParams);
+            console.error('[NEON] query failed', err.code || 'DATABASE_ERROR');
             throw err;
           }
         },
@@ -312,10 +307,7 @@ export function createNeonD1Shim(databaseUrl: string) {
               }
             };
           } catch (err: any) {
-            if (err.message && err.message.includes('already exists')) {
-              return { success: true, meta: { changes: 0, last_row_id: null } };
-            }
-            console.error('[NEON ERROR in run()]:', err.message, '\nQuery:', queryText, '\nParams:', boundParams);
+            console.error('[NEON] query failed', err.code || 'DATABASE_ERROR');
             throw err;
           }
         }
@@ -323,25 +315,16 @@ export function createNeonD1Shim(databaseUrl: string) {
       return stmt;
     },
     async batch(statements: any[]): Promise<any[]> {
-      const results: any[] = [];
-      for (const st of statements) {
-        if (typeof st.all === 'function') {
-          results.push(await st.all());
-        } else if (typeof st.run === 'function') {
-          results.push(await st.run());
-        }
-      }
-      return results;
+      if (!statements.length) return [];
+      const result: any = await sqlClient.transaction(statements.map(st => st.toQuery()));
+      return result.map((res: any) => ({results:res.rows || [], success:true, meta:{changes:res.rowCount || 0}}));
     },
     async exec(rawSql: string): Promise<any> {
       try {
         const pgSql = convertSqliteToPostgres(rawSql);
         return await sqlClient.query(pgSql);
       } catch (err: any) {
-        if (err.message && err.message.includes('already exists')) {
-          return { rows: [], rowCount: 0 };
-        }
-        console.error('[NEON ERROR in exec()]:', err.message);
+        console.error('[NEON] execution failed', err.code || 'DATABASE_ERROR');
         throw err;
       }
     }

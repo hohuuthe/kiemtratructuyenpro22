@@ -20,6 +20,13 @@ export async function onRequestGet(context: any) {
 
     const isAdmin = checkIsAdmin(user);
     const isTeacher = checkIsTeacherOrAdmin(user) && !isAdmin;
+    if (!isAdmin && !isTeacher) {
+        const directory=await db.prepare(`SELECT a.id,u.full_name,u.donvi FROM accounts a
+          LEFT JOIN users u ON u.id=COALESCE(a.user_id,a.id)
+          WHERE a.role IN ('admin','teacher') AND CAST(a.is_active AS TEXT) IN ('1','true','t') ORDER BY u.full_name,a.id`).all();
+        return new Response(JSON.stringify({data:directory.results || [],error:null}),{status:200,headers:corsHeaders});
+    }
+
     let teacherDonvi = '';
     if (isTeacher) {
         try {
