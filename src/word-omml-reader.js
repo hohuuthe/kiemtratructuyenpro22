@@ -7,7 +7,7 @@
 import JSZip from 'jszip';
 import { DOMParser, XMLSerializer } from '@xmldom/xmldom';
 
-export const WORD_IMPORT_ENGINE_VERSION = 'word-omml-1.1';
+export const WORD_IMPORT_ENGINE_VERSION = 'word-omml-1.2';
 export const WORD_FORMULA_TOKEN = /__WMATH_[0-9]{6}__/g;
 const MAX_DOCX_BYTES = 24 * 1024 * 1024;
 const MAX_DECOMPRESSED_BYTES = 80 * 1024 * 1024;
@@ -147,6 +147,139 @@ function readRuledMatrix(node, rows, next) {
     }
     return '\\begin{array}{'+spec+'}'+body+'\\end{array}';
 }
+
+/**
+ * Reverse native Word Math reaction arrows without losing the *spatial*
+ * meaning of m:limUpp / m:limLow. These nodes are limits centered over
+ * and under an arrow, NOT the arrow's exponent/subscript.
+ *
+ * Only decode complete annotated chemical reactions of confidently supported
+ * OMML shapes. Otherwise hold the Equation for teacher review; do not guess.
+ * Word exporter uses the same \ce{... ->[t^\circ] ...} semantics.
+ */
+const CHEM_ARROW_OPERATORS = Object.freeze({
+    '⟶':'->', '→':'->', '⟵':'<-', '←':'<-',
+    '⟷':'<->', '↔':'<->', '⇌':'<=>'
+});
+const chemArrow = node => {
+    if(nameOf(node)!=='r')return null;
+    const ts=children(node,'t');
+    if(ts.length!==1)return null;
+    const op=textOf(ts[0]);
+    return Object.hasOwn(CHEM_ARROW_OPERATORS,op)?CHEM_ARROW_OPERATORS[op]:null;
+};
+const onlyMathChild=node=>{
+    const components=mathChildren(node);
+    return components.length===1?components[0]:null;
+};
+function arrowBase(node) {
+    if(!node)return null;
+    const kind=nameOf(node);
+    if(kind==='limLow') {
+        const base=arrowBase(group(node,'e'));
+        if(!base||base.below!==null||base.above!==null)return null;
+        return {...base,below:group(node,'lim')};
+    }
+    if(kind==='e'||kind==='oMath')return arrowBase(onlyMathChild(node));
+    const operator=chemArrow(node);
+    return operator?{operator,above:null,below:null}:null;
+}
+function markedReaction(node) {
+    if(!['limUpp','limLow'].includes(nameOf(node)))return null;
+    const base=arrowBase(group(node,'e'));
+    if(!base)return null;
+    if(nameOf(node)==='limUpp') {
+        if(base.above!==null)return null;
+        return {...base,above:group(node,'lim')};
+    }
+    if(base.below!==null)return null;
+    return {...base,below:group(node,'lim')};
+}
+function hasNativeReactionLimit(node) {
+    return [...descendants(node,'limUpp'),...descendants(node,'limLow')]
+        .some(item=>markedReaction(item)!==null);
+}
+const chemText = input => {
+    const raw=String(input);
+    if(!raw)return '';
+    if(raw.includes('\\')||/[{}[\]$]/.test(raw))
+        throw new Error('Ký tự điều kiện hóa học Word cần xác minh');
+    if(/[À-ỹ]/u.test(raw))return '\\text{'+escapeTextRun(raw)+'}';
+    const greek={'ν':'\\nu','Δ':'\\Delta','α':'\\alpha','β':'\\beta','γ':'\\gamma'};
+    return Array.from(raw,ch=>greek[ch]||ch).join('');
+};
+function nativeChemistry(node, depth=0) {
+    if(depth>70)throw new Error('Phương trình hóa học Word quá sâu');
+    if(!node)throw new Error('Thiếu thành phần phương trình hóa học');
+    const kind=nameOf(node);
+    const decode=n=>nativeChemistry(n,depth+1);
+    const block=n=>mathChildren(n).map(decode).join('');
+    if(['oMath','oMathPara','e','sub','sup','lim'].includes(kind))return block(node);
+    if(kind==='r') {
+        const styles=child(node,'rPr');
+        if(elements(styles).some(property=>!['sty','nor'].includes(nameOf(property))))
+            throw new Error('Kiểu chữ trong phương trình hóa học Word chưa xác minh');
+        const style=attr(child(styles,'sty'),'val');
+        if(style&&!['p','i'].includes(style))
+            throw new Error('Kiểu chữ phương trình hóa học Word chưa được hỗ trợ');
+        const runs=children(node,'t');
+        if(!runs.length)throw new Error('Ký hiệu Equation bị thiếu');
+        return runs.map(n=>chemText(textOf(n))).join('');
+    }
+    if(kind==='sSub') {
+        const base=decode(group(node,'e'));
+        const sub=decode(group(node,'sub'));
+        if(!base||!sub)throw new Error('Chỉ số hóa học Word bị thiếu');
+        // Actual subscript digits on elements/groups are stoichiometric.
+        if(/^\d+$/.test(sub))return base+sub;
+        return base+'_{'+sub+'}';
+    }
+    if(kind==='sSup') {
+        const base=decode(group(node,'e')),sup=decode(group(node,'sup'));
+        if(!base||!sup)throw new Error('Chỉ số trên hóa học Word bị thiếu');
+        if(sup==='°')return base+'^{\\circ}';
+        return base+'^{'+sup.trim()+'}';
+    }
+    if(kind==='sSubSup') {
+        const base=decode(group(node,'e'));
+        const sub=decode(group(node,'sub')),sup=decode(group(node,'sup'));
+        if(!base||!sub||!sup)throw new Error('Chỉ số hỗn hợp hóa học Word bị thiếu');
+        return base+'_{'+sub+'}^{'+sup+'}';
+    }
+    if(kind==='sPre') {
+        const base=decode(group(node,'e'));
+        return '^{'+decode(group(node,'sup'))+'}_{'+decode(group(node,'sub'))+'}'+base;
+    }
+    if(kind==='limUpp'||kind==='limLow') {
+        const arrow=markedReaction(node);
+        if(!arrow)throw new Error('Mũi tên điều kiện trong Word chưa được nhận diện chắc chắn');
+        const top=arrow.above?decode(arrow.above):'';
+        const bottom=arrow.below?decode(arrow.below):'';
+        if(top.includes('[')||top.includes(']')||bottom.includes('[')||bottom.includes(']'))
+            throw new Error('Điều kiện phản ứng có dấu ngoặc chưa thể chuyển đổi an toàn');
+        if(!top.trim()&&!bottom.trim())
+            throw new Error('Không tìm thấy điều kiện bên trên hoặc dưới mũi tên');
+        return arrow.operator+(top?'['+top+']':(bottom?'[]':''))+
+            (bottom?'['+bottom+']':'');
+    }
+    if(kind==='d') {
+        const open=mChar(node,'dPr','begChr','(');
+        const close=mChar(node,'dPr','endChr',')');
+        const bases=children(node,'e');
+        if(bases.length!==1||!['(', '['].includes(open)||
+            ![')',']'].includes(close))throw new Error('Nhóm hóa học Word không hỗ trợ');
+        return open+decode(bases[0])+close;
+    }
+    throw new Error('Thành phần phương trình hóa học Word chưa được hỗ trợ: m:'+kind);
+}
+function nativeChemicalReaction(mathNode) {
+    const source=nativeChemistry(mathNode).trim();
+    if(!source||!/(?:->|<-|<=>|<->)\[/.test(source))
+        throw new Error('Không thể xác minh vị trí điều kiện phản ứng hóa học');
+    if(source.length>8000)throw new Error('Phương trình hóa học Word quá dài');
+    return '\\ce{'+source+'}';
+}
+
 function omml(node, depth = 0) {
     if (!node) throw new Error('Thiếu phần tử Equation');
     if (depth > 70) throw new Error('Độ sâu công thức vượt giới hạn an toàn');
@@ -297,6 +430,9 @@ function omml(node, depth = 0) {
     }
 }
 export function convertOmmlToLatex(mathNode) {
+    // Reaction arrow annotations are centered OMML limits: reconstruct
+    // mhchem syntax instead of flattening them into right-hand exponents.
+    if(hasNativeReactionLimit(mathNode)) return nativeChemicalReaction(mathNode);
     const latex = omml(mathNode).trim();
     if (!latex) throw new Error('Công thức Equation không có ký hiệu');
     return latex;
