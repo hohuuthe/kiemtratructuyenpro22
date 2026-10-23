@@ -61,7 +61,11 @@ export async function verifyJWT(token: string, secret: string) {
     if (!isValid) return null;
     
     try {
-        return JSON.parse(b64DecodeUnicode(encodedPayload));
+        const claims = JSON.parse(b64DecodeUnicode(encodedPayload));
+        const now = Math.floor(Date.now() / 1000);
+        if (claims.exp !== undefined && (!Number.isFinite(Number(claims.exp)) || Number(claims.exp) <= now)) return null;
+        if (claims.nbf !== undefined && Number(claims.nbf) > now) return null;
+        return claims;
     } catch {
         return null;
     }
