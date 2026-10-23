@@ -1,7 +1,7 @@
 from pathlib import Path
 p=Path('src/main.js');s=p.read_text()
 a=s.index('    // Database selection is performed exclusively by the trusted request hostname.')
-b=s.index('    window.showDatabaseErrorDialog',a)
+b=s.index('    try {\n        window.fetch = patchedFetch;',a)
 replacement="""    // Tenant follows the visible /v1 path. Cloudflare validates this selector
     // against configured database bindings; it must not change mid-session.
     const initialTenantSlug = window.__CURRENT_TENANT_SLUG || '';
