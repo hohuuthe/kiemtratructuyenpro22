@@ -250,6 +250,7 @@ export async function ensureD1SchemaAndIndexes(db: any) {
             "ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS max_cheat_warnings INTEGER DEFAULT 5",
             "ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS tieu_de_bai_thi TEXT",
             "ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS created_at TEXT",
+             "ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS revision INTEGER NOT NULL DEFAULT 1",
             "ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS qr_code_url TEXT DEFAULT ''"
         ];
         for (const alt of alterStatements) {
@@ -353,7 +354,7 @@ export async function getDynamicSecret(db: any, envSecret?: string) {
     }
     try {
         if (!db) {
-            const fallbackSecret = "FALLBACK_TO_HARDCODED_ONLY_IF_DB_FAILS_12345_XYZ";
+            throw new Error("JWT_SECRET required if database secret unavailable");
             secretByDbCache.set(dbKey, fallbackSecret);
             return fallbackSecret;
         }
@@ -369,7 +370,7 @@ export async function getDynamicSecret(db: any, envSecret?: string) {
         secretByDbCache.set(dbKey, newSecret);
         return newSecret;
     } catch (e) {
-        const fallbackSecret = "FALLBACK_TO_HARDCODED_ONLY_IF_DB_FAILS_12345_XYZ";
+        throw new Error("JWT_SECRET required if database secret unavailable");
         secretByDbCache.set(dbKey, fallbackSecret);
         return fallbackSecret;
     }
