@@ -1,3 +1,4 @@
+import { resolveTenantFromRequest } from '../../src/tenant-host-map';
 import { neon } from '@neondatabase/serverless';
 
 /**
@@ -369,43 +370,8 @@ export function getEffectiveDb(envOrContext: any, requestOrSlug?: any): any {
     }
   }
 
-  // Tenant routing is a server-side decision, never derived from headers,
-  // URL query arguments, path fragments, or Referer supplied by clients.
   const request = req && typeof req === 'object' ? (req.request || req) : null;
-  let slug = '';
-  if (request) {
-    const origin = new URL(request.url || 'https://invalid.invalid');
-    let approvedHosts: Record<string, string> = {};
-    try {
-      const mapping = env?.TENANT_HOST_MAP;
-      if (typeof mapping === 'string' && mapping.trim()) {
-        const parsed = JSON.parse(mapping);
-        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Invalid tenant host map');
-        approvedHosts = parsed;
-      }
-    } catch {
-      throw new Error('Tenant configuration invalid: contact administrator');
-    }
-    const host = origin.hostname.toLowerCase();
-    if (Object.keys(approvedHosts).length > 0 &&
-        !Object.prototype.hasOwnProperty.call(approvedHosts, host)) {
-      throw new Error('Hostname is not approved for tenant routing');
-    }
-    if (Object.prototype.hasOwnProperty.call(approvedHosts, host)) {
-      const approvedSlug = approvedHosts[host];
-      if (typeof approvedSlug !== 'string' || !/^[a-z0-9_-]{1,64}$/i.test(approvedSlug)) {
-        throw new Error('Invalid approved tenant identifier');
-      }
-      slug = approvedSlug;
-    }
-    const suppliedSlug = request.headers?.get?.('x-tenant-slug') ||
-      request.headers?.get?.('x-tenant') ||
-      origin.searchParams.get('tenant') ||
-      origin.searchParams.get('slug');
-    if (suppliedSlug && suppliedSlug !== slug) {
-      throw new Error('Untrusted tenant selector: request rejected');
-    }
-  }
+  const slug = request ? resolveTenantFromRequest(request, env) : 'default';
   const { url: databaseUrl, source } = getTenantDatabaseUrl(env, slug);
 
   if (!databaseUrl || databaseUrl.trim().length === 0) {
