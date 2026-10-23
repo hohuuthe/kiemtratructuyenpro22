@@ -1,4 +1,4 @@
-import { verifyJWT, getDynamicSecret, getDatabase } from './exam/utils';
+import { verifyAuthSession, getDynamicSecret, getDatabase } from './exam/utils';
 
 interface Env {
   NEON_DATABASE_URL?: string;
@@ -111,7 +111,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
   let user: any = null;
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const token = authHeader.substring(7);
-    user = await verifyJWT(token, SECRET);
+    user = await verifyAuthSession(token, SECRET, db);
   }
 
   const roleLower = String(user?.role || '').toLowerCase();
@@ -380,7 +380,7 @@ export const onRequestPut: PagesFunction<Env> = async (context) => {
   let user: any = null;
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const token = authHeader.substring(7);
-    user = await verifyJWT(token, SECRET);
+    user = await verifyAuthSession(token, SECRET, db);
   }
 
   const roleLower = String(user?.role || '').toLowerCase();
@@ -433,7 +433,7 @@ export const onRequestDelete: PagesFunction<Env> = async (context) => {
   let user: any = null;
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const token = authHeader.substring(7);
-    user = await verifyJWT(token, SECRET);
+    user = await verifyAuthSession(token, SECRET, db);
   }
 
   const roleLower = String(user?.role || '').toLowerCase();
