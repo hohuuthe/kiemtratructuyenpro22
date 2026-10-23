@@ -171,7 +171,13 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
   try {
     const body: any = await request.json();
-    const questions: any[] = Array.isArray(body) ? body : (body.questions || [body]);
+    const questions: any[] = Array.isArray(body)
+      ? body
+      : Array.isArray(body?.questions)
+        ? body.questions
+        : (body && typeof body === 'object' && (body.id != null || body.content != null || body.type != null))
+          ? [body]
+          : [];
     const deletedIds: string[] = body.deletedIds || [];
 
     // 1. Xóa các câu hỏi được yêu cầu xóa
