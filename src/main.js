@@ -5562,8 +5562,12 @@ if (contentType && contentType.includes("application/json")) {
                 if (generation !== authDataGeneration || requestSeq !== examConfigLoadSeq ||
                     !(isAdminLoggedIn || isTeacherLoggedIn)) return;
                 if (res.ok && resJson.data) {
+                    // The editor initializes on first open; its defaults invalidate older
+                    // requests. Do not discard the user-initiated load because of init.
                     const opened = await openExamEditorTab({newExam:false});
-                    if (!opened || generation !== authDataGeneration || requestSeq !== examConfigLoadSeq) return;
+                    if (!opened || generation !== authDataGeneration ||
+                        !(isAdminLoggedIn || isTeacherLoggedIn)) return;
+                    if (String(resJson.data.id) !== String(selectedId)) return;
                     applyExamConfig(resJson.data);
                     if (selectEl) selectEl.value = String(resJson.data.id || selectedId);
                     showToast(`📂 Đã nạp cấu hình đề: ${resJson.data.name || selectedId}`, 'success');
