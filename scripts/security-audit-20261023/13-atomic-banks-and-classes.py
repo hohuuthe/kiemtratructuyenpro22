@@ -40,12 +40,12 @@ s=s[:a]+'''export const onRequestPost: PagesFunction<Env> = async (context) => {
     for(const q of questions) {
       const id=String(q.id || crypto.randomUUID());
       const previous=existing.find((row:any)=>String(row.id)===id);
-      const creator=isAdmin?String(q.creatorId || q.creator_id || previous?.creator_id || user.id):String(user.id);
+      const creator=isAdmin?String(previous?.creator_id || q.creatorId || q.creator_id || user.id):String(user.id);
       const options=typeof q.options==='object'?JSON.stringify(q.options):q.options || '{}';
       statements.push(db.prepare(`INSERT INTO questions(id,type,level,lesson,content,options,answer,image,creator_id)
         VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET type=excluded.type,level=excluded.level,lesson=excluded.lesson,
         content=excluded.content,options=excluded.options,answer=excluded.answer,image=excluded.image
-        WHERE ?=1 OR questions.creator_id=?`).bind(id,q.type || '4-1',q.level || 'NB',q.lesson || '',q.content,options,String(q.answer ?? ''),q.image || null,creator,isAdmin?1:0,user.id));
+        WHERE questions.creator_id = excluded.creator_id AND (?=1 OR questions.creator_id=?)`).bind(id,q.type || '4-1',q.level || 'NB',q.lesson || '',q.content,options,String(q.answer ?? ''),q.image || null,creator,isAdmin?1:0,user.id));
     }
     const changes=statements.length?await db.batch(statements):[];
     const count=changes.slice(deletedIds.length).reduce((sum:any,result:any)=>sum+Number(result.meta?.changes || 0),0);
