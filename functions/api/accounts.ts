@@ -1,4 +1,4 @@
-import { verifyJWT, getDynamicSecret, hashPasswordPBKDF2, getDatabase, checkIsAdmin, checkIsTeacherOrAdmin } from './exam/utils';
+import { verifyAuthSession, getDynamicSecret, hashPasswordPBKDF2, getDatabase, checkIsAdmin, checkIsTeacherOrAdmin } from './exam/utils';
 
 export async function onRequestGet(context: any) {
     const { request, env } = context;
@@ -15,7 +15,7 @@ export async function onRequestGet(context: any) {
     let user = null;
     if (authHeader && authHeader.startsWith('Bearer ')) {
         const token = authHeader.substring(7);
-        user = await verifyJWT(token, SECRET);
+        user = await verifyAuthSession(token, SECRET, db);
     }
 
     const isAdmin = checkIsAdmin(user);
@@ -131,7 +131,7 @@ export async function onRequestPost(context: any) {
         return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: corsHeaders });
     }
     const token = authHeader.substring(7);
-    const user = await verifyJWT(token, SECRET);
+    const user = await verifyAuthSession(token, SECRET, db);
     if (!user || user.role !== 'admin') {
         return new Response(JSON.stringify({ error: "Chỉ Admin mới được thêm tài khoản" }), { status: 403, headers: corsHeaders });
     }
