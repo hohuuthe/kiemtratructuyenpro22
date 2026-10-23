@@ -1,0 +1,65 @@
+name: Tenant runtime diagnosis (no credentials or writes)
+on:
+  pull_request:
+    branches: [main]
+    paths: [.github/workflows/tenant-runtime-diagnosis.yml]
+permissions:
+  contents: read
+  checks: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Inspect actual deployed Pages revision and tenant connectivity
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TARGET_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          const sleep=(ms)=>new Promise(r=>setTimeout(r,ms));
+          let deployedURL='';
+          for(let i=0;i<35;i++){
+            const response=await fetch(`https://api.github.com/repos/${process.env.REPO}/commits/${process.env.TARGET_SHA}/check-runs`,{
+              headers:{Authorization:`Bearer ${process.env.GH_TOKEN}`,Accept:'application/vnd.github+json'},signal:AbortSignal.timeout(15000)});
+            assert.equal(response.status,200);
+            const checks=(await response.json()).check_runs||[];
+            const cf=checks.find(x=>x.name==='Cloudflare Pages'&&x.head_sha===process.env.TARGET_SHA);
+            if(cf?.status==='completed'){
+              assert.equal(cf.conclusion,'success');
+              deployedURL=cf.output.summary.match(/https:\/\/[a-f0-9]{8}\.kiemtratructuyenpro\.pages\.dev/)?.[0]||'';
+              break;
+            }
+            await sleep(8000);
+          }
+          assert.ok(deployedURL,'No exact-SHA Cloudflare Pages deployment');
+          console.log('Deployment exact commit:',process.env.TARGET_SHA,'URL:',deployedURL);
+          const tests=[
+            {name:'default',path:'/api/health'},
+            {name:'slug_v1_header',path:'/api/health',slug:'v1'},
+            {name:'slug_v1_path',path:'/v1/api/health'},
+            {name:'slug_v2_header',path:'/api/health',slug:'v2'},
+            {name:'missing_slug',path:'/api/health',slug:'a_nonexistent_secure_tenant'},
+            {name:'default_config',path:'/api/config'},
+            {name:'slug_v1_config',path:'/api/config',slug:'v1'},
+            {name:'default_questions_guest',path:'/api/questions'},
+            {name:'slug_v1_questions_guest',path:'/api/questions',slug:'v1'}
+          ];
+          for(const test of tests){
+            try {
+              const r=await fetch(new URL(test.path,deployedURL),{
+                headers:{Accept:'application/json',...(test.slug?{'X-Tenant-Slug':test.slug}:{})},
+                signal:AbortSignal.timeout(15000)});
+              let body;try {body=await r.json()}catch{body=null}
+              const report={probe:test.name,http:r.status,contentType:r.headers.get('content-type')?.split(';')[0],code:body?.code||null,tenant:body?.tenant_slug||body?.tenant||null,db:body?.database?.status||null,
+                configured:body?.isNeonConfigured??null,error:typeof body?.error==='string'?body.error.slice(0,100):null,
+                dataReturned:Array.isArray(body?.data)?body.data.length:null};
+              console.log(JSON.stringify(report));
+            }catch(e){console.log(JSON.stringify({probe:test.name,transportError:e?.name||'ERR'}))}
+          }
+          NODE

@@ -1,0 +1,42 @@
+name: Security audit source snapshot
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/security-audit-snapshot.yml'
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Package code only (exclude databases and environment files)
+        run: |
+          python3 - <<'PY'
+          import pathlib, subprocess, tarfile
+          roots = {'src', 'functions', 'tests', 'public', '.github', 'scripts'}
+          files = {'package.json','package-lock.json','server.ts','index.html','vite.config.ts','tsconfig.json','wrangler.toml','AGENTS.md','README.md','eslint.config.js'}
+          with tarfile.open('audit-source.tgz','w:gz') as archive:
+              for name in subprocess.check_output(['git','ls-files','-z']).decode().split('\0'):
+                  if not name:
+                      continue
+                  p=pathlib.PurePosixPath(name)
+                  if p.parts[0] not in roots and name not in files:
+                      continue
+                  if p.suffix.lower() in {'.sql','.db','.sqlite','.docx'} or p.name.startswith('.env'):
+                      continue
+                  archive.add(name,arcname=name,recursive=False)
+          pathlib.Path('audit-source.sha').write_text(subprocess.check_output(['git','rev-parse','HEAD']).decode())
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: security-audit-source
+          path: |
+            audit-source.tgz
+            audit-source.sha
+          retention-days: 1

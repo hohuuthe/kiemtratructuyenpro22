@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { defineConfig } from 'vite';
 import tailwindcss from '@tailwindcss/vite';
 
@@ -18,15 +20,24 @@ const buildTimestamp = (() => {
 })();
 
 export default defineConfig({
-  plugins: [tailwindcss()],
+  plugins: [tailwindcss(), {
+    name: 'exclude-private-server-artifacts',
+    closeBundle() {
+      const walk=(dir:string)=>{if(!fs.existsSync(dir))return;for(const item of fs.readdirSync(dir,{withFileTypes:true})){
+        const file=path.join(dir,item.name);
+        if(item.isDirectory())walk(file);
+        else if(/\.(sql|db|sqlite|sqlite3|cjs|map)$/i.test(item.name)||item.name.startsWith('.env'))fs.unlinkSync(file);
+      }};
+      walk(path.resolve('dist'));
+    }
+  }],
   define: {
     '__APP_BUILD_TIME__': JSON.stringify(buildTimestamp),
-    'process.env.GEMINI_API_KEY': JSON.stringify(process.env.GEMINI_API_KEY),
     'process.env.APP_URL': JSON.stringify(process.env.APP_URL),
   },
   server: {
     port: 3000,
     host: '0.0.0.0',
-    allowedHosts: true
+    allowedHosts: ['localhost','127.0.0.1']
   }
 });

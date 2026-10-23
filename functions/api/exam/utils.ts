@@ -1,3 +1,4 @@
+import { canonicalRole } from '../../../src/security-policy';
 import { createNeonD1Shim, getEffectiveDb } from '../neon-adapter';
 
 export function getDatabase(envOrContext: any, requestOrSlug?: any) {
@@ -41,29 +42,100 @@ export async function signJWT(payload: any, secret: string) {
 }
 
 export async function verifyJWT(token: string, secret: string) {
-    const textEncoder = new TextEncoder();
-    const parts = token.split('.');
-    if (parts.length !== 3) return null;
-    const [encodedHeader, encodedPayload, encodedSignature] = parts;
-    const dataToSign = `${encodedHeader}.${encodedPayload}`;
-    
-    const key = await crypto.subtle.importKey(
-        "raw",
-        textEncoder.encode(secret),
-        { name: "HMAC", hash: "SHA-256" },
-        false,
-        ["verify"]
-    );
-    
-    const signatureBytes = Uint8Array.from(atob(encodedSignature.replace(/-/g, "+").replace(/_/g, "/")), c => c.charCodeAt(0));
-    
-    const isValid = await crypto.subtle.verify("HMAC", key, signatureBytes, textEncoder.encode(dataToSign));
-    if (!isValid) return null;
-    
     try {
-        return JSON.parse(b64DecodeUnicode(encodedPayload));
-    } catch {
-        return null;
+        if (typeof token !== 'string' || token.length > 8 * 1024 * 1024 || !secret) return null;
+        const parts = token.split('.');
+        if (parts.length !== 3 || parts.some(p => !/^[A-Za-z0-9_-]+$/.test(p))) return null;
+        const [encodedHeader, encodedPayload, encodedSignature] = parts;
+        const header = JSON.parse(b64DecodeUnicode(encodedHeader));
+        if (header.alg !== 'HS256' || header.typ !== 'JWT') return null;
+        const encoder = new TextEncoder();
+        const key = await crypto.subtle.importKey('raw', encoder.encode(secret),
+            { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']);
+        const signature = Uint8Array.from(atob(encodedSignature.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+        if (!await crypto.subtle.verify('HMAC', key, signature, encoder.encode(`${encodedHeader}.${encodedPayload}`))) return null;
+        const claims = JSON.parse(b64DecodeUnicode(encodedPayload));
+        if (!claims || typeof claims !== 'object' || Array.isArray(claims)) return null;
+        const now = Math.floor(Date.now() / 1000);
+        if (typeof claims.exp !== 'number' || !Number.isFinite(claims.exp) || claims.exp <= now) return null;
+        if (claims.nbf !== undefined && (typeof claims.nbf !== 'number' || claims.nbf > now)) return null;
+        return claims;
+    } catch { return null; }
+}
+
+/**
+ * Bind authorization to the current account record.
+ * Re-evaluating this fingerprint on every privileged API request revokes all older
+ * tokens as soon as an account is disabled, its password/role expires or its
+ * linked profile permission changes. Legacy JWTs without proof fail closed.
+ */
+export function isLiveAccount(row: any): boolean {
+    if (!row || !row.id || !row.password) return false;
+    const active = (value: any) => value === undefined || value === null ||
+      !['0', 'false', 'disabled'].includes(String(value).toLowerCase().trim());
+    if (!active(row.is_active) || !active(row.profile_active)) return false;
+    const now = Date.now();
+    const notExpired = (value: any) => {
+      if (!value) return true;
+      const raw = String(value).trim();
+      const date = /^\d{4}-\d{2}-\d{2}$/.test(raw)
+        ? raw + 'T23:59:59.999+07:00' : raw;
+      const at = Date.parse(date);
+      return Number.isFinite(at) && at >= now;
+    };
+    return notExpired(row.expiry_date) && notExpired(row.profile_expiry_date);
+}
+
+async function accountProof(account: any, secret: string, tenantKey = ''): Promise<string> {
+    const parts = [
+      tenantKey,
+      account.id, account.user_id || account.id, account.password,
+      account.role || '', account.is_active ?? 1, account.expiry_date || '',
+      account.target_audience || '', account.profile_active ?? 1,
+      account.profile_expiry_date || '', account.username || '',
+      account.account_revision || '', account.profile_revision || ''
+    ].map(value => String(value));
+    const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret),
+      {name: 'HMAC', hash: 'SHA-256'}, false, ['sign']);
+    const signature = await crypto.subtle.sign('HMAC', key,
+      new TextEncoder().encode(JSON.stringify(parts)));
+    return Array.from(new Uint8Array(signature)).map(v => v.toString(16).padStart(2, '0')).join('');
+}
+export async function signAuthSession(account: any, claims: any, secret: string, tenantKey = ''): Promise<string> {
+    if (!isLiveAccount(account)) throw new Error('Account inactive or expired');
+    const now = Math.floor(Date.now() / 1000);
+    const proof = await accountProof(account, secret, tenantKey);
+    return signJWT({...claims, id:account.id, user_id:account.user_id || account.id,
+      role:canonicalRole(account.role), tokenType:'auth', authProof:proof, iat:now, exp:now + 12*3600}, secret);
+}
+export async function verifyAuthSession(token: string, secret: string, db: any): Promise<any | null> {
+    if (!db) return null;
+    const decoded = await verifyJWT(token, secret);
+    if (!decoded || decoded.tokenType !== 'auth' || !decoded.authProof ||
+        !Number.isFinite(Number(decoded.exp))) return null;
+    try {
+      const account: any = await db.prepare(`
+        SELECT a.id, a.user_id, a.username, a.password, a.role, a.is_active, a.expiry_date,
+               a.xmin::text AS account_revision, u.xmin::text AS profile_revision,
+               u.full_name, u.target_audience, u.donvi, u.lop,
+               u.is_active AS profile_active, u.expiry_date AS profile_expiry_date
+        FROM accounts a LEFT JOIN users u ON u.id = COALESCE(a.user_id, a.id)
+        WHERE a.id = ? LIMIT 1
+      `).bind(decoded.id).first();
+      if (!isLiveAccount(account)) return null;
+      const actual = await accountProof(account, secret, String(db.connectionUrl || ''));
+      if (actual !== decoded.authProof) return null;
+      const role = canonicalRole(account.role);
+      const audience = role === 'admin' ? 'Quản trị viên' : role === 'teacher' ? 'Giáo viên' : 'Học sinh';
+      return {
+        ...decoded, id:account.id, user_id:account.user_id || account.id,
+        username:account.username, role, target_audience:audience,
+        full_name:account.full_name || account.username,
+        donvi:account.donvi || '', lop:account.lop || ''
+      };
+    } catch (err) {
+      console.error('Authorization state validation unavailable');
+      return null; // Never authorize when the account database cannot be verified.
     }
 }
 
@@ -321,10 +393,7 @@ export async function ensureD1SchemaAndIndexes(db: any) {
             "CREATE INDEX IF NOT EXISTS idx_tc_donvi ON teacher_classes(donvi)"
         ];
 
-        // Xóa hoàn toàn bảng duytricsdl nếu còn tồn tại trong CSDL
-        try {
-            await db.prepare("DROP TABLE IF EXISTS duytricsdl CASCADE").run();
-        } catch {}
+
 
         try {
             await db.batch(indexStatements.map((sql: string) => db.prepare(sql)));
@@ -339,40 +408,25 @@ export async function ensureD1SchemaAndIndexes(db: any) {
     }
 }
 
-const secretByDbCache = new Map<string, string>();
-
+async function bindSecretToDatabase(rawSecret: string, db: any): Promise<string> {
+    if (!rawSecret || rawSecret.length < 32 || !db?.connectionUrl) throw new Error('Secure authentication configuration required');
+    const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(rawSecret), {name:'HMAC',hash:'SHA-256'}, false, ['sign']);
+    const value = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode('kttt-database-v2:' + db.connectionUrl));
+    return Array.from(new Uint8Array(value), v => v.toString(16).padStart(2,'0')).join('');
+}
 export async function getDynamicSecret(db: any, envSecret?: string) {
-    const dbKey = db?.connectionUrl || 'default';
-    if (secretByDbCache.has(dbKey)) {
-        return secretByDbCache.get(dbKey)!;
-    }
-    if (envSecret && envSecret.trim()) {
-        const s = envSecret.trim();
-        secretByDbCache.set(dbKey, s);
-        return s;
-    }
-    try {
-        if (!db) {
-            const fallbackSecret = "FALLBACK_TO_HARDCODED_ONLY_IF_DB_FAILS_12345_XYZ";
-            secretByDbCache.set(dbKey, fallbackSecret);
-            return fallbackSecret;
-        }
-        await db.prepare("CREATE TABLE IF NOT EXISTS _internal_secrets (key TEXT PRIMARY KEY, value TEXT)").run();
-        const { results } = await db.prepare("SELECT value FROM _internal_secrets WHERE key = 'jwt'").all();
-        if (results && results.length > 0) {
-            const storedSecret = results[0].value;
-            secretByDbCache.set(dbKey, storedSecret);
-            return storedSecret;
-        }
-        const newSecret = crypto.randomUUID() + "-" + crypto.randomUUID();
-        await db.prepare("INSERT INTO _internal_secrets (key, value) VALUES ('jwt', ?)").bind(newSecret).run();
-        secretByDbCache.set(dbKey, newSecret);
-        return newSecret;
-    } catch (e) {
-        const fallbackSecret = "FALLBACK_TO_HARDCODED_ONLY_IF_DB_FAILS_12345_XYZ";
-        secretByDbCache.set(dbKey, fallbackSecret);
-        return fallbackSecret;
-    }
+    if (!db) throw new Error('Database unavailable');
+    // Legacy installations may provide a short JWT_SECRET. Use the persistent,
+    // randomly generated per-database key in that case instead of breaking login.
+    const configured = typeof envSecret === 'string' ? envSecret.trim() : '';
+    if (configured.length >= 32) return bindSecretToDatabase(configured, db);
+    if (configured) console.warn('[AUTH] Weak JWT_SECRET detected, using DB-scoped random key');
+    // ON CONFLICT plus re-read prevents concurrent cold starts signing with different keys.
+    await db.prepare('CREATE TABLE IF NOT EXISTS _internal_secrets (key TEXT PRIMARY KEY, value TEXT)').run();
+    await db.prepare("INSERT INTO _internal_secrets (key,value) VALUES ('jwt',?) ON CONFLICT(key) DO NOTHING")
+        .bind(crypto.randomUUID() + '-' + crypto.randomUUID()).run();
+    const row = await db.prepare("SELECT value FROM _internal_secrets WHERE key = 'jwt'").first();
+    return bindSecretToDatabase(row?.value, db);
 }
 
 export async function hashToken(token: string): Promise<string> {
@@ -475,17 +529,8 @@ export async function verifyPassword(password: string, storedHash: string): Prom
 export const verifyPasswordPBKDF2 = verifyPassword;
 
 export function checkIsAdmin(user: any): boolean {
-    if (!user) return false;
-    const role = String(user.role || '').toLowerCase();
-    const audience = String(user.target_audience || '').toLowerCase();
-    return role === 'admin' || audience === 'admin' || audience === 'quản trị viên';
+    return !!user && canonicalRole(user.role) === 'admin';
 }
-
 export function checkIsTeacherOrAdmin(user: any): boolean {
-    if (!user) return false;
-    if (checkIsAdmin(user)) return true;
-    const role = String(user.role || '').toLowerCase();
-    const audience = String(user.target_audience || '').toLowerCase();
-    return role === 'giáo viên' || audience === 'giáo viên' || role === 'teacher' || role === 'khác';
+    return !!user && ['teacher','admin'].includes(canonicalRole(user.role));
 }
-

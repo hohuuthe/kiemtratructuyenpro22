@@ -1,4 +1,4 @@
-import { verifyJWT, getDynamicSecret, getDatabase } from '../exam/utils';
+import { verifyAuthSession, getDynamicSecret, getDatabase } from '../exam/utils';
 
 interface Env {
   NEON_DATABASE_URL?: string;
@@ -27,7 +27,7 @@ export const onRequestPut: PagesFunction<Env> = async (context) => {
     return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: corsHeaders });
   }
   const token = authHeader.substring(7);
-  const user: any = await verifyJWT(token, SECRET);
+  const user: any = await verifyAuthSession(token, SECRET, db);
   if (!user || user.role !== 'admin') {
     return new Response(JSON.stringify({ error: "Chỉ Quản trị viên mới được sửa hồ sơ người dùng" }), { status: 403, headers: corsHeaders });
   }
@@ -73,33 +73,21 @@ export const onRequestDelete: PagesFunction<Env> = async (context) => {
     return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: corsHeaders });
   }
   const token = authHeader.substring(7);
-  const user: any = await verifyJWT(token, SECRET);
+  const user: any = await verifyAuthSession(token, SECRET, db);
   if (!user || user.role !== 'admin') {
     return new Response(JSON.stringify({ error: "Chỉ Quản trị viên mới được xóa hồ sơ người dùng" }), { status: 403, headers: corsHeaders });
   }
 
   const userId = params.id as string;
   try {
-    // 1. Tìm và xóa toàn bộ tài khoản đăng nhập gắn với người dùng này (qua user_id hoặc id)
-    let deletedAccountsCount = 0;
-    try {
-      const { results: findAccounts } = await db.prepare("SELECT id, username, role FROM accounts WHERE user_id = ? OR id = ?").bind(userId, userId).all();
-      if (findAccounts && findAccounts.length > 0) {
-        for (const acc of findAccounts) {
-          if (acc.id === user.id) continue;
-          await db.prepare("DELETE FROM accounts WHERE id = ?").bind(acc.id).run();
-          deletedAccountsCount++;
-        }
-      }
-    } catch (errAcc) {
-      console.warn("Lỗi khi tìm và xóa tài khoản gắn với người dùng:", errAcc);
-    }
-
-    // 2. Xóa hồ sơ người dùng khỏi bảng users và phân công lớp
-    await db.prepare("DELETE FROM users WHERE id = ?").bind(userId).run();
-    try {
-      await db.prepare("DELETE FROM teacher_classes WHERE teacher_id = ?").bind(userId).run();
-    } catch (e) {}
+    if([String(user.id),String(user.user_id || user.id)].includes(String(userId)))return new Response(JSON.stringify({error:'Cannot delete your own profile'}),{status:400,headers:corsHeaders});
+    const deleted=await db.batch([
+      db.prepare('DELETE FROM accounts WHERE (user_id=? OR (user_id IS NULL AND id=?)) AND id<>? RETURNING id').bind(userId,userId,user.id),
+      db.prepare('DELETE FROM teacher_classes WHERE teacher_id=?').bind(userId),
+      db.prepare('DELETE FROM users WHERE id=? RETURNING id').bind(userId)
+    ]);
+    const deletedAccountsCount=deleted[0].results.length;
+    if(!deleted[2].results.length)return new Response(JSON.stringify({error:'Profile not found'}),{status:404,headers:corsHeaders});
 
     return new Response(JSON.stringify({ 
       data: { 

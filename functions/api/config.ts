@@ -1,5 +1,6 @@
 interface Env {
   GEMINI_API_KEY: string;
+  CF_PAGES_COMMIT_SHA?: string;
   NEON_DATABASE_URL?: string;
   DATABASE_URL?: string;
   CLOUDFLARE_R2_ACCESS_KEY_ID: string;
@@ -18,6 +19,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     isNeonConfigured: isConfigured(env.NEON_DATABASE_URL) || isConfigured(env.DATABASE_URL),
     isR2Configured: isConfigured(env.CLOUDFLARE_R2_ACCESS_KEY_ID) && isConfigured(env.CLOUDFLARE_R2_BUCKET_NAME),
     timestamp: Date.now(),
+    build_sha: env.CF_PAGES_COMMIT_SHA || null,
     system: {
       node_env: "production",
       platform: "cloudflare-pages"

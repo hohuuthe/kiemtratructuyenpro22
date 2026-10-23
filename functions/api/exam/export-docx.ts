@@ -1,4 +1,4 @@
-import { getDatabase, getDynamicSecret, verifyJWT, checkIsTeacherOrAdmin, checkIsAdmin } from './utils';
+import { getDatabase, getDynamicSecret, verifyAuthSession, checkIsTeacherOrAdmin, checkIsAdmin } from './utils';
 import { generateExamDocx } from '../../../src/exam-docx-generator';
 import { generateExamAnswerExcel, ExamAnswerDoc } from '../../../src/exam-excel-generator';
 import JSZip from 'jszip';
@@ -102,7 +102,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const token = authHeader.substring(7);
       try {
-        tokenUser = await verifyJWT(token, SECRET);
+        tokenUser = await verifyAuthSession(token, SECRET, db);
       } catch (e) {}
     }
 
@@ -148,6 +148,10 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       }
     } catch (dbErr) {
       console.error("Lỗi khi tìm cấu hình đề thi từ DB:", dbErr);
+    }
+
+    if (!checkIsTeacherOrAdmin(tokenUser) || (!checkIsAdmin(tokenUser) && String(dbExam?.creator_id || teacherId) !== String(tokenUser.id))) {
+      return new Response(JSON.stringify({error:'Exam export is restricted to its owner'}),{status:403,headers:{'Content-Type':'application/json'}});
     }
 
     const mapRowRead = (row: any) => {

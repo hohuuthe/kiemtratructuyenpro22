@@ -1,0 +1,80 @@
+name: Security staging E2E - two isolated tenants and concurrent exam writes
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  staging-security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    env:
+      STAGING_TENANT_A_URL: ${{ secrets.STAGING_TENANT_A_URL }}
+      STAGING_TENANT_B_URL: ${{ secrets.STAGING_TENANT_B_URL }}
+      STAGING_TEACHER_A_TOKEN: ${{ secrets.STAGING_TEACHER_A_TOKEN }}
+      STAGING_TEACHER_B_TOKEN: ${{ secrets.STAGING_TEACHER_B_TOKEN }}
+    steps:
+      - name: Exercise isolated staging APIs (no production writes)
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          const keys=['STAGING_TENANT_A_URL','STAGING_TENANT_B_URL','STAGING_TEACHER_A_TOKEN','STAGING_TEACHER_B_TOKEN'];
+          for(const key of keys) assert.ok(process.env[key], key+' must be configured; no mock PASS');
+          const hosts=['A','B'].map(k=>new URL(process.env['STAGING_TENANT_'+k+'_URL']));
+          assert.notEqual(hosts[0].host,hosts[1].host,'Require independent staging hosts');
+          for(const url of hosts) {
+            assert.equal(url.protocol,'https:');
+            assert.ok(/staging|preview|dev|test/i.test(url.hostname),'Reject production host');
+          }
+          const bases=hosts.map(h=>h.origin), tokens=['A','B'].map(k=>process.env['STAGING_TEACHER_'+k+'_TOKEN']);
+          const request=async(index,path,{method='GET',body,token=tokens[index]}={})=>{
+            const response=await fetch(new URL(path,bases[index]),{
+              method,headers:{Accept:'application/json','Content-Type':'application/json',
+              ...(token?{Authorization:'Bearer '+token}:{})},
+              ...(body!==undefined?{body:JSON.stringify(body)}:{}),
+              signal:AbortSignal.timeout(15000)});
+            return {status:response.status,body:await response.json().catch(()=>({}))};
+          };
+          const created=[];
+          try {
+            for(let i=0;i<2;i++){
+              const health=await request(i,'/api/health',{token:''});
+              assert.equal(health.status,200,'Neon health on tenant '+i);
+              assert.equal(health.body?.database?.status,'CONNECTED_OK');
+            }
+            const name='security-staging-'+Date.now();
+            for(let i=0;i<2;i++){
+              const createdExam=await request(i,'/api/exams',{
+                method:'POST',body:{name,selected_lessons:[],count_41:0,count_tf4:0,count_sq:0,count_tl:0}});
+              assert.equal(createdExam.status,200,'Staging create tenant '+i);
+              assert.ok(createdExam.body.id);
+              created.push({i,id:createdExam.body.id});
+            }
+            const a=created[0],b=created[1];
+            assert.notEqual(a.id,b.id);
+            const foreignA=await request(0,'/api/exams?id='+encodeURIComponent(b.id));
+            assert.notEqual(foreignA.body?.data?.id,b.id,'Tenant B exam visible in A');
+            const foreignB=await request(1,'/api/exams?id='+encodeURIComponent(a.id));
+            assert.notEqual(foreignB.body?.data?.id,a.id,'Tenant A exam visible in B');
+            const detail=await request(0,'/api/exams?id='+encodeURIComponent(a.id));
+            assert.equal(detail.status,200);
+            const version=detail.body?.data?.updated_at;
+            assert.ok(version,'A revision must be present');
+            const requestBody={id:a.id,name:name+'-changed',expected_updated_at:version};
+            const success=await request(0,'/api/exams',{method:'POST',body:requestBody});
+            assert.equal(success.status,200,'First device save');
+            const conflict=await request(0,'/api/exams',{method:'POST',body:requestBody});
+            assert.equal(conflict.status,409,'Second device must conflict');
+            assert.equal(conflict.body.code,'EXAM_VERSION_CONFLICT');
+            const reread=await request(0,'/api/exams?id='+encodeURIComponent(a.id));
+            assert.equal(reread.body?.data?.name,name+'-changed','First device data must be preserved');
+            console.log('PASS: two independent Neon staging tenants and stale-write prevention');
+          } finally {
+            for(const item of created){
+              try{
+                await request(item.i,'/api/exams?id='+encodeURIComponent(item.id),{method:'DELETE'});
+              }catch{ console.warn('Cleanup failed for temporary staging exam in tenant '+item.i); }
+            }
+          }
+          NODE

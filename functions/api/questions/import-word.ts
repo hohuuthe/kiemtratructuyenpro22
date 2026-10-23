@@ -4,7 +4,7 @@
  * Invalid/ambiguous OMML is rejected before persistence.
  */
 import { neon } from '@neondatabase/serverless';
-import { verifyJWT, getDynamicSecret, getDatabase } from '../exam/utils';
+import { verifyAuthSession, getDynamicSecret, getDatabase } from '../exam/utils';
 import { checkWordImportBeforeSave, validateWordFormulaSourceForImport, normalizeWordImportAnswer } from '../../../src/word-import-verification.js';
 
 interface Env { NEON_DATABASE_URL?: string; DATABASE_URL?: string; JWT_SECRET?: string; }
@@ -217,7 +217,7 @@ export const onRequestPost:PagesFunction<Env> = async(context)=>{
     try {
         db=getDatabase(context);
         const secret=await getDynamicSecret(db,context.env.JWT_SECRET);
-        user=await verifyJWT(auth.slice(7),secret);
+        user=await verifyAuthSession(auth.slice(7), secret, db);
     } catch(e) {return reply({error:'Không xác thực được phiên đăng nhập'},401);}
     if(!user || !(user.role==='admin'||user.target_audience==='Giáo viên'))return reply({error:'Không có quyền nhập ngân hàng câu hỏi'},403);
     try {

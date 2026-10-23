@@ -1,5 +1,7 @@
+import {escapeImageSource as safeImageSrc} from './safe-image-url.js';
 
 import 'katex/dist/katex.min.css';
+import { createEmptyExamDraft, mapStoredExamToDraft, resolveExamSaveIdentity } from './exam-editor-safety.js';
 import './style.css';
 import './pwa-manager.js';
 import './teacher-assignment.js';
@@ -15,8 +17,8 @@ import { inspectScientificDocx, WORD_IMPORT_ENGINE_VERSION } from './word-omml-r
 import { verifyImportedWordQuestions, checkWordImportBeforeSave, correctImportedWordEquation, normalizeWordImportAnswer } from './word-import-verification.js';
 import { splitScientificContent } from './scientific-formula-tokenizer.js';
 import { splitLabeledScientificRecords } from './scientific-formula-records.js';
-import { generateExamPdfBlob } from './exam-pdf-generator.ts';
-import { generateExamAnswerExcel } from './exam-excel-generator.ts';
+const generateExamPdfBlob = async (...args) => (await import('./exam-pdf-generator.ts')).generateExamPdfBlob(...args);
+const generateExamAnswerExcel = async (...args) => (await import('./exam-excel-generator.ts')).generateExamAnswerExcel(...args);
 import { 
     renderScientificContent, 
     renderKatexToString, 
@@ -39,8 +41,9 @@ if (typeof window !== 'undefined') {
         }
     };
     window.confirm = function(msg) {
-        console.warn('Blocked native confirm:', msg);
-        return true; 
+        console.warn('Native confirm requires an explicit custom confirmation:', msg);
+        if (typeof window.showToast === 'function') window.showToast('Vui lòng xác nhận thao tác trong hộp thoại của ứng dụng.', 'warning');
+        return false; 
     };
     window.prompt = function(msg) {
         console.warn('Blocked native prompt:', msg);
@@ -76,90 +79,38 @@ if (typeof window !== 'undefined') {
 
     window.getTenantSlugFromUrl = getTenantSlugFromUrl;
     window.__CURRENT_TENANT_SLUG = getTenantSlugFromUrl();
+    // Auth/session caches belong to exactly one path-based tenant.
+    const previousTenant = sessionStorage.getItem('kttt_last_tenant_slug');
+    if (previousTenant !== null && previousTenant !== window.__CURRENT_TENANT_SLUG) {
+        localStorage.removeItem('auth_token');
+        localStorage.setItem('is_auto_login','false');
+    }
+    sessionStorage.setItem('kttt_last_tenant_slug',window.__CURRENT_TENANT_SLUG);
 
-    // Global Fetch Interceptor: Tự động đính kèm Header X-Tenant-Slug cho toàn bộ API calls
-    const originalWindowFetch = (typeof window !== 'undefined' && window.fetch) ? window.fetch.bind(window) : fetch;
+
+    // Tenant follows the visible /v1 path. Cloudflare validates this selector
+    // against configured database bindings; it must not change mid-session.
+    const initialTenantSlug = window.__CURRENT_TENANT_SLUG || '';
+    const originalWindowFetch = window.fetch.bind(window);
     const patchedFetch = async function(resource, init) {
-        const slug = window.__CURRENT_TENANT_SLUG || getTenantSlugFromUrl();
-        if (slug) {
-            let isApi = false;
-            if (typeof resource === 'string') {
-                isApi = resource.startsWith('/api') || resource.includes('/api/');
-            } else if (resource instanceof Request) {
-                isApi = resource.url.startsWith('/api') || resource.url.includes('/api/');
-            }
-
-            if (isApi) {
-                init = init || {};
-                let headers;
-                if (init.headers instanceof Headers) {
-                    headers = init.headers;
-                } else if (init.headers && typeof init.headers === 'object') {
-                    headers = new Headers(init.headers);
-                } else if (resource instanceof Request) {
-                    headers = new Headers(resource.headers);
-                } else {
-                    headers = new Headers();
-                }
-
-                if (!headers.has('X-Tenant-Slug')) {
-                    headers.set('X-Tenant-Slug', slug);
-                }
-                init.headers = headers;
-                if (resource instanceof Request) {
-                    resource = new Request(resource, { headers });
-                }
-            }
+        const raw = typeof resource === 'string' ? resource : resource instanceof URL ? resource.href : resource?.url;
+        let target;
+        try { target = new URL(raw, window.location.origin); } catch {}
+        const isApi = target?.origin === window.location.origin && target.pathname.startsWith('/api/');
+        if (isApi && initialTenantSlug) {
+            const headers = new Headers(init?.headers || (resource instanceof Request ? resource.headers : undefined));
+            headers.set('X-Tenant-Slug', initialTenantSlug);
+            init = {...init, headers};
         }
         const response = await originalWindowFetch(resource, init);
-        if (response.status === 503 || response.status === 500) {
+        if (response.status >= 500) {
             try {
-                const clone = response.clone();
-                const json = await clone.json();
-                if (json && (json.db_not_configured || (typeof json.error === 'string' && json.error.includes('Không thể kết nối tới Cơ sở dữ liệu')))) {
-                    if (typeof window.showDatabaseErrorDialog === 'function') {
-                        window.showDatabaseErrorDialog();
-                    } else if (typeof window.showToast === 'function') {
-                        window.showToast('Không thể kết nối tới Cơ sở dữ liệu, xin vui lòng liên hệ với quản trị hệ thống.', 'error');
-                    }
-                }
+                const json = await response.clone().json();
+                if (json && json.db_not_configured && typeof window.showDatabaseErrorDialog === 'function')
+                    window.showDatabaseErrorDialog();
             } catch {}
         }
         return response;
-    };
-
-    window.showDatabaseErrorDialog = function() {
-        if (document.getElementById('db-connection-error-modal')) return;
-        const modal = document.createElement('div');
-        modal.id = 'db-connection-error-modal';
-        modal.className = 'fixed inset-0 z-[999999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in';
-        modal.innerHTML = `
-            <div class="relative bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-red-200 dark:border-red-900/50 max-w-lg w-full p-6 text-center animate-bounce-short">
-                <button type="button" onclick="document.getElementById('db-connection-error-modal')?.remove()" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer" title="Đóng">
-                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
-                    </svg>
-                </button>
-                <div class="w-16 h-16 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
-                    </svg>
-                </div>
-                <h3 class="text-xl font-bold text-gray-900 dark:text-white mb-2">Thông Báo Kết Nối</h3>
-                <p class="text-base font-medium text-red-600 dark:text-red-400 mb-6 leading-relaxed">
-                    Không thể kết nối tới Cơ sở dữ liệu, xin vui lòng liên hệ với quản trị hệ thống.
-                </p>
-                <div class="flex items-center justify-center gap-3">
-                    <button type="button" onclick="document.getElementById('db-connection-error-modal')?.remove()" class="px-6 py-2.5 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 font-semibold rounded-xl transition cursor-pointer">
-                        Đóng
-                    </button>
-                    <button type="button" onclick="window.location.reload()" class="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl shadow-lg shadow-blue-500/20 transition cursor-pointer">
-                        Thử lại
-                    </button>
-                </div>
-            </div>
-        `;
-        document.body.appendChild(modal);
     };
 
     try {
@@ -187,13 +138,6 @@ if (typeof window !== 'undefined') {
 
 // Cố tình bọc lại console.error để lọc các thông báo lỗi liên quan đến "Failed to fetch" (do máy chủ restart / mạng yếu)
 // nhằm ngăn chặn hiển thị lỗi này lên màn hình Console và AI Studio.
-const originalConsoleError = console.error;
-console.error = function(...args) {
-    if (args.some(arg => arg && arg.message && (arg.message.includes('Failed to fetch') || arg.message.includes('NetworkError')))) return;
-    if (args.some(arg => typeof arg === 'string' && (arg.includes('Failed to fetch') || arg.includes('NetworkError')))) return;
-    originalConsoleError.apply(console, args);
-};
-
 // Hàm tự động kiểm tra và nạp thư viện ExcelJS/FileSaver nếu chưa sẵn sàng
 async function ensureExcelJSReady() {
     if (typeof window.ExcelJS !== 'undefined' && typeof window.saveAs !== 'undefined') {
@@ -201,7 +145,7 @@ async function ensureExcelJSReady() {
     }
     
     const loadScript = (src) => new Promise((resolve, reject) => {
-        const existing = document.querySelector(`script[src="${src}"]`);
+        const existing = document.querySelector(`script[src="${safeImageSrc(src)}"]`);
         if (existing) {
             if (existing.getAttribute('data-loaded') === 'true') return resolve(true);
             existing.addEventListener('load', () => resolve(true));
@@ -1288,25 +1232,24 @@ if (contentTypeConfig && contentTypeConfig.includes("application/json")) {
         }
 
         function escapeHTML(text) {
-            if (!text && text !== 0) return '';
-            let str = String(text);
-            
-            const mathBlocks = [];
-            const saveBlock = (match) => {
-                mathBlocks.push(match);
-                return `XMBX${mathBlocks.length - 1}XMBX`;
+            return String(text ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
+        }
+        // Confirmation messages support formatting, never active content or attributes.
+        function safeConfirmationHtml(message) {
+            const doc=new DOMParser().parseFromString(String(message ?? ''),'text/html');
+            const tags=new Set(['B','STRONG','I','EM','BR','P','SPAN','UL','OL','LI','DIV']);
+            const clean=node=>{
+                if(node.nodeType===3)return document.createTextNode(node.textContent || '');
+                if(node.nodeType!==1)return document.createTextNode('');
+                if(!tags.has(node.tagName))return document.createTextNode(node.textContent || '');
+                const el=document.createElement(node.tagName.toLowerCase());
+                if(/^[a-zA-Z0-9_ :./\[\]%-]+$/.test(node.className || ''))el.className=node.className;
+                for(const child of node.childNodes)el.appendChild(clean(child));
+                return el;
             };
-            
-            str = str.replace(/(\$\$|\\\[|\\\(|\$|\\ce\{|\\pu\{|\\begin\{)(.*?)(\$\$|\\\]|\\\)|(?:\$|\}|\end\{[^}]+\}))/gs, saveBlock);
-            
-            str = str.replace(/&/g, '&amp;')
-                     .replace(/</g, '&lt;')
-                     .replace(/>/g, '&gt;')
-                     .replace(/"/g, '&quot;')
-                     .replace(/'/g, '&#039;');
-                     
-            str = str.replace(/XMBX(\d+)XMBX/g, (match, p1) => mathBlocks[p1] || '');
-            return str;
+            const wrapper=document.createElement('div');
+            for(const child of doc.body.childNodes)wrapper.appendChild(clean(child));
+            return wrapper.innerHTML;
         }
 
         window.formatContent = formatContent;
@@ -1315,7 +1258,6 @@ if (contentTypeConfig && contentTypeConfig.includes("application/json")) {
         const escapeHtml = escapeHTML;
 
         // ==================== CONFIGURATION ====================
-        const ADMIN_PASSWORD = 'giaovien';
         const doi_tuong = 0; // 0: Mặc định, 1: Dành cho học sinh (ẩn đăng nhập, đổi tiêu đề)
         const thong_tin_khach_hang = "Xin chào thầy cô, chúc thầy cô một ngày vui vẻ."; // Thông tin khách hàng
         const ho_ten_khach_hang = "Giáo viên"; // Họ tên khách hàng (Người tạo đề thi)
@@ -1502,12 +1444,14 @@ Trả về kết quả dưới dạng JSON Array, mỗi phần tử tương ứn
         async function init() {
             try {
                 console.log('Initializing application components...');
+                localStorage.removeItem('remember_password');
                 
                 // Kiểm tra và tự động đăng nhập nếu đã lưu (Làm sớm để tránh flicker)
                 if (localStorage.getItem('is_auto_login') === 'true') {
                     console.log('Attempting auto-login...');
                     try {
-                        await adminLogin(true);
+                        const resumed=await adminLogin(true);
+                        if (!resumed) await loadData().catch(()=>{});
                     } catch (err) {
                         console.error('Auto-login failed:', err);
                         document.getElementById('login-btn')?.classList.remove('hidden');
@@ -1753,6 +1697,8 @@ Trả về kết quả dưới dạng JSON Array, mỗi phần tử tương ứn
         let isAdminLoggedIn = false;
         let isTeacherLoggedIn = false;
         let currentUser = null;
+        // Bumped for every successful sign-in or sign-out; rejects stale private API responses.
+        let authDataGeneration = 0;
 
         window._realShowAdminLoginModal = showAdminLoginModal;
         window.showAdminLoginModal = showAdminLoginModal;
@@ -1765,8 +1711,8 @@ Trả về kết quả dưới dạng JSON Array, mỗi phần tử tương ứn
         }
         function showAdminLoginModal() {
             const savedUsername = localStorage.getItem('remember_username') || '';
-            const savedPassword = localStorage.getItem('remember_password') || '';
-            const isRemembered = localStorage.getItem('is_auto_login') !== 'false' ? 'checked' : '';
+            localStorage.removeItem('remember_password');
+            const isRemembered = localStorage.getItem('is_auto_login') === 'true' ? 'checked' : '';
 
             const modalContent = `
                 <div class="p-8 text-center w-full mx-auto">
@@ -1776,17 +1722,17 @@ Trả về kết quả dưới dạng JSON Array, mỗi phần tử tương ứn
                     
                     <form onsubmit="event.preventDefault(); adminLogin();" class="space-y-4 text-left">
                         <div>
-                            <input type="text" id="login-username" name="username" autocomplete="username" value="${savedUsername}" placeholder="Tên đăng nhập" class="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-purple-500 focus:outline-none text-lg">
+                            <input type="text" id="login-username" name="username" autocomplete="username" value="${escapeHTML(savedUsername)}" placeholder="Tên đăng nhập" class="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-purple-500 focus:outline-none text-lg">
                         </div>
                         <div class="relative">
-                            <input type="password" id="global-admin-password" name="password" autocomplete="current-password" value="${savedPassword}" placeholder="Nhập mật khẩu" class="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-purple-500 focus:outline-none text-lg pr-12">
+                            <input type="password" id="global-admin-password" name="password" autocomplete="current-password" value="" placeholder="Nhập mật khẩu" class="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-purple-500 focus:outline-none text-lg pr-12">
                             <button type="button" onclick="togglePasswordVisibility('global-admin-password', this)" class="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-500 hover:text-gray-700">
                                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
                             </button>
                         </div>
                         <div class="flex items-center mt-2">
                             <input type="checkbox" id="login-remember" ${isRemembered} class="w-4 h-4 text-purple-600 bg-gray-100 border-gray-300 rounded focus:ring-purple-500">
-                            <label for="login-remember" class="ml-2 text-sm font-medium text-gray-700">Lưu tài khoản và mật khẩu</label>
+                            <label for="login-remember" class="ml-2 text-sm font-medium text-gray-700">Duy trì đăng nhập tối đa 12 giờ (không lưu mật khẩu)</label>
                         </div>
                         
                         <div class="mt-6 flex justify-end gap-3">
@@ -2049,12 +1995,13 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             const submitBtn = document.getElementById('login-submit-btn');
 
             const username = usernameInput ? usernameInput.value.trim() : (isAutoLogin ? localStorage.getItem('remember_username') : '');
-            const password = passwordInput ? passwordInput.value : (isAutoLogin ? localStorage.getItem('remember_password') : '');
+            const password = isAutoLogin ? '' : (passwordInput ? passwordInput.value : '');
+            const previousToken = isAutoLogin ? localStorage.getItem('auth_token') : null;
             
-            if (!username || !password) {
+            if (isAutoLogin ? !previousToken : (!username || !password)) {
                 if (!isAutoLogin) showToast('Vui lòng nhập đầy đủ tên đăng nhập và mật khẩu!', 'error');
                 document.getElementById('login-btn')?.classList.remove('hidden');
-                return;
+                return false;
             }
 
             if (submitBtn && !isAutoLogin) {
@@ -2063,11 +2010,11 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             }
 
             try {
-                const response = await fetch('/api/auth/login', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username, password })
-                });
+                const response = isAutoLogin
+                    ? await fetch('/api/auth/me',{headers:{'Authorization':'Bearer '+previousToken},cache:'no-store'})
+                    : await fetch('/api/auth/login',{
+                        method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password})
+                    });
 
                 let data, error, token;
                 
@@ -2079,20 +2026,25 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                     const resJson = await response.json();
                     data = resJson.data;
                     error = resJson.error;
-                    token = resJson.token;
+                    token = isAutoLogin ? previousToken : resJson.token;
                 }
 
                 if (error || !data) {
+                    if(isAutoLogin){localStorage.removeItem('auth_token');localStorage.setItem('is_auto_login','false');}
                     if (submitBtn) {
                         submitBtn.disabled = false;
                         submitBtn.innerHTML = 'Đăng nhập';
                     }
                     if (!isAutoLogin) {
-                        const errMsg = error && error.includes('hạn mức') ? error : '❌ Tên đăng nhập hoặc mật khẩu không đúng!';
+                        const errMsg = response.status === 401 ? '❌ Tên đăng nhập hoặc mật khẩu không đúng!' :
+                          response.status === 403 ? 'Tài khoản bị khóa, hết hạn hoặc chưa được cấp quyền.' :
+                          response.status === 421 ? 'Tên miền chưa được cấu hình truy cập cơ sở dữ liệu. Vui lòng liên hệ quản trị viên.' :
+                          response.status === 503 || response.status >= 500 ? 'Máy chủ hoặc cơ sở dữ liệu đang gặp lỗi. Vui lòng thử lại sau.' :
+                          (error || 'Không thể đăng nhập.');
                         showToast(errMsg, 'error');
                     }
                     document.getElementById('login-btn')?.classList.remove('hidden');
-                    return;
+                    return false;
                 }
 
                 if (data.expiry_date && new Date(data.expiry_date) < new Date()) {
@@ -2113,22 +2065,24 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                     return;
                 }
 
-                // Luôn lưu lại thông tin đăng nhập thành công vào localStorage để tự động login lần sau
-                localStorage.setItem('remember_username', username);
-                localStorage.setItem('remember_password', password);
-                localStorage.setItem('is_auto_login', 'true');
+                // Never persist reusable passwords in the browser.
+                localStorage.removeItem('remember_password');
+                const keepSignedIn=isAutoLogin||!!document.getElementById('remember-login')?.checked||!!document.getElementById('rememberMe')?.checked;
+                localStorage.setItem('remember_username',String(data.username||username));
+                localStorage.setItem('is_auto_login',keepSignedIn?'true':'false');
 
                 if (token) localStorage.setItem('auth_token', token);
                 currentUser = data;
                 window.currentUser = currentUser;
                 const roleLower = String(data.role || '').toLowerCase();
                 const audienceLower = String(data.target_audience || '').toLowerCase();
-                isAdminLoggedIn = (roleLower === 'admin' || audienceLower === 'admin' || audienceLower === 'quản trị viên');
-                isTeacherLoggedIn = !isAdminLoggedIn && (audienceLower === 'giáo viên' || roleLower === 'teacher' || roleLower === 'giáo viên');
+                isAdminLoggedIn = roleLower === 'admin';
+                isTeacherLoggedIn = roleLower === 'teacher' || roleLower === 'giáo viên';
                 window.isAdminLoggedIn = isAdminLoggedIn;
                 window.isTeacherLoggedIn = isTeacherLoggedIn;
                 
                 await handleSuccessfulLogin();
+                return true;
             } catch (err) {
                 if (submitBtn) {
                     submitBtn.disabled = false;
@@ -2140,6 +2094,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                     console.error(err);
                 }
                 if (!isAutoLogin) showToast('❌ Lỗi kết nối máy chủ!', 'error');
+                return false;
             }
         }
 
@@ -2157,6 +2112,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             resultsLoaded = false;
             accountsLoaded = false;
             examsLoaded = false;
+            invalidateExamEditorSession();
 
             if (typeof examToCreatorMap !== 'undefined') {
                 for (let key in examToCreatorMap) delete examToCreatorMap[key];
@@ -2374,7 +2330,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 } else if (tab === 'ranking') {
                     // QL Kết quả: Hiển thị cho Giáo viên và Admin (ẩn đối với Học sinh)
                     visible = isTeacher || isAdmin;
-                } else if (tab === 'questions' || tab === 'exams') {
+                } else if (tab === 'questions' || tab === 'exams' || tab === 'exam-editor') {
                     // QL Câu hỏi, QL Đề thi: Dành cho Giáo viên và Admin
                     visible = isTeacher || isAdmin;
                 } else if (tab === 'users') {
@@ -2474,6 +2430,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
         async function adminLogout() {
             closeModal();
             localStorage.removeItem('auth_token');
+            localStorage.removeItem('remember_password');
             isAdminLoggedIn = false;
             isTeacherLoggedIn = false;
             currentUser = null;
@@ -2490,6 +2447,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             resultsLoaded = false;
             accountsLoaded = false;
             examsLoaded = false;
+            invalidateExamEditorSession();
             
             // Xóa sạch các bản đồ ánh xạ metadata và phân quyền
             if (typeof examToCreatorMap !== 'undefined') {
@@ -2569,6 +2527,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             // Đóng các tab bảo mật
             if(document.getElementById('questions-panel')) document.getElementById('questions-panel').classList.add('hidden');
             if(document.getElementById('exams-panel')) document.getElementById('exams-panel').classList.add('hidden');
+            document.getElementById('exam-editor-panel')?.classList.add('hidden');
             if (document.getElementById('questions-login')) document.getElementById('questions-login').classList.remove('hidden');
             if (document.getElementById('exams-login')) document.getElementById('exams-login').classList.remove('hidden');
             
@@ -2591,8 +2550,8 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 const p = document.getElementById('questions-panel');
                 if (p && !p.classList.contains('hidden')) return;
             }
-            if (currentActiveTab.id === 'tab-exams') {
-                const p = document.getElementById('exams-panel');
+            if (currentActiveTab.id === 'tab-exam-editor') {
+                const p = document.getElementById('exam-editor-panel');
                 if (p && !p.classList.contains('hidden')) return;
             }
             if (currentActiveTab.id === 'tab-settings') {
@@ -2631,8 +2590,10 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 renderQuestionsList();
                 updateLessonFilter();
             } else if (tabName === 'exams') {
+                if (!examsLoaded) await updateExamNamesList(true);
+                renderExamConfigsTable();
+            } else if (tabName === 'exam-editor') {
                 await initExamPanel();
-                // Check sufficiency when opening tab
                 checkExamConfigSufficiency();
             } else if (tabName === 'settings') {
                 loadSettings();
@@ -3037,8 +2998,10 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                     return false;
                 }
 
+                const generation = authDataGeneration;
                 console.log('Loading questions from /api/questions (chunked)...');
                 const data = await fetchAllQuestionsChunked(onProgress);
+                if (generation !== authDataGeneration || !(isAdminLoggedIn || isTeacherLoggedIn)) return false;
 
                 if (data && Array.isArray(data)) {
                     questions = data.map(q => ({
@@ -3063,24 +3026,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
 
         async function fetchAllResultsChunked(onProgress) {
             let token = localStorage.getItem('auth_token') || '';
-            if (!token && localStorage.getItem('is_auto_login') === 'true') {
-                const savedU = localStorage.getItem('remember_username');
-                const savedP = localStorage.getItem('remember_password');
-                if (savedU && savedP) {
-                    try {
-                        const authRes = await fetch('/api/auth/login', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ username: savedU, password: savedP })
-                        });
-                        const authJson = await authRes.json();
-                        if (authJson && authJson.token) {
-                            token = authJson.token;
-                            localStorage.setItem('auth_token', token);
-                        }
-                    } catch (e) {}
-                }
-            }
+
             const chunkSize = 1000;
             let offset = 0;
             let allRawResults = [];
@@ -3153,7 +3099,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                     results = Array.from(uniqueMap.values()).map(r => {
                         const matchedUser = (window.usersList || []).find(u => 
                             (r.user_id && (String(u.id) === String(r.user_id) || String(u.user_id) === String(r.user_id))) || 
-                            (!r.user_id && u.username && String(u.username) === String(r.student_name))
+                            false
                         );
                         const lop = r.lop || r.student_lop || (matchedUser ? matchedUser.lop : '') || '';
                         const donvi = r.don_vi || r.donvi || r.student_donvi || (matchedUser ? (matchedUser.donvi || matchedUser.address) : '') || r.student_class || '';
@@ -3190,7 +3136,9 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                     return loadAllResults(force, retryCount + 1, silent, onProgress);
                 }
                 console.error('Error loading all results:', e);
+                resultsLoaded = false;
                 if (force && !silent) showToast('Lỗi khi tải lại dữ liệu kết quả: ' + (e.message || ''), 'error');
+                throw e;
             }
         }
 
@@ -3352,7 +3300,7 @@ if (contentType && contentType.includes("application/json")) {
                     // Fetch exam configs, app settings, and public teacher accounts in parallel
                     const [ecResult, sResult, accResult] = await Promise.all([
                         fetch('/api/exams').then(res => res.json()).catch(() => ({error: 'Lỗi', data: []})),
-                        fetch('/api/settings', { headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('auth_token') || '') } }).then(res => res.json()).catch(() => ({error: 'Lỗi', data: null})),
+                        fetch('/api/settings').then(res => res.json()).catch(() => ({error: 'Lỗi', data: null})),
                         fetch('/api/accounts').then(res => res.json()).catch(() => ({error: 'Lỗi', data: []}))
                     ]);
                     
@@ -3412,7 +3360,7 @@ if (contentType && contentType.includes("application/json")) {
                             qrCodeUrl: sData.qr_code_url || ''
                         };
                         window.appSettings = appSettings;
-                        localStorage.setItem('appSettings', JSON.stringify(appSettings));
+                        localStorage.setItem('appSettings', JSON.stringify({...appSettings, aiGradingKey: ''}));
                         if (appSettings.appTitle === "ỨNG DỤNG KIỂM TRA TRẮC NGHIỆM - PRO V1.0" || appSettings.appTitle === "KIỂM TRA TRẮC NGHIỆM HHT PRO V1.0" || appSettings.appTitle === "Hệ Thống Khảo Sát & Đánh Giá Năng Lực Trực Tuyến" || appSettings.appTitle === "Hệ thống khảo sát & đánh giá năng lực trực tuyến" || appSettings.appTitle === "PHẦN MỀM KIỂM TRA TRẮC NGHIỆM" || appSettings.appTitle === "PHẦN MỀM KIỂM TRA TRỰC TUYẾN") {
                             appSettings.appTitle = "HỆ THỐNG KIỂM TRA TRỰC TUYẾN";
                         }
@@ -3621,7 +3569,7 @@ if (contentType && contentType.includes("application/json")) {
                     if (appSettings.appTitle === "ỨNG DỤNG KIỂM TRA TRẮC NGHIỆM - PRO V1.0" || appSettings.appTitle === "KIỂM TRA TRẮC NGHIỆM HHT PRO V1.0" || appSettings.appTitle === "Hệ Thống Khảo Sát & Đánh Giá Năng Lực Trực Tuyến" || appSettings.appTitle === "Hệ thống khảo sát & đánh giá năng lực trực tuyến" || appSettings.appTitle === "PHẦN MỀM KIỂM TRA TRẮC NGHIỆM" || appSettings.appTitle === "PHẦN MỀM KIỂM TRA TRỰC TUYẾN") {
                         appSettings.appTitle = "HỆ THỐNG KIỂM TRA TRỰC TUYẾN";
                     }
-                    localStorage.setItem('appSettings', JSON.stringify(appSettings));
+                    localStorage.setItem('appSettings', JSON.stringify({...appSettings, aiGradingKey: ''}));
                 }
                 
                 // Khôi phục cấu hình cá nhân của người dùng (nếu có) để đè lên cấu hình mặc định từ DB
@@ -3704,24 +3652,7 @@ if (e && e.message && e.message.includes('hạn mức')) {
                 window.lastResultsError = null;
                 let token = localStorage.getItem('auth_token') || '';
                 
-                if (!token && localStorage.getItem('is_auto_login') === 'true') {
-                    const savedU = localStorage.getItem('remember_username');
-                    const savedP = localStorage.getItem('remember_password');
-                    if (savedU && savedP) {
-                        try {
-                            const authRes = await fetch('/api/auth/login', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ username: savedU, password: savedP })
-                            });
-                            const authJson = await authRes.json();
-                            if (authJson && authJson.token) {
-                                token = authJson.token;
-                                localStorage.setItem('auth_token', token);
-                            }
-                        } catch (e) {}
-                    }
-                }
+
 
                 if (deletedIds && deletedIds.length > 0) {
                     const response = await fetch('/api/results', {
@@ -3750,55 +3681,56 @@ if (e && e.message && e.message.includes('hạn mức')) {
             }
         }
 
-        async function saveExamConfigToDB() {
+        async function saveExamConfigToDB(draft, expected) {
             try {
                 const token = localStorage.getItem('auth_token') || '';
                 if (!token) return 'error';
-                console.log('🚀 Bắt đầu lưu cấu hình đề thi:', examConfig.name);
+                console.log('🚀 Bắt đầu lưu cấu hình đề thi:', draft.name);
 
                 let payload = {
-                    id: examConfig.id || null,
-                    name: examConfig.name || 'Đề thi mặc định',
-                    creator_id: examConfig.creatorId || (currentUser ? currentUser.id : null),
-                    time_limit: parseInt(examConfig.timeLimit) || 45,
-                    max_cheat_warnings: Math.max(1, parseInt(examConfig.maxCheatWarnings) || parseInt(document.getElementById('exam-config-max-cheat-warnings')?.value) || 5),
-                    max_attempts: Math.max(0, parseInt(examConfig.maxAttempts) || parseInt(document.getElementById('exam-config-max-attempts')?.value) || 0),
-                    count_41: parseInt(examConfig.count41) || 0,
-                    count_tf4: parseInt(examConfig.countTF4) || 0,
-                    count_sq: parseInt(examConfig.countSQ) || 0,
-                    count_tl: parseInt(examConfig.countTL) || 0,
-                    points_41: parseFloat(examConfig.points41) || 1,
-                    points_tf4: parseFloat(examConfig.pointsTF4) || 1,
-                    points_sq: parseFloat(examConfig.pointsSQ) || 1,
-                    points_tl: parseFloat(examConfig.pointsTL) || 1,
+                    id: draft.id || null,
+                    expected_updated_at: draft.id ? (draft.updatedAt ?? '') : undefined,
+                    name: draft.name || 'Đề thi mặc định',
+                    creator_id: draft.creatorId || (currentUser ? currentUser.id : null),
+                    time_limit: parseInt(draft.timeLimit) || 45,
+                    max_cheat_warnings: Math.max(1, parseInt(draft.maxCheatWarnings) || parseInt(document.getElementById('exam-config-max-cheat-warnings')?.value) || 5),
+                    max_attempts: Math.max(0, parseInt(draft.maxAttempts) || parseInt(document.getElementById('exam-config-max-attempts')?.value) || 0),
+                    count_41: parseInt(draft.count41) || 0,
+                    count_tf4: parseInt(draft.countTF4) || 0,
+                    count_sq: parseInt(draft.countSQ) || 0,
+                    count_tl: parseInt(draft.countTL) || 0,
+                    points_41: parseFloat(draft.points41) || 1,
+                    points_tf4: parseFloat(draft.pointsTF4) || 1,
+                    points_sq: parseFloat(draft.pointsSQ) || 1,
+                    points_tl: parseFloat(draft.pointsTL) || 1,
                     counts_detail: JSON.stringify({
-                        count41NB: examConfig.count41NB || 0, count41TH: examConfig.count41TH || 0, count41VD: examConfig.count41VD || 0,
-                        countTF4NB: examConfig.countTF4NB || 0, countTF4TH: examConfig.countTF4TH || 0, countTF4VD: examConfig.countTF4VD || 0,
-                        countSQNB: examConfig.countSQNB || 0, countSQTH: examConfig.countSQTH || 0, countSQVD: examConfig.countSQVD || 0,
-                        countTLNB: examConfig.countTLNB || 0, countTLTH: examConfig.countTLTH || 0, countTLVD: examConfig.countTLVD || 0
+                        count41NB: draft.count41NB || 0, count41TH: draft.count41TH || 0, count41VD: draft.count41VD || 0,
+                        countTF4NB: draft.countTF4NB || 0, countTF4TH: draft.countTF4TH || 0, countTF4VD: draft.countTF4VD || 0,
+                        countSQNB: draft.countSQNB || 0, countSQTH: draft.countSQTH || 0, countSQVD: draft.countSQVD || 0,
+                        countTLNB: draft.countTLNB || 0, countTLTH: draft.countTLTH || 0, countTLVD: draft.countTLVD || 0
                     }),
-                    selected_lessons: examConfig.selectedLessons || [],
-                    access_control: examConfig.accessControl || null,
-                    tf4_scoring_mode: examConfig.tf4ScoringMode ? 1 : 0,
-                    tf4_points: examConfig.tf4Points || null,
-                    is_shared_results: examConfig.isSharedResults ? 1 : 0,
-                    immediate_feedback: examConfig.immediateFeedback ? 1 : 0,
-                    show_score: examConfig.showScore === false || examConfig.showScore === 0 ? 0 : 1,
-                    show_details: examConfig.showDetails === false || examConfig.showDetails === 0 ? 0 : 1,
-                    sq_case_sensitive: examConfig.sqCaseSensitive ? 1 : 0,
-                    sq_punctuation_sensitive: examConfig.sqPunctuationSensitive ? 1 : 0,
-                    auto_grade_essay: examConfig.autoGradeEssay ? 1 : 0,
-                    chedodethi: examConfig.chedodethi || 'Đề công khai',
-                    mabaomatdethi: examConfig.chedodethi === 'Đề có mã bảo mật' ? (examConfig.mabaomatdethi || '') : '',
-                    target_lop: (examConfig.chedodethi === 'Đề công khai' || !examConfig.chedodethi) ? '' : (examConfig.target_lop || examConfig.lop || ''),
-                    lop: (examConfig.chedodethi === 'Đề công khai' || !examConfig.chedodethi) ? '' : (examConfig.target_lop || examConfig.lop || ''),
-                    target_donvi: (examConfig.chedodethi === 'Đề công khai' || !examConfig.chedodethi) ? '' : (examConfig.target_donvi || examConfig.donvi || ''),
-                    donvi: (examConfig.chedodethi === 'Đề công khai' || !examConfig.chedodethi) ? '' : (examConfig.target_donvi || examConfig.donvi || ''),
-                    tg_bd: examConfig.tgBd || null,
-                    tg_kt: examConfig.tgKt || null,
-                    ai_prompt: examConfig.aiPrompt || '',
-                    ai_grading_key: examConfig.aiGradingKey || null,
-                    shared_teachers: examConfig.sharedTeachers || []
+                    selected_lessons: draft.selectedLessons || [],
+                    access_control: draft.accessControl || null,
+                    tf4_scoring_mode: draft.tf4ScoringMode ? 1 : 0,
+                    tf4_points: draft.tf4Points || null,
+                    is_shared_results: draft.isSharedResults ? 1 : 0,
+                    immediate_feedback: draft.immediateFeedback ? 1 : 0,
+                    show_score: draft.showScore === false || draft.showScore === 0 ? 0 : 1,
+                    show_details: draft.showDetails === false || draft.showDetails === 0 ? 0 : 1,
+                    sq_case_sensitive: draft.sqCaseSensitive ? 1 : 0,
+                    sq_punctuation_sensitive: draft.sqPunctuationSensitive ? 1 : 0,
+                    auto_grade_essay: draft.autoGradeEssay ? 1 : 0,
+                    chedodethi: draft.chedodethi || 'Đề công khai',
+                    mabaomatdethi: draft.chedodethi === 'Đề có mã bảo mật' ? (draft.mabaomatdethi || '') : '',
+                    target_lop: (draft.chedodethi === 'Đề công khai' || !draft.chedodethi) ? '' : (draft.target_lop || draft.lop || ''),
+                    lop: (draft.chedodethi === 'Đề công khai' || !draft.chedodethi) ? '' : (draft.target_lop || draft.lop || ''),
+                    target_donvi: (draft.chedodethi === 'Đề công khai' || !draft.chedodethi) ? '' : (draft.target_donvi || draft.donvi || ''),
+                    donvi: (draft.chedodethi === 'Đề công khai' || !draft.chedodethi) ? '' : (draft.target_donvi || draft.donvi || ''),
+                    tg_bd: draft.tgBd || null,
+                    tg_kt: draft.tgKt || null,
+                    ai_prompt: draft.aiPrompt || '',
+                    ai_grading_key: draft.aiGradingKey || null,
+                    shared_teachers: draft.sharedTeachers || []
                 };
 
                 const response = await fetch('/api/exams', {
@@ -3826,13 +3758,15 @@ if (e && e.message && e.message.includes('hạn mức')) {
                     return 'error';
                 }
 
-                if (resJson.id && !examConfig.id) {
-                    examConfig.id = resJson.id;
-                }
+                if (resJson.id && !draft.id) draft.id = resJson.id;
+                if (expected.generation !== authDataGeneration || expected.revision !== examEditorRevision ||
+                    expected.loadSeq !== examConfigLoadSeq || String(currentUser?.id) !== expected.userId) return 'stale';
+                examConfig.id = draft.id;
+                examConfig.updatedAt = String(resJson.updated_at || '');
 
                 examsLoaded = false;
-                if (examConfig.name && examConfig.creatorId) {
-                    examToCreatorMap[examConfig.name] = examConfig.creatorId;
+                if (draft.name && draft.creatorId) {
+                    examToCreatorMap[draft.name] = draft.creatorId;
                 }
                 return resJson.type || 'updated';
             } catch (e) {
@@ -3844,7 +3778,7 @@ if (e && e.message && e.message.includes('hạn mức')) {
 
         async function saveSettingsToDB() {
             try {
-                localStorage.setItem('appSettings', JSON.stringify(appSettings));
+                localStorage.setItem('appSettings', JSON.stringify({...appSettings, aiGradingKey: ''}));
                 
                 // Lưu cấu hình hiển thị của người dùng (kể cả admin và học sinh)
                 const userPrefs = {
@@ -3981,7 +3915,7 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
             }
 
             // Các tab bảo mật
-            const protectedTabs = ['questions', 'exams', 'accounts', 'users', 'settings', 'ranking', 'teacher-assignment'];
+            const protectedTabs = ['questions', 'exams', 'exam-editor', 'accounts', 'users', 'settings', 'ranking', 'teacher-assignment'];
             
             // Nếu là tab bảo mật và chưa đăng nhập, yêu cầu xác thực
             if (protectedTabs.includes(tabName)) {
@@ -4029,12 +3963,11 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
             
             // Cập nhật danh sách đề thi khi chuyển sang tab exams
             if (tabName === 'exams') {
-                if (!examsLoaded) {
-                    updateExamNamesList();
-                }
+                if (!examsLoaded) updateExamNamesList();
+                else renderExamConfigsTable();
             }
 
-            if (tabName === 'questions' || tabName === 'exams') {
+            if (tabName === 'questions' || tabName === 'exam-editor') {
                 if (!questionsLoaded) {
                     showLoadingProgress('Đang tải Ngân hàng Câu hỏi', async () => {
                         await loadQuestions();
@@ -4042,7 +3975,7 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
                             updateQuestionStats();
                             renderQuestionsList();
                             updateLessonFilter();
-                        } else if (tabName === 'exams') {
+                        } else if (tabName === 'exam-editor') {
                             await initExamPanel();
                             checkExamConfigSufficiency();
                         }
@@ -4141,7 +4074,7 @@ if (contentType && contentType.includes("application/json")) {
                 activeBtn.classList.add('active');
                 activeBtn.classList.remove('bg-emerald-800/40', 'text-emerald-50');
             }
-            if (tabName === 'exams') {
+            if (tabName === 'exam-editor') {
                 // Khởi tạo exam panel khi chuyển sang tab
                 setTimeout(() => {
                     initExamPanel();
@@ -4831,7 +4764,7 @@ if (contentType && contentType.includes("application/json")) {
 
                     <!-- Image Display Area -->
                     <div id="zoom-img-wrapper" class="flex-1 overflow-auto p-3 sm:p-6 flex items-center justify-center bg-slate-950/70 min-h-[300px] max-h-[82vh] cursor-grab active:cursor-grabbing">
-                        <img id="zoom-target-image" src="${src}" alt="Hình ảnh phóng to" class="max-w-full max-h-[76vh] object-contain rounded-lg shadow-xl bg-white/5 border border-white/10 p-1 sm:p-2 transition-transform duration-150 ease-out" style="transform: scale(1) rotate(0deg);">
+                        <img id="zoom-target-image" src="${safeImageSrc(src)}" alt="Hình ảnh phóng to" class="max-w-full max-h-[76vh] object-contain rounded-lg shadow-xl bg-white/5 border border-white/10 p-1 sm:p-2 transition-transform duration-150 ease-out" style="transform: scale(1) rotate(0deg);">
                     </div>
 
                     <!-- Footer / Hint bar -->
@@ -4953,17 +4886,17 @@ if (contentType && contentType.includes("application/json")) {
             const modalContent = `
                 <div class="p-4 sm:p-5 w-full max-w-sm mx-auto flex flex-col">
                     <h3 class="text-base sm:text-lg font-bold text-gray-800 mb-2 flex items-center gap-2 border-b border-gray-100 pb-2 shrink-0">
-                        ${title}
+                        ${escapeHTML(title)}
                     </h3>
                     <div class="text-gray-600 mb-4 text-sm sm:text-base leading-snug overflow-x-hidden shrink-0">
-                        ${message}
+                        ${safeConfirmationHtml(message)}
                     </div>
                     <div class="flex flex-row justify-end gap-2 shrink-0 mt-1">
                         ${cancelText ? `<button onclick="${isSecondary ? 'closeSecondaryModal()' : 'closeModal()'}" class="flex-1 sm:flex-none px-3 py-2 sm:px-4 sm:py-2.5 bg-gray-100 text-gray-700 font-semibold rounded-xl hover:bg-gray-200 transition text-sm text-center border border-gray-200 active:scale-95">
-                            ${cancelText}
+                            ${escapeHTML(cancelText)}
                         </button>` : ''}
                         <button id="confirm-modal-btn" class="flex-1 sm:flex-none px-4 py-2 sm:px-5 sm:py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold rounded-xl hover:from-emerald-700 hover:to-teal-700 shadow-md shadow-emerald-200 transition text-sm text-center active:scale-95">
-                            ${confirmText}
+                            ${escapeHTML(confirmText)}
                         </button>
                     </div>
                 </div>
@@ -5155,7 +5088,7 @@ if (contentType && contentType.includes("application/json")) {
             if (!accounts || accounts.length === 0) {
                 const token = localStorage.getItem('auth_token') || '';
                 fetch('/api/accounts', { headers: token ? { 'Authorization': 'Bearer ' + token } : {} })
-                    .then(r => r.json())
+                    .then(async r => { const j=await r.json();if(!r.ok)throw new Error(j.error||'Không thể tải giáo viên');return j; })
                     .then(res => {
                         if (res && res.data && Array.isArray(res.data) && res.data.length > 0) {
                             accounts = res.data;
@@ -5216,6 +5149,7 @@ if (contentType && contentType.includes("application/json")) {
 
         window.resetExamPanelToDefault = resetExamPanelToDefault;
         function resetExamPanelToDefault() {
+            ++examConfigLoadSeq;
             const selectEl = document.getElementById('exam-config-name');
             if (selectEl) selectEl.value = '';
 
@@ -5287,47 +5221,19 @@ if (contentType && contentType.includes("application/json")) {
             if (configDisplay) configDisplay.classList.add('hidden');
 
             // Reset global examConfig state
-            examConfig = {
-                id: '',
-                name: '',
-                creatorId: currentUser ? currentUser.id : '',
-                creatorName: currentUser ? currentUser.full_name : '',
-                chedodethi: 'Đề công khai',
-                mabaomatdethi: '',
-                target_lop: '',
-                targetLop: '',
-                lop: '',
-                target_donvi: '',
-                donvi: '',
-                timeLimit: 45,
-                count41: 0,
-                countTF4: 0,
-                countSQ: 0,
-                countTL: 0,
-                count41NB: 0, count41TH: 0, count41VD: 0,
-                countTF4NB: 0, countTF4TH: 0, countTF4VD: 0,
-                countSQNB: 0, countSQTH: 0, countSQVD: 0,
-                countTLNB: 0, countTLTH: 0, countTLVD: 0,
-                selectedLessons: [],
-                aiPrompt: '',
-                aiGradingKey: '',
-                points41: 1,
-                pointsTF4: 1,
-                pointsSQ: 1,
-                pointsTL: 1,
-                tf4ScoringMode: false,
-                tf4Points: { 1: 0.25, 2: 0.50, 3: 0.75, 4: 1.0 },
-                immediateFeedback: false,
-                sqCaseSensitive: false,
-                sqPunctuationSensitive: false,
-                autoGradeEssay: false,
-                showScore: true,
-                showDetails: false,
-                isSharedResults: false,
-                maxAttempts: 0,
-                max_attempts: 0,
-                accessControl: { enabled: false, startTime: '', endTime: '' }
-            };
+            examConfig = createEmptyExamDraft(currentUser);
+            examEditorRevision += 1;
+            document.getElementById('tf4-advanced-scoring')?.classList.add('hidden');
+            for (const [key, value] of Object.entries(examConfig.tf4Points)) {
+                const field = document.getElementById('tf4-points-' + key);
+                if (field) field.value = String(value);
+            }
+            const attemptsInput = document.getElementById('exam-config-max-attempts');
+            if (attemptsInput) attemptsInput.value = '0';
+            document.getElementById('btn-export-exam-docx')?.classList.add('hidden');
+            document.getElementById('teacher-quick-classes-container')?.classList.add('hidden');
+            const quickClasses = document.getElementById('teacher-quick-classes-list');
+            if (quickClasses) quickClasses.innerHTML = '';
 
             const lopInput = document.getElementById('exam-config-lop');
             if (lopInput) lopInput.value = '';
@@ -5560,10 +5466,10 @@ if (contentType && contentType.includes("application/json")) {
 
         window.loadExamConfigById = async function loadExamConfigById(selectedId) {
             if (!selectedId) return;
+            const generation = authDataGeneration;
+            const requestSeq = ++examConfigLoadSeq;
+            const userLoadIntent = ++examUserLoadIntentSeq;
             const selectEl = document.getElementById('exam-config-name');
-            if (selectEl) {
-                selectEl.value = selectedId;
-            }
             try {
                 const token = localStorage.getItem('auth_token') || '';
                 const res = await fetch(`/api/exams?id=${encodeURIComponent(selectedId)}`, {
@@ -5577,13 +5483,23 @@ if (contentType && contentType.includes("application/json")) {
                     throw new Error("Server returned non-JSON response. Status: " + res.status);
                 }
                 
+                if (generation !== authDataGeneration || requestSeq !== examConfigLoadSeq ||
+                    !(isAdminLoggedIn || isTeacherLoggedIn)) return;
                 if (res.ok && resJson.data) {
+                    // The editor initializes on first open; its defaults invalidate older
+                    // requests. Do not discard the user-initiated load because of init.
+                    const opened = await openExamEditorTab({newExam:false});
+                    if (!opened || generation !== authDataGeneration ||
+                        userLoadIntent !== examUserLoadIntentSeq ||
+                        !(isAdminLoggedIn || isTeacherLoggedIn)) return;
+                    if (String(resJson.data.id) !== String(selectedId)) return;
                     applyExamConfig(resJson.data);
+                    if (selectEl) selectEl.value = String(resJson.data.id || selectedId);
                     showToast(`📂 Đã nạp cấu hình đề: ${resJson.data.name || selectedId}`, 'success');
                     const btnExport = document.getElementById('btn-export-exam-docx');
                     if (btnExport) btnExport.classList.remove('hidden');
                     // Cuộn mượt lên phần thông tin cấu hình
-                    const topPanel = document.getElementById('tab-exams');
+                    const topPanel = document.getElementById('tab-exam-editor');
                     if (topPanel) topPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 }
             } catch (e) {
@@ -6298,7 +6214,7 @@ if (contentType && contentType.includes("application/json")) {
                 namHoc: headerOpts.namHoc || "NĂM HỌC 2026 - 2027",
                 thoiGian: headerOpts.thoiGian || 45
             };
-            const excelBuffer = generateExamAnswerExcel(excelHeaderInfo, examAnswerDocs);
+            const excelBuffer = await generateExamAnswerExcel(excelHeaderInfo, examAnswerDocs);
             const excelBlob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 
             const startCode = generatedFiles[0].maDe;
@@ -6409,9 +6325,12 @@ if (contentType && contentType.includes("application/json")) {
                 console.warn('updateExamNamesList: currentUser missing');
                 return;
             }
-            
+            const generation = authDataGeneration;
+            const requestSeq = ++examNamesRequestSeq;
             try {
                 const data = await fetchAllExamsChunked(onProgress);
+                // A previous teacher's response must not restore their exam list.
+                if (generation !== authDataGeneration || requestSeq !== examNamesRequestSeq || !currentUser) return;
                 console.log('✅ Exam names loaded:', data.length, 'items');
                 window.allExamConfigsList = data;
                 renderExamConfigsTable();
@@ -6492,6 +6411,9 @@ if (contentType && contentType.includes("application/json")) {
         }
 
         async function onExamNameChange() {
+            ++examUserLoadIntentSeq;
+            const generation = authDataGeneration;
+            const requestSeq = ++examConfigLoadSeq;
             const selectEl = document.getElementById('exam-config-name');
             const selectedId = selectEl?.value?.trim();
             if (!selectedId) {
@@ -6516,6 +6438,8 @@ if (contentType && contentType.includes("application/json")) {
     throw new Error("Server returned non-JSON response (likely 502/504 during restart). Status: " + res.status);
 }
                 
+                if (generation !== authDataGeneration || requestSeq !== examConfigLoadSeq ||
+                    String(selectEl?.value || '') !== String(selectedId) || !currentUser) return;
                 if (res.ok && resJson.data) {
                     applyExamConfig(resJson.data);
                     showToast(`📂 Đã tải cấu hình đề: ${name}`, 'success');
@@ -6567,81 +6491,19 @@ if (contentType && contentType.includes("application/json")) {
         }
 
         function applyExamConfig(cData) {
-            let parsedLessons = cData.selected_lessons || [];
-            if (typeof parsedLessons === 'string') {
-                try { parsedLessons = JSON.parse(parsedLessons); } catch(e) { parsedLessons = []; }
+            // Never merge missing fields from a previously loaded exam.
+            examConfig = mapStoredExamToDraft(cData, {currentUser, accounts, accountsMap});
+            examEditorRevision += 1;
+            document.getElementById('tf4-advanced-scoring')?.classList.toggle('hidden', !examConfig.tf4ScoringMode);
+            for (const [key, value] of Object.entries(examConfig.tf4Points)) {
+                const field = document.getElementById('tf4-points-' + key);
+                if (field) field.value = String(value);
             }
-            
-            let parsedCountsDetail = cData.counts_detail || {};
-            if (typeof parsedCountsDetail === 'string') {
-                try { parsedCountsDetail = JSON.parse(parsedCountsDetail); } catch(e) { parsedCountsDetail = {}; }
-            }
-            
-            let parsedAccessControl = cData.access_control || {};
-            if (typeof parsedAccessControl === 'string') {
-                try { parsedAccessControl = JSON.parse(parsedAccessControl); } catch(e) { parsedAccessControl = {}; }
-            }
-
-            cData.selected_lessons = parsedLessons;
-            cData.counts_detail = parsedCountsDetail;
-            cData.access_control = parsedAccessControl;
-
-            examConfig = {
-                ...examConfig, 
-                id: cData.id,
-                name: cData.name, 
-                creatorId: cData.creator_id,
-                creatorName: accounts.find(a => a.id === cData.creator_id)?.full_name || accountsMap[cData.creator_id] || 'Người dùng hệ thống', 
-                chedodethi: cData.chedodethi || 'Đề công khai',
-                mabaomatdethi: cData.mabaomatdethi || '',
-                timeLimit: cData.time_limit, 
-                count41: cData.count_41, 
-                countTF4: cData.count_tf4, 
-                countSQ: cData.count_sq, 
-                count41NB: cData.counts_detail?.count41NB || 0, 
-                count41TH: cData.counts_detail?.count41TH || 0, 
-                count41VD: cData.counts_detail?.count41VD || 0, 
-                countTF4NB: cData.counts_detail?.countTF4NB || 0, 
-                countTF4TH: cData.counts_detail?.countTF4TH || 0, 
-                countTF4VD: cData.counts_detail?.countTF4VD || 0, 
-                countSQNB: cData.counts_detail?.countSQNB || 0, 
-                countSQTH: cData.counts_detail?.countSQTH || 0, 
-                countSQVD: cData.counts_detail?.countSQVD || 0, 
-                countTL: cData.count_tl || 0,
-                countTLNB: cData.counts_detail?.countTLNB || 0,
-                countTLTH: cData.counts_detail?.countTLTH || 0,
-                countTLVD: cData.counts_detail?.countTLVD || 0,
-                creatorId: cData.creator_id || cData.counts_detail?.creatorId || null, 
-                selectedLessons: cData.selected_lessons || [], 
-                aiPrompt: cData.ai_prompt || '',
-                aiGradingKey: cData.ai_grading_key || '',
-                points41: parseFloat(cData.points_41 || 1), 
-                pointsTF4: parseFloat(cData.points_tf4 || 1), 
-                pointsSQ: parseFloat(cData.points_sq || 1), 
-                pointsTL: parseFloat(cData.points_tl || 1), 
-                tf4ScoringMode: cData.tf4_scoring_mode, 
-                tf4Points: cData.tf4_points || examConfig.tf4Points, 
-                immediateFeedback: Boolean(cData.immediate_feedback == 1 || cData.immediate_feedback === true || cData.immediate_feedback === '1' || cData.immediateFeedback == 1 || cData.immediateFeedback === true),
-                sqCaseSensitive: cData.sq_case_sensitive !== undefined ? cData.sq_case_sensitive : false,
-                sqPunctuationSensitive: cData.sq_punctuation_sensitive !== undefined ? cData.sq_punctuation_sensitive : false,
-                autoGradeEssay: cData.auto_grade_essay !== undefined ? cData.auto_grade_essay : false,
-                showScore: cData.show_score !== undefined ? cData.show_score : true,
-                showDetails: cData.show_details !== undefined ? cData.show_details : true,
-                isSharedResults: (cData.is_shared_results === true || cData.is_shared_results === 1 || cData.is_shared_results === 'true'),
-                maxCheatWarnings: (typeof cData.max_cheat_warnings === 'number' && cData.max_cheat_warnings > 0) ? cData.max_cheat_warnings : ((typeof cData.maxCheatWarnings === 'number' && cData.maxCheatWarnings > 0) ? cData.maxCheatWarnings : 5),
-                maxAttempts: (cData.max_attempts !== undefined && cData.max_attempts !== null) ? Number(cData.max_attempts) : ((cData.maxAttempts !== undefined && cData.maxAttempts !== null) ? Number(cData.maxAttempts) : 0),
-                max_attempts: (cData.max_attempts !== undefined && cData.max_attempts !== null) ? Number(cData.max_attempts) : ((cData.maxAttempts !== undefined && cData.maxAttempts !== null) ? Number(cData.maxAttempts) : 0),
-                accessControl: {
-                    enabled: cData.access_control?.enabled || (cData.tg_bd || cData.tg_kt ? true : false),
-                    startTime: cData.tg_bd || cData.access_control?.startTime || '',
-                    endTime: cData.tg_kt || cData.access_control?.endTime || ''
-                }
-            };
             // Cập nhật UI: chỉ gán giá trị vào select exam-config-name khi đang ở tab quản lý đề thi của giáo viên/admin
             const examConfigSelect = document.getElementById('exam-config-name');
             if (examConfigSelect && (isTeacherLoggedIn || isAdminLoggedIn)) {
                 const activeTab = document.querySelector('.tab-content.active')?.id;
-                if (activeTab === 'tab-exams') {
+                if (activeTab === 'tab-exam-editor') {
                     examConfigSelect.value = examConfig.id || '';
                 }
             }
@@ -6818,7 +6680,11 @@ if (contentType && contentType.includes("application/json")) {
                 }
             }
             
-            const teachers = accounts.filter(acc => creatorIds.map(String).includes(String(acc.id)));
+            const teachers = accounts.filter(acc =>
+                ['teacher','giáo viên','admin'].includes(String(acc.role || '').toLowerCase()) &&
+                (creatorIds.includes(String(acc.id)) || creatorIds.includes(String(acc.user_id)) ||
+                  (currentUser && String(acc.id) === String(currentUser.id)))
+            );
             
             teachers.forEach(t => {
                 const opt = document.createElement('option');
@@ -7020,6 +6886,7 @@ if (contentType && contentType.includes("application/json")) {
         window._studentExamChangeSeq = 0;
         window.onStudentExamNameChange = async function onStudentExamNameChange() {
             const currentExamSeq = ++window._studentExamChangeSeq;
+            window._studentExamAccessCode = '';
             console.log('onStudentExamNameChange called, seq:', currentExamSeq);
             const elTeacher = document.getElementById('student-teacher-filter');
             const teacherId = elTeacher ? elTeacher.value : '';
@@ -7108,12 +6975,8 @@ if (contentType && contentType.includes("application/json")) {
                             updateCurrentExamInfo();
                             return;
                         }
-                        if (code !== data.mabaomatdethi) {
-                            showToast('❌ Mã bảo mật không chính xác!', 'error');
-                            examSelect.value = ''; // Reset dropdown
-                            updateCurrentExamInfo();
-                            return;
-                        }
+                        // The backend verifies the code; never expose the correct code in GET.
+                        window._studentExamAccessCode = code;
                     }
                     
                     if (currentExamSeq !== window._studentExamChangeSeq) return;
@@ -7380,7 +7243,7 @@ if (contentType && contentType.includes("application/json")) {
                     
                     configDisplay.innerHTML = `
                         <div class="flex items-center gap-2 mb-3 flex-wrap">
-                            <span class="text-lg font-bold text-purple-800">Thông tin cấu hình đề thi: ${examConfig.name || 'Chưa có tên'}</span></u>
+                            <span class="text-lg font-bold text-purple-800">Thông tin cấu hình đề thi: ${escapeHTML(examConfig.name || 'Chưa có tên')}</span></u>
                             <span class="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-sm font-semibold">${total} câu / ${examConfig.timeLimit} phút</span></u>
                             <span class="px-3 py-1 bg-indigo-100 text-indigo-700 rounded-full text-sm font-semibold">${(examConfig.maxAttempts && examConfig.maxAttempts > 0) ? `Giới hạn: ${examConfig.maxAttempts} lần` : 'Không giới hạn lần làm'}</span></u>
                             <span class="text-sm text-gray-600 font-semibold italic ml-auto">Người tạo đề thi: <span class="text-purple-600">${accountsMap[examConfig.creatorId] || ho_ten_khach_hang}</span></u></span></u>
@@ -7706,7 +7569,8 @@ if (contentType && contentType.includes("application/json")) {
                     studentClass: studentClass,
                     userLop: (currentUser && currentUser.lop) ? currentUser.lop : inputLop,
                     userDonvi: (currentUser && (currentUser.donvi || currentUser.address)) ? (currentUser.donvi || currentUser.address) : inputDonvi,
-                    examConfig
+                    examConfig,
+                    examAccessCode: window._studentExamAccessCode || ''
                 };
                 
                 const authToken = localStorage.getItem('auth_token') || '';
@@ -7751,7 +7615,8 @@ if (contentType && contentType.includes("application/json")) {
                 
                 const result = await response.json();
                 const examQuestions = result.questions;
-                window.currentExamToken = result.token; // Lưu khóa bảo mật để chấm điểm sau
+                window.currentExamToken = result.token;
+                window.currentExamUploadToken = result.uploadToken || null; // Lưu khóa bảo mật để chấm điểm sau
 
                 // Cập nhật chế độ công bố kết quả ngay lập tức trực tiếp từ phản hồi máy chủ
                 if (result.immediateFeedback !== undefined) {
@@ -8143,7 +8008,7 @@ if (contentType && contentType.includes("application/json")) {
                                 <div class="font-bold text-gray-900 leading-tight responsive-q-text mb-2 md:mb-3" style="--base-q-size: ${appSettings.questionFontSize || 24}px;">
                                     <span class="mr-2 text-blue-500 italic">Câu ${index + 1}:</span></u>${formatContent(q.content)}
                                 </div>
-                                ${q.image ? `<img src="${q.image}" alt="Question image" class="max-w-full h-auto rounded-xl shadow-lg max-h-96 cursor-zoom-in transition-transform hover:scale-[1.02]" onclick="zoomImage(this.src)">` : ''}
+                                ${q.image ? `<img src="${safeImageSrc(q.image)}" alt="Question image" class="max-w-full h-auto rounded-xl shadow-lg max-h-96 cursor-zoom-in transition-transform hover:scale-[1.02]" onclick="zoomImage(this.src)">` : ''}
                             </div>
                             <div class="flex-1">
                                 ${optionsHtml}
@@ -8216,7 +8081,7 @@ if (contentType && contentType.includes("application/json")) {
                             <div class="font-bold text-gray-800 leading-tight responsive-q-text mb-2" style="--base-q-size: ${appSettings.questionFontSize || 24}px;">
                                 <span class="mr-2 text-blue-500 italic">Câu ${index + 1}/${currentExam.questions.length}:</span></u>${formatContent(q.content)}
                             </div>
-                            ${q.image ? `<div class="flex justify-center mb-2"><img src="${q.image}" alt="Question image" class="max-w-full h-auto rounded-xl shadow-md max-h-64 cursor-zoom-in transition-transform hover:scale-[1.02] border border-gray-200" onclick="zoomImage(this.src)"></div>` : ''}
+                            ${q.image ? `<div class="flex justify-center mb-2"><img src="${safeImageSrc(q.image)}" alt="Question image" class="max-w-full h-auto rounded-xl shadow-md max-h-64 cursor-zoom-in transition-transform hover:scale-[1.02] border border-gray-200" onclick="zoomImage(this.src)"></div>` : ''}
                         </div>
                         <div class="flex-1 overflow-y-auto custom-scrollbar pr-1 pb-2">
                             ${optionsHtml}
@@ -8299,7 +8164,7 @@ if (contentType && contentType.includes("application/json")) {
                         <div onclick="selectAnswer('${opt}', ${index})" class="group question-option px-4 py-3 border-2 rounded-2xl cursor-pointer transition-all duration-200 ease-in-out ${optionClass} flex items-center gap-2 min-h-[3rem]">
                             <div class="text-gray-700 font-semibold leading-tight break-words responsive-a-text group-hover:text-gray-900 transition-colors flex-1 min-w-0" style="--base-a-size: ${appSettings.answerFontSize || 20}px;">
                                 <span class="font-black mr-2 ${labelClass} transition-colors">${label}.</span></u>${formatContent(optionData.text)}
-                                ${optionData.image ? `<div class="mt-2"><img src="${optionData.image}" alt="Option ${opt}" class="max-w-full h-20 object-contain rounded-lg cursor-zoom-in hover:scale-105 transition-transform border border-gray-100 shadow-sm bg-white p-1" onclick="event.stopPropagation(); zoomImage(this.src)"></div>` : ''}
+                                ${optionData.image ? `<div class="mt-2"><img src="${safeImageSrc(optionData.image)}" alt="Option ${opt}" class="max-w-full h-20 object-contain rounded-lg cursor-zoom-in hover:scale-105 transition-transform border border-gray-100 shadow-sm bg-white p-1" onclick="event.stopPropagation(); zoomImage(this.src)"></div>` : ''}
                             </div>
                             ${badgeHtml}
                         </div>
@@ -8352,7 +8217,7 @@ if (contentType && contentType.includes("application/json")) {
                             <div class="flex-1 min-w-0 flex items-start gap-2">
                                 <div class="text-gray-700 font-semibold leading-tight break-words responsive-a-text group-hover:text-gray-900 transition-colors flex-1" style="--base-a-size: ${appSettings.answerFontSize || 20}px;">
                                     <span class="font-black mr-2 ${labelClass} transition-colors">${label}.</span></u>${formatContent(optionData.text)}
-                                    ${optionData.image ? `<div class="mt-2"><img src="${optionData.image}" alt="Option ${opt}" class="max-w-full h-16 md:h-20 object-contain rounded-lg cursor-zoom-in hover:scale-105 transition-transform border border-gray-100 shadow-sm bg-white p-1" onclick="event.stopPropagation(); zoomImage(this.src)"></div>` : ''}
+                                    ${optionData.image ? `<div class="mt-2"><img src="${safeImageSrc(optionData.image)}" alt="Option ${opt}" class="max-w-full h-16 md:h-20 object-contain rounded-lg cursor-zoom-in hover:scale-105 transition-transform border border-gray-100 shadow-sm bg-white p-1" onclick="event.stopPropagation(); zoomImage(this.src)"></div>` : ''}
                                 </div>
                             </div>
                             <div class="flex items-center justify-end gap-2 w-full sm:w-auto mt-2 sm:mt-0 flex-shrink-0 border-t sm:border-t-0 border-gray-100 pt-3 sm:pt-0">
@@ -8398,7 +8263,7 @@ if (contentType && contentType.includes("application/json")) {
                         <input type="file" accept="image/*" onchange="handleTLImageUpload(event, ${index})" class="text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-purple-50 file:text-purple-700 hover:file:bg-red-100 cursor-pointer">
                         ${currentImage ? `<button onclick="removeTLImage(${index})" class="px-3 py-1.5 bg-red-100 text-purple-600 rounded-lg text-xs font-bold hover:bg-red-200 transition">Xóa ảnh</button>` : ''}
                     </div>
-                    <img id="tl-image-preview-${index}" src="${currentImage}" class="${currentImage ? '' : 'hidden'} mt-3 max-w-full h-auto max-h-[300px] rounded-xl border border-gray-200 shadow-sm cursor-zoom-in" onclick="zoomImage(this.src)">
+                    <img id="tl-image-preview-${index}" src="${safeImageSrc(currentImage)}" class="${currentImage ? '' : 'hidden'} mt-3 max-w-full h-auto max-h-[300px] rounded-xl border border-gray-200 shadow-sm cursor-zoom-in" onclick="zoomImage(this.src)">
                 </div>
             </div>`;
         }
@@ -9230,6 +9095,7 @@ if (contentType && contentType.includes("application/json")) {
 
                 const result = await response.json();
                 window.currentExamToken = null;
+            window.currentExamUploadToken = null;
                 try { localStorage.removeItem('currentExamToken'); } catch(e) {}
                 
                 const score = result.score;
@@ -9320,6 +9186,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
 }
                 showToast(err.message, 'error');
                 examContainer.innerHTML = window.originalExamInterfaceHTML;
+                if (typeof renderCurrentQuestion === 'function') renderCurrentQuestion();
             }
         }
 
@@ -9464,7 +9331,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                         <p class="text-sm md:text-base break-words mt-1">Đáp án của bạn: <span class="font-bold ${userAnsColor}">${formatContent(d.userAnswer) || 'Chưa trả lời'}</span></u></p>
                         ${showDetails ? `
                             <p class="text-sm md:text-base break-words mt-1">Đáp án đúng: <span class="font-bold text-green-600">${formatContent(d.correctAnswer)}</span></u></p>
-                            ${(d.question.options && d.question.options.answerImage) ? `<img src="${d.question.options.answerImage}" class="mt-1 max-w-xs h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage(this.src)">` : ''}
+                            ${(d.question.options && d.question.options.answerImage) ? `<img src="${safeImageSrc(d.question.options.answerImage)}" class="mt-1 max-w-xs h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage(this.src)">` : ''}
                         ` : ''}
                         ${scoreDisplay}
                     `;
@@ -9476,18 +9343,18 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                         <div class="mt-2 p-3 bg-white rounded-lg border border-blue-100 shadow-inner">
                             <p class="text-xs font-bold text-blue-500 uppercase mb-1">Bài làm của bạn:</p>
                             <div class="text-gray-800 whitespace-pre-wrap leading-relaxed mb-2 break-words">${formatContent(studentAnsText) || (studentAnsImage ? '' : '<i class="text-gray-400">Trống</i>')}</div>
-                            ${studentAnsImage ? `<img src="${studentAnsImage}" class="max-w-xs h-auto rounded-lg border border-gray-200 cursor-zoom-in" onclick="zoomImage(this.src)">` : ''}
+                            ${studentAnsImage ? `<img src="${safeImageSrc(studentAnsImage)}" class="max-w-xs h-auto rounded-lg border border-gray-200 cursor-zoom-in" onclick="zoomImage(this.src)">` : ''}
                         </div>
                         ${d.aiFeedback ? `
                         <div class="mt-2 p-3 bg-purple-50 rounded-lg border border-purple-100">
                             <p class="text-xs font-bold text-purple-600 mb-1">🤖 Nhận xét:</p>
-                            <div class="text-purple-800 break-words">${d.aiFeedback}</div>
+                            <div class="text-purple-800 break-words">${escapeHTML(d.aiFeedback)}</div>
                         </div>` : ''}
                         ${showDetails ? `
                         <div class="mt-2 p-3 bg-green-50 rounded-lg border border-green-100">
                             <p class="text-xs font-bold text-green-600 mb-1">Hướng dẫn chấm:</p>
                             <div class="text-green-800 break-words">${formatContent(d.correctAnswer)}</div>
-                            ${(d.question.options && d.question.options.answerImage) ? `<img src="${d.question.options.answerImage}" class="mt-2 max-w-xs h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage(this.src)">` : ''}
+                            ${(d.question.options && d.question.options.answerImage) ? `<img src="${safeImageSrc(d.question.options.answerImage)}" class="mt-2 max-w-xs h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage(this.src)">` : ''}
                         </div>` : ''}
                         <p class="text-base font-semibold mt-2 ${d.needsGrading ? 'text-orange-600' : 'text-blue-600'} italic break-words">🔔 Trạng thái: ${d.needsGrading ? 'Đang chờ giáo viên chấm điểm' : 'Đã phản hồi'}</p>
                     `;
@@ -9505,7 +9372,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                                     ${d.question.creatorId ? `<span class="px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded text-xs font-semibold">Tác giả: ${accounts.find(a => a.id === d.question.creatorId)?.full_name || 'Không xác định'}</span></u>` : ''}
                                 </div>
                                 <p class="font-semibold text-gray-800 text-sm md:text-base lg:text-lg mb-2 break-words">Câu ${i + 1}: ${formatContent(d.question.content)}</p>
-                                ${d.question.image ? `<img src="${d.question.image}" class="max-w-full h-auto mb-2 rounded border shadow-sm cursor-zoom-in hover:scale-[1.01] transition-transform" style="max-height: 250px; object-fit: contain;" onclick="zoomImage(this.src)">` : ''}
+                                ${d.question.image ? `<img src="${safeImageSrc(d.question.image)}" class="max-w-full h-auto mb-2 rounded border shadow-sm cursor-zoom-in hover:scale-[1.01] transition-transform" style="max-height: 250px; object-fit: contain;" onclick="zoomImage(this.src)">` : ''}
                                 ${answerDisplay}
                             </div>
                         </div>
@@ -9675,6 +9542,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             questions = [];
             questionsLoaded = false;
             window.currentExamToken = null;
+            window.currentExamUploadToken = null;
             currentExam = {
                 questions: [],
                 answers: {},
@@ -9699,7 +9567,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
         // ==================== QUESTIONS MANAGEMENT ====================
         function loginQuestions() {
             const password = document.getElementById('questions-password')?.value || '';
-            if (password === ADMIN_PASSWORD) {
+            if (currentUser && (isAdminLoggedIn || isTeacherLoggedIn)) {
                 document.getElementById('questions-login')?.classList.add('hidden');
                 document.getElementById('questions-panel')?.classList.remove('hidden');
                 updateQuestionStats();
@@ -9712,7 +9580,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
 
         async function loginExams() {
             const password = document.getElementById('exams-password')?.value || '';
-            if (password === ADMIN_PASSWORD) {
+            if (currentUser && (isAdminLoggedIn || isTeacherLoggedIn)) {
                 document.getElementById('exams-login')?.classList.add('hidden');
                 document.getElementById('exams-panel')?.classList.remove('hidden');
                 await initExamPanel();
@@ -10083,7 +9951,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                             ${formatContent(q.content)}
                         </div>
 
-                        ${q.image ? `<div><img src="${q.image}" alt="Question" class="max-w-full sm:max-w-md h-auto rounded cursor-zoom-in hover:scale-[1.01] transition-transform border border-gray-100" onclick="zoomImage('${q.image}')"></div>` : ''}
+                        ${q.image ? `<div><img src="${safeImageSrc(q.image)}" alt="Question" class="max-w-full sm:max-w-md h-auto rounded cursor-zoom-in hover:scale-[1.01] transition-transform border border-gray-100" onclick="zoomImage(this.src)"></div>` : ''}
                         ${(q.type === '4-1' || q.type === 'TF4') && q.options ? `
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
                                 ${['A','B','C','D'].map(key => {
@@ -10107,7 +9975,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                             </div>
                         </div>
 
-                        ${q.options && q.options.answerImage ? `<div class="mt-2"><img src="${q.options.answerImage}" alt="Answer Image" class="max-w-full sm:max-w-md h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage('${q.options.answerImage}')"></div>` : ''}
+                        ${q.options && q.options.answerImage ? `<div class="mt-2"><img src="${safeImageSrc(q.options.answerImage)}" alt="Answer Image" class="max-w-full sm:max-w-md h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage(this.src)"></div>` : ''}
                     </div>
                 `;
             }).join('');
@@ -10400,7 +10268,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             let compressed = base64Str;
             try {
                 compressed = await compressImage(base64Str);
-                const uploadToken = localStorage.getItem('auth_token') || (typeof window !== 'undefined' && window.currentExamToken) || '';
+                const uploadToken = (typeof window !== 'undefined' && window.currentExamUploadToken) || localStorage.getItem('auth_token') || '';
                 const response = await fetch('/api/upload-image', {
                     method: 'POST',
                     headers: { 
@@ -10598,7 +10466,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                                 <div class="mt-2 flex items-center gap-3">
                                     <input type="file" id="edit-q-image" accept="image/*" onchange="handleImageUpload(event, 'edit-q-image-preview')" class="w-full text-xs text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100 cursor-pointer">
                                 </div>
-                                <img id="edit-q-image-preview" src="${q.image || ''}" class="${q.image ? '' : 'hidden'} mt-2 max-h-48 max-w-sm rounded-lg border border-gray-200 shadow-sm object-contain bg-white p-1">
+                                <img id="edit-q-image-preview" src="${safeImageSrc(q.image || '')}" class="${q.image ? '' : 'hidden'} mt-2 max-h-48 max-w-sm rounded-lg border border-gray-200 shadow-sm object-contain bg-white p-1">
                             </div>
                         </div>
 
@@ -10622,7 +10490,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                                                     ${q.options?.[opt]?.image ? `<button type="button" onclick="document.getElementById('edit-q-opt-preview-${opt}').src=''; document.getElementById('edit-q-opt-preview-${opt}').classList.add('hidden');" class="text-red-600 hover:underline">Xóa ảnh</button>` : ''}
                                                 </div>
                                                 <input type="file" id="edit-q-opt-img-${opt}" accept="image/*" onchange="handleImageUpload(event, 'edit-q-opt-preview-${opt}')" class="w-full text-xs text-gray-500 file:mr-2 file:py-1 file:px-2.5 file:rounded-md file:border-0 file:text-xs file:font-medium file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200 cursor-pointer">
-                                                <img id="edit-q-opt-preview-${opt}" src="${q.options?.[opt]?.image || ''}" class="${q.options?.[opt]?.image ? '' : 'hidden'} mt-1.5 max-h-32 rounded-lg border border-gray-200 shadow-xs object-contain bg-white p-1">
+                                                <img id="edit-q-opt-preview-${opt}" src="${safeImageSrc(q.options?.[opt]?.image || '')}" class="${q.options?.[opt]?.image ? '' : 'hidden'} mt-1.5 max-h-32 rounded-lg border border-gray-200 shadow-xs object-contain bg-white p-1">
                                             </div>
                                         </div>
                                     `).join('')}
@@ -10646,7 +10514,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                                 <div class="mt-2 flex items-center gap-3">
                                     <input type="file" id="edit-q-answer-image" accept="image/*" onchange="handleImageUpload(event, 'edit-q-answer-image-preview')" class="w-full text-xs text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100 cursor-pointer">
                                 </div>
-                                <img id="edit-q-answer-image-preview" src="${(q.options && q.options.answerImage) ? q.options.answerImage : ''}" class="${(q.options && q.options.answerImage) ? '' : 'hidden'} mt-2 max-h-48 max-w-sm rounded-lg border border-gray-200 shadow-sm object-contain bg-white p-1">
+                                <img id="edit-q-answer-image-preview" src="${safeImageSrc((q.options && q.options.answerImage) ? q.options.answerImage : '')}" class="${(q.options && q.options.answerImage) ? '' : 'hidden'} mt-2 max-h-48 max-w-sm rounded-lg border border-gray-200 shadow-sm object-contain bg-white p-1">
                             </div>
                         </div>
                     </div>
@@ -11599,7 +11467,7 @@ D. Phát biểu SAI</pre>
                         <div class="text-sm font-semibold text-gray-800 mb-2">
                             <span class="text-blue-600">Câu ${index + 1}:</span></u> ${formatContent(q.content)}
                         </div>
-                        ${q.image ? `<img src="${q.image}" class="max-w-xs h-auto rounded-lg border border-gray-200 mb-2 cursor-zoom-in" onclick="zoomImage('${q.image}')">` : ''}
+                        ${q.image ? `<img src="${safeImageSrc(q.image)}" class="max-w-xs h-auto rounded-lg border border-gray-200 mb-2 cursor-zoom-in" onclick="zoomImage(this.src)">` : ''}
                     </div>
                     
                     ${(q.type === '4-1' || q.type === 'TF4') ? `
@@ -11609,7 +11477,7 @@ D. Phát biểu SAI</pre>
                                     <span class="w-5 h-5 flex-shrink-0 flex items-center justify-center rounded-full text-[10px] font-bold ${q.answer.includes(opt) ? 'bg-green-500 text-white' : 'bg-gray-300 text-gray-700'}">${opt}</span></u>
                                     <div class="flex-1">
                                         <div class="text-xs ${q.answer.includes(opt) ? 'text-green-800 font-bold' : 'text-gray-600'}">${formatContent(q.options[opt]?.text || '')}</div>
-                                        ${q.options[opt]?.image ? `<img src="${q.options[opt].image}" class="mt-1 max-w-[100px] h-auto rounded border border-gray-200 cursor-zoom-in" onclick="zoomImage('${q.options[opt].image}')">` : ''}
+                                        ${q.options[opt]?.image ? `<img src="${safeImageSrc(q.options[opt].image)}" class="mt-1 max-w-[100px] h-auto rounded border border-gray-200 cursor-zoom-in" onclick="zoomImage(this.src)">` : ''}
                                     </div>
                                 </div>
                             `).join('')}
@@ -11617,7 +11485,7 @@ D. Phát biểu SAI</pre>
                     ` : `
                         <div class="p-2 bg-green-50 border border-green-200 rounded-lg mb-3">
                             <div class="text-xs font-bold text-green-700">Đáp án: ${formatContent(q.answer)}</div>
-                            ${q.options && q.options.answerImage ? `<img src="${q.options.answerImage}" class="mt-2 max-w-xs h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage('${q.options.answerImage}')">` : ''}
+                            ${q.options && q.options.answerImage ? `<img src="${safeImageSrc(q.options.answerImage)}" class="mt-2 max-w-xs h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage(this.src)">` : ''}
                         </div>
                     `}
                 </div>
@@ -11697,7 +11565,7 @@ D. Phát biểu SAI</pre>
                                     <input type="file" id="edit-pending-image" accept="image/*" onchange="handleImageUpload(event, 'edit-pending-image-preview')" class="w-full px-3 py-2 border-2 border-gray-200 rounded-lg text-sm">
                                     <button onclick="document.getElementById('edit-pending-image-preview').src=''; document.getElementById('edit-pending-image-preview').classList.add('hidden');" class="px-2 py-1 bg-red-100 text-purple-600 rounded text-xs hover:bg-red-200">Xóa ảnh</button>
                                 </div>
-                                <img id="edit-pending-image-preview" src="${q.image || ''}" class="${q.image ? '' : 'hidden'} mt-2 max-w-xs rounded-lg border border-gray-300 shadow-sm">
+                                <img id="edit-pending-image-preview" src="${safeImageSrc(q.image || '')}" class="${q.image ? '' : 'hidden'} mt-2 max-w-xs rounded-lg border border-gray-300 shadow-sm">
                             </div>
                         </div>
                         
@@ -11716,7 +11584,7 @@ D. Phát biểu SAI</pre>
                                                 <input type="file" id="edit-pending-opt-img-${opt}" accept="image/*" onchange="handleImageUpload(event, 'edit-pending-opt-preview-${opt}')" class="w-full px-3 py-2 border-2 border-gray-200 rounded-lg text-sm bg-white">
                                                 <button onclick="document.getElementById('edit-pending-opt-preview-${opt}').src=''; document.getElementById('edit-pending-opt-preview-${opt}').classList.add('hidden');" class="px-2 py-1 bg-red-100 text-purple-600 rounded text-xs hover:bg-red-200">Xóa ảnh</button>
                                             </div>
-                                            <img id="edit-pending-opt-preview-${opt}" src="${q.options[opt]?.image || ''}" class="${q.options[opt]?.image ? '' : 'hidden'} mt-2 max-w-[150px] rounded-lg border border-gray-300 shadow-sm">
+                                            <img id="edit-pending-opt-preview-${opt}" src="${safeImageSrc(q.options[opt]?.image || '')}" class="${q.options[opt]?.image ? '' : 'hidden'} mt-2 max-w-[150px] rounded-lg border border-gray-300 shadow-sm">
                                         </div>
                                     </div>
                                 `).join('')}
@@ -11732,7 +11600,7 @@ D. Phát biểu SAI</pre>
                                     <input type="file" id="edit-pending-answer-image" accept="image/*" onchange="handleImageUpload(event, 'edit-pending-answer-image-preview')" class="w-full px-3 py-2 border-2 border-gray-200 rounded-lg text-sm bg-white">
                                     <button onclick="document.getElementById('edit-pending-answer-image-preview').src=''; document.getElementById('edit-pending-answer-image-preview').classList.add('hidden');" class="px-2 py-1 bg-red-100 text-purple-600 rounded text-xs hover:bg-red-200">Xóa ảnh</button>
                                 </div>
-                                <img id="edit-pending-answer-image-preview" src="${(q.options && q.options.answerImage) ? q.options.answerImage : ''}" class="${(q.options && q.options.answerImage) ? '' : 'hidden'} mt-2 max-w-xs rounded-lg border border-gray-300 shadow-sm">
+                                <img id="edit-pending-answer-image-preview" src="${safeImageSrc((q.options && q.options.answerImage) ? q.options.answerImage : '')}" class="${(q.options && q.options.answerImage) ? '' : 'hidden'} mt-2 max-w-xs rounded-lg border border-gray-300 shadow-sm">
                             </div>
                         </div>
                     </div>
@@ -13070,7 +12938,69 @@ D. Phát biểu SAI</pre>
         }
 
         // ==================== EXAMS MANAGEMENT ====================
+        let examEditorInitialized = false;
+        let examEditorInitializing = null;
+        let examNamesRequestSeq = 0;
+        let examConfigLoadSeq = 0;
+        let examUserLoadIntentSeq = 0;
+        let examEditorRevision = 0;
+        let examSavePending = false;
+        function invalidateExamEditorSession() {
+            authDataGeneration += 1;
+            examEditorInitialized = false;
+            examEditorInitializing = null;
+            examNamesRequestSeq += 1;
+            examConfigLoadSeq += 1;
+            examUserLoadIntentSeq += 1;
+            window.allExamConfigsList = [];
+            accountsMap = {};
+            window.examConfigCurrentPage = 1;
+            const search = document.getElementById('search-exam-config-table');
+            if (search) search.value = '';
+            const examListSelect = document.getElementById('exam-config-name');
+            if (examListSelect) examListSelect.innerHTML = '<option value="">Chọn đề thi có sẵn</option>';
+            const lessonList = document.getElementById('exam-lesson-selection');
+            if (lessonList) lessonList.innerHTML = '';
+            const teacherSelect = document.getElementById('exam-teacher-filter');
+            if (teacherSelect) teacherSelect.value = '';
+            document.getElementById('btn-export-exam-docx')?.classList.add('hidden');
+            resetExamPanelToDefault();
+            renderExamConfigsTable();
+        }
+        window.openExamEditorTab = openExamEditorTab;
+        async function openExamEditorTab({newExam = false} = {}) {
+            if (!(isAdminLoggedIn || isTeacherLoggedIn)) {
+                showAdminLoginModal();
+                return false;
+            }
+            const generation = authDataGeneration;
+            switchTab('exam-editor');
+            if (examEditorInitializing) await examEditorInitializing;
+            if (!examEditorInitialized) await initExamPanel();
+            if (generation !== authDataGeneration || !(isAdminLoggedIn || isTeacherLoggedIn)) return false;
+            if (newExam) {
+                ++examUserLoadIntentSeq;
+                ++examConfigLoadSeq; // Cancel any in-flight Nạp/selection response.
+                resetExamPanelToDefault();
+            }
+            return true;
+        }
+        window.startNewExamConfig = async function startNewExamConfig() {
+            return openExamEditorTab({newExam:true});
+        };
         async function initExamPanel() {
+            if (examEditorInitialized) {
+                updateAvailableCounts();
+                return;
+            }
+            if (examEditorInitializing) return examEditorInitializing;
+            const request = initializeExamEditorOnce();
+            examEditorInitializing = request;
+            try { await request; }
+            finally { if (examEditorInitializing === request) examEditorInitializing = null; }
+        }
+        async function initializeExamEditorOnce() {
+            const generation = authDataGeneration;
             // Guard: If exam-lesson-selection is not in DOM, skip without error (tab not loaded/active)
             if (!document.getElementById('exam-lesson-selection')) {
                 return;
@@ -13078,6 +13008,7 @@ D. Phát biểu SAI</pre>
             // Refresh accounts to get newly registered ones
             try {
                 const { data } = await fetch('/api/accounts', { headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('auth_token') || '') } }).then(res => res.json()).catch(() => ({error: 'Lỗi', data: null}));
+                if (generation !== authDataGeneration) return;
                 if (data) {
                     accounts = data;
                     // Update the mapping too
@@ -13088,6 +13019,7 @@ D. Phát biểu SAI</pre>
             } catch (e) {
                 console.error('Failed to refresh accounts during exam panel init:', e);
             }
+            if (generation !== authDataGeneration) return;
             
             // 0. Cập nhật bộ lọc giáo viên
             updateExamTeacherFilter();
@@ -13105,7 +13037,9 @@ D. Phát biểu SAI</pre>
             if (currentUser && !isAdminLoggedIn) {
                 await updateExamNamesList(false);
             }
+            if (generation !== authDataGeneration) return;
             resetExamPanelToDefault();
+            examEditorInitialized = true;
             
             // 5. Cập nhật thông tin đề thi
             updateCurrentExamInfo();
@@ -14059,6 +13993,13 @@ D. Phát biểu SAI</pre>
         }
 
         window.saveExamConfig = async function saveExamConfig(silent = false) {
+            if (examSavePending) return;
+            if (!(isAdminLoggedIn || isTeacherLoggedIn) || !currentUser) return;
+            examSavePending = true;
+            const saveGeneration = authDataGeneration;
+            const saveRevision = examEditorRevision;
+            const saveLoadSeq = examConfigLoadSeq;
+            const saveUser = String(currentUser.id);
             try {
                 // Đảm bảo các phần tử DOM tồn tại trước khi truy cập
                 const getVal = (id) => document.getElementById(id)?.value || '';
@@ -14070,6 +14011,14 @@ D. Phát biểu SAI</pre>
                 const selectEl = document.getElementById('exam-config-name');
                 const selectedExamId = selectEl?.value?.trim() || '';
                 
+                const identity = resolveExamSaveIdentity({
+                    newName: newExamNameInput, selectedId: selectedExamId,
+                    draftId: examConfig.id, draftName: examConfig.name
+                });
+                if (!identity.ok) {
+                    if (!silent) showToast(identity.message, 'error');
+                    return;
+                }
                 // --- BẮT ĐẦU KIỂM TRA ĐIỀU KIỆN TÊN ĐỀ THI ---
                 // Chỉ cho phép 1 trong 2 trường hợp:
                 // 1. Tạo mới: "Nhập tên đề thi mới" CÓ DỮ LIỆU VÀ "Chọn đề thi" PHẢI TRỐNG
@@ -14138,11 +14087,13 @@ if (contentType && contentType.includes("application/json")) {
                         }
                     }
                     
+                    if (saveGeneration !== authDataGeneration || saveRevision !== examEditorRevision ||
+                        saveLoadSeq !== examConfigLoadSeq || String(currentUser?.id) !== saveUser) return;
                     // Reset ID để buộc hệ thống insert
                     examConfig.id = null;
                 } else if (selectedExamId) {
                     // Cập nhật tài liệu (đề) sẵn có
-                    finalName = selectEl.options[selectEl.selectedIndex]?.dataset.name || examConfig.name;
+                    finalName = identity.name;
                 }
                 // --- KẾT THÚC KIỂM TRA ĐIỀU KIỆN TÊN ĐỀ THI ---
                 
@@ -14318,15 +14269,8 @@ if (contentType && contentType.includes("application/json")) {
                 examConfig.isSharedResults = getChecked('exam-config-shared-results');
                 
                 // Mã chia sẻ kết quả gắn prefix
-                if (examConfig.id && typeof examConfig.id !== 'number') {
-                    const parsedId = parseInt(examConfig.id, 10);
-                    if (isNaN(parsedId)) {
-                        examConfig.id = Math.floor(Date.now() / 1000);
-                    } else {
-                        examConfig.id = parsedId;
-                    }
-                }
-                if (!examConfig.id) examConfig.id = Math.floor(Date.now() / 1000);
+                // IDs may be historical numbers or secure UUIDs. Never cast or regenerate an existing ID.
+                // Server allocates a fresh ID for every new exam.
                 
                 if (examConfig.isSharedResults) {
                     const sharedCodeEl = document.getElementById('exam-shared-code');
@@ -14336,7 +14280,13 @@ if (contentType && contentType.includes("application/json")) {
                 if (!silent) {
                     // Muted toast request: showToast('⏳ Đang lưu cấu hình...', 'info');
                 }
-                const status = await saveExamConfigToDB();
+                if (saveGeneration !== authDataGeneration || saveRevision !== examEditorRevision ||
+                    saveLoadSeq !== examConfigLoadSeq || String(currentUser?.id) !== saveUser) return;
+                const status = await saveExamConfigToDB(structuredClone(examConfig), {
+                    generation: saveGeneration, revision: saveRevision, loadSeq: saveLoadSeq, userId: saveUser
+                });
+                if (saveGeneration !== authDataGeneration || saveRevision !== examEditorRevision ||
+                    saveLoadSeq !== examConfigLoadSeq || String(currentUser?.id) !== saveUser) return;
                 
                 updateCurrentExamInfo();
                 if (status === 'updated' || status === 'inserted') {
@@ -14357,6 +14307,8 @@ if (contentType && contentType.includes("application/json")) {
             } catch (err) {
                 console.error('Critical error in saveExamConfig:', err);
                 if (!silent) showToast('❌ Lỗi hệ thống khi lưu cấu hình!', 'error');
+            } finally {
+                examSavePending = false;
             }
         }
 
@@ -15466,7 +15418,7 @@ CẤU TRÚC JSON:
                     answerDisplay = `
                         <div class="text-sm md:text-base break-words mt-1">Đáp án của học sinh: <div class="exam-detail-answer inline-block font-bold ${userAnsColor}">${formatContent(d.userAnswer) || 'Chưa trả lời'}</div></div>
                         <div class="text-sm md:text-base break-words mt-1">Đáp án đúng: <div class="exam-detail-answer inline-block font-bold text-green-700">${formatContent(d.correctAnswer)}</div></div>
-                        ${(d.question.options && d.question.options.answerImage) ? `<img src="${d.question.options.answerImage}" class="mt-1 max-w-[200px] h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage(this.src)">` : ''}
+                        ${(d.question.options && d.question.options.answerImage) ? `<img src="${safeImageSrc(d.question.options.answerImage)}" class="mt-1 max-w-[200px] h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage(this.src)">` : ''}
                         ${scoreDisplay}
                     `;
                 } else if (d.question.type === 'TL') {
@@ -15477,12 +15429,12 @@ CẤU TRÚC JSON:
                         <div class="mt-2 p-3 bg-white rounded-lg border border-blue-100 shadow-inner">
                             <p class="text-xs font-bold text-blue-500 uppercase mb-1">Bài làm của học sinh:</p>
                             <div class="text-gray-800 whitespace-pre-wrap leading-relaxed mb-2 break-words">${formatContent(studentAnsText) || (studentAnsImage ? '' : '<i class="text-gray-400">Trống</i>')}</div>
-                            ${studentAnsImage ? `<img src="${studentAnsImage}" class="max-w-xs h-auto rounded-lg border border-gray-200 cursor-zoom-in" onclick="zoomImage(this.src)">` : ''}
+                            ${studentAnsImage ? `<img src="${safeImageSrc(studentAnsImage)}" class="max-w-xs h-auto rounded-lg border border-gray-200 cursor-zoom-in" onclick="zoomImage(this.src)">` : ''}
                         </div>
                         <div class="mt-2 p-3 bg-green-50 rounded-lg border border-green-100">
                             <p class="text-xs font-bold text-green-600 mb-1">Hướng dẫn chấm:</p>
                             <div class="text-green-800 break-words">${formatContent(d.correctAnswer)}</div>
-                            ${(d.question.options && d.question.options.answerImage) ? `<img src="${d.question.options.answerImage}" class="mt-2 max-w-[200px] h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage(this.src)">` : ''}
+                            ${(d.question.options && d.question.options.answerImage) ? `<img src="${safeImageSrc(d.question.options.answerImage)}" class="mt-2 max-w-[200px] h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage(this.src)">` : ''}
                         </div>
                         ${d.aiFeedback ? `<div class="mt-2 text-base text-purple-700 bg-purple-50 p-2 rounded border border-purple-100 break-words">🤖 Nhận xét: ${formatContent(d.aiFeedback)}</div>` : ''}
                         <div class="mt-3 flex flex-wrap items-center gap-3 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
@@ -15519,7 +15471,7 @@ CẤU TRÚC JSON:
                             <span class="text-2xl flex-shrink-0">${statusIcon}</span>
                             <div class="exam-detail-item-body flex-1 min-w-0">
                                 ${renderExamDetailQuestion(d.question, i, appSettings.questionFontSize || 24)}
-                                ${d.question.image ? `<img src="${d.question.image}" class="max-w-full h-auto mb-2 rounded border shadow-sm cursor-zoom-in hover:scale-[1.01] transition-transform" style="max-height: 250px; object-fit: contain;" onclick="zoomImage(this.src)">` : ''}
+                                ${d.question.image ? `<img src="${safeImageSrc(d.question.image)}" class="max-w-full h-auto mb-2 rounded border shadow-sm cursor-zoom-in hover:scale-[1.01] transition-transform" style="max-height: 250px; object-fit: contain;" onclick="zoomImage(this.src)">` : ''}
                                 ${optionsHtml}
                                 ${answerDisplay}
                             </div>
@@ -20107,6 +20059,8 @@ CẤU TRÚC JSON:
 
         // Nạp và hiển thị gợi ý các lớp phụ trách của giáo viên khi tạo đề thi
         window.loadTeacherClassesForExam = async function() {
+            const classesGeneration = authDataGeneration;
+            const classesUser = String(currentUser?.id || '');
             const container = document.getElementById('teacher-quick-classes-container');
             const listEl = document.getElementById('teacher-quick-classes-list');
             if (!container || !listEl) return;
@@ -20121,6 +20075,7 @@ CẤU TRÚC JSON:
                         headers: { 'Authorization': 'Bearer ' + token }
                     });
                     const resJson = await res.json();
+                    if (classesGeneration !== authDataGeneration || classesUser !== String(currentUser?.id)) return;
                     if (resJson && resJson.data && Array.isArray(resJson.data)) {
                         myClasses = resJson.data;
                         if (currentUser) currentUser.assigned_classes = myClasses;
@@ -20128,6 +20083,7 @@ CẤU TRÚC JSON:
                 } catch (e) {}
             }
 
+            if (classesGeneration !== authDataGeneration || classesUser !== String(currentUser?.id)) return;
             if (myClasses.length === 0) {
                 container.classList.add('hidden');
                 return;
@@ -21304,7 +21260,7 @@ CẤU TRÚC JSON:
             componentsLoadedFlag = true;
 
             const components = [
-                'modal-container', 'tab-exam', 'tab-questions', 'tab-exams',
+                'modal-container', 'tab-exam', 'tab-questions', 'tab-exams', 'tab-exam-editor',
                 'tab-teacher-assignment', 'tab-accounts', 'tab-users', 'tab-ranking', 'tab-settings', 'tab-help',
                 'toast-container-center', 'toast-container-right', 'account-modal', 'user-modal'
             ];
@@ -21466,7 +21422,7 @@ CẤU TRÚC JSON:
 
                             <!-- High Quality Large Image Container -->
                             <div class="bg-white p-3 md:p-5 rounded-2xl shadow-2xl border-2 border-amber-300/40 my-3 flex flex-col items-center justify-center relative group min-h-[260px]">
-                                <img id="qr-modal-img" data-qr-current="${imgSrc}" src="${imgSrc}" alt="Mã QR truy cập hệ thống" onerror="if(!this.dataset.retried){this.dataset.retried=true;this.src='/ma-qr.png?t='+Date.now();}" class="w-full max-w-[320px] md:max-w-[400px] aspect-square object-contain mx-auto transition-transform duration-300 group-hover:scale-[1.01]" />
+                                <img id="qr-modal-img" data-qr-current="${imgSrc}" src="${safeImageSrc(imgSrc)}" alt="Mã QR truy cập hệ thống" onerror="if(!this.dataset.retried){this.dataset.retried=true;this.src='/ma-qr.png?t='+Date.now();}" class="w-full max-w-[320px] md:max-w-[400px] aspect-square object-contain mx-auto transition-transform duration-300 group-hover:scale-[1.01]" />
                             </div>
 
                             <!-- Upload Spinner (hidden by default) -->
@@ -22373,7 +22329,7 @@ CẤU TRÚC JSON:
                     optionsHtml = `
                         <div class="mt-2 text-sm p-2 bg-green-50 border border-green-200 rounded">
                             <strong>Đáp án:</strong> ${formatContent(q.answer)}
-                            ${q.options && q.options.answerImage ? `<div class="mt-2 text-xs font-semibold text-green-700">Hình ảnh đáp án:</div><img src="${q.options.answerImage}" class="mt-1 max-w-xs h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage('${q.options.answerImage}')">` : ''}
+                            ${q.options && q.options.answerImage ? `<div class="mt-2 text-xs font-semibold text-green-700">Hình ảnh đáp án:</div><img src="${safeImageSrc(q.options.answerImage)}" class="mt-1 max-w-xs h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage(this.src)">` : ''}
                         </div>`;
                 }
 
@@ -22513,7 +22469,7 @@ CẤU TRÚC JSON:
                                 <div class="mt-2 flex items-center gap-3">
                                     <input type="file" id="edit-ai-answer-image" accept="image/*" onchange="handleImageUpload(event, 'edit-ai-answer-image-preview')" class="w-full text-xs text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer">
                                 </div>
-                                <img id="edit-ai-answer-image-preview" src="${(q.options && q.options.answerImage) ? q.options.answerImage : ''}" class="${(q.options && q.options.answerImage) ? '' : 'hidden'} mt-2 max-h-48 max-w-sm rounded-lg border border-gray-200 shadow-sm object-contain bg-white p-1">
+                                <img id="edit-ai-answer-image-preview" src="${safeImageSrc((q.options && q.options.answerImage) ? q.options.answerImage : '')}" class="${(q.options && q.options.answerImage) ? '' : 'hidden'} mt-2 max-h-48 max-w-sm rounded-lg border border-gray-200 shadow-sm object-contain bg-white p-1">
                             </div>
                         </div>
                     </div>
@@ -22716,6 +22672,8 @@ CẤU TRÚC JSON:
         window.saveAIAppraisePrompt = saveAIAppraisePrompt;
         window.resetAIAppraisePrompt = resetAIAppraisePrompt;
         window.onNewExamNameInput = function(val) {
+            ++examUserLoadIntentSeq;
+            ++examConfigLoadSeq;
             const selectEl = document.getElementById('exam-config-name');
             if (selectEl && selectEl.value !== '') {
                 // Đang có cấu hình cũ được load, khi nhập tên mới thì đưa về mặc định
@@ -23473,16 +23431,16 @@ CẤU TRÚC JSON:
                         tr.innerHTML = `
                             <td class="px-2 py-1 text-center text-slate-400 font-medium hidden sm:table-cell">${index + 1}</td>
                             <td class="px-2.5 py-1 font-semibold text-slate-800">
-                                <div class="truncate max-w-[120px] sm:max-w-none" title="${student.full_name}">${student.full_name}</div>
+                                <div class="truncate max-w-[120px] sm:max-w-none" title="${escapeHTML(student.full_name)}">${escapeHTML(student.full_name)}</div>
                                 <div class="text-[10px] text-slate-400 font-normal sm:hidden mt-0.5">
-                                    ${student.lop ? `Lớp ${student.lop}` : ''} ${student.donvi ? `• ${student.donvi}` : ''}
+                                    ${student.lop ? `Lớp ${escapeHTML(student.lop)}` : ''} ${student.donvi ? `• ${escapeHTML(student.donvi)}` : ''}
                                 </div>
                                 <div class="text-[10px] text-indigo-500 font-normal sm:hidden mt-0.5">
                                     ${isDone ? `⏱️ ${formatReportTime(timeTaken)}` : ''} ${isDone ? `• 📅 ${formattedDoneAt}` : ''}
                                 </div>
                             </td>
-                            <td class="px-2 py-1 text-center text-slate-500 hidden sm:table-cell">${student.lop || '-'}</td>
-                            <td class="px-2 py-1 text-slate-500 text-left truncate max-w-[120px] hidden md:table-cell" title="${student.donvi || '-'}" >${student.donvi || '-'}</td>
+                            <td class="px-2 py-1 text-center text-slate-500 hidden sm:table-cell">${escapeHTML(student.lop || '-')}</td>
+                            <td class="px-2 py-1 text-slate-500 text-left truncate max-w-[120px] hidden md:table-cell" title="${escapeHTML(student.donvi || '-')}" >${escapeHTML(student.donvi || '-')}</td>
                             <td class="px-2 py-1 text-center">
                                 ${isDone 
                                     ? `<span class="inline-flex items-center px-1.5 py-0.5 rounded bg-green-50 text-green-700 border border-green-150 text-[10px] font-bold">✅ Đã làm</span>` 

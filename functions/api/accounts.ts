@@ -1,4 +1,4 @@
-import { verifyJWT, getDynamicSecret, hashPasswordPBKDF2, getDatabase, checkIsAdmin, checkIsTeacherOrAdmin } from './exam/utils';
+import { verifyAuthSession, getDynamicSecret, hashPasswordPBKDF2, getDatabase, checkIsAdmin, checkIsTeacherOrAdmin } from './exam/utils';
 
 export async function onRequestGet(context: any) {
     const { request, env } = context;
@@ -15,11 +15,33 @@ export async function onRequestGet(context: any) {
     let user = null;
     if (authHeader && authHeader.startsWith('Bearer ')) {
         const token = authHeader.substring(7);
-        user = await verifyJWT(token, SECRET);
+        user = await verifyAuthSession(token, SECRET, db);
     }
 
     const isAdmin = checkIsAdmin(user);
     const isTeacher = checkIsTeacherOrAdmin(user) && !isAdmin;
+    if (!isAdmin && !isTeacher) {
+        // Public teacher directory contains ONLY the attributes required by the
+        // student exam selector. Never return student records or account passwords.
+        // In particular role/target_audience are required by the frontend filter:
+        // omitting them previously made a non-empty directory render as empty.
+        const directory=await db.prepare(`SELECT a.id, a.user_id,
+          CASE WHEN LOWER(TRIM(a.role))='admin' THEN 'admin' ELSE 'teacher' END AS role,
+          COALESCE(NULLIF(TRIM(u.full_name),''),'Giáo viên') AS full_name,
+          COALESCE(u.donvi,'') AS donvi,
+          CASE WHEN LOWER(TRIM(a.role))='admin' THEN 'Quản trị viên' ELSE 'Giáo viên' END AS target_audience
+          FROM accounts a
+          LEFT JOIN users u ON u.id=COALESCE(a.user_id,a.id)
+          WHERE LOWER(TRIM(a.role)) IN ('admin','teacher','giáo viên')
+            AND COALESCE(CAST(a.is_active AS TEXT),'1') NOT IN ('0','false','disabled')
+            AND COALESCE(CAST(u.is_active AS TEXT),'1') NOT IN ('0','false','disabled')
+          ORDER BY COALESCE(NULLIF(TRIM(u.full_name),''),'Giáo viên') ASC, a.id ASC`).all();
+        return new Response(JSON.stringify({
+          data:directory.results || [],total:(directory.results || []).length,
+          error:null
+        }),{status:200,headers:corsHeaders});
+    }
+
     let teacherDonvi = '';
     if (isTeacher) {
         try {
@@ -64,7 +86,7 @@ export async function onRequestGet(context: any) {
     try {
         if (isAdmin) {
             query = `
-                SELECT accounts.id, accounts.user_id, accounts.username, accounts.password, accounts.role, accounts.is_active, accounts.expiry_date, accounts.created_at,
+                SELECT accounts.id, accounts.user_id, accounts.username, accounts.role, accounts.is_active, accounts.expiry_date, accounts.created_at,
                        users.full_name, users.phone_number, users.donvi, users.lop, users.target_audience
                 FROM accounts
                 LEFT JOIN users ON users.id = COALESCE(accounts.user_id, accounts.id)
@@ -131,7 +153,7 @@ export async function onRequestPost(context: any) {
         return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: corsHeaders });
     }
     const token = authHeader.substring(7);
-    const user = await verifyJWT(token, SECRET);
+    const user = await verifyAuthSession(token, SECRET, db);
     if (!user || user.role !== 'admin') {
         return new Response(JSON.stringify({ error: "Chỉ Admin mới được thêm tài khoản" }), { status: 403, headers: corsHeaders });
     }

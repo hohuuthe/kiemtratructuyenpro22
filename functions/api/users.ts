@@ -1,4 +1,4 @@
-import { verifyJWT, getDynamicSecret, checkIsAdmin, checkIsTeacherOrAdmin, getDatabase } from './exam/utils';
+import { verifyAuthSession, getDynamicSecret, checkIsAdmin, checkIsTeacherOrAdmin, getDatabase } from './exam/utils';
 
 interface Env {
   NEON_DATABASE_URL?: string;
@@ -27,7 +27,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: corsHeaders });
   }
   const token = authHeader.substring(7);
-  const user: any = await verifyJWT(token, SECRET);
+  const user: any = await verifyAuthSession(token, SECRET, db);
   
   const isAdmin = checkIsAdmin(user);
   const isTeacher = checkIsTeacherOrAdmin(user) && !isAdmin;
@@ -46,6 +46,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     if (!teacherDonvi && user.donvi) {
       teacherDonvi = user.donvi.trim();
     }
+    if (!teacherDonvi) return new Response(JSON.stringify({data:[],error:null}),{status:200,headers:corsHeaders});
   }
 
   const url = new URL(request.url);
@@ -151,7 +152,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: corsHeaders });
   }
   const token = authHeader.substring(7);
-  const user: any = await verifyJWT(token, SECRET);
+  const user: any = await verifyAuthSession(token, SECRET, db);
   if (!user || user.role !== 'admin') {
     return new Response(JSON.stringify({ error: "Chỉ Quản trị viên mới được thêm hồ sơ người dùng" }), { status: 403, headers: corsHeaders });
   }

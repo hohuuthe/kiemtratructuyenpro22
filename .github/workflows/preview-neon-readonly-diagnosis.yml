@@ -1,0 +1,48 @@
+name: Diagnose exact Pages database connection
+on:
+  pull_request:
+    branches: [main]
+    paths: [.github/workflows/preview-neon-readonly-diagnosis.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Read-only public Preview API checks (no account credentials)
+        run: |
+          node --input-type=module <<'NODE'
+          const targets=[
+            ['reported','https://d245bedf.kiemtratructuyenpro.pages.dev'],
+            ['older-immutable','https://574a33a9.kiemtratructuyenpro.pages.dev'],
+            ['prior-preview-branch','https://feat-separate-exam-managemen.kiemtratructuyenpro.pages.dev']
+          ];
+          for (const [name,origin] of targets) {
+            for (const path of ['/api/config','/api/health']) {
+              try {
+                const response=await fetch(new URL(path,origin),{headers:{Accept:'application/json','Cache-Control':'no-cache'},redirect:'manual',signal:AbortSignal.timeout(12000)});
+                const type=response.headers.get('content-type')||'';
+                let diagnostic={};
+                if(type.includes('application/json')){
+                  const data=await response.json().catch(()=>null);
+                  if(data && typeof data==='object') diagnostic={
+                    code:data.code||null,
+                    status:data.status||null,
+                    databaseStatus:data.database?.status||null,
+                    neonConfigured:data.isNeonConfigured===true,
+                    tenantSlug:data.tenant_slug||null,
+                    revisionAvailable:!!data.build_sha
+                  };
+                } else { await response.body?.cancel(); }
+                console.log(JSON.stringify({deployment:name,path,http:response.status,type:type.split(';')[0],...diagnostic}));
+              } catch(error){
+                console.log(JSON.stringify({deployment:name,path,error:error?.cause?.code||error?.name||'FETCH_FAILED'}));
+              }
+            }
+          }
+          NODE

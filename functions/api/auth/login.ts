@@ -1,4 +1,4 @@
-import { signJWT, getDynamicSecret, verifyPassword, hashPasswordPBKDF2, getDatabase } from '../exam/utils';
+import { signAuthSession, isLiveAccount, getDynamicSecret, verifyPassword, hashPasswordPBKDF2, getDatabase } from '../exam/utils';
 
 interface Env {
   NEON_DATABASE_URL?: string;
@@ -54,10 +54,10 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
     // Lấy tài khoản theo username kết hợp thông tin hồ sơ người dùng từ bảng users
     const stmt = db.prepare(`
-      SELECT accounts.id, accounts.user_id, accounts.username, accounts.password, accounts.role, accounts.is_active, accounts.expiry_date, accounts.created_at,
-             users.full_name, users.phone_number, users.target_audience, users.donvi, users.lop, users.gender, users.dob, users.address, users.occupation, users.payment_status, users.payment_method
+      SELECT accounts.xmin::text AS account_revision, users.xmin::text AS profile_revision, accounts.id, accounts.user_id, accounts.username, accounts.password, accounts.role, accounts.is_active, accounts.expiry_date, accounts.created_at,
+             users.full_name, users.phone_number, users.target_audience, users.donvi, users.lop, users.gender, users.dob, users.address, users.occupation, users.payment_status, users.payment_method, users.is_active AS profile_active, users.expiry_date AS profile_expiry_date
       FROM accounts 
-      LEFT JOIN users ON (users.id = accounts.user_id OR users.id = accounts.id)
+      LEFT JOIN users ON users.id = COALESCE(accounts.user_id, accounts.id)
       WHERE accounts.username = ?
     `).bind(username ?? null);
     const result: any = await stmt.first();
@@ -72,7 +72,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         return new Response(JSON.stringify({ error: "Tên đăng nhập hoặc mật khẩu không đúng." }), { status: 401, headers: corsHeaders });
     }
 
-    if (result.is_active === 0 || result.is_active === false) {
+    if (!isLiveAccount(result)) {
         return new Response(JSON.stringify({ error: "Tài khoản của bạn đã bị khóa hoặc chưa được kích hoạt." }), { status: 403, headers: corsHeaders });
     }
 
@@ -80,7 +80,10 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     if (!result.password.startsWith('pbkdf2:sha256:')) {
         try {
             const upgradedHash = await hashPasswordPBKDF2(password);
-            await db.prepare(`UPDATE accounts SET password = ? WHERE id = ?`).bind(upgradedHash, result.id).run();
+            const updated = await db.prepare(`UPDATE accounts SET password = ? WHERE id = ? AND password = ? RETURNING xmin::text AS account_revision`).bind(upgradedHash, result.id, result.password).first();
+            if (!updated) throw new Error('Account changed during login');
+            result.account_revision = updated.account_revision;
+            result.password = upgradedHash;
         } catch (upgradeErr) {
             console.warn("Không thể tự động nâng cấp hash mật khẩu:", upgradeErr);
         }
@@ -94,7 +97,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
     // Ký JWT
     const SECRET = await getDynamicSecret(db, env.JWT_SECRET);
-    const token = await signJWT({ 
+    const token = await signAuthSession(result, { 
         id: account.id,
         user_id: account.user_id || account.id,
         role: account.role, 
@@ -102,12 +105,13 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         full_name: finalFullName,
         username: account.username,
         donvi: account.donvi || '',
-        lop: account.lop || ''
-    }, SECRET);
+        lop: account.lop || '',
+    }, SECRET, String(db.connectionUrl || ''));
 
-    // Trả về đúng cấu trúc giống endpoint cũ để Frontend không bị vỡ logic
+    // Never return password hashes to the browser, even after successful login.
+    const { password: _passwordHash, account_revision: _ar, profile_revision: _pr, ...safeAccount } = account;
     return new Response(JSON.stringify({
-        data: account,
+        data: safeAccount,
         token: token,
         error: null
     }), { status: 200, headers: corsHeaders });

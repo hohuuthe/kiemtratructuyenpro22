@@ -1,5 +1,5 @@
 // Service Worker for HỆ THỐNG KIỂM TRA TRỰC TUYẾN
-const CACHE_NAME = 'online-exam-system-v2';
+const CACHE_NAME = 'online-exam-system-v3-security';
 
 const STATIC_PRECACHE = [
   '/',
@@ -42,7 +42,7 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
 
   // Chỉ can thiệp method GET
-  if (request.method !== 'GET') {
+  if (request.method !== 'GET' || request.headers.has('Authorization') || url.origin !== self.location.origin) {
     return;
   }
 

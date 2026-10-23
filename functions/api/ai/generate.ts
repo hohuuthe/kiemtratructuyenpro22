@@ -1,4 +1,4 @@
-import { verifyJWT, getDynamicSecret, getDatabase } from "../exam/utils";
+import { verifyAuthSession, getDynamicSecret, getDatabase } from "../exam/utils";
 
 interface Env {
   NEON_DATABASE_URL?: string;
@@ -25,10 +25,10 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     try {
       const db = getDatabase(context);
       const secret = await getDynamicSecret(db, env.JWT_SECRET);
-      user = await verifyJWT(token, secret);
+      user = await verifyAuthSession(token, secret, db);
     } catch {
       // Fallback verify nếu DB bận
-      user = await verifyJWT(token, env.JWT_SECRET || 'online_exam_secret_key_2024');
+      user = null;
     }
 
     if (!user || (user.role !== 'admin' && user.role !== 'teacher' && user.target_audience !== 'Giáo viên' && user.target_audience !== 'Quản trị viên')) {

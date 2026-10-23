@@ -1,5 +1,5 @@
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
-import { verifyJWT, getDynamicSecret, getDatabase } from './exam/utils';
+import { verifyAuthSession, verifyJWT, getDynamicSecret, getDatabase } from './exam/utils';
 import { wordImportImageObjectKey } from '../../src/word-import-image-key.js';
 
 interface Env {
@@ -30,13 +30,14 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
     const token = authHeader.substring(7);
     const secret = await getDynamicSecret(db, env.JWT_SECRET);
-    const user = await verifyJWT(token, secret);
+    const user = await verifyAuthSession(token, secret, db);
 
     // Cho phép 2 trường hợp hợp lệ:
     // 1. Giáo viên hoặc Admin đã đăng nhập
     // 2. Thí sinh đang trong phiên làm bài thi hợp lệ (token bài thi chứa questionIds và teacherId)
     const isStaff = user && (user.role === 'admin' || user.target_audience === 'Giáo viên');
-    const isValidExamSession = user && user.questionIds && user.teacherId;
+    const attempt = !isStaff ? await verifyJWT(token, secret) : null;
+    const isValidExamSession = attempt?.tokenType === 'upload' && attempt.scope === 'image:upload' && typeof attempt.examJti === 'string';
 
     if (!isStaff && !isValidExamSession) {
       return new Response(JSON.stringify({ error: "Access denied. Bạn không có quyền tải ảnh lên hệ thống." }), {
@@ -59,6 +60,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       return new Response(JSON.stringify({ error: "Thiếu dữ liệu Base64 của ảnh!" }), { status: 400, headers: { 'Content-Type': 'application/json' } });
     }
 
+    if(typeof base64!=='string'||base64.length>11200000||!/^data:image\/(png|jpeg|gif|webp|avif);base64,[A-Za-z0-9+/]+={0,2}$/.test(base64)) {
+      return new Response(JSON.stringify({error:'Only bounded PNG/JPEG/GIF/WebP/AVIF images are accepted'}),{status:415,headers:{'Content-Type':'application/json'}});
+    }
     let r2AccessKeyId = env.CLOUDFLARE_R2_ACCESS_KEY_ID;
     const r2SecretAccessKey = env.CLOUDFLARE_R2_SECRET_ACCESS_KEY;
     let r2BucketName = env.CLOUDFLARE_R2_BUCKET_NAME;
@@ -95,7 +99,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     const extension = mimeType.split("/")[1] || "jpg";
     const filename = `image-${Math.random().toString(36).substring(2)}-${Date.now()}.${extension}`;
     const objectKey = wordImportContentAddressed
-      ? await wordImportImageObjectKey(bytes,String(user.id),mimeType)
+      ? await wordImportImageObjectKey(bytes,String(user.id)+':'+await crypto.subtle.digest('SHA-256',new TextEncoder().encode(db.connectionUrl)).then(b=>Array.from(new Uint8Array(b)).map(v=>v.toString(16).padStart(2,'0')).join('')),mimeType)
       : `luuhinhnh/${filename}`;
 
     const s3 = new S3Client({
