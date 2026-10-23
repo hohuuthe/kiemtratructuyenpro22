@@ -4704,7 +4704,7 @@ if (contentType && contentType.includes("application/json")) {
             // Reset custom style overrides if any
             el.style.width = '';
             el.style.backgroundColor = '';
-            el.classList.remove('always-scrollbar-y');
+            el.classList.remove('always-scrollbar-y', 'question-authoring-modal');
             
             el.innerHTML = content;
             
@@ -4729,7 +4729,9 @@ if (contentType && contentType.includes("application/json")) {
                 'md:max-w-[98vw]', 'md:h-[95vh]', 'max-w-[98vw]', 'h-[95vh]', 'max-w-sm', 'max-w-md'
             );
 
-            if (fullScreen === true || fullScreen === 'full') {
+            if (fullScreen === 'question-authoring') {
+                el.classList.add('question-authoring-modal', 'overflow-y-auto');
+            } else if (fullScreen === true || fullScreen === 'full') {
                 el.classList.add('w-[98vw]', 'max-w-6xl', 'max-h-[94vh]', 'overflow-y-auto');
             } else if (fullScreen === 'import-word' || fullScreen === '6xl') {
                 el.classList.add('w-[96vw]', 'md:w-full', 'max-w-5xl', 'xl:max-w-6xl', '2xl:max-w-7xl', 'max-h-[94vh]', 'sm:max-h-[92vh]', 'overflow-y-auto');
@@ -4767,7 +4769,7 @@ if (contentType && contentType.includes("application/json")) {
                 const el = document.getElementById('modal-content');
                 if (el) {
                     el.innerHTML = '';
-                    el.classList.remove('always-scrollbar-y');
+                    el.classList.remove('always-scrollbar-y', 'question-authoring-modal');
                 }
             }, 300);
         }
@@ -10253,7 +10255,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                     </div>
                 </div>
             `;
-            showModal(modalContent, 'wide', true);
+            showModal(modalContent, 'question-authoring', true);
             const modalEl = document.getElementById('modal-content');
             if (modalEl) {
                 modalEl.classList.add('always-scrollbar-y');
@@ -10613,7 +10615,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                     </div>
                 </div>
             `;
-            showModal(modalContent, 'wide', true);
+            showModal(modalContent, 'question-authoring', true);
             const modalEl = document.getElementById('modal-content');
             if (modalEl) {
                 modalEl.classList.add('always-scrollbar-y');
@@ -11023,7 +11025,7 @@ D. Phát biểu SAI</pre>
                     </div>
                 </div>
             `;
-            showModal(modalContent, 'import-word', true);
+            showModal(modalContent, 'question-authoring', true);
         }
 
         window.importQuestions = async function importQuestions() {
@@ -11414,7 +11416,7 @@ D. Phát biểu SAI</pre>
                     </div>
                 </div>
             `;
-            showModal(modalContent, 'full', true);
+            showModal(modalContent, 'question-authoring', true);
             renderImportPreview();
         }
 
@@ -11477,7 +11479,7 @@ D. Phát biểu SAI</pre>
                     </div>
                 </div>
             `;
-            showModal(modalContent, 'wide', true);
+            showModal(modalContent, 'question-authoring', true);
         }
 
         function renderImportPreview() {
@@ -11695,7 +11697,7 @@ D. Phát biểu SAI</pre>
                     </div>
                 </div>
             `;
-            showModal(modalContent, 'wide', true);
+            showModal(modalContent, 'question-authoring', true);
         }
 
         window.editPendingQuestion = editPendingQuestion;
@@ -22018,7 +22020,7 @@ CẤU TRÚC JSON:
                     </div>
                 </div>
             `;
-            showModal(modalContent, false, true);
+            showModal(modalContent, 'question-authoring', true);
             const modalEl = document.getElementById('modal-content');
             if (modalEl) {
                 modalEl.classList.add('always-scrollbar-y');
@@ -22453,7 +22455,7 @@ CẤU TRÚC JSON:
                     </div>
                 </div>
             `;
-            showModal(modalContent);
+            showModal(modalContent, 'question-authoring', true);
             setTimeout(() => {
                 const container = document.getElementById('modal-content');
                 if(container) queueMathJax(container);
@@ -22568,7 +22570,7 @@ CẤU TRÚC JSON:
                     </div>
                 </div>
             `;
-            showModal(modalContent, 'wide');
+            showModal(modalContent, 'question-authoring', true);
         };
 
         window.toggleAIEditOptions = function(type) {
