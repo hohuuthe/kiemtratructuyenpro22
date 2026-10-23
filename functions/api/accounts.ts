@@ -21,10 +21,25 @@ export async function onRequestGet(context: any) {
     const isAdmin = checkIsAdmin(user);
     const isTeacher = checkIsTeacherOrAdmin(user) && !isAdmin;
     if (!isAdmin && !isTeacher) {
-        const directory=await db.prepare(`SELECT a.id,u.full_name,u.donvi FROM accounts a
+        // Public teacher directory contains ONLY the attributes required by the
+        // student exam selector. Never return student records or account passwords.
+        // In particular role/target_audience are required by the frontend filter:
+        // omitting them previously made a non-empty directory render as empty.
+        const directory=await db.prepare(`SELECT a.id, a.user_id,
+          CASE WHEN LOWER(TRIM(a.role))='admin' THEN 'admin' ELSE 'teacher' END AS role,
+          COALESCE(NULLIF(TRIM(u.full_name),''),'Giáo viên') AS full_name,
+          COALESCE(u.donvi,'') AS donvi,
+          CASE WHEN LOWER(TRIM(a.role))='admin' THEN 'Quản trị viên' ELSE 'Giáo viên' END AS target_audience
+          FROM accounts a
           LEFT JOIN users u ON u.id=COALESCE(a.user_id,a.id)
-          WHERE a.role IN ('admin','teacher') AND CAST(a.is_active AS TEXT) IN ('1','true','t') ORDER BY u.full_name,a.id`).all();
-        return new Response(JSON.stringify({data:directory.results || [],error:null}),{status:200,headers:corsHeaders});
+          WHERE LOWER(TRIM(a.role)) IN ('admin','teacher','giáo viên')
+            AND COALESCE(CAST(a.is_active AS TEXT),'1') NOT IN ('0','false','disabled')
+            AND COALESCE(CAST(u.is_active AS TEXT),'1') NOT IN ('0','false','disabled')
+          ORDER BY COALESCE(NULLIF(TRIM(u.full_name),''),'Giáo viên') ASC, a.id ASC`).all();
+        return new Response(JSON.stringify({
+          data:directory.results || [],total:(directory.results || []).length,
+          error:null
+        }),{status:200,headers:corsHeaders});
     }
 
     let teacherDonvi = '';
