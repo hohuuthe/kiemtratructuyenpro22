@@ -104,7 +104,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         username: account.username,
         donvi: account.donvi || '',
         lop: account.lop || '',
-    }, SECRET);
+    }, SECRET, String(db.connectionUrl || ''));
 
     // Never return password hashes to the browser, even after successful login.
     const { password: _passwordHash, ...safeAccount } = account;
