@@ -353,9 +353,7 @@ export async function getDynamicSecret(db: any, envSecret?: string) {
     }
     try {
         if (!db) {
-            const fallbackSecret = "FALLBACK_TO_HARDCODED_ONLY_IF_DB_FAILS_12345_XYZ";
-            secretByDbCache.set(dbKey, fallbackSecret);
-            return fallbackSecret;
+            throw new Error('Database unavailable: refusing insecure JWT fallback');
         }
         await db.prepare("CREATE TABLE IF NOT EXISTS _internal_secrets (key TEXT PRIMARY KEY, value TEXT)").run();
         const { results } = await db.prepare("SELECT value FROM _internal_secrets WHERE key = 'jwt'").all();
@@ -369,9 +367,7 @@ export async function getDynamicSecret(db: any, envSecret?: string) {
         secretByDbCache.set(dbKey, newSecret);
         return newSecret;
     } catch (e) {
-        const fallbackSecret = "FALLBACK_TO_HARDCODED_ONLY_IF_DB_FAILS_12345_XYZ";
-        secretByDbCache.set(dbKey, fallbackSecret);
-        return fallbackSecret;
+        throw new Error('Authentication unavailable: secure JWT secret could not be loaded');
     }
 }
 
