@@ -2,6 +2,7 @@
 import 'katex/dist/katex.min.css';
 import { createEmptyExamDraft, mapStoredExamToDraft, resolveExamSaveIdentity } from './exam-editor-safety.js';
 import './style.css';
+import { planRecentQuestionView, resolveWordImportedQuestionIds } from './question-bank-recent-view.js';
 import './pwa-manager.js';
 import './teacher-assignment.js';
 import { typesetScientificMath } from './scientific-formula-typeset.js';
@@ -3668,45 +3669,25 @@ if (e && e.message && e.message.includes('hạn mức')) {
         }
 
         async function saveQuestionsToDB(newQuestions = null, deletedIds = null) {
-            try {
-                const token = localStorage.getItem('auth_token') || '';
-                const payload = {};
-                if (deletedIds && deletedIds.length > 0) {
-                    payload.deletedIds = deletedIds;
-                }
-                if (newQuestions && newQuestions.length > 0) {
-                    payload.questions = newQuestions.map(q => {
-                        const sq = sanitizeQuestionFormulas(q);
-                        return {
-                            id: sq.id,
-                            type: sq.type,
-                            level: sq.level,
-                            lesson: sq.lesson,
-                            content: sq.content,
-                            options: sq.options || {},
-                            answer: sq.answer,
-                            image: sq.image || null,
-                            creatorId: sq.creatorId || (currentUser ? currentUser.id : null)
-                        };
-                    });
-                }
-
-                if (payload.deletedIds || payload.questions) {
-                    const response = await fetch('/api/questions', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': 'Bearer ' + token
-                        },
-                        body: JSON.stringify(payload)
-                    });
-                    const resJson = await response.json();
-                    if (!response.ok || resJson.error) {
-                        console.error('Error saving questions to /api/questions:', resJson.error);
-                    }
-                    questionsLoaded = false;
-                }
-            } catch (e) { console.error('Error saving questions:', e); }
+            const token = localStorage.getItem('auth_token') || '';
+            if (!token) throw new Error('Phiên đăng nhập đã hết hạn');
+            const payload = {};
+            if (newQuestions?.length) payload.questions = newQuestions.map(q => {
+                const sq = sanitizeQuestionFormulas(q);
+                return {id:sq.id,type:sq.type,level:sq.level,lesson:sq.lesson,content:sq.content,
+                    options:sq.options||{},answer:sq.answer,image:sq.image||null,creatorId:sq.creatorId||currentUser?.id};
+            });
+            if (deletedIds?.length) payload.deletedIds = deletedIds;
+            if (!payload.questions && !payload.deletedIds) return true;
+            const res = await fetch('/api/questions',{method:'POST',headers:{
+                'Content-Type':'application/json','Authorization':'Bearer '+token
+            },body:JSON.stringify(payload)});
+            const receipt = await res.json();
+            if (!res.ok || receipt.error || receipt.success !== true ||
+                (payload.questions && receipt.count !== payload.questions.length))
+                throw new Error(receipt.error || 'Máy chủ chưa xác nhận lưu đủ câu hỏi.');
+            questionsLoaded = false;
+            return true;
         }
 
         async function saveResultsToDB(newResult = null, deletedIds = null) {
@@ -9743,6 +9724,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
         }
 
         function setQuestionTypeFilter(type) {
+            clearRecentQuestionFocus();
             questionTypeFilter = type;
             document.querySelectorAll('.q-type-btn').forEach(btn => {
                 btn.classList.remove('ring-2', 'ring-offset-2', 'ring-blue-500');
@@ -9753,7 +9735,47 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             renderQuestionsList();
         }
 
+        let recentlySavedIds = new Set();
+        let showOnlyRecentlySaved = false;
+        function clearRecentQuestionFocus() { recentlySavedIds.clear(); showOnlyRecentlySaved = false; }
+        async function revealSavedQuestions(records) {
+            const generation = authDataGeneration;
+            const uid = String(currentUser?.id||'');
+            const plan = planRecentQuestionView(records);
+            if (!plan.total) return false;
+            const refreshed = await loadQuestions(true);
+            if (generation !== authDataGeneration || uid !== String(currentUser?.id||'')) return false;
+            const ids = new Set(plan.ids);
+            const found = questions.filter(q => ids.has(String(q.id)) && isUserQuestionCreator(q));
+            recentlySavedIds = new Set(found.map(q => String(q.id)));
+            showOnlyRecentlySaved = plan.lessonCount > 1;
+            updateLessonFilter();
+            const lessonEl = document.getElementById('question-lesson-filter');
+            if (lessonEl) lessonEl.value = showOnlyRecentlySaved ? '' :
+                ([...lessonEl.options].some(x=>x.value===plan.primaryLesson) ? plan.primaryLesson : '');
+            const searchEl = document.getElementById('question-search');
+            if (searchEl) searchEl.value = '';
+            questionTypeFilter = plan.typeFilter;
+            window.questionsCurrentPage = 1;
+            updateQuestionStats();
+            renderQuestionsList();
+            const view = document.getElementById('questions-list');
+            if(view) view.scrollTop = 0;
+            document.getElementById('questions-count')?.scrollIntoView({behavior:'smooth',block:'center'});
+            return refreshed && found.length === plan.total;
+        }
+        window.showAllQuestionBank = function() {
+            clearRecentQuestionFocus();
+            questionTypeFilter = 'ALL';
+            const lesson=document.getElementById('question-lesson-filter');
+            if(lesson) lesson.value='';
+            const search=document.getElementById('question-search');
+            if(search) search.value='';
+            renderQuestionsList(); updateQuestionStats();
+        };
+
         window.filterQuestions = function filterQuestions() {
+            clearRecentQuestionFocus();
             updateQuestionStats();
             renderQuestionsList();
         }
@@ -9945,8 +9967,10 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 lastQuestionsTypeFilter = questionTypeFilter;
             }
 
-            let filteredQuestions = questions.filter(q => matchesQuestionType(q, questionTypeFilter) && isUserQuestionCreator(q));
+            let filteredQuestions = questions.filter(q => (questionTypeFilter === 'ALL' || matchesQuestionType(q,questionTypeFilter)) && isUserQuestionCreator(q));
             
+            if (showOnlyRecentlySaved) filteredQuestions = filteredQuestions.filter(q=>recentlySavedIds.has(String(q.id)));
+            filteredQuestions.sort((a,b)=>Number(recentlySavedIds.has(String(b.id)))-Number(recentlySavedIds.has(String(a.id))));
             if (lessonFilter) {
                 filteredQuestions = filteredQuestions.filter(q => q.lesson === lessonFilter);
             }
@@ -9964,6 +9988,8 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             // Update count display
             if (countDisplay) countDisplay.textContent = `Tổng: ${filteredQuestions.length} câu`;
 
+            const banner=document.getElementById('questions-recent-notice');
+            if(banner){ banner.classList.toggle('hidden',!recentlySavedIds.size); const m=banner.querySelector('[data-recent-message]'); if(m) m.textContent='Vừa lưu '+recentlySavedIds.size+' câu hỏi. '+(showOnlyRecentlySaved?'Đang xem toàn bộ câu hỏi vừa nhập.':'Các câu mới ở đầu danh sách.'); }
             if (!container) return;
 
             if (filteredQuestions.length === 0) {
@@ -10383,7 +10409,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             }
         }
 
-        window.saveNewQuestion = function saveNewQuestion() {
+        window.saveNewQuestion = async function saveNewQuestion() {
             const type = document.getElementById('new-q-type')?.value || '';
             const content = document.getElementById('new-q-content')?.value?.trim() || '';
             const lesson = document.getElementById('new-q-lesson')?.value?.trim().toUpperCase() || '';
@@ -10444,15 +10470,11 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 }
             }
 
-            questions.push(question);
-            updateStudentTeacherFilter();
-            updateExamTeacherFilter();
-            saveQuestionsToDB([question]);
+            try { await saveQuestionsToDB([question]); }
+            catch(error) { showToast('Lưu câu hỏi thất bại: '+error.message,'error'); return; }
             closeModal();
-            updateStats();
-            updateQuestionStats();
-            updateLessonFilter();
-            renderQuestionsList();
+            const refreshed = await revealSavedQuestions([question]);
+            updateStudentTeacherFilter(); updateExamTeacherFilter(); updateStats();
             
             // 🔄 RELOAD QL ĐỀ THI
             if (document.getElementById('exams-panel') && !document.getElementById('exams-panel').classList.contains('hidden')) {
@@ -10460,7 +10482,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 initExamPanel();
             }
             
-            showToast('Đã thêm câu hỏi mới! QL Đề thi đã cập nhật.', 'success');
+            showToast(refreshed?'Đã lưu và hiển thị câu hỏi vừa thêm.':'Đã lưu nhưng chưa tải lại đủ câu hỏi. Hãy bấm Tải lại.',refreshed?'success':'warning');
         }
 
         window.editQuestion = function editQuestion(id) {
@@ -11849,9 +11871,8 @@ D. Phát biểu SAI</pre>
                 try {
                     refreshed=await loadQuestions(true)===true;
                     if(refreshed){
-                        updateQuestionStats?.();
-                        updateLessonFilter?.();
-                        renderQuestionsList?.();
+                        const imported=resolveWordImportedQuestionIds(records,receipt.importKey);
+                        refreshed=imported.length===records.length && await revealSavedQuestions(imported);
                     }
                 } catch(refreshError) {
                     console.warn('[WordImport] Bank refresh failed AFTER successful save:',refreshError);
@@ -22590,25 +22611,22 @@ CẤU TRÚC JSON:
             showToast('Đã cập nhật câu hỏi AI tạo!', 'success');
         };
 
-        window.confirmAddAIGeneratedQuestions = function() {
+        window.confirmAddAIGeneratedQuestions = async function() {
             if (!window.tempGeneratedQuestions || window.tempGeneratedQuestions.length === 0) return;
             
             const sanitizedQuestions = window.tempGeneratedQuestions.map(q => sanitizeQuestionFormulas(q));
-            sanitizedQuestions.forEach(q => questions.push(q));
-            
-            saveQuestionsToDB(sanitizedQuestions);
+            try { await saveQuestionsToDB(sanitizedQuestions); }
+            catch(error) { showToast('Lưu câu hỏi AI thất bại: '+error.message,'error'); return; }
+            window.tempGeneratedQuestions = [];
+            closeModal();
+            const refreshed = await revealSavedQuestions(sanitizedQuestions);
             updateStats();
-            updateQuestionStats();
-            updateLessonFilter();
-            renderQuestionsList();
             
             if (document.getElementById('exams-panel') && !document.getElementById('exams-panel').classList.contains('hidden')) {
                 initExamPanel();
             }
 
-            showToast(`🎉 Đã thêm thành công ${window.tempGeneratedQuestions.length} câu hỏi vào ngân hàng!`, 'success');
-            window.tempGeneratedQuestions = [];
-            closeModal();
+            showToast(refreshed?`Đã lưu và hiển thị ${sanitizedQuestions.length} câu AI.`:`Đã lưu ${sanitizedQuestions.length} câu nhưng chưa tải lại đủ danh sách.`,refreshed?'success':'warning');
         };
 
         window.appraiseAIQuestions = async function() {
