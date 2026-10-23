@@ -1,4 +1,5 @@
 import { verifyJWT, getDynamicSecret, checkIsAdmin, checkIsTeacherOrAdmin, getDatabase } from './exam/utils';
+import { isExamOwner, redactExamForPublic } from './exam/security';
 
 interface Env {
   NEON_DATABASE_URL?: string;
@@ -92,7 +93,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
       }
       const row: any = results[0];
       const mapped = {
-        ...mapRowRead(row),
+        ...(isExamOwner(user, row) ? mapRowRead(row) : redactExamForPublic(mapRowRead(row))),
         target_lop: row.target_lop || row.lop || '',
         lop: row.target_lop || row.lop || '',
         is_shared_results: row.is_shared_results === 1 || row.is_shared_results === true || row.is_shared_results === 'true'
@@ -112,7 +113,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
         return new Response(JSON.stringify({ data: null, error: "Đề thi này không được phép chia sẻ kết quả" }), { status: 403, headers: corsHeaders });
       }
       const mapped = {
-        ...mapRowRead(row),
+        ...(isExamOwner(user, row) ? mapRowRead(row) : redactExamForPublic(mapRowRead(row))),
         target_lop: row.target_lop || row.lop || '',
         lop: row.target_lop || row.lop || '',
         is_shared_results: isShared
@@ -149,12 +150,12 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     let query = "SELECT ec.*, u.donvi AS teacher_donvi FROM exam_configs ec LEFT JOIN users u ON ec.creator_id = u.id";
     const params: any[] = [];
 
-    if (teacherIdParam) {
+    if (teacherIdParam && (isAdmin || !isTeacher)) {
       query += " WHERE ec.creator_id = ?";
       params.push(teacherIdParam);
-    } else if (sharedOnly) {
+    } else if (sharedOnly && !isTeacher) {
       query += " WHERE ec.is_shared_results = 1 OR ec.is_shared_results = 'true' OR ec.is_shared_results = true";
-    } else if (isTeacher && !forRanking) {
+    } else if (isTeacher) {
       query += " WHERE ec.creator_id = ?";
       params.push(user.id);
     }
@@ -230,7 +231,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
 
     const allCreatorIds = [...new Set((mappedResults || []).map((row: any) => row.creator_id || row.creatorId).filter(Boolean))];
     return new Response(JSON.stringify({ 
-      data: filteredResults, 
+      data: filteredResults.map((row: any) => isExamOwner(user, row) ? row : redactExamForPublic(row)), 
       allCreatorIds, 
       total: filteredResults.length,
       limit,
@@ -328,6 +329,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       if (results && results.length > 0) existingRecord = results[0];
     }
 
+    if (id && !existingRecord) return new Response(JSON.stringify({error:'Đề thi cần cập nhật không tồn tại'}), {status:404,headers:corsHeaders});
     if (existingRecord) {
       // Kiểm tra quyền sửa
       if (!isAdmin && existingRecord.creator_id !== user.id) {
