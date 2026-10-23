@@ -6,6 +6,8 @@ on:
       - 'src/**'
       - 'tests/**'
       - '.github/workflows/scientific-formula-browser.yml'
+  push:
+    branches: [fix/word-import-verified-e2e-20261023]
   workflow_dispatch:
 
 permissions:
