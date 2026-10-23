@@ -160,6 +160,23 @@ test('Security release: real API handlers on two isolated PostgreSQL engines (of
         assert.equal((await submit(generated,[{text:'essay',image}])).status,400);
       }
     });
+    await t.test('a teacher cannot delete or inspect another teacher assignment by ID',async()=>{
+      await sql("INSERT INTO teacher_classes(id,teacher_id,class_name,donvi) VALUES('foreign-class','u-other','12B','School A')");
+      const token=await login('teacher');
+      assert.equal((await request('a','/api/teacher-classes?id=foreign-class',{method:'DELETE',token})).status,403);
+      assert.equal((await request('a','/api/teacher-classes?teacher_id=u-other',{token})).status,403);
+      assert.equal((await sql("SELECT COUNT(*)::int AS n FROM teacher_classes WHERE id='foreign-class'")).rows[0].n,1);
+    });
+    await t.test('question-batch authorization is checked before deletion and storage failure rolls back all writes',async()=>{
+      await sql("INSERT INTO questions(id,creator_id,content) VALUES('foreign-question','other','Foreign'),('delete-candidate','teacher','Keep')");
+      const token=await login('teacher');
+      assert.equal((await request('a','/api/questions',{method:'POST',token,body:{deletedIds:['delete-candidate'],questions:[{id:'foreign-question',content:'Unauthorized edit'}]}})).status,403);
+      assert.equal((await sql("SELECT COUNT(*)::int AS n FROM questions WHERE id='delete-candidate'")).rows[0].n,1);
+      await engines.a.exec("CREATE FUNCTION fail_question() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'simulated question insert failure'; END $$; CREATE TRIGGER fail_question BEFORE INSERT ON questions FOR EACH ROW EXECUTE FUNCTION fail_question();");
+      try {assert.ok((await request('a','/api/questions',{method:'POST',token,body:{deletedIds:['delete-candidate'],questions:[{content:'New'}]}})).status>=500);}
+      finally {await engines.a.exec('DROP TRIGGER fail_question ON questions; DROP FUNCTION fail_question();');}
+      assert.equal((await sql("SELECT COUNT(*)::int AS n FROM questions WHERE id='delete-candidate'")).rows[0].n,1);
+    });
     await t.test('tenant fixtures remain physically distinct and transactions were used',async()=>{
       assert.equal((await sql('SELECT count(*)::int AS n FROM results',[],'b')).rows[0].n,3);assert.ok(calls.some(c=>Array.isArray(c.payload.queries)&&c.payload.queries.some((q:any)=>q.query.includes('_submitted_exam_tokens'))));
     });

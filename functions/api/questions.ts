@@ -150,86 +150,35 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
 
 // POST /api/questions - Lưu hoặc Cập nhật (Upsert) danh sách câu hỏi
 export const onRequestPost: PagesFunction<Env> = async (context) => {
-  const db = getDatabase(context);
-  const { request, env } = context;
-  const SECRET = await getDynamicSecret(db, env.JWT_SECRET);
-  const authHeader = request.headers.get('Authorization');
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: corsHeaders });
-  }
-  const token = authHeader.substring(7);
-  const user = await verifyAuthSession(token, SECRET, db);
-  if (!user) {
-    return new Response(JSON.stringify({ error: "Phiên đăng nhập không hợp lệ" }), { status: 401, headers: corsHeaders });
-  }
-
-  const isAdmin = user.role === 'admin';
-  const isTeacher = user.target_audience === 'Giáo viên' || isAdmin;
-  if (!isTeacher) {
-    return new Response(JSON.stringify({ error: "Chỉ giáo viên mới có quyền cập nhật ngân hàng câu hỏi" }), { status: 403, headers: corsHeaders });
-  }
-
+  const db=getDatabase(context),{request,env}=context;
+  const token=request.headers.get('Authorization')?.replace(/^Bearer /,'');
+  const user=token?await verifyAuthSession(token,await getDynamicSecret(db,env.JWT_SECRET),db):null;
+  const isAdmin=user?.role==='admin';
+  if(!user||(!isAdmin&&user.role!=='teacher'))return new Response(JSON.stringify({error:'Staff authorization required'}),{status:403,headers:corsHeaders});
   try {
-    const body: any = await request.json();
-    const questions: any[] = Array.isArray(body) ? body : (body.questions || [body]);
-    const deletedIds: string[] = body.deletedIds || [];
-
-    // 1. Xóa các câu hỏi được yêu cầu xóa
-    if (deletedIds && deletedIds.length > 0) {
-      for (const id of deletedIds) {
-        if (!isAdmin) {
-          await db.prepare("DELETE FROM questions WHERE id = ? AND creator_id = ?").bind(id, user.id).run();
-        } else {
-          await db.prepare("DELETE FROM questions WHERE id = ?").bind(id).run();
-        }
-      }
+    const body:any=await request.json();
+    const questions:any[]=Array.isArray(body)?body:Array.isArray(body.questions)?body.questions:body.content!==undefined?[body]:[];
+    const deletedIds:string[]=Array.isArray(body.deletedIds)?[...new Set(body.deletedIds.map(String))]:[];
+    if(questions.length>10000||deletedIds.length>10000||questions.some(q=>!q||typeof q.content!=='string'||!q.content.trim()))return new Response(JSON.stringify({error:'Invalid question batch'}),{status:400,headers:corsHeaders});
+    const ids=[...new Set([...questions.filter(q=>q.id).map(q=>String(q.id)),...deletedIds])];
+    const existing=ids.length?(await db.prepare('SELECT id,creator_id FROM questions WHERE id IN ('+ids.map(()=>'?').join(',')+')').bind(...ids).all()).results:[];
+    if(!isAdmin&&existing.some((q:any)=>String(q.creator_id)!==String(user.id)))return new Response(JSON.stringify({error:'Cannot modify another teacher question'}),{status:403,headers:corsHeaders});
+    const statements:any[]=[];
+    for(const id of deletedIds)statements.push(db.prepare('DELETE FROM questions WHERE id=? AND (?=1 OR creator_id=?)').bind(id,isAdmin?1:0,user.id));
+    for(const q of questions) {
+      const id=String(q.id || crypto.randomUUID());
+      const previous=existing.find((row:any)=>String(row.id)===id);
+      const creator=isAdmin?String(previous?.creator_id || q.creatorId || q.creator_id || user.id):String(user.id);
+      const options=typeof q.options==='object'?JSON.stringify(q.options):q.options || '{}';
+      statements.push(db.prepare(`INSERT INTO questions(id,type,level,lesson,content,options,answer,image,creator_id)
+        VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET type=excluded.type,level=excluded.level,lesson=excluded.lesson,
+        content=excluded.content,options=excluded.options,answer=excluded.answer,image=excluded.image
+        WHERE questions.creator_id = excluded.creator_id AND (?=1 OR questions.creator_id=?)`).bind(id,q.type || '4-1',q.level || 'NB',q.lesson || '',q.content,options,String(q.answer ?? ''),q.image || null,creator,isAdmin?1:0,user.id));
     }
-
-    // 2. Thêm mới / Cập nhật (Upsert)
-    if (questions && questions.length > 0) {
-      const upsertSql = `
-        INSERT INTO questions (id, type, level, lesson, content, options, answer, image, creator_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-          type = excluded.type,
-          level = excluded.level,
-          lesson = excluded.lesson,
-          content = excluded.content,
-          options = excluded.options,
-          answer = excluded.answer,
-          image = excluded.image
-        WHERE questions.creator_id = excluded.creator_id
-      `;
-
-      for (const q of questions) {
-        const qId = q.id || crypto.randomUUID();
-        const creatorId = isAdmin ? (q.creatorId || user.id) : user.id;
-        if (!isAdmin && q.id) {
-          const record = await db.prepare("SELECT creator_id FROM questions WHERE id = ?").bind(q.id).first();
-          if (record && String(record.creator_id) !== String(user.id)) {
-            return new Response(JSON.stringify({error:'Không có quyền sửa câu hỏi của tài khoản khác'}), {status:403,headers:corsHeaders});
-          }
-        }
-        const safeOptions = typeof q.options === 'object' ? JSON.stringify(q.options) : (q.options || '{}');
-
-        await db.prepare(upsertSql).bind(
-          qId,
-          q.type || 'trac_nghiem',
-          q.level || 'NB',
-          q.lesson || '',
-          q.content || '',
-          safeOptions,
-          q.answer || '',
-          q.image || null,
-          creatorId
-        ).run();
-      }
-    }
-
-    return new Response(JSON.stringify({ success: true, count: questions.length, error: null }), { status: 200, headers: corsHeaders });
-  } catch (e: any) {
-    return new Response(JSON.stringify({ error: e.message || "Lỗi lưu câu hỏi", success: false }), { status: 500, headers: corsHeaders });
-  }
+    const changes=statements.length?await db.batch(statements):[];
+    const count=changes.slice(deletedIds.length).reduce((sum:any,result:any)=>sum+Number(result.meta?.changes || 0),0);
+    return new Response(JSON.stringify({success:true,count,error:null}),{status:200,headers:corsHeaders});
+  }catch{return new Response(JSON.stringify({success:false,error:'Question batch could not be saved'}),{status:500,headers:corsHeaders});}
 };
 
 // DELETE /api/questions - Xóa câu hỏi

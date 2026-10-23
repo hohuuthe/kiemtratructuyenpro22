@@ -45,6 +45,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
   const donvi = url.searchParams.get('donvi') || '';
   const className = url.searchParams.get('class_name') || '';
 
+  if (isTeacher && !isAdmin && teacherId && teacherId !== String(user.user_id || user.id)) return new Response(JSON.stringify({error:'Cannot access another teacher assignment'}),{status:403,headers:corsHeaders});
   if (isTeacher && !isAdmin && !teacherId) {
     teacherId = user.user_id || user.id;
   }
@@ -138,25 +139,15 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     const now = new Date().toISOString();
 
     if (Array.isArray(classes)) {
-      await db.prepare("DELETE FROM teacher_classes WHERE teacher_id = ?").bind(teacher_id).run();
-
-      let insertedCount = 0;
-      for (const item of classes) {
-        const cName = String(item.class_name || item.className || item.lop || '').trim();
-        if (!cName) continue;
-        const cRole = String(item.role || 'bo_mon').trim();
-        const cSubject = String(item.subject || item.mon_hoc || '').trim();
-        const id = crypto.randomUUID();
-
-        await db.prepare(
-          `INSERT INTO teacher_classes (id, teacher_id, teacher_name, class_name, donvi, role, subject, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT (teacher_id, class_name, donvi) DO UPDATE SET role = EXCLUDED.role, subject = EXCLUDED.subject, teacher_name = EXCLUDED.teacher_name`
-        ).bind(id, teacher_id, teacher_name || '', cName, donvi || '', cRole, cSubject, now).run();
-        insertedCount++;
-      }
-
-      return new Response(JSON.stringify({ success: true, count: insertedCount, error: null }), { status: 200, headers: corsHeaders });
+      if(classes.length>10000)return new Response(JSON.stringify({error:'Too many assignments'}),{status:400,headers:corsHeaders});
+      const normalized=classes.map((item:any)=>({name:String(item?.class_name || item?.className || item?.lop || '').trim(),role:String(item?.role || 'bo_mon'),subject:String(item?.subject || item?.mon_hoc || '')}));
+      if(normalized.some((item:any)=>!item.name))return new Response(JSON.stringify({error:'Every assignment must have a class name'}),{status:400,headers:corsHeaders});
+      const statements=[db.prepare('DELETE FROM teacher_classes WHERE teacher_id=?').bind(teacher_id)];
+      for(const item of normalized)statements.push(db.prepare(`INSERT INTO teacher_classes(id,teacher_id,teacher_name,class_name,donvi,role,subject,created_at)
+        VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(teacher_id,class_name,donvi) DO UPDATE SET role=EXCLUDED.role,subject=EXCLUDED.subject,teacher_name=EXCLUDED.teacher_name`)
+        .bind(crypto.randomUUID(),teacher_id,teacher_name || '',item.name,donvi || '',item.role,item.subject,now));
+      await db.batch(statements);
+      return new Response(JSON.stringify({success:true,count:new Set(normalized.map((item:any)=>item.name)).size,error:null}),{status:200,headers:corsHeaders});
     }
 
     if (!class_name || !String(class_name).trim()) {
@@ -206,7 +197,8 @@ export const onRequestDelete: PagesFunction<Env> = async (context) => {
 
   try {
     if (id) {
-      await db.prepare("DELETE FROM teacher_classes WHERE id = ?").bind(id).run();
+      const removed=await db.prepare('DELETE FROM teacher_classes WHERE id=? AND (?=1 OR teacher_id=?) RETURNING id').bind(id,isAdmin?1:0,String(user.user_id || user.id)).all();
+      if(!removed.results.length)return new Response(JSON.stringify({error:'Assignment not found or access denied'}),{status:403,headers:corsHeaders});
       return new Response(JSON.stringify({ success: true, error: null }), { status: 200, headers: corsHeaders });
     }
 
