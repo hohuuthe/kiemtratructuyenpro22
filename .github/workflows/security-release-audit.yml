@@ -43,6 +43,9 @@ jobs:
           if ! grep -q "initialTenantSlug" src/main.js; then
             python3 scripts/security-audit-20261023/17-path-tenant-routing.py
           fi
+          if ! grep -q 'resultsLoaded = false;' src/main.js || ! grep -q 'Không thể tải giáo viên' src/main.js; then
+            python3 scripts/security-audit-20261023/18-results-teacher-ui.py
+          fi
       - name: Install locked dependencies
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Parse frontend and TypeScript source
