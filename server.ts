@@ -249,7 +249,7 @@ async function startServer() {
     const cacheKey = `${targetUrl}::${sql.trim().toLowerCase()}::${JSON.stringify(params)}`;
 
     // If SELECT and recently cached (TTL 10s), return memory cache immediately
-    if (isSelect && queryMemoryCache.has(cacheKey)) {
+    if (isSelect && !sql.includes('FROM accounts') && queryMemoryCache.has(cacheKey)) {
       const cached = queryMemoryCache.get(cacheKey)!;
       if (Date.now() - cached.timestamp < 10000) {
         return cached.data;
@@ -267,7 +267,7 @@ async function startServer() {
           changes: neonRes.rowCount || 0,
           lastRowId: null
         };
-        if (isSelect) {
+        if (isSelect && !sql.includes('FROM accounts')) {
           queryMemoryCache.set(cacheKey, { timestamp: Date.now(), data: finalResult });
         } else {
           queryMemoryCache.clear();
@@ -536,6 +536,7 @@ async function startServer() {
   try { await executeSqlQuery("ALTER TABLE results ADD COLUMN IF NOT EXISTS ai_grading_summary TEXT", []); } catch (e) {}
 
   try { await executeSqlQuery("ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS created_at TEXT", []); } catch (e) {}
+  try { await executeSqlQuery("ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS revision INTEGER NOT NULL DEFAULT 1", []); } catch (e) {}
   try { await executeSqlQuery("ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS max_cheat_warnings INTEGER DEFAULT 5", []); } catch (e) {}
   try { await executeSqlQuery("ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS target_lop TEXT", []); } catch (e) {}
   try { await executeSqlQuery("ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS lop TEXT", []); } catch (e) {}
