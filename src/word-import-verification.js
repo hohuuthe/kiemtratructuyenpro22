@@ -17,6 +17,32 @@ const FIELD_NAMES = ['content', 'answer'];
 const optionText = option => typeof option === 'string' ? option : String(option?.text ?? '');
 const allowedTypes = new Set(['4-1','TF4','SQ','TL']);
 const allowedLevels = new Set(['NB','TH','VD','VDC']);
+/** Answer grammar used by student TF4 grading: correct statement letters joined by &. */
+export function normalizeWordImportAnswer(type, answer) {
+    const raw = String(answer ?? '').trim();
+    if (type === '4-1') {
+        return /^[A-D]$/i.test(raw) ? {ok:true, value:raw.toUpperCase()} :
+            {ok:false, reason:'Đáp án trắc nghiệm phải đúng một ký tự A, B, C hoặc D'};
+    }
+    if (type === 'TF4') {
+        const compact = raw.toUpperCase().replace(/\\s+/g,'');
+        let letters;
+        if (/^[ĐS]{4}$/.test(compact)) {
+            letters = [...compact].flatMap((v,i)=>v==='Đ' ? ['ABCD'[i]] : []);
+        } else if (/^[ABCD](?:[&,;][ABCD])*$/.test(compact)) {
+            letters = compact.split(/[&,;]/);
+        } else if (/^(?:NONE|KHÔNGCÓÝĐÚNG|----)$/.test(compact)) {
+            letters = [];
+        } else {
+            return {ok:false,reason:'Đáp án Đúng/Sai phải là bốn ký tự Đ/S hoặc danh sách các ý đúng A&B'};
+        }
+        if (new Set(letters).size !== letters.length) return {ok:false,reason:'Đáp án Đúng/Sai bị lặp ý'};
+        return {ok:true,value:letters.sort().join('&')};
+    }
+    if (type === 'SQ' || type === 'TL')
+        return raw ? {ok:true,value:raw} : {ok:false,reason:'Thiếu đáp án'};
+    return {ok:false,reason:'Loại câu hỏi không hợp lệ'};
+}
 const markedTokens = s => [...String(s || '').matchAll(new RegExp(WORD_FORMULA_TOKEN.source,'g'))].map(x=>x[0]);
 function exactOccurrences(text, value) {
     const positions=[];
@@ -297,7 +323,9 @@ export function checkWordImportBeforeSave(questions, documentIssues = []) {
         ids.add(String(q.id));
         if (!String(q.content||'').trim()) errors.push(where+': thiếu nội dung');
         if (!allowedTypes.has(q.type) || !allowedLevels.has(q.level)) errors.push(where+': phân loại không hợp lệ');
-        if (!String(q.answer??'').trim()) errors.push(where+': thiếu đáp án');
+        const answerVerdict = normalizeWordImportAnswer(q.type, q.answer);
+        if (!answerVerdict.ok || answerVerdict.value !== String(q.answer??'').trim())
+            errors.push(where+': '+(answerVerdict.reason || 'Đáp án chưa được chuẩn hóa đúng quy tắc chấm điểm'));
         if (q.type === '4-1' || q.type === 'TF4') {
             for (const letter of ['A','B','C','D']) {
                 if (!optionText(q.options?.[letter]).trim() && !q.options?.[letter]?.image) errors.push(where+': thiếu phương án '+letter);

@@ -15,6 +15,43 @@ test('scientific formula token 9', () => { const tokens = splitScientificContent
 test('scientific formula token 10', () => { const tokens = splitScientificContent("p^2 + 2pq + q^2 = 1"); assert.equal(tokens.length, 1); assert.equal(tokens[0].type, "math"); assert.equal(tokens[0].value, "p^2 + 2pq + q^2 = 1"); });
 test('scientific formula token 11', () => { const tokens = splitScientificContent("$E=mc^2$"); assert.equal(tokens.length, 1); assert.equal(tokens[0].type, "math"); assert.equal(tokens[0].value, "E=mc^2"); });
 test('scientific formula token 12', () => { const tokens = splitScientificContent("$x_1+x_2$"); assert.equal(tokens.length, 1); assert.equal(tokens[0].type, "math"); assert.equal(tokens[0].value, "x_1+x_2"); });
+test('explicitly delimited numeric math is not mistaken for currency', () => {
+  for(const raw of ['$3,14159 () => { const tokens = splitScientificContent("Giá $20, giảm $15 và $x+y=3$"); assert.equal(tokens[0].value, 'Giá $20, giảm $15 và '); assert.equal(tokens[1].value, 'x+y=3'); });
+test('escaped dollar does not start math', () => { const tokens = splitScientificContent("Phí \\$20 và $x^2$"); assert.equal(tokens[0].value, 'Phí $20 và '); assert.equal(tokens[1].value, 'x^2'); });
+test('unmatched dollar never discards original text', () => { const tokens = splitScientificContent('Giá $x thì sao'); assert.ok(tokens.map(t=>t.value).join('').includes('$x')); });
+test('HTML stays text, never interpreted as LaTeX', () => { const tokens = splitScientificContent('<script>alert(1)</script>'); assert.equal(tokens[0].type, 'text'); });
+test('code examples are not typeset', () => { const tokens = splitScientificContent('Code: `$x^2$` và $y^2$'); assert.equal(tokens[0].type,'text'); assert.equal(tokens[1].value,'y^2'); });
+test('math source is unchanged through tokenization', () => { const v = String.raw`\\begin{aligned}E &= mc^2 \\\\ F &= ma\\end{aligned}`; const t = splitScientificContent(v); assert.equal(t.map(z=>z.value).join(''), v); });
+, '$2,5 () => { const tokens = splitScientificContent("Giá $20, giảm $15 và $x+y=3$"); assert.equal(tokens[0].value, 'Giá $20, giảm $15 và '); assert.equal(tokens[1].value, 'x+y=3'); });
+test('escaped dollar does not start math', () => { const tokens = splitScientificContent("Phí \\$20 và $x^2$"); assert.equal(tokens[0].value, 'Phí $20 và '); assert.equal(tokens[1].value, 'x^2'); });
+test('unmatched dollar never discards original text', () => { const tokens = splitScientificContent('Giá $x thì sao'); assert.ok(tokens.map(t=>t.value).join('').includes('$x')); });
+test('HTML stays text, never interpreted as LaTeX', () => { const tokens = splitScientificContent('<script>alert(1)</script>'); assert.equal(tokens[0].type, 'text'); });
+test('code examples are not typeset', () => { const tokens = splitScientificContent('Code: `$x^2$` và $y^2$'); assert.equal(tokens[0].type,'text'); assert.equal(tokens[1].value,'y^2'); });
+test('math source is unchanged through tokenization', () => { const v = String.raw`\\begin{aligned}E &= mc^2 \\\\ F &= ma\\end{aligned}`; const t = splitScientificContent(v); assert.equal(t.map(z=>z.value).join(''), v); });
+, '$3.14159 () => { const tokens = splitScientificContent("Giá $20, giảm $15 và $x+y=3$"); assert.equal(tokens[0].value, 'Giá $20, giảm $15 và '); assert.equal(tokens[1].value, 'x+y=3'); });
+test('escaped dollar does not start math', () => { const tokens = splitScientificContent("Phí \\$20 và $x^2$"); assert.equal(tokens[0].value, 'Phí $20 và '); assert.equal(tokens[1].value, 'x^2'); });
+test('unmatched dollar never discards original text', () => { const tokens = splitScientificContent('Giá $x thì sao'); assert.ok(tokens.map(t=>t.value).join('').includes('$x')); });
+test('HTML stays text, never interpreted as LaTeX', () => { const tokens = splitScientificContent('<script>alert(1)</script>'); assert.equal(tokens[0].type, 'text'); });
+test('code examples are not typeset', () => { const tokens = splitScientificContent('Code: `$x^2$` và $y^2$'); assert.equal(tokens[0].type,'text'); assert.equal(tokens[1].value,'y^2'); });
+test('math source is unchanged through tokenization', () => { const v = String.raw`\\begin{aligned}E &= mc^2 \\\\ F &= ma\\end{aligned}`; const t = splitScientificContent(v); assert.equal(t.map(z=>z.value).join(''), v); });
+, '$1,234 () => { const tokens = splitScientificContent("Giá $20, giảm $15 và $x+y=3$"); assert.equal(tokens[0].value, 'Giá $20, giảm $15 và '); assert.equal(tokens[1].value, 'x+y=3'); });
+test('escaped dollar does not start math', () => { const tokens = splitScientificContent("Phí \\$20 và $x^2$"); assert.equal(tokens[0].value, 'Phí $20 và '); assert.equal(tokens[1].value, 'x^2'); });
+test('unmatched dollar never discards original text', () => { const tokens = splitScientificContent('Giá $x thì sao'); assert.ok(tokens.map(t=>t.value).join('').includes('$x')); });
+test('HTML stays text, never interpreted as LaTeX', () => { const tokens = splitScientificContent('<script>alert(1)</script>'); assert.equal(tokens[0].type, 'text'); });
+test('code examples are not typeset', () => { const tokens = splitScientificContent('Code: `$x^2$` và $y^2$'); assert.equal(tokens[0].type,'text'); assert.equal(tokens[1].value,'y^2'); });
+test('math source is unchanged through tokenization', () => { const v = String.raw`\\begin{aligned}E &= mc^2 \\\\ F &= ma\\end{aligned}`; const t = splitScientificContent(v); assert.equal(t.map(z=>z.value).join(''), v); });
+, '$60 () => { const tokens = splitScientificContent("Giá $20, giảm $15 và $x+y=3$"); assert.equal(tokens[0].value, 'Giá $20, giảm $15 và '); assert.equal(tokens[1].value, 'x+y=3'); });
+test('escaped dollar does not start math', () => { const tokens = splitScientificContent("Phí \\$20 và $x^2$"); assert.equal(tokens[0].value, 'Phí $20 và '); assert.equal(tokens[1].value, 'x^2'); });
+test('unmatched dollar never discards original text', () => { const tokens = splitScientificContent('Giá $x thì sao'); assert.ok(tokens.map(t=>t.value).join('').includes('$x')); });
+test('HTML stays text, never interpreted as LaTeX', () => { const tokens = splitScientificContent('<script>alert(1)</script>'); assert.equal(tokens[0].type, 'text'); });
+test('code examples are not typeset', () => { const tokens = splitScientificContent('Code: `$x^2$` và $y^2$'); assert.equal(tokens[0].type,'text'); assert.equal(tokens[1].value,'y^2'); });
+test('math source is unchanged through tokenization', () => { const v = String.raw`\\begin{aligned}E &= mc^2 \\\\ F &= ma\\end{aligned}`; const t = splitScientificContent(v); assert.equal(t.map(z=>z.value).join(''), v); });
+]) {
+    const tokens=splitScientificContent('Kết quả là '+raw+' (đơn vị)');
+    assert.ok(tokens.some(x=>x.type==='math'),raw);
+    assert.equal(tokens.filter(x=>x.type==='math')[0].value,raw.slice(1,-1));
+  }
+});
 test('currency is kept verbatim', () => { const tokens = splitScientificContent("Giá $20, giảm $15 và $x+y=3$"); assert.equal(tokens[0].value, 'Giá $20, giảm $15 và '); assert.equal(tokens[1].value, 'x+y=3'); });
 test('escaped dollar does not start math', () => { const tokens = splitScientificContent("Phí \\$20 và $x^2$"); assert.equal(tokens[0].value, 'Phí $20 và '); assert.equal(tokens[1].value, 'x^2'); });
 test('unmatched dollar never discards original text', () => { const tokens = splitScientificContent('Giá $x thì sao'); assert.ok(tokens.map(t=>t.value).join('').includes('$x')); });

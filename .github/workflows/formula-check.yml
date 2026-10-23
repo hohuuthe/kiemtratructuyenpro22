@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [main, fix/scientific-formulas-student-exam-20261022]
+    branches: [main, fix/scientific-formulas-student-exam-20261022, fix/word-import-verified-e2e-20261023]
 
 permissions:
   contents: read
@@ -27,6 +27,8 @@ jobs:
         run: node --import tsx --test tests/scientific-formula-unified.test.mjs tests/exam-export-regression.test.mjs tests/exam-detail-formula-parity.test.mjs tests/word-editable-chemistry.test.mjs tests/question-bank-word-export.test.mjs tests/question-bank-fraction-regression.test.mjs
       - name: Verified Word Office Math import and database transaction tests
         run: node --import tsx --test tests/word-import-omml.test.mjs tests/word-import-transaction.test.mjs
+      - name: Word answer-grading contract and formula tokenizer regression
+        run: node --import tsx --test tests/word-import-answer-contract.test.mjs
       - name: Complete Word corpus import and re-export fidelity
         run: node --import tsx --test tests/word-import-corpus-roundtrip.test.mjs
       - name: PostgreSQL rollback and actual Neon driver contract

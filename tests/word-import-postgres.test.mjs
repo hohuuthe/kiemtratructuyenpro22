@@ -14,6 +14,8 @@ async function isolatedDatabase() {
     const questionsSchema = schema.match(/CREATE TABLE IF NOT EXISTS questions\s*\([\s\S]*?\);/);
     assert.ok(questionsSchema, 'The application questions schema must be available');
     await db.exec(questionsSchema[0]);
+    const migration = await readFile(new URL('../migrations/20261023_verified_word_import.sql', import.meta.url),'utf8');
+    await db.exec(migration);
     const requests = [];
     const previousFetch = neonConfig.fetchFunction;
     const previousEndpoint = neonConfig.fetchEndpoint;

@@ -12,7 +12,7 @@ import { generateExamDocx, makeWordMathRun } from './exam-docx-generator.ts';
 import { buildQuestionBankExportInventory, buildQuestionBankExportPlan } from './question-bank-word-selection.js';
 import { generateQuestionBankDocx } from './question-bank-docx-generator.ts';
 import { inspectScientificDocx, WORD_IMPORT_ENGINE_VERSION } from './word-omml-reader.js';
-import { verifyImportedWordQuestions, checkWordImportBeforeSave, correctImportedWordEquation } from './word-import-verification.js';
+import { verifyImportedWordQuestions, checkWordImportBeforeSave, correctImportedWordEquation, normalizeWordImportAnswer } from './word-import-verification.js';
 import { splitScientificContent } from './scientific-formula-tokenizer.js';
 import { splitLabeledScientificRecords } from './scientific-formula-records.js';
 import { generateExamPdfBlob } from './exam-pdf-generator.ts';
@@ -11332,6 +11332,17 @@ D. Phát biểu SAI</pre>
                 await new Promise(resolve => setTimeout(resolve, 200));
 
                 const { questions: parsedQuestions, errors } = parseQuestionsFromObjects(lines, answerFormat);
+                // Normalize answer keys before source-equation token mapping.
+                // Student TF4 grading expects an '&'-joined list of true statements.
+                for (const [index, q] of parsedQuestions.entries()) {
+                    const answerVerdict = normalizeWordImportAnswer(q.type,q.answer);
+                    if (!answerVerdict.ok) {
+                        errors.push({type:'answer',line:index+1,
+                            message:'Đáp án câu '+(index+1)+': '+answerVerdict.reason});
+                    } else {
+                        q.answer = answerVerdict.value;
+                    }
+                }
                 const verification=verifyImportedWordQuestions(parsedQuestions,documentReport);
                 const headings=lines.filter(line=>
                     /^Câu\s*\d+[:.]?/i.test(String(line.text||'').replace(/\[\[\/?(?:U|B)\]\]/g,'').trim())
@@ -12181,8 +12192,7 @@ D. Phát biểu SAI</pre>
                                 if (type === '4-1') {
                                     question.answer = markedOptionsFound[0];
                                 } else if (type === 'TF4') {
-                                    const tf4Answers = ['A', 'B', 'C', 'D'].map(o => markedOptionsFound.includes(o) ? 'Đ' : 'S');
-                                    question.answer = tf4Answers.join(' ');
+                                    question.answer = markedOptionsFound.slice().sort().join('&');
                                 }
                             }
                         }
@@ -12207,7 +12217,7 @@ D. Phát biểu SAI</pre>
                                     const charMatch = ans.match(/^[A-D]/i);
                                     question.answer = charMatch ? charMatch[0].toUpperCase() : '';
                                 } else if (type === 'TF4') {
-                                    question.answer = ans.toUpperCase();
+                                    question.answer = ans.trim().toUpperCase();
                                 } else {
                                     question.answer = ans;
                                 }

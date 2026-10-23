@@ -5,7 +5,7 @@
  */
 import { neon } from '@neondatabase/serverless';
 import { verifyJWT, getDynamicSecret, getDatabase } from '../exam/utils';
-import { checkWordImportBeforeSave, validateWordFormulaSourceForImport } from '../../../src/word-import-verification.js';
+import { checkWordImportBeforeSave, validateWordFormulaSourceForImport, normalizeWordImportAnswer } from '../../../src/word-import-verification.js';
 
 interface Env { NEON_DATABASE_URL?: string; DATABASE_URL?: string; JWT_SECRET?: string; }
 const headers = {
@@ -37,7 +37,9 @@ export function validateBatchPayload(body:any) {
         ids.add(String(q.id||''));
         if(!['4-1','TF4','SQ','TL'].includes(q.type)||!['NB','TH','VD','VDC'].includes(q.level))errors.push(label+': phân loại không hợp lệ');
         if(typeof q.content!=='string'||!q.content.trim()||q.content.length>40000)errors.push(label+': nội dung trống hoặc quá dài');
-        if(typeof q.answer!=='string'||!q.answer.trim()||q.answer.length>30000)errors.push(label+': đáp án trống hoặc quá dài');
+        if(typeof q.answer!=='string'||q.answer.length>30000)errors.push(label+': đáp án không hợp lệ hoặc quá dài');
+        const answerVerdict=normalizeWordImportAnswer(q.type,q.answer);
+        if(!answerVerdict.ok||answerVerdict.value!==q.answer)errors.push(label+': '+(answerVerdict.reason||'Đáp án không đúng chuẩn chấm điểm'));
         if(typeof q.lesson!=='string'||q.lesson.length>200)errors.push(label+': tên bài không hợp lệ');
         if(q.image && (typeof q.image!=='string'||q.image.length>1000000))errors.push(label+': ảnh không hợp lệ');
         const opts=q.options||{};
@@ -100,11 +102,9 @@ export function validateBatchPayload(body:any) {
 export async function persistVerifiedWordImport(sql:any,userId:string,body:any) {
     const fileName=String(body.fileName).replace(/[\\/]/g,'_');
     const batchId=body.batchId;
-    // Schema DDL outside the data transaction is idempotent.
-    await sql.query('CREATE TABLE IF NOT EXISTS word_import_batches (id TEXT PRIMARY KEY, creator_id TEXT NOT NULL, file_name TEXT NOT NULL, source_sha256 TEXT NOT NULL, expected_count INTEGER NOT NULL, imported_count INTEGER NOT NULL, engine_version TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP)',[]);
-    await sql.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_word_import_file_once ON word_import_batches(creator_id,source_sha256)',[]);
-    await sql.query('CREATE TABLE IF NOT EXISTS word_import_items (batch_id TEXT NOT NULL REFERENCES word_import_batches(id), question_id TEXT NOT NULL REFERENCES questions(id) ON DELETE CASCADE, PRIMARY KEY(batch_id,question_id))',[]);
-    await sql.query('CREATE TABLE IF NOT EXISTS question_formula_sources (question_id TEXT NOT NULL REFERENCES questions(id) ON DELETE CASCADE, source_token TEXT NOT NULL, field_name TEXT NOT NULL, source_type TEXT NOT NULL, source_omml TEXT NOT NULL, normalized_latex TEXT NOT NULL, review_status TEXT NOT NULL, engine_version TEXT NOT NULL, batch_id TEXT NOT NULL, PRIMARY KEY(question_id,source_token,field_name))',[]);
+    // Schema is installed through an approved staging/production migration.
+    // Never execute DDL as a side effect of a teacher importing questions.
+
     const queries:any[]=[];
     queries.push(sql.query(
         'INSERT INTO word_import_batches (id,creator_id,file_name,source_sha256,expected_count,imported_count,engine_version) VALUES ($1,$2,$3,$4,$5,$6,$7)',
