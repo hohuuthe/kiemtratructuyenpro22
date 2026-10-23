@@ -599,3 +599,40 @@ button { touch-action: manipulation; }
   background: transparent;
   box-shadow: none;
 }
+
+
+/* Exam-management grid: stable ~5 cm scope column with genuine multiline labels. */
+#exam-configs-table-scroll { scrollbar-gutter: stable; }
+.exam-configs-table { table-layout: fixed; }
+.exam-configs-table th,
+.exam-configs-table td { vertical-align: middle; }
+.exam-configs-table thead th { background: #f8fafc; }
+.exam-configs-table tbody tr:nth-child(even) { background-color: #fafbff; }
+.exam-configs-table tbody tr:hover { background-color: #f5f3ff; }
+.exam-configs-table .exam-config-scope-column {
+  width: 5cm;
+  min-width: 5cm;
+  max-width: 5cm;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+.exam-configs-table .exam-config-scope-list {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: .35rem;
+  min-width: 0;
+  max-width: 100%;
+}
+.exam-configs-table .exam-config-scope-tag {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  padding: .3rem .5rem;
+  border-radius: .5rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  line-height: 1.5;
+}
