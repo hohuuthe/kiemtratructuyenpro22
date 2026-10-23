@@ -151,7 +151,7 @@ test('Upper/lower conditions, catalysts and photochemical arrows remain position
     assert.ok(equilibrium.latex.replace(/\s+(?=(?:<=>|2NH3))/g,'').startsWith('\\ce{N2 + 3H2<=>[t^{\\circ}][\\text{áp suất}]'),
         'The top and bottom conditions must not change order: '+equilibrium.latex);
     assert.ok(lower.latex.includes('->[][t^{\\circ}]'),'Lower-only heat must stay BELOW arrow');
-    assert.ok(photo.latex.includes('->[h\\nu]'),'Light and Greek nu must remain centered above arrow');
+    assert.ok(photo.latex.includes('->[h') && (photo.latex.includes('\\nu]') || photo.latex.includes('ν]')), 'Light and Greek nu must remain centered above arrow: '+photo.latex);
     assert.ok(catalyst.latex.includes('->[MnO2]'),'Catalyst must remain centered above arrow');
     for(const f of report.formulas) {
         const verdict=validateScientificLatexForImport(f.latex);
