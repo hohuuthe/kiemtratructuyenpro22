@@ -5423,7 +5423,7 @@ if (contentType && contentType.includes("application/json")) {
                 if (maxCheat > 0) {
                     features.push(`<span class="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-rose-50 text-rose-700 text-[10px] font-medium rounded border border-rose-200" title="Giám sát cảnh báo rời màn hình">⚠️ Giám sát: ${maxCheat}l</span>`);
                 }
-                const featuresHtml = features.length > 0 ? `<div class="flex flex-wrap gap-1 justify-center max-w-[150px]">${features.join('')}</div>` : '<span class="text-gray-300">-</span>';
+                const featuresHtml = features.length > 0 ? `<div class="flex flex-wrap gap-1 justify-center">${features.join('')}</div>` : '<span class="text-gray-300">-</span>';
 
                 const escapedName = escapeHTML(item.name || 'Không tên');
                 const creator = item.creatorName || item.creator_name || accountsMap[item.creator_id || item.creatorId] || 'Hệ thống';
@@ -5435,24 +5435,24 @@ if (contentType && contentType.includes("application/json")) {
                         <td class="py-3 px-3 text-center text-xs font-mono text-gray-600 whitespace-nowrap">
                             <span class="bg-gray-100 px-2 py-1 rounded text-xs font-bold text-gray-700 select-all">${item.id}</span>
                         </td>
-                        <td class="py-3 px-4 font-semibold text-gray-800 max-w-xs truncate" title="${escapedName}">
+                        <td class="exam-config-title-cell font-semibold text-slate-800" title="${escapedName}">
                             ${escapedName}
                         </td>
-                        <td class="py-3 px-3 whitespace-nowrap">
-                            <span class="text-xs font-semibold text-gray-600">${escapeHTML(creator)}</span>
+                        <td class="text-slate-600 break-words">
+                            <span class="text-xs font-semibold">${escapeHTML(creator)}</span>
                         </td>
-                        <td class="py-3 px-3 whitespace-nowrap">${modeBadge}</td>
-                        <td class="exam-config-scope-column py-3 px-3 align-middle">${lopBadge}</td>
+                        <td class="break-words">${modeBadge}</td>
+                        <td class="exam-config-scope-column align-middle">${lopBadge}</td>
                         <td class="py-3 px-3 text-center text-xs text-gray-700 whitespace-nowrap font-medium">${time} phút</td>
-                        <td class="py-3 px-3 text-center text-xs font-semibold text-purple-700 whitespace-nowrap">
+                        <td class="text-center text-xs font-semibold text-purple-700">
                             <span class="font-bold text-purple-800">${totalQ} câu</span>
                             <div class="text-[10px] text-gray-500 mt-0.5 font-normal">${detailStr}</div>
                         </td>
-                        <td class="py-3 px-3 text-center text-xs whitespace-nowrap">
+                        <td class="text-center text-xs">
                             ${featuresHtml}
                         </td>
-                        <td class="py-3 px-3 text-center whitespace-nowrap">
-                            <div class="flex items-center justify-center gap-1.5">
+                        <td class="text-center">
+                            <div class="exam-config-row-actions">
                                 <button onclick="loadExamConfigById('${item.id}')" class="px-2.5 py-1 bg-purple-600 text-white rounded text-xs font-medium hover:bg-purple-700 transition flex items-center gap-1" title="Nạp cấu hình vào khung soạn thảo">
                                     <span>⚙️</span> Nạp
                                 </button>
