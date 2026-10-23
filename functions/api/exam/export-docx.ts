@@ -1,4 +1,4 @@
-import { getDatabase, getDynamicSecret, verifyJWT, checkIsTeacherOrAdmin, checkIsAdmin } from './utils';
+import { getDatabase, getDynamicSecret, verifyAuthSession, checkIsTeacherOrAdmin, checkIsAdmin } from './utils';
 import { generateExamDocx } from '../../../src/exam-docx-generator';
 import { generateExamAnswerExcel, ExamAnswerDoc } from '../../../src/exam-excel-generator';
 import JSZip from 'jszip';
@@ -102,7 +102,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const token = authHeader.substring(7);
       try {
-        tokenUser = await verifyJWT(token, SECRET);
+        tokenUser = await verifyAuthSession(token, SECRET, db);
       } catch (e) {}
     }
 

@@ -1,4 +1,4 @@
-import { verifyJWT, getDynamicSecret, getDatabase } from './exam/utils';
+import { verifyAuthSession, getDynamicSecret, getDatabase } from './exam/utils';
 
 interface Env {
   NEON_DATABASE_URL?: string;
@@ -111,7 +111,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
   let user: any = null;
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const token = authHeader.substring(7);
-    user = await verifyJWT(token, SECRET);
+    user = await verifyAuthSession(token, SECRET, db);
   }
 
   const roleLower = String(user?.role || '').toLowerCase();
@@ -173,8 +173,8 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
             COALESCE(u.lop, u2.lop, '') as lop,
             COALESCE(u.donvi, u.address, u2.donvi, u2.address, r.student_class, '') as don_vi
           FROM results r
-          LEFT JOIN users u ON (r.user_id = u.id OR (r.user_id IS NULL AND (r.student_name = u.full_name OR r.student_name = u.id)))
-          LEFT JOIN accounts a ON (r.user_id = a.id OR r.user_id = a.user_id OR (r.user_id IS NULL AND r.student_name = a.username))
+          LEFT JOIN users u ON r.user_id = u.id
+          LEFT JOIN accounts a ON (r.user_id = a.id OR r.user_id = a.user_id)
           LEFT JOIN users u2 ON (a.user_id = u2.id)
           WHERE r.id = ?
         `).bind(idParam).all();
@@ -198,7 +198,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
           return new Response(JSON.stringify({ data: null, error: "Bạn không có quyền xem chi tiết kết quả này" }), { status: 403, headers: corsHeaders });
         }
       } else if (isStudent) {
-        const isOwner = (row.user_id && (row.user_id === user.id || row.user_id === user.user_id)) || (!row.user_id && row.student_name === user.full_name);
+        const isOwner = !!row.user_id && (String(row.user_id) === String(user.id) || String(row.user_id) === String(user.user_id));
         if (!isOwner) {
           return new Response(JSON.stringify({ data: null, error: "Bạn chỉ có thể xem chi tiết bài thi của chính mình" }), { status: 403, headers: corsHeaders });
         }
@@ -238,8 +238,8 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
         const studentUserId = user.user_id || user.id;
         const studentAccountId = user.id;
         const { results: countRows } = await db.prepare(
-          "SELECT COUNT(*) as cnt FROM results WHERE user_id = ? OR user_id = ? OR (user_id IS NULL AND student_name = ?)"
-        ).bind(studentAccountId, studentUserId, user.full_name).all();
+          "SELECT COUNT(*) as cnt FROM results WHERE user_id = ? OR user_id = ?"
+        ).bind(studentAccountId, studentUserId).all();
         const count = countRows && countRows.length > 0 ? Number((countRows[0] as any).cnt) || 0 : 0;
         return new Response(JSON.stringify({ count, error: null }), { status: 200, headers: corsHeaders });
       }
@@ -267,8 +267,8 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
         const res = await db.prepare(`
           SELECT ${columns} 
           FROM results r
-          LEFT JOIN users u ON (r.user_id = u.id OR (r.user_id IS NULL AND (r.student_name = u.full_name OR r.student_name = u.id)))
-          LEFT JOIN accounts a ON (r.user_id = a.id OR r.user_id = a.user_id OR (r.user_id IS NULL AND r.student_name = a.username))
+          LEFT JOIN users u ON r.user_id = u.id
+          LEFT JOIN accounts a ON (r.user_id = a.id OR r.user_id = a.user_id)
           LEFT JOIN users u2 ON (a.user_id = u2.id)
           WHERE r.exam_id = ? 
           ORDER BY r.created_at DESC, r.id DESC 
@@ -290,8 +290,8 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
         const res = await db.prepare(`
           SELECT ${columns} 
           FROM results r
-          LEFT JOIN users u ON (r.user_id = u.id OR (r.user_id IS NULL AND (r.student_name = u.full_name OR r.student_name = u.id)))
-          LEFT JOIN accounts a ON (r.user_id = a.id OR r.user_id = a.user_id OR (r.user_id IS NULL AND r.student_name = a.username))
+          LEFT JOIN users u ON r.user_id = u.id
+          LEFT JOIN accounts a ON (r.user_id = a.id OR r.user_id = a.user_id)
           LEFT JOIN users u2 ON (a.user_id = u2.id)
           ORDER BY r.created_at DESC, r.id DESC 
           ${paginationClause}
@@ -318,8 +318,8 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
         const res = await db.prepare(`
           SELECT ${columns} 
           FROM results r
-          LEFT JOIN users u ON (r.user_id = u.id OR (r.user_id IS NULL AND (r.student_name = u.full_name OR r.student_name = u.id)))
-          LEFT JOIN accounts a ON (r.user_id = a.id OR r.user_id = a.user_id OR (r.user_id IS NULL AND r.student_name = a.username))
+          LEFT JOIN users u ON r.user_id = u.id
+          LEFT JOIN accounts a ON (r.user_id = a.id OR r.user_id = a.user_id)
           LEFT JOIN users u2 ON (a.user_id = u2.id)
           WHERE r.exam_id IN (${placeholders}) 
           ORDER BY r.created_at DESC, r.id DESC 
@@ -342,18 +342,18 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
         const res = await db.prepare(`
           SELECT ${columns} 
           FROM results r
-          LEFT JOIN users u ON (r.user_id = u.id OR (r.user_id IS NULL AND (r.student_name = u.full_name OR r.student_name = u.id)))
-          LEFT JOIN accounts a ON (r.user_id = a.id OR r.user_id = a.user_id OR (r.user_id IS NULL AND r.student_name = a.username))
+          LEFT JOIN users u ON r.user_id = u.id
+          LEFT JOIN accounts a ON (r.user_id = a.id OR r.user_id = a.user_id)
           LEFT JOIN users u2 ON (a.user_id = u2.id)
-          WHERE (r.user_id = ? OR r.user_id = ? OR (r.user_id IS NULL AND r.student_name = ?)) 
+          WHERE (r.user_id = ? OR r.user_id = ?) 
           ORDER BY r.created_at DESC, r.id DESC 
           ${paginationClause}
-        `).bind(studentAccountId, studentUserId, user.full_name).all();
+        `).bind(studentAccountId, studentUserId).all();
         results = res.results || [];
       } catch (err) {
         const res = await db.prepare(
-          `SELECT * FROM results WHERE (user_id = ? OR user_id = ? OR (user_id IS NULL AND student_name = ?)) ORDER BY created_at DESC, id DESC ${paginationClause}`
-        ).bind(studentAccountId, studentUserId, user.full_name).all();
+          `SELECT * FROM results WHERE (user_id = ? OR user_id = ?) ORDER BY created_at DESC, id DESC ${paginationClause}`
+        ).bind(studentAccountId, studentUserId).all();
         results = res.results || [];
       }
 
@@ -380,7 +380,7 @@ export const onRequestPut: PagesFunction<Env> = async (context) => {
   let user: any = null;
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const token = authHeader.substring(7);
-    user = await verifyJWT(token, SECRET);
+    user = await verifyAuthSession(token, SECRET, db);
   }
 
   const roleLower = String(user?.role || '').toLowerCase();
@@ -403,7 +403,7 @@ export const onRequestPut: PagesFunction<Env> = async (context) => {
     // Kiểm tra quyền sở hữu bài thi nếu là giáo viên
     if (isTeacher && !isAdmin) {
       const { results: checkRows } = await db.prepare(
-        "SELECT r.id FROM results r JOIN exam_configs e ON (r.exam_id = e.id OR r.exam_name = e.name) WHERE r.id = ? AND e.creator_id = ?"
+        "SELECT r.id FROM results r JOIN exam_configs e ON r.exam_id = e.id WHERE r.id = ? AND e.creator_id = ?"
       ).bind(id, user.id).all();
 
       if (!checkRows || checkRows.length === 0) {
@@ -433,7 +433,7 @@ export const onRequestDelete: PagesFunction<Env> = async (context) => {
   let user: any = null;
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const token = authHeader.substring(7);
-    user = await verifyJWT(token, SECRET);
+    user = await verifyAuthSession(token, SECRET, db);
   }
 
   const roleLower = String(user?.role || '').toLowerCase();
@@ -476,7 +476,7 @@ export const onRequestDelete: PagesFunction<Env> = async (context) => {
       } else {
         // Giáo viên chỉ xóa kết quả của đề do mình tạo
         const { results: checkRows } = await db.prepare(
-          "SELECT r.id FROM results r JOIN exam_configs e ON (r.exam_id = e.id OR r.exam_name = e.name) WHERE r.id = ? AND e.creator_id = ?"
+          "SELECT r.id FROM results r JOIN exam_configs e ON r.exam_id = e.id WHERE r.id = ? AND e.creator_id = ?"
         ).bind(id, user.id).all();
         if (checkRows && checkRows.length > 0) {
           await db.prepare("DELETE FROM results WHERE id = ?").bind(id).run();

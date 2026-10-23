@@ -39,6 +39,10 @@ jobs:
         run: node --import tsx --test tests/word-chemistry-arrow-position.test.mjs
       - name: Word OMML heating-arrow roundtrip and both export paths
         run: node --import tsx --test tests/word-import-chemistry-heat-roundtrip.test.mjs
+      - name: Exam management and editor tab business contract
+        run: node --test tests/exam-tab-separation.test.mjs
+      - name: Runtime authentication revocation tests
+        run: node --import tsx --test tests/security-session-runtime.test.ts
       - name: Production build
         run: npm run build
       - name: Ensure DEV-only result fixture is absent in Production

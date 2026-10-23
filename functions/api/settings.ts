@@ -1,4 +1,4 @@
-import { verifyJWT, getDynamicSecret, checkIsAdmin, getEffectiveDb } from './exam/utils';
+import { verifyAuthSession, getDynamicSecret, checkIsAdmin, getEffectiveDb } from './exam/utils';
 
 interface Env {
   NEON_DATABASE_URL?: string;
@@ -63,7 +63,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
         try {
           const token = authHeader.substring(7).trim();
           const SECRET = await getDynamicSecret(db, env.JWT_SECRET);
-          const decoded = await verifyJWT(token, SECRET);
+          const decoded = await verifyAuthSession(token, SECRET, db);
           if (checkIsAdmin(decoded)) {
             isAdmin = true;
           }
@@ -108,7 +108,7 @@ export const onRequestPut: PagesFunction<Env> = async (context) => {
     try {
         const token = authHeader.replace('Bearer ', '').trim();
         const SECRET = await getDynamicSecret(db, env.JWT_SECRET);
-        const decoded = await verifyJWT(token, SECRET);
+        const decoded = await verifyAuthSession(token, SECRET, db);
         if (decoded && decoded.id) {
             user = decoded;
         }

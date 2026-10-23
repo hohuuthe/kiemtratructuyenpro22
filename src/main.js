@@ -1,5 +1,6 @@
 
 import 'katex/dist/katex.min.css';
+import { createEmptyExamDraft, mapStoredExamToDraft, resolveExamSaveIdentity } from './exam-editor-safety.js';
 import './style.css';
 import './pwa-manager.js';
 import './teacher-assignment.js';
@@ -1753,6 +1754,8 @@ Trả về kết quả dưới dạng JSON Array, mỗi phần tử tương ứn
         let isAdminLoggedIn = false;
         let isTeacherLoggedIn = false;
         let currentUser = null;
+        // Bumped for every successful sign-in or sign-out; rejects stale private API responses.
+        let authDataGeneration = 0;
 
         window._realShowAdminLoginModal = showAdminLoginModal;
         window.showAdminLoginModal = showAdminLoginModal;
@@ -2157,6 +2160,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             resultsLoaded = false;
             accountsLoaded = false;
             examsLoaded = false;
+            invalidateExamEditorSession();
 
             if (typeof examToCreatorMap !== 'undefined') {
                 for (let key in examToCreatorMap) delete examToCreatorMap[key];
@@ -2374,7 +2378,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 } else if (tab === 'ranking') {
                     // QL Kết quả: Hiển thị cho Giáo viên và Admin (ẩn đối với Học sinh)
                     visible = isTeacher || isAdmin;
-                } else if (tab === 'questions' || tab === 'exams') {
+                } else if (tab === 'questions' || tab === 'exams' || tab === 'exam-editor') {
                     // QL Câu hỏi, QL Đề thi: Dành cho Giáo viên và Admin
                     visible = isTeacher || isAdmin;
                 } else if (tab === 'users') {
@@ -2490,6 +2494,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             resultsLoaded = false;
             accountsLoaded = false;
             examsLoaded = false;
+            invalidateExamEditorSession();
             
             // Xóa sạch các bản đồ ánh xạ metadata và phân quyền
             if (typeof examToCreatorMap !== 'undefined') {
@@ -2569,6 +2574,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             // Đóng các tab bảo mật
             if(document.getElementById('questions-panel')) document.getElementById('questions-panel').classList.add('hidden');
             if(document.getElementById('exams-panel')) document.getElementById('exams-panel').classList.add('hidden');
+            document.getElementById('exam-editor-panel')?.classList.add('hidden');
             if (document.getElementById('questions-login')) document.getElementById('questions-login').classList.remove('hidden');
             if (document.getElementById('exams-login')) document.getElementById('exams-login').classList.remove('hidden');
             
@@ -2591,8 +2597,8 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 const p = document.getElementById('questions-panel');
                 if (p && !p.classList.contains('hidden')) return;
             }
-            if (currentActiveTab.id === 'tab-exams') {
-                const p = document.getElementById('exams-panel');
+            if (currentActiveTab.id === 'tab-exam-editor') {
+                const p = document.getElementById('exam-editor-panel');
                 if (p && !p.classList.contains('hidden')) return;
             }
             if (currentActiveTab.id === 'tab-settings') {
@@ -2631,8 +2637,10 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 renderQuestionsList();
                 updateLessonFilter();
             } else if (tabName === 'exams') {
+                if (!examsLoaded) await updateExamNamesList(true);
+                renderExamConfigsTable();
+            } else if (tabName === 'exam-editor') {
                 await initExamPanel();
-                // Check sufficiency when opening tab
                 checkExamConfigSufficiency();
             } else if (tabName === 'settings') {
                 loadSettings();
@@ -3037,8 +3045,10 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                     return false;
                 }
 
+                const generation = authDataGeneration;
                 console.log('Loading questions from /api/questions (chunked)...');
                 const data = await fetchAllQuestionsChunked(onProgress);
+                if (generation !== authDataGeneration || !(isAdminLoggedIn || isTeacherLoggedIn)) return false;
 
                 if (data && Array.isArray(data)) {
                     questions = data.map(q => ({
@@ -3750,55 +3760,56 @@ if (e && e.message && e.message.includes('hạn mức')) {
             }
         }
 
-        async function saveExamConfigToDB() {
+        async function saveExamConfigToDB(draft, expected) {
             try {
                 const token = localStorage.getItem('auth_token') || '';
                 if (!token) return 'error';
-                console.log('🚀 Bắt đầu lưu cấu hình đề thi:', examConfig.name);
+                console.log('🚀 Bắt đầu lưu cấu hình đề thi:', draft.name);
 
                 let payload = {
-                    id: examConfig.id || null,
-                    name: examConfig.name || 'Đề thi mặc định',
-                    creator_id: examConfig.creatorId || (currentUser ? currentUser.id : null),
-                    time_limit: parseInt(examConfig.timeLimit) || 45,
-                    max_cheat_warnings: Math.max(1, parseInt(examConfig.maxCheatWarnings) || parseInt(document.getElementById('exam-config-max-cheat-warnings')?.value) || 5),
-                    max_attempts: Math.max(0, parseInt(examConfig.maxAttempts) || parseInt(document.getElementById('exam-config-max-attempts')?.value) || 0),
-                    count_41: parseInt(examConfig.count41) || 0,
-                    count_tf4: parseInt(examConfig.countTF4) || 0,
-                    count_sq: parseInt(examConfig.countSQ) || 0,
-                    count_tl: parseInt(examConfig.countTL) || 0,
-                    points_41: parseFloat(examConfig.points41) || 1,
-                    points_tf4: parseFloat(examConfig.pointsTF4) || 1,
-                    points_sq: parseFloat(examConfig.pointsSQ) || 1,
-                    points_tl: parseFloat(examConfig.pointsTL) || 1,
+                    id: draft.id || null,
+                    expected_updated_at: draft.id ? (draft.updatedAt ?? '') : undefined,
+                    name: draft.name || 'Đề thi mặc định',
+                    creator_id: draft.creatorId || (currentUser ? currentUser.id : null),
+                    time_limit: parseInt(draft.timeLimit) || 45,
+                    max_cheat_warnings: Math.max(1, parseInt(draft.maxCheatWarnings) || parseInt(document.getElementById('exam-config-max-cheat-warnings')?.value) || 5),
+                    max_attempts: Math.max(0, parseInt(draft.maxAttempts) || parseInt(document.getElementById('exam-config-max-attempts')?.value) || 0),
+                    count_41: parseInt(draft.count41) || 0,
+                    count_tf4: parseInt(draft.countTF4) || 0,
+                    count_sq: parseInt(draft.countSQ) || 0,
+                    count_tl: parseInt(draft.countTL) || 0,
+                    points_41: parseFloat(draft.points41) || 1,
+                    points_tf4: parseFloat(draft.pointsTF4) || 1,
+                    points_sq: parseFloat(draft.pointsSQ) || 1,
+                    points_tl: parseFloat(draft.pointsTL) || 1,
                     counts_detail: JSON.stringify({
-                        count41NB: examConfig.count41NB || 0, count41TH: examConfig.count41TH || 0, count41VD: examConfig.count41VD || 0,
-                        countTF4NB: examConfig.countTF4NB || 0, countTF4TH: examConfig.countTF4TH || 0, countTF4VD: examConfig.countTF4VD || 0,
-                        countSQNB: examConfig.countSQNB || 0, countSQTH: examConfig.countSQTH || 0, countSQVD: examConfig.countSQVD || 0,
-                        countTLNB: examConfig.countTLNB || 0, countTLTH: examConfig.countTLTH || 0, countTLVD: examConfig.countTLVD || 0
+                        count41NB: draft.count41NB || 0, count41TH: draft.count41TH || 0, count41VD: draft.count41VD || 0,
+                        countTF4NB: draft.countTF4NB || 0, countTF4TH: draft.countTF4TH || 0, countTF4VD: draft.countTF4VD || 0,
+                        countSQNB: draft.countSQNB || 0, countSQTH: draft.countSQTH || 0, countSQVD: draft.countSQVD || 0,
+                        countTLNB: draft.countTLNB || 0, countTLTH: draft.countTLTH || 0, countTLVD: draft.countTLVD || 0
                     }),
-                    selected_lessons: examConfig.selectedLessons || [],
-                    access_control: examConfig.accessControl || null,
-                    tf4_scoring_mode: examConfig.tf4ScoringMode ? 1 : 0,
-                    tf4_points: examConfig.tf4Points || null,
-                    is_shared_results: examConfig.isSharedResults ? 1 : 0,
-                    immediate_feedback: examConfig.immediateFeedback ? 1 : 0,
-                    show_score: examConfig.showScore === false || examConfig.showScore === 0 ? 0 : 1,
-                    show_details: examConfig.showDetails === false || examConfig.showDetails === 0 ? 0 : 1,
-                    sq_case_sensitive: examConfig.sqCaseSensitive ? 1 : 0,
-                    sq_punctuation_sensitive: examConfig.sqPunctuationSensitive ? 1 : 0,
-                    auto_grade_essay: examConfig.autoGradeEssay ? 1 : 0,
-                    chedodethi: examConfig.chedodethi || 'Đề công khai',
-                    mabaomatdethi: examConfig.chedodethi === 'Đề có mã bảo mật' ? (examConfig.mabaomatdethi || '') : '',
-                    target_lop: (examConfig.chedodethi === 'Đề công khai' || !examConfig.chedodethi) ? '' : (examConfig.target_lop || examConfig.lop || ''),
-                    lop: (examConfig.chedodethi === 'Đề công khai' || !examConfig.chedodethi) ? '' : (examConfig.target_lop || examConfig.lop || ''),
-                    target_donvi: (examConfig.chedodethi === 'Đề công khai' || !examConfig.chedodethi) ? '' : (examConfig.target_donvi || examConfig.donvi || ''),
-                    donvi: (examConfig.chedodethi === 'Đề công khai' || !examConfig.chedodethi) ? '' : (examConfig.target_donvi || examConfig.donvi || ''),
-                    tg_bd: examConfig.tgBd || null,
-                    tg_kt: examConfig.tgKt || null,
-                    ai_prompt: examConfig.aiPrompt || '',
-                    ai_grading_key: examConfig.aiGradingKey || null,
-                    shared_teachers: examConfig.sharedTeachers || []
+                    selected_lessons: draft.selectedLessons || [],
+                    access_control: draft.accessControl || null,
+                    tf4_scoring_mode: draft.tf4ScoringMode ? 1 : 0,
+                    tf4_points: draft.tf4Points || null,
+                    is_shared_results: draft.isSharedResults ? 1 : 0,
+                    immediate_feedback: draft.immediateFeedback ? 1 : 0,
+                    show_score: draft.showScore === false || draft.showScore === 0 ? 0 : 1,
+                    show_details: draft.showDetails === false || draft.showDetails === 0 ? 0 : 1,
+                    sq_case_sensitive: draft.sqCaseSensitive ? 1 : 0,
+                    sq_punctuation_sensitive: draft.sqPunctuationSensitive ? 1 : 0,
+                    auto_grade_essay: draft.autoGradeEssay ? 1 : 0,
+                    chedodethi: draft.chedodethi || 'Đề công khai',
+                    mabaomatdethi: draft.chedodethi === 'Đề có mã bảo mật' ? (draft.mabaomatdethi || '') : '',
+                    target_lop: (draft.chedodethi === 'Đề công khai' || !draft.chedodethi) ? '' : (draft.target_lop || draft.lop || ''),
+                    lop: (draft.chedodethi === 'Đề công khai' || !draft.chedodethi) ? '' : (draft.target_lop || draft.lop || ''),
+                    target_donvi: (draft.chedodethi === 'Đề công khai' || !draft.chedodethi) ? '' : (draft.target_donvi || draft.donvi || ''),
+                    donvi: (draft.chedodethi === 'Đề công khai' || !draft.chedodethi) ? '' : (draft.target_donvi || draft.donvi || ''),
+                    tg_bd: draft.tgBd || null,
+                    tg_kt: draft.tgKt || null,
+                    ai_prompt: draft.aiPrompt || '',
+                    ai_grading_key: draft.aiGradingKey || null,
+                    shared_teachers: draft.sharedTeachers || []
                 };
 
                 const response = await fetch('/api/exams', {
@@ -3826,13 +3837,15 @@ if (e && e.message && e.message.includes('hạn mức')) {
                     return 'error';
                 }
 
-                if (resJson.id && !examConfig.id) {
-                    examConfig.id = resJson.id;
-                }
+                if (resJson.id && !draft.id) draft.id = resJson.id;
+                if (expected.generation !== authDataGeneration || expected.revision !== examEditorRevision ||
+                    expected.loadSeq !== examConfigLoadSeq || String(currentUser?.id) !== expected.userId) return 'stale';
+                examConfig.id = draft.id;
+                examConfig.updatedAt = String(resJson.updated_at || '');
 
                 examsLoaded = false;
-                if (examConfig.name && examConfig.creatorId) {
-                    examToCreatorMap[examConfig.name] = examConfig.creatorId;
+                if (draft.name && draft.creatorId) {
+                    examToCreatorMap[draft.name] = draft.creatorId;
                 }
                 return resJson.type || 'updated';
             } catch (e) {
@@ -3981,7 +3994,7 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
             }
 
             // Các tab bảo mật
-            const protectedTabs = ['questions', 'exams', 'accounts', 'users', 'settings', 'ranking', 'teacher-assignment'];
+            const protectedTabs = ['questions', 'exams', 'exam-editor', 'accounts', 'users', 'settings', 'ranking', 'teacher-assignment'];
             
             // Nếu là tab bảo mật và chưa đăng nhập, yêu cầu xác thực
             if (protectedTabs.includes(tabName)) {
@@ -4029,12 +4042,11 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
             
             // Cập nhật danh sách đề thi khi chuyển sang tab exams
             if (tabName === 'exams') {
-                if (!examsLoaded) {
-                    updateExamNamesList();
-                }
+                if (!examsLoaded) updateExamNamesList();
+                else renderExamConfigsTable();
             }
 
-            if (tabName === 'questions' || tabName === 'exams') {
+            if (tabName === 'questions' || tabName === 'exam-editor') {
                 if (!questionsLoaded) {
                     showLoadingProgress('Đang tải Ngân hàng Câu hỏi', async () => {
                         await loadQuestions();
@@ -4042,7 +4054,7 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
                             updateQuestionStats();
                             renderQuestionsList();
                             updateLessonFilter();
-                        } else if (tabName === 'exams') {
+                        } else if (tabName === 'exam-editor') {
                             await initExamPanel();
                             checkExamConfigSufficiency();
                         }
@@ -4141,7 +4153,7 @@ if (contentType && contentType.includes("application/json")) {
                 activeBtn.classList.add('active');
                 activeBtn.classList.remove('bg-emerald-800/40', 'text-emerald-50');
             }
-            if (tabName === 'exams') {
+            if (tabName === 'exam-editor') {
                 // Khởi tạo exam panel khi chuyển sang tab
                 setTimeout(() => {
                     initExamPanel();
@@ -5216,6 +5228,7 @@ if (contentType && contentType.includes("application/json")) {
 
         window.resetExamPanelToDefault = resetExamPanelToDefault;
         function resetExamPanelToDefault() {
+            ++examConfigLoadSeq;
             const selectEl = document.getElementById('exam-config-name');
             if (selectEl) selectEl.value = '';
 
@@ -5287,47 +5300,19 @@ if (contentType && contentType.includes("application/json")) {
             if (configDisplay) configDisplay.classList.add('hidden');
 
             // Reset global examConfig state
-            examConfig = {
-                id: '',
-                name: '',
-                creatorId: currentUser ? currentUser.id : '',
-                creatorName: currentUser ? currentUser.full_name : '',
-                chedodethi: 'Đề công khai',
-                mabaomatdethi: '',
-                target_lop: '',
-                targetLop: '',
-                lop: '',
-                target_donvi: '',
-                donvi: '',
-                timeLimit: 45,
-                count41: 0,
-                countTF4: 0,
-                countSQ: 0,
-                countTL: 0,
-                count41NB: 0, count41TH: 0, count41VD: 0,
-                countTF4NB: 0, countTF4TH: 0, countTF4VD: 0,
-                countSQNB: 0, countSQTH: 0, countSQVD: 0,
-                countTLNB: 0, countTLTH: 0, countTLVD: 0,
-                selectedLessons: [],
-                aiPrompt: '',
-                aiGradingKey: '',
-                points41: 1,
-                pointsTF4: 1,
-                pointsSQ: 1,
-                pointsTL: 1,
-                tf4ScoringMode: false,
-                tf4Points: { 1: 0.25, 2: 0.50, 3: 0.75, 4: 1.0 },
-                immediateFeedback: false,
-                sqCaseSensitive: false,
-                sqPunctuationSensitive: false,
-                autoGradeEssay: false,
-                showScore: true,
-                showDetails: false,
-                isSharedResults: false,
-                maxAttempts: 0,
-                max_attempts: 0,
-                accessControl: { enabled: false, startTime: '', endTime: '' }
-            };
+            examConfig = createEmptyExamDraft(currentUser);
+            examEditorRevision += 1;
+            document.getElementById('tf4-advanced-scoring')?.classList.add('hidden');
+            for (const [key, value] of Object.entries(examConfig.tf4Points)) {
+                const field = document.getElementById('tf4-points-' + key);
+                if (field) field.value = String(value);
+            }
+            const attemptsInput = document.getElementById('exam-config-max-attempts');
+            if (attemptsInput) attemptsInput.value = '0';
+            document.getElementById('btn-export-exam-docx')?.classList.add('hidden');
+            document.getElementById('teacher-quick-classes-container')?.classList.add('hidden');
+            const quickClasses = document.getElementById('teacher-quick-classes-list');
+            if (quickClasses) quickClasses.innerHTML = '';
 
             const lopInput = document.getElementById('exam-config-lop');
             if (lopInput) lopInput.value = '';
@@ -5560,10 +5545,10 @@ if (contentType && contentType.includes("application/json")) {
 
         window.loadExamConfigById = async function loadExamConfigById(selectedId) {
             if (!selectedId) return;
+            const generation = authDataGeneration;
+            const requestSeq = ++examConfigLoadSeq;
+            const userLoadIntent = ++examUserLoadIntentSeq;
             const selectEl = document.getElementById('exam-config-name');
-            if (selectEl) {
-                selectEl.value = selectedId;
-            }
             try {
                 const token = localStorage.getItem('auth_token') || '';
                 const res = await fetch(`/api/exams?id=${encodeURIComponent(selectedId)}`, {
@@ -5577,13 +5562,23 @@ if (contentType && contentType.includes("application/json")) {
                     throw new Error("Server returned non-JSON response. Status: " + res.status);
                 }
                 
+                if (generation !== authDataGeneration || requestSeq !== examConfigLoadSeq ||
+                    !(isAdminLoggedIn || isTeacherLoggedIn)) return;
                 if (res.ok && resJson.data) {
+                    // The editor initializes on first open; its defaults invalidate older
+                    // requests. Do not discard the user-initiated load because of init.
+                    const opened = await openExamEditorTab({newExam:false});
+                    if (!opened || generation !== authDataGeneration ||
+                        userLoadIntent !== examUserLoadIntentSeq ||
+                        !(isAdminLoggedIn || isTeacherLoggedIn)) return;
+                    if (String(resJson.data.id) !== String(selectedId)) return;
                     applyExamConfig(resJson.data);
+                    if (selectEl) selectEl.value = String(resJson.data.id || selectedId);
                     showToast(`📂 Đã nạp cấu hình đề: ${resJson.data.name || selectedId}`, 'success');
                     const btnExport = document.getElementById('btn-export-exam-docx');
                     if (btnExport) btnExport.classList.remove('hidden');
                     // Cuộn mượt lên phần thông tin cấu hình
-                    const topPanel = document.getElementById('tab-exams');
+                    const topPanel = document.getElementById('tab-exam-editor');
                     if (topPanel) topPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 }
             } catch (e) {
@@ -6409,9 +6404,12 @@ if (contentType && contentType.includes("application/json")) {
                 console.warn('updateExamNamesList: currentUser missing');
                 return;
             }
-            
+            const generation = authDataGeneration;
+            const requestSeq = ++examNamesRequestSeq;
             try {
                 const data = await fetchAllExamsChunked(onProgress);
+                // A previous teacher's response must not restore their exam list.
+                if (generation !== authDataGeneration || requestSeq !== examNamesRequestSeq || !currentUser) return;
                 console.log('✅ Exam names loaded:', data.length, 'items');
                 window.allExamConfigsList = data;
                 renderExamConfigsTable();
@@ -6492,6 +6490,9 @@ if (contentType && contentType.includes("application/json")) {
         }
 
         async function onExamNameChange() {
+            ++examUserLoadIntentSeq;
+            const generation = authDataGeneration;
+            const requestSeq = ++examConfigLoadSeq;
             const selectEl = document.getElementById('exam-config-name');
             const selectedId = selectEl?.value?.trim();
             if (!selectedId) {
@@ -6516,6 +6517,8 @@ if (contentType && contentType.includes("application/json")) {
     throw new Error("Server returned non-JSON response (likely 502/504 during restart). Status: " + res.status);
 }
                 
+                if (generation !== authDataGeneration || requestSeq !== examConfigLoadSeq ||
+                    String(selectEl?.value || '') !== String(selectedId) || !currentUser) return;
                 if (res.ok && resJson.data) {
                     applyExamConfig(resJson.data);
                     showToast(`📂 Đã tải cấu hình đề: ${name}`, 'success');
@@ -6567,81 +6570,19 @@ if (contentType && contentType.includes("application/json")) {
         }
 
         function applyExamConfig(cData) {
-            let parsedLessons = cData.selected_lessons || [];
-            if (typeof parsedLessons === 'string') {
-                try { parsedLessons = JSON.parse(parsedLessons); } catch(e) { parsedLessons = []; }
+            // Never merge missing fields from a previously loaded exam.
+            examConfig = mapStoredExamToDraft(cData, {currentUser, accounts, accountsMap});
+            examEditorRevision += 1;
+            document.getElementById('tf4-advanced-scoring')?.classList.toggle('hidden', !examConfig.tf4ScoringMode);
+            for (const [key, value] of Object.entries(examConfig.tf4Points)) {
+                const field = document.getElementById('tf4-points-' + key);
+                if (field) field.value = String(value);
             }
-            
-            let parsedCountsDetail = cData.counts_detail || {};
-            if (typeof parsedCountsDetail === 'string') {
-                try { parsedCountsDetail = JSON.parse(parsedCountsDetail); } catch(e) { parsedCountsDetail = {}; }
-            }
-            
-            let parsedAccessControl = cData.access_control || {};
-            if (typeof parsedAccessControl === 'string') {
-                try { parsedAccessControl = JSON.parse(parsedAccessControl); } catch(e) { parsedAccessControl = {}; }
-            }
-
-            cData.selected_lessons = parsedLessons;
-            cData.counts_detail = parsedCountsDetail;
-            cData.access_control = parsedAccessControl;
-
-            examConfig = {
-                ...examConfig, 
-                id: cData.id,
-                name: cData.name, 
-                creatorId: cData.creator_id,
-                creatorName: accounts.find(a => a.id === cData.creator_id)?.full_name || accountsMap[cData.creator_id] || 'Người dùng hệ thống', 
-                chedodethi: cData.chedodethi || 'Đề công khai',
-                mabaomatdethi: cData.mabaomatdethi || '',
-                timeLimit: cData.time_limit, 
-                count41: cData.count_41, 
-                countTF4: cData.count_tf4, 
-                countSQ: cData.count_sq, 
-                count41NB: cData.counts_detail?.count41NB || 0, 
-                count41TH: cData.counts_detail?.count41TH || 0, 
-                count41VD: cData.counts_detail?.count41VD || 0, 
-                countTF4NB: cData.counts_detail?.countTF4NB || 0, 
-                countTF4TH: cData.counts_detail?.countTF4TH || 0, 
-                countTF4VD: cData.counts_detail?.countTF4VD || 0, 
-                countSQNB: cData.counts_detail?.countSQNB || 0, 
-                countSQTH: cData.counts_detail?.countSQTH || 0, 
-                countSQVD: cData.counts_detail?.countSQVD || 0, 
-                countTL: cData.count_tl || 0,
-                countTLNB: cData.counts_detail?.countTLNB || 0,
-                countTLTH: cData.counts_detail?.countTLTH || 0,
-                countTLVD: cData.counts_detail?.countTLVD || 0,
-                creatorId: cData.creator_id || cData.counts_detail?.creatorId || null, 
-                selectedLessons: cData.selected_lessons || [], 
-                aiPrompt: cData.ai_prompt || '',
-                aiGradingKey: cData.ai_grading_key || '',
-                points41: parseFloat(cData.points_41 || 1), 
-                pointsTF4: parseFloat(cData.points_tf4 || 1), 
-                pointsSQ: parseFloat(cData.points_sq || 1), 
-                pointsTL: parseFloat(cData.points_tl || 1), 
-                tf4ScoringMode: cData.tf4_scoring_mode, 
-                tf4Points: cData.tf4_points || examConfig.tf4Points, 
-                immediateFeedback: Boolean(cData.immediate_feedback == 1 || cData.immediate_feedback === true || cData.immediate_feedback === '1' || cData.immediateFeedback == 1 || cData.immediateFeedback === true),
-                sqCaseSensitive: cData.sq_case_sensitive !== undefined ? cData.sq_case_sensitive : false,
-                sqPunctuationSensitive: cData.sq_punctuation_sensitive !== undefined ? cData.sq_punctuation_sensitive : false,
-                autoGradeEssay: cData.auto_grade_essay !== undefined ? cData.auto_grade_essay : false,
-                showScore: cData.show_score !== undefined ? cData.show_score : true,
-                showDetails: cData.show_details !== undefined ? cData.show_details : true,
-                isSharedResults: (cData.is_shared_results === true || cData.is_shared_results === 1 || cData.is_shared_results === 'true'),
-                maxCheatWarnings: (typeof cData.max_cheat_warnings === 'number' && cData.max_cheat_warnings > 0) ? cData.max_cheat_warnings : ((typeof cData.maxCheatWarnings === 'number' && cData.maxCheatWarnings > 0) ? cData.maxCheatWarnings : 5),
-                maxAttempts: (cData.max_attempts !== undefined && cData.max_attempts !== null) ? Number(cData.max_attempts) : ((cData.maxAttempts !== undefined && cData.maxAttempts !== null) ? Number(cData.maxAttempts) : 0),
-                max_attempts: (cData.max_attempts !== undefined && cData.max_attempts !== null) ? Number(cData.max_attempts) : ((cData.maxAttempts !== undefined && cData.maxAttempts !== null) ? Number(cData.maxAttempts) : 0),
-                accessControl: {
-                    enabled: cData.access_control?.enabled || (cData.tg_bd || cData.tg_kt ? true : false),
-                    startTime: cData.tg_bd || cData.access_control?.startTime || '',
-                    endTime: cData.tg_kt || cData.access_control?.endTime || ''
-                }
-            };
             // Cập nhật UI: chỉ gán giá trị vào select exam-config-name khi đang ở tab quản lý đề thi của giáo viên/admin
             const examConfigSelect = document.getElementById('exam-config-name');
             if (examConfigSelect && (isTeacherLoggedIn || isAdminLoggedIn)) {
                 const activeTab = document.querySelector('.tab-content.active')?.id;
-                if (activeTab === 'tab-exams') {
+                if (activeTab === 'tab-exam-editor') {
                     examConfigSelect.value = examConfig.id || '';
                 }
             }
@@ -7020,6 +6961,7 @@ if (contentType && contentType.includes("application/json")) {
         window._studentExamChangeSeq = 0;
         window.onStudentExamNameChange = async function onStudentExamNameChange() {
             const currentExamSeq = ++window._studentExamChangeSeq;
+            window._studentExamAccessCode = '';
             console.log('onStudentExamNameChange called, seq:', currentExamSeq);
             const elTeacher = document.getElementById('student-teacher-filter');
             const teacherId = elTeacher ? elTeacher.value : '';
@@ -7108,12 +7050,8 @@ if (contentType && contentType.includes("application/json")) {
                             updateCurrentExamInfo();
                             return;
                         }
-                        if (code !== data.mabaomatdethi) {
-                            showToast('❌ Mã bảo mật không chính xác!', 'error');
-                            examSelect.value = ''; // Reset dropdown
-                            updateCurrentExamInfo();
-                            return;
-                        }
+                        // The backend verifies the code; never expose the correct code in GET.
+                        window._studentExamAccessCode = code;
                     }
                     
                     if (currentExamSeq !== window._studentExamChangeSeq) return;
@@ -7706,7 +7644,8 @@ if (contentType && contentType.includes("application/json")) {
                     studentClass: studentClass,
                     userLop: (currentUser && currentUser.lop) ? currentUser.lop : inputLop,
                     userDonvi: (currentUser && (currentUser.donvi || currentUser.address)) ? (currentUser.donvi || currentUser.address) : inputDonvi,
-                    examConfig
+                    examConfig,
+                    examAccessCode: window._studentExamAccessCode || ''
                 };
                 
                 const authToken = localStorage.getItem('auth_token') || '';
@@ -13070,7 +13009,69 @@ D. Phát biểu SAI</pre>
         }
 
         // ==================== EXAMS MANAGEMENT ====================
+        let examEditorInitialized = false;
+        let examEditorInitializing = null;
+        let examNamesRequestSeq = 0;
+        let examConfigLoadSeq = 0;
+        let examUserLoadIntentSeq = 0;
+        let examEditorRevision = 0;
+        let examSavePending = false;
+        function invalidateExamEditorSession() {
+            authDataGeneration += 1;
+            examEditorInitialized = false;
+            examEditorInitializing = null;
+            examNamesRequestSeq += 1;
+            examConfigLoadSeq += 1;
+            examUserLoadIntentSeq += 1;
+            window.allExamConfigsList = [];
+            accountsMap = {};
+            window.examConfigCurrentPage = 1;
+            const search = document.getElementById('search-exam-config-table');
+            if (search) search.value = '';
+            const examListSelect = document.getElementById('exam-config-name');
+            if (examListSelect) examListSelect.innerHTML = '<option value="">Chọn đề thi có sẵn</option>';
+            const lessonList = document.getElementById('exam-lesson-selection');
+            if (lessonList) lessonList.innerHTML = '';
+            const teacherSelect = document.getElementById('exam-teacher-filter');
+            if (teacherSelect) teacherSelect.value = '';
+            document.getElementById('btn-export-exam-docx')?.classList.add('hidden');
+            resetExamPanelToDefault();
+            renderExamConfigsTable();
+        }
+        window.openExamEditorTab = openExamEditorTab;
+        async function openExamEditorTab({newExam = false} = {}) {
+            if (!(isAdminLoggedIn || isTeacherLoggedIn)) {
+                showAdminLoginModal();
+                return false;
+            }
+            const generation = authDataGeneration;
+            switchTab('exam-editor');
+            if (examEditorInitializing) await examEditorInitializing;
+            if (!examEditorInitialized) await initExamPanel();
+            if (generation !== authDataGeneration || !(isAdminLoggedIn || isTeacherLoggedIn)) return false;
+            if (newExam) {
+                ++examUserLoadIntentSeq;
+                ++examConfigLoadSeq; // Cancel any in-flight Nạp/selection response.
+                resetExamPanelToDefault();
+            }
+            return true;
+        }
+        window.startNewExamConfig = async function startNewExamConfig() {
+            return openExamEditorTab({newExam:true});
+        };
         async function initExamPanel() {
+            if (examEditorInitialized) {
+                updateAvailableCounts();
+                return;
+            }
+            if (examEditorInitializing) return examEditorInitializing;
+            const request = initializeExamEditorOnce();
+            examEditorInitializing = request;
+            try { await request; }
+            finally { if (examEditorInitializing === request) examEditorInitializing = null; }
+        }
+        async function initializeExamEditorOnce() {
+            const generation = authDataGeneration;
             // Guard: If exam-lesson-selection is not in DOM, skip without error (tab not loaded/active)
             if (!document.getElementById('exam-lesson-selection')) {
                 return;
@@ -13078,6 +13079,7 @@ D. Phát biểu SAI</pre>
             // Refresh accounts to get newly registered ones
             try {
                 const { data } = await fetch('/api/accounts', { headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('auth_token') || '') } }).then(res => res.json()).catch(() => ({error: 'Lỗi', data: null}));
+                if (generation !== authDataGeneration) return;
                 if (data) {
                     accounts = data;
                     // Update the mapping too
@@ -13088,6 +13090,7 @@ D. Phát biểu SAI</pre>
             } catch (e) {
                 console.error('Failed to refresh accounts during exam panel init:', e);
             }
+            if (generation !== authDataGeneration) return;
             
             // 0. Cập nhật bộ lọc giáo viên
             updateExamTeacherFilter();
@@ -13105,7 +13108,9 @@ D. Phát biểu SAI</pre>
             if (currentUser && !isAdminLoggedIn) {
                 await updateExamNamesList(false);
             }
+            if (generation !== authDataGeneration) return;
             resetExamPanelToDefault();
+            examEditorInitialized = true;
             
             // 5. Cập nhật thông tin đề thi
             updateCurrentExamInfo();
@@ -14059,6 +14064,13 @@ D. Phát biểu SAI</pre>
         }
 
         window.saveExamConfig = async function saveExamConfig(silent = false) {
+            if (examSavePending) return;
+            if (!(isAdminLoggedIn || isTeacherLoggedIn) || !currentUser) return;
+            examSavePending = true;
+            const saveGeneration = authDataGeneration;
+            const saveRevision = examEditorRevision;
+            const saveLoadSeq = examConfigLoadSeq;
+            const saveUser = String(currentUser.id);
             try {
                 // Đảm bảo các phần tử DOM tồn tại trước khi truy cập
                 const getVal = (id) => document.getElementById(id)?.value || '';
@@ -14070,6 +14082,14 @@ D. Phát biểu SAI</pre>
                 const selectEl = document.getElementById('exam-config-name');
                 const selectedExamId = selectEl?.value?.trim() || '';
                 
+                const identity = resolveExamSaveIdentity({
+                    newName: newExamNameInput, selectedId: selectedExamId,
+                    draftId: examConfig.id, draftName: examConfig.name
+                });
+                if (!identity.ok) {
+                    if (!silent) showToast(identity.message, 'error');
+                    return;
+                }
                 // --- BẮT ĐẦU KIỂM TRA ĐIỀU KIỆN TÊN ĐỀ THI ---
                 // Chỉ cho phép 1 trong 2 trường hợp:
                 // 1. Tạo mới: "Nhập tên đề thi mới" CÓ DỮ LIỆU VÀ "Chọn đề thi" PHẢI TRỐNG
@@ -14138,11 +14158,13 @@ if (contentType && contentType.includes("application/json")) {
                         }
                     }
                     
+                    if (saveGeneration !== authDataGeneration || saveRevision !== examEditorRevision ||
+                        saveLoadSeq !== examConfigLoadSeq || String(currentUser?.id) !== saveUser) return;
                     // Reset ID để buộc hệ thống insert
                     examConfig.id = null;
                 } else if (selectedExamId) {
                     // Cập nhật tài liệu (đề) sẵn có
-                    finalName = selectEl.options[selectEl.selectedIndex]?.dataset.name || examConfig.name;
+                    finalName = identity.name;
                 }
                 // --- KẾT THÚC KIỂM TRA ĐIỀU KIỆN TÊN ĐỀ THI ---
                 
@@ -14318,15 +14340,8 @@ if (contentType && contentType.includes("application/json")) {
                 examConfig.isSharedResults = getChecked('exam-config-shared-results');
                 
                 // Mã chia sẻ kết quả gắn prefix
-                if (examConfig.id && typeof examConfig.id !== 'number') {
-                    const parsedId = parseInt(examConfig.id, 10);
-                    if (isNaN(parsedId)) {
-                        examConfig.id = Math.floor(Date.now() / 1000);
-                    } else {
-                        examConfig.id = parsedId;
-                    }
-                }
-                if (!examConfig.id) examConfig.id = Math.floor(Date.now() / 1000);
+                // IDs may be historical numbers or secure UUIDs. Never cast or regenerate an existing ID.
+                // Server allocates a fresh ID for every new exam.
                 
                 if (examConfig.isSharedResults) {
                     const sharedCodeEl = document.getElementById('exam-shared-code');
@@ -14336,7 +14351,13 @@ if (contentType && contentType.includes("application/json")) {
                 if (!silent) {
                     // Muted toast request: showToast('⏳ Đang lưu cấu hình...', 'info');
                 }
-                const status = await saveExamConfigToDB();
+                if (saveGeneration !== authDataGeneration || saveRevision !== examEditorRevision ||
+                    saveLoadSeq !== examConfigLoadSeq || String(currentUser?.id) !== saveUser) return;
+                const status = await saveExamConfigToDB(structuredClone(examConfig), {
+                    generation: saveGeneration, revision: saveRevision, loadSeq: saveLoadSeq, userId: saveUser
+                });
+                if (saveGeneration !== authDataGeneration || saveRevision !== examEditorRevision ||
+                    saveLoadSeq !== examConfigLoadSeq || String(currentUser?.id) !== saveUser) return;
                 
                 updateCurrentExamInfo();
                 if (status === 'updated' || status === 'inserted') {
@@ -14357,6 +14378,8 @@ if (contentType && contentType.includes("application/json")) {
             } catch (err) {
                 console.error('Critical error in saveExamConfig:', err);
                 if (!silent) showToast('❌ Lỗi hệ thống khi lưu cấu hình!', 'error');
+            } finally {
+                examSavePending = false;
             }
         }
 
@@ -20107,6 +20130,8 @@ CẤU TRÚC JSON:
 
         // Nạp và hiển thị gợi ý các lớp phụ trách của giáo viên khi tạo đề thi
         window.loadTeacherClassesForExam = async function() {
+            const classesGeneration = authDataGeneration;
+            const classesUser = String(currentUser?.id || '');
             const container = document.getElementById('teacher-quick-classes-container');
             const listEl = document.getElementById('teacher-quick-classes-list');
             if (!container || !listEl) return;
@@ -20121,6 +20146,7 @@ CẤU TRÚC JSON:
                         headers: { 'Authorization': 'Bearer ' + token }
                     });
                     const resJson = await res.json();
+                    if (classesGeneration !== authDataGeneration || classesUser !== String(currentUser?.id)) return;
                     if (resJson && resJson.data && Array.isArray(resJson.data)) {
                         myClasses = resJson.data;
                         if (currentUser) currentUser.assigned_classes = myClasses;
@@ -20128,6 +20154,7 @@ CẤU TRÚC JSON:
                 } catch (e) {}
             }
 
+            if (classesGeneration !== authDataGeneration || classesUser !== String(currentUser?.id)) return;
             if (myClasses.length === 0) {
                 container.classList.add('hidden');
                 return;
@@ -21304,7 +21331,7 @@ CẤU TRÚC JSON:
             componentsLoadedFlag = true;
 
             const components = [
-                'modal-container', 'tab-exam', 'tab-questions', 'tab-exams',
+                'modal-container', 'tab-exam', 'tab-questions', 'tab-exams', 'tab-exam-editor',
                 'tab-teacher-assignment', 'tab-accounts', 'tab-users', 'tab-ranking', 'tab-settings', 'tab-help',
                 'toast-container-center', 'toast-container-right', 'account-modal', 'user-modal'
             ];
@@ -22716,6 +22743,8 @@ CẤU TRÚC JSON:
         window.saveAIAppraisePrompt = saveAIAppraisePrompt;
         window.resetAIAppraisePrompt = resetAIAppraisePrompt;
         window.onNewExamNameInput = function(val) {
+            ++examUserLoadIntentSeq;
+            ++examConfigLoadSeq;
             const selectEl = document.getElementById('exam-config-name');
             if (selectEl && selectEl.value !== '') {
                 // Đang có cấu hình cũ được load, khi nhập tên mới thì đưa về mặc định

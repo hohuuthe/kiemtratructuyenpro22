@@ -1,5 +1,5 @@
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
-import { verifyJWT, getDynamicSecret, getDatabase } from './exam/utils';
+import { verifyAuthSession, getDynamicSecret, getDatabase } from './exam/utils';
 import { wordImportImageObjectKey } from '../../src/word-import-image-key.js';
 
 interface Env {
@@ -30,7 +30,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
     const token = authHeader.substring(7);
     const secret = await getDynamicSecret(db, env.JWT_SECRET);
-    const user = await verifyJWT(token, secret);
+    const user = await verifyAuthSession(token, secret, db);
 
     // Cho phép 2 trường hợp hợp lệ:
     // 1. Giáo viên hoặc Admin đã đăng nhập
