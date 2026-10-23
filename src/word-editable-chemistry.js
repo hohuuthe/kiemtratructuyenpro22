@@ -9,7 +9,7 @@
  */
 import {
     Math as WordMath, MathRun, MathSubScript, MathSuperScript,
-    MathSubSuperScript, MathPreSubSuperScript,
+    MathSubSuperScript, MathPreSubSuperScript, MathLimitUpper, MathLimitLower,
 } from 'docx/math';
 
 /** Return the contents of a balanced brace or bracket block, or null. */
@@ -184,8 +184,47 @@ function speciesToComponents(source) {
 }
 
 /**
+ * Return Word Math components for reaction conditions above/below an arrow.
+ * In school chemistry documents, t^o (also t^\circ and t^{\circ})
+ * denotes temperature, not an exponent on the ARROW. The t symbol has
+ * its own true degree superscript, and the whole label is centered over
+ * the reaction arrow using OMML m:limUpp (not m:sSup on the arrow).
+ */
+function reactionConditionToComponents(source) {
+    const text=String(source);
+    const degree=/\b([tT])\s*\^\s*(?:\{\s*(?:\\circ|o|°)\s*\}|(?:\\circ|o|°))/g;
+    const out=[];
+    let cursor=0, match;
+    while((match=degree.exec(text))!==null) {
+        if(match.index>cursor)out.push(...speciesToComponents(text.slice(cursor,match.index)));
+        out.push(new MathSuperScript({
+            children:[mark(match[1])],
+            superScript:[mark('°')]
+        }));
+        cursor=match.index+match[0].length;
+    }
+    if(cursor<text.length)out.push(...speciesToComponents(text.slice(cursor)));
+    return out.length?out:[mark(' ')];
+}
+function annotatedReactionArrow(operator, symbol, labels) {
+    // Keep ordinary reactions unchanged; a long arrow makes the annotation
+    // easier to read and edit in Word's native equation editor.
+    if(!labels.length)return mark(symbol);
+    const longArrows={'->':'⟶','<-':'⟵','<->':'⟷','<-->':'⟷'};
+    const arrow=[mark(longArrows[operator]||symbol)];
+    const above=labels[0]?reactionConditionToComponents(labels[0]):[];
+    const below=labels.length===2 && labels[1]
+        ?reactionConditionToComponents(labels[1]):[];
+    let expression=arrow;
+    if(below.length)expression=[new MathLimitLower({children:expression,limit:below})];
+    if(above.length)expression=[new MathLimitUpper({children:expression,limit:above})];
+    return expression[0];
+}
+
+/**
  * A top-level mhchem reaction parser. Chemistry arrows are native Unicode
- * symbols in MathRun; labeled arrows use native Word Math scripts.
+ * symbols. Labeled arrows use centered OMML limits, not superscripts on the
+ * arrow's right edge. This is shared by question-bank and exam DOCX export.
  */
 export function parseChemicalMath(source) {
     const text = String(source).trim();
@@ -218,16 +257,7 @@ export function parseChemicalMath(source) {
                 labels.push(label.inner);
                 pos = label.end;
             }
-            const base = [mark(arrow[1])];
-            if (labels.length === 1 && labels[0]) {
-                out.push(new MathSuperScript({ children: base, superScript: speciesToComponents(labels[0]) }));
-            } else if (labels.length === 2) {
-                out.push(new MathSubSuperScript({
-                    children: base,
-                    superScript: labels[0] ? speciesToComponents(labels[0]) : [mark(' ')],
-                    subScript: labels[1] ? speciesToComponents(labels[1]) : [mark(' ')],
-                }));
-            } else out.push(...base);
+            out.push(annotatedReactionArrow(arrow[0], arrow[1], labels));
             continue;
         }
         const precipitate = /^\s+(v|\^)(?=\s|$)/.exec(tail);
