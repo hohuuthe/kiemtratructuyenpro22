@@ -3768,6 +3768,7 @@ if (e && e.message && e.message.includes('hạn mức')) {
 
                 let payload = {
                     id: draft.id || null,
+                    expected_updated_at: draft.id ? (draft.updatedAt ?? '') : undefined,
                     name: draft.name || 'Đề thi mặc định',
                     creator_id: draft.creatorId || (currentUser ? currentUser.id : null),
                     time_limit: parseInt(draft.timeLimit) || 45,
@@ -3840,6 +3841,7 @@ if (e && e.message && e.message.includes('hạn mức')) {
                 if (expected.generation !== authDataGeneration || expected.revision !== examEditorRevision ||
                     expected.loadSeq !== examConfigLoadSeq || String(currentUser?.id) !== expected.userId) return 'stale';
                 examConfig.id = draft.id;
+                examConfig.updatedAt = String(resJson.updated_at || '');
 
                 examsLoaded = false;
                 if (draft.name && draft.creatorId) {
