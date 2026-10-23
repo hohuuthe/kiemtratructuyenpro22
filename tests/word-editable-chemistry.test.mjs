@@ -23,7 +23,7 @@ const samples = [
   String.raw`\ce{2AgCl ->[h\nu] 2Ag + Cl2}`,
   String.raw`\ce{2H2O2 ->[MnO2] 2H2O + O2}`,
   String.raw`\ce{CaCO3 ->[t^o] CaO + CO2}`,
-  String.raw`\ce{CaCO3 ->[t^\\circ] CaO + CO2}`,
+  String.raw`\ce{CaCO3 ->[t^\circ] CaO + CO2}`,
   String.raw`\ce{Fe^{3}+ + 3OH- -> Fe(OH)3 v}`,
   String.raw`\ce{CaCO3 + 2HCl -> CaCl2 + CO2 ^ + H2O}`,
   String.raw`\ce{CH3-CH(OH)-COOH}`,
