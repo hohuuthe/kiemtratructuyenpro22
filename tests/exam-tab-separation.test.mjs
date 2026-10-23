@@ -107,7 +107,8 @@ test('Security invariants: tenant routing, account secrecy and atomic exam revis
  const hostMap=read('src/tenant-host-map.ts');
  assert.ok(adapter.includes('resolveTenantFromRequest(request, env)'));
  assert.ok(hostMap.includes('TENANT_HOST_MAP'));
- assert.ok(hostMap.includes('Hostname is not registered'));
+ assert.ok(hostMap.includes('Custom hostname is not registered in TENANT_HOST_MAP'));
+ assert.ok(hostMap.includes('applicationSlugFromPath'));
  assert.ok(!adapter.includes('extractTenantSlug(req)'));
  assert.ok(!accounts.includes('SELECT accounts.id, accounts.user_id, accounts.username, accounts.password'));
  assert.ok(exams.includes('expected_updated_at'));
