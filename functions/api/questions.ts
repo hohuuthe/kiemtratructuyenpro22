@@ -130,7 +130,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
       query += " WHERE creator_id = ?";
       params.push(teacherIdParam);
     }
-    query += ` ORDER BY lesson ASC, type ASC, id ASC${paginationClause}`;
+    query += ` ORDER BY created_at DESC NULLS LAST, id DESC${paginationClause}`;
 
     const { results } = await db.prepare(query).bind(...params).all();
     const mapped = (results || []).map(mapQuestionRead);
@@ -188,8 +188,8 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     // 2. Thêm mới / Cập nhật (Upsert)
     if (questions && questions.length > 0) {
       const upsertSql = `
-        INSERT INTO questions (id, type, level, lesson, content, options, answer, image, creator_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO questions (id, type, level, lesson, content, options, answer, image, creator_id, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         ON CONFLICT(id) DO UPDATE SET
           type = excluded.type,
           level = excluded.level,
