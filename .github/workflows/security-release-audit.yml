@@ -34,6 +34,9 @@ jobs:
               python3 "$patch"
             done
           fi
+          if ! grep -q 'Cannot access another teacher assignment' functions/api/teacher-classes.ts; then
+            python3 scripts/security-audit-20261023/13-atomic-banks-and-classes.py
+          fi
       - name: Install locked dependencies
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Parse frontend and TypeScript source
@@ -100,13 +103,11 @@ jobs:
           },indent=2)+'\n')
           PY
           fi
-          # Workflow policy changes are reviewed and committed through the connector separately.
           git restore --source=HEAD .github/workflows/formula-check.yml
           git add -u
-          # This repository ignores functions/; explicitly stage reviewed new source only.
           git add -f functions/api/_middleware.ts functions/_middleware.ts functions/api/exam/attempt-envelope.ts functions/api/exam/submission.ts src/security-policy.ts src/pages-api-dispatch.ts src/safe-image-url.js public/_headers tests/excel-security-version.test.mjs tests/safe-image-url.test.mjs docs/SECURITY_AUDIT_20261023_APPLIED.json
           git diff --cached --binary > artifacts/security-audit/tested-source.patch
-          if git diff --cached --quiet; then exit 0; fi
+          if git diff --cached --quiet; then git rev-parse HEAD > artifacts/security-audit/tested-source.sha; exit 0; fi
           git config user.name 'KTTT security regression'
           git config user.email '92618324+hohuuthe@users.noreply.github.com'
           git commit -m 'security: apply audited API, grading, tenant and browser fixes after isolated PostgreSQL regressions'
