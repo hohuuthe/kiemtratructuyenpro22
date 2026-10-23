@@ -13031,6 +13031,7 @@ D. Phát biểu SAI</pre>
         let examSavePending = false;
         function invalidateExamEditorSession() {
             authDataGeneration += 1;
+            clearRecentQuestionFocus();
             examEditorInitialized = false;
             examEditorInitializing = null;
             examNamesRequestSeq += 1;
