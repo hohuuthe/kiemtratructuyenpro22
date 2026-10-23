@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [main, fix/scientific-formulas-student-exam-20261022, fix/word-import-verified-e2e-20261023]
+    branches: [main, refactor/word-import-questions-only-20261023]
 
 permissions:
   contents: read

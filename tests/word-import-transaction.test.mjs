@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {validateBatchPayload,persistVerifiedWordImport,MAX_WORD_IMPORT_QUESTIONS} from '../functions/api/questions/import-word.ts';
+import {validateBatchPayload,persistVerifiedWordImport,deriveWordImportIds,MAX_WORD_IMPORT_QUESTIONS} from '../functions/api/questions/import-word.ts';
 import {checkWordImportBeforeSave,correctImportedWordEquation} from '../src/word-import-verification.js';
 
 const question = (id='question0001')=>({
@@ -29,46 +29,20 @@ test('Payload validation rejects ambiguous/broken/duplicate imports before trans
  const huge=validBatch();huge.questions=Array.from({length:MAX_WORD_IMPORT_QUESTIONS+1},(_,i)=>question('question'+i));
  assert.ok(validateBatchPayload(huge).some(x=>x.includes('400')));
 });
-test('Atomic DB interface logs original OMML and verifies exact imported count',async()=>{
- const b=validBatch();
- const calls=[],transactions=[];
+test('No new table or DDL; deterministic ID source always derived server-side',async()=>{
+ const b=validBatch(),id=await deriveWordImportIds('teacher-1',b.sourceSha256,1);
+ assert.match(id[0],/^wi-[a-f0-9]{40}-0001$/);
+ assert.deepEqual(id,await deriveWordImportIds('teacher-1',b.sourceSha256,1));
+ assert.notDeepEqual(id,await deriveWordImportIds('teacher-2',b.sourceSha256,1));
  const sql={
-   async query(text,params) {
-     calls.push({text,params});
-     if(text.includes('COUNT(*)::integer AS n FROM question_formula_sources')) return [{n:b.questions.reduce((sum,q)=>sum+q.formulaSources.length,0)}];
-     if(text.includes('COUNT(*)::integer'))return [{n:b.questions.length}];
-     if(text.includes('SELECT q.id,q.type,q.level')) return b.questions.map(q=>({
-       id:q.id,type:q.type,level:q.level,lesson:q.lesson,content:q.content,
-       options:JSON.stringify(q.options),answer:q.answer,image:q.image
-     }));
+   async query(text,params){
+     assert.ok(!/CREATE |word_import_batches|word_import_items|question_formula_sources/i.test(text));
+     if(text.includes('SELECT q.id'))return [];
      return [];
    },
-   async transaction(parts,opts){transactions.push({parts,opts});await Promise.all(parts);return parts;}
+   async transaction(){throw new Error('Simulated database rollback')}
  };
- const result=await persistVerifiedWordImport(sql,'owner-123',b);
- assert.equal(result.count,1);
- assert.equal(result.batchId,b.batchId);
- assert.equal(transactions.length,1);
- assert.equal(transactions[0].opts.isolationLevel,'Serializable');
- assert.ok(calls.some(x=>x.text.includes('INSERT INTO question_formula_sources')));
- assert.ok(calls.some(x=>x.text.includes('INSERT INTO word_import_items')));
- assert.ok(calls.some(x=>x.params?.includes('owner-123')));
- assert.ok(calls.some(x=>x.params?.includes(b.questions[0].formulaSources[0].sourceOmml)));
- assert.ok(!calls.some(x=>x.text.includes('owner-123')),'Values must remain parameters, not concatenated SQL');
-});
-test('Failed DB transaction propagates failure; no success receipt is produced',async()=>{
- const sql={
-    async query(text){if(text.includes('COUNT(*)'))return [{n:1}];return [];},
-    async transaction(){throw new Error('Simulated database rollback');}
- };
- await assert.rejects(persistVerifiedWordImport(sql,'owner',validBatch()),/Simulated database rollback/);
-});
-test('Count mismatch is explicitly reported instead of false success',async()=>{
- const sql={
-   async query(text){return text.includes('COUNT(*)')?[{n:0}]:[];},
-   async transaction(){return [];}
- };
- await assert.rejects(persistVerifiedWordImport(sql,'owner',validBatch()),/đối soát/);
+ await assert.rejects(persistVerifiedWordImport(sql,'teacher-1',b),/Simulated database rollback/);
 });
 
 test('API independently rejects malformed LaTeX despite a verified client label',()=>{

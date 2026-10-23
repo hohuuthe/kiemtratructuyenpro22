@@ -1,7 +1,7 @@
 /**
  * Verified Word question import: one Neon HTTP transaction per complete file.
- * Separate from general question upsert to guarantee no false successes,
- * no accidental overwrite and no partial file commits.
+ * Uses ONLY the existing questions table and does not modify database schema.
+ * Invalid/ambiguous OMML is rejected before persistence.
  */
 import { neon } from '@neondatabase/serverless';
 import { verifyJWT, getDynamicSecret, getDatabase } from '../exam/utils';
@@ -98,118 +98,116 @@ export function validateBatchPayload(body:any) {
     }
     return errors;
 }
-/** Parameterized queries, atomic transaction and count verification. */
-export async function persistVerifiedWordImport(sql:any,userId:string,body:any) {
-    const fileName=String(body.fileName).replace(/[\\/]/g,'_');
-    const batchId=body.batchId;
-    // Schema is installed through an approved staging/production migration.
-    // Never execute DDL as a side effect of a teacher importing questions.
-
-    const queries:any[]=[];
-    queries.push(sql.query(
-        'INSERT INTO word_import_batches (id,creator_id,file_name,source_sha256,expected_count,imported_count,engine_version) VALUES ($1,$2,$3,$4,$5,$6,$7)',
-        [batchId,userId,fileName,String(body.sourceSha256||''),body.questions.length,body.questions.length,String(body.engineVersion||'unknown')]
-    ));
-    for(const q of body.questions) {
-        queries.push(sql.query(
-            'INSERT INTO questions (id,type,level,lesson,content,options,answer,image,creator_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',
-            [q.id,q.type,q.level,q.lesson,q.content,JSON.stringify(q.options||{}),q.answer,q.image||null,userId]
-        ));
-        queries.push(sql.query('INSERT INTO word_import_items(batch_id,question_id) VALUES ($1,$2)',[batchId,q.id]));
-        for(const f of q.formulaSources) {
-            queries.push(sql.query(
-                'INSERT INTO question_formula_sources (question_id,source_token,field_name,source_type,source_omml,normalized_latex,review_status,engine_version,batch_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',
-                [q.id,f.token||'',f.field,f.sourceType||'omml',f.sourceOmml,f.latex,f.status,f.engineVersion||'unknown',batchId]
-            ));
-        }
+/**
+ * Schema-neutral Word import. Source OMML is verified on the server BEFORE
+ * persistence; only finalized content/answer/options are written to the
+ * EXISTING questions table. This does not create any table, index or column.
+ *
+ * Stable per-teacher/per-file IDs make retry after an unknown commit outcome
+ * idempotent even without a batch/audit table.
+ */
+export async function deriveWordImportIds(userId:string, sourceSha256:string, count:number) {
+    if (!userId || !/^[0-9a-f]{64}$/i.test(sourceSha256) ||
+        !Number.isInteger(count) || count<1 || count>MAX_WORD_IMPORT_QUESTIONS) {
+        throw new Error('Không thể tạo ID nhập Word từ thông tin nguồn không hợp lệ');
     }
-    // Verify full values inside the same PostgreSQL transaction. A mismatch
-    // (including a database trigger changing a value) must roll back before
-    // commit, rather than leave data behind with only a failed receipt.
-    const expectedQuestions=body.questions.map((q:any)=>({
-        id:q.id,type:q.type,level:q.level,lesson:q.lesson,content:q.content,
+    const input='verified-word-import-v2\u0000'+userId+'\u0000'+sourceSha256.toLowerCase();
+    const hash=new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(input)));
+    const prefix=Array.from(hash).map(value=>value.toString(16).padStart(2,'0')).join('').slice(0,40);
+    return Array.from({length:count},(_,i)=>'wi-'+prefix+'-'+String(i+1).padStart(4,'0'));
+}
+class WordImportConflict extends Error {
+    code='WORD_IMPORT_CONFLICT';
+}
+function canonicalWordQuestions(body:any,userId:string,ids:string[]) {
+    return body.questions.map((q:any,index:number)=>({
+        id:ids[index],type:q.type,level:q.level,lesson:q.lesson,content:q.content,
         options:q.options||{},answer:q.answer,image:q.image||null,creator_id:userId
     }));
-    const expectedSources=body.questions.flatMap((q:any)=>q.formulaSources.map((f:any)=>({
-        question_id:q.id,source_token:f.token,field_name:f.field,
-        source_type:f.sourceType||'omml',source_omml:f.sourceOmml,
-        normalized_latex:f.latex,review_status:f.status,
-        engine_version:f.engineVersion||'unknown',batch_id:batchId
-    })));
-    queries.push(sql.query(`
-        WITH expected_questions AS (
-            SELECT * FROM jsonb_to_recordset($3::jsonb) AS e(
-                id text,type text,level text,lesson text,content text,options jsonb,
-                answer text,image text,creator_id text)
-        ), saved_questions AS (
-            SELECT q.id,q.type,q.level,q.lesson,q.content,q.options::jsonb,
-                   q.answer,q.image,q.creator_id
-            FROM questions q JOIN word_import_items i ON q.id=i.question_id
-            WHERE i.batch_id=$1
-        ), question_differences AS (
-            (SELECT * FROM expected_questions EXCEPT ALL SELECT * FROM saved_questions)
-            UNION ALL
-            (SELECT * FROM saved_questions EXCEPT ALL SELECT * FROM expected_questions)
-        ), expected_sources AS (
-            SELECT * FROM jsonb_to_recordset($4::jsonb) AS e(
-                question_id text,source_token text,field_name text,source_type text,
-                source_omml text,normalized_latex text,review_status text,
-                engine_version text,batch_id text)
-        ), saved_sources AS (
-            SELECT question_id,source_token,field_name,source_type,source_omml,
-                   normalized_latex,review_status,engine_version,batch_id
-            FROM question_formula_sources WHERE batch_id=$1
-        ), source_differences AS (
-            (SELECT * FROM expected_sources EXCEPT ALL SELECT * FROM saved_sources)
-            UNION ALL
-            (SELECT * FROM saved_sources EXCEPT ALL SELECT * FROM expected_sources)
-        )
-        SELECT 1 / CASE WHEN
-            NOT EXISTS (SELECT 1 FROM question_differences)
-            AND NOT EXISTS (SELECT 1 FROM source_differences)
-            AND EXISTS (SELECT 1 FROM word_import_batches
-                        WHERE id=$1 AND creator_id=$2 AND expected_count=$5
-                              AND imported_count=$5 AND source_sha256=$6)
-        THEN 1 ELSE 0 END AS word_import_verified
-    `,[batchId,userId,JSON.stringify(expectedQuestions),JSON.stringify(expectedSources),
-        body.questions.length,String(body.sourceSha256||'')]));
-    await sql.transaction(queries,{isolationLevel:'Serializable'});
-    const result=await sql.query(
-        'SELECT COUNT(*)::integer AS n FROM word_import_items i JOIN questions q ON q.id=i.question_id WHERE i.batch_id=$1 AND q.creator_id=$2',
-        [batchId,userId]
-    );
-    const count=Number(result[0]?.n??-1);
-    if(count!==body.questions.length)throw new Error('Lỗi đối soát sau ghi: '+count+'/'+body.questions.length);
-    const persisted=await sql.query(
-        'SELECT q.id,q.type,q.level,q.lesson,q.content,q.options,q.answer,q.image FROM questions q JOIN word_import_items i ON q.id=i.question_id WHERE i.batch_id=$1 AND q.creator_id=$2',
-        [batchId,userId]
-    );
-    if(!Array.isArray(persisted)||persisted.length!==body.questions.length) {
-        throw new Error('CSDL không trả về toàn bộ nội dung câu hỏi vừa nhập');
-    }
-    const expected=new Map(body.questions.map((q:any)=>[String(q.id),q]));
-    for(const saved of persisted){
-        const original:any=expected.get(String(saved.id));
-        const storedOptions=typeof saved.options==='string'?JSON.parse(saved.options||'{}'):saved.options;
-        if(!original||saved.type!==original.type||saved.level!==original.level||
-            String(saved.lesson)!==String(original.lesson)||
-            String(saved.content)!==String(original.content)||
-            String(saved.answer)!==String(original.answer)||
-            String(saved.image||'')!==String(original.image||'')||
-            JSON.stringify(storedOptions)!==JSON.stringify(original.options||{})){
-            throw new Error('Dữ liệu câu hỏi sau lưu sai lệch với nguồn đã duyệt: '+String(saved.id));
-        }
-    }
-    const formulaCount=body.questions.reduce((sum:number,q:any)=>sum+q.formulaSources.length,0);
-    const sourceRecords=await sql.query(
-        'SELECT COUNT(*)::integer AS n FROM question_formula_sources WHERE batch_id=$1',
-        [batchId]
-    );
-    if(Number(sourceRecords[0]?.n??-1)!==formulaCount){
-        throw new Error('Số lượng công thức gốc sau lưu không đúng: '+formulaCount);
-    }
-    return {success:true,batchId,count,expected:body.questions.length,formulaCount};
 }
+const readImportedQuestionsQuery = `
+    WITH imported_ids AS (
+        SELECT value AS id FROM jsonb_array_elements_text($1::jsonb) AS value
+    )
+    SELECT q.id,q.type,q.level,q.lesson,q.content,q.options,q.answer,q.image,q.creator_id
+    FROM questions q JOIN imported_ids ids ON q.id=ids.id
+    WHERE q.creator_id=$2
+`;
+const verifyWithinTransactionQuery = `
+    WITH expected AS (
+        SELECT * FROM jsonb_to_recordset($1::jsonb) AS e(
+            id text,type text,level text,lesson text,content text,options jsonb,
+            answer text,image text,creator_id text)
+    ), actual AS (
+        SELECT q.id,q.type,q.level,q.lesson,q.content,q.options::jsonb,
+               q.answer,q.image,q.creator_id
+        FROM questions q JOIN expected e ON q.id=e.id
+        WHERE q.creator_id=$2
+    ), differences AS (
+        (SELECT * FROM expected EXCEPT ALL SELECT * FROM actual)
+        UNION ALL
+        (SELECT * FROM actual EXCEPT ALL SELECT * FROM expected)
+    )
+    SELECT 1 / CASE WHEN
+        NOT EXISTS (SELECT 1 FROM differences)
+        AND (SELECT COUNT(*) FROM actual)=$3
+    THEN 1 ELSE 0 END AS word_import_verified
+`;
+function questionRowsMatch(saved:any[], expected:any[]) {
+    if (!Array.isArray(saved) || saved.length!==expected.length) return false;
+    const expectedById=new Map(expected.map(q=>[q.id,q]));
+    if(expectedById.size!==expected.length)return false;
+    for (const row of saved) {
+        const original=expectedById.get(String(row.id));
+        if (!original || row.type!==original.type || row.level!==original.level ||
+            String(row.lesson)!==String(original.lesson) ||
+            String(row.content)!==String(original.content) ||
+            String(row.answer)!==String(original.answer) ||
+            String(row.image||'')!==String(original.image||'') ||
+            String(row.creator_id)!==String(original.creator_id)) return false;
+        let options;
+        try {options=typeof row.options==='string'?JSON.parse(row.options):row.options;}catch{return false;}
+        if(JSON.stringify(options||{})!==JSON.stringify(original.options||{}))return false;
+    }
+    return true;
+}
+export async function persistVerifiedWordImport(sql:any,userId:string,body:any) {
+    const issues=validateBatchPayload(body);
+    if (issues.length) throw new Error('Gói Word chưa đạt kiểm chứng: '+issues.slice(0,3).join('; '));
+
+    const ids=await deriveWordImportIds(userId,body.sourceSha256,body.questions.length);
+    const expected=canonicalWordQuestions(body,userId,ids);
+    const existing=await sql.query(readImportedQuestionsQuery,[JSON.stringify(ids),userId]);
+    const formulaCount=body.questions.reduce((sum:number,q:any)=>sum+q.formulaSources.length,0);
+    const importKey=ids[0].slice(3,-5);
+    const receipt=(duplicate:boolean)=>({
+        success:true,duplicate,batchId:body.batchId,importKey,
+        count:expected.length,expected:expected.length,formulaCount
+    });
+    if(existing.length) {
+        if(questionRowsMatch(existing,expected))return receipt(true);
+        throw new WordImportConflict('Tệp Word này đã được nhập hoặc một phần câu hỏi đã bị thay đổi. Không ghi đè dữ liệu cũ.');
+    }
+    const statements:any[]=[];
+    for (const q of expected) {
+        statements.push(sql.query(
+            'INSERT INTO questions (id,type,level,lesson,content,options,answer,image,creator_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',
+            [q.id,q.type,q.level,q.lesson,q.content,JSON.stringify(q.options),q.answer,q.image,userId]
+        ));
+    }
+    statements.push(sql.query(verifyWithinTransactionQuery,
+        [JSON.stringify(expected),userId,expected.length]));
+    await sql.transaction(statements,{isolationLevel:'Serializable'});
+
+    // If the response was lost after commit, retrying the original file is safe
+    // because ID generation is deterministic and exact readback is verified.
+    const persisted=await sql.query(readImportedQuestionsQuery,[JSON.stringify(ids),userId]);
+    if(!questionRowsMatch(persisted,expected)){
+        throw new Error('Dữ liệu câu hỏi sau lưu không khớp nguồn đã kiểm chứng; cần đối chiếu lại ngân hàng trước khi thử nhập.');
+    }
+    return receipt(false);
+}
+
 export const onRequestPost:PagesFunction<Env> = async(context)=>{
     const auth=context.request.headers.get('Authorization')||'';
     if(!auth.startsWith('Bearer '))return reply({error:'Chưa đăng nhập'},401);
@@ -230,16 +228,11 @@ export const onRequestPost:PagesFunction<Env> = async(context)=>{
         if(errors.length)return reply({success:false,error:'Dữ liệu nhập Word chưa đạt kiểm chứng',issues:errors},422);
         if(!db?.isNeon||!db?.connectionUrl)return reply({error:'CSDL không hỗ trợ giao dịch nhập Word an toàn'},503);
         const sql=neon(db.connectionUrl);
-        // Distinguish a deliberate duplicate import from a partial write.
-        // Schema may not yet exist on a first import; check only if present.
-        try {
-            const existing=await sql.query('SELECT id,imported_count FROM word_import_batches WHERE creator_id=$1 AND source_sha256=$2 LIMIT 1',[String(user.id),body.sourceSha256]);
-            if(existing.length)return reply({success:false,error:'File Word này đã được nhập trước đó. Mã phiên: '+existing[0].id,count:existing[0].imported_count},409);
-        }catch(e:any){if(!/does not exist/i.test(String(e?.message||e)))throw e;}
         const response=await persistVerifiedWordImport(sql,String(user.id),body);
-        return reply(response,201);
+        return reply(response,response.duplicate?200:201);
     } catch(e:any) {
-        console.error('[WordImport] atomic import failed:',String(e?.message||e).slice(0,200));
+        if(e?.code==='WORD_IMPORT_CONFLICT'||e?.code==='23505')return reply({success:false,error:'File Word đã tồn tại hoặc bị thay đổi. Không có dữ liệu nào bị ghi đè.'},409);
+        console.error('[WordImport] atomic import failed:,String(e?.message||e).slice(0,200));
         return reply({success:false,error:'Không xác nhận được biên nhận Import. Nếu kết nối lỗi sau khi commit, dữ liệu có thể đã lưu; hãy kiểm tra ngân hàng và lịch sử nhập trước khi thử lại.'},500);
     }
 };

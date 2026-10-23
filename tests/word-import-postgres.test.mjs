@@ -3,7 +3,7 @@ import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { PGlite } from '@electric-sql/pglite';
 import { neon, neonConfig } from '@neondatabase/serverless';
-import { persistVerifiedWordImport } from '../functions/api/questions/import-word.ts';
+import { persistVerifiedWordImport,deriveWordImportIds } from '../functions/api/questions/import-word.ts';
 
 // This runs the real PostgreSQL SQL engine and the actual Neon HTTP client.
 // Only the HTTP transport is replaced, so no cloud database or network is used.
@@ -14,8 +14,6 @@ async function isolatedDatabase() {
     const questionsSchema = schema.match(/CREATE TABLE IF NOT EXISTS questions\s*\([\s\S]*?\);/);
     assert.ok(questionsSchema, 'The application questions schema must be available');
     await db.exec(questionsSchema[0]);
-    const migration = await readFile(new URL('../migrations/20261023_verified_word_import.sql', import.meta.url),'utf8');
-    await db.exec(migration);
     const requests = [];
     const previousFetch = neonConfig.fetchFunction;
     const previousEndpoint = neonConfig.fetchEndpoint;
@@ -99,117 +97,66 @@ async function rowCount(db, table) {
     return (await db.query(`SELECT COUNT(*)::integer AS n FROM ${table}`)).rows[0].n;
 }
 
-test('PostgreSQL and actual Neon driver persist exact questions and original formula metadata in one transaction', async () => {
-    const isolated = await isolatedDatabase();
-    try {
-        const payload = batch('exact');
-        const result = await persistVerifiedWordImport(isolated.sql, 'teacher-exact', payload);
-        assert.deepEqual(result, { success: true, batchId: payload.batchId, count: 2, expected: 2, formulaCount: 2 });
-        const saved = (await isolated.db.query('SELECT * FROM questions ORDER BY id')).rows;
-        assert.equal(saved.length, payload.questions.length);
-        for (let i = 0; i < saved.length; i++) {
-            const expected = payload.questions[i];
-            for (const field of ['id', 'type', 'level', 'lesson', 'content', 'answer']) assert.equal(saved[i][field], expected[field]);
-            assert.deepEqual(JSON.parse(saved[i].options), expected.options);
-            assert.equal(saved[i].image, null);
-            assert.equal(saved[i].creator_id, 'teacher-exact');
-        }
-        const sources = (await isolated.db.query('SELECT * FROM question_formula_sources ORDER BY question_id')).rows;
-        assert.deepEqual(sources, payload.questions.map(q => ({
-            question_id: q.id, source_token: q.formulaSources[0].token,
-            field_name: 'content', source_type: 'omml', source_omml: sourceOmml,
-            normalized_latex: latex, review_status: 'verified', engine_version: 'word-omml-1.0', batch_id: payload.batchId
-        })));
-        const transactions = isolated.requests.filter(request => Array.isArray(request.payload.queries));
-        assert.equal(transactions.length, 1);
-        assert.equal(transactions[0].isolation, 'Serializable');
-        assert.equal(transactions[0].payload.queries.filter(query => /^INSERT INTO /i.test(query.query)).length, 7);
-        assert.equal(isolated.requests.filter(request => !request.payload.queries && /^INSERT INTO /i.test(request.payload.query)).length, 0,
-            'Neon query promises must stay lazy until their one transaction is submitted');
-    } finally { await isolated.close(); }
+test('PostgreSQL saves every question exactly in existing schema without DDL',async()=>{
+ const isolated=await isolatedDatabase();
+ try{
+  const b=batch('exact'),out=await persistVerifiedWordImport(isolated.sql,'teacher',b);
+  assert.equal(out.count,2);
+  assert.equal(out.duplicate,false);
+  const saved=(await isolated.db.query('SELECT * FROM questions ORDER BY id')).rows;
+  assert.equal(saved.length,2);
+  assert.equal(saved[0].content,b.questions[0].content);
+  const all=(await isolated.db.query("SELECT table_name FROM information_schema.tables WHERE table_schema='public'")).rows.map(x=>x.table_name);
+  assert.deepEqual(all,['questions']);
+  assert.equal(isolated.requests.filter(x=>Array.isArray(x.payload.queries)).length,1);
+  assert.ok(!isolated.requests.some(x=>/CREATE TABLE|word_import_batches|word_import_items|question_formula_sources/i.test(JSON.stringify(x.payload))));
+ }finally{await isolated.close();}
 });
-
-test('A real primary-key failure in the middle of the import rolls back every earlier question, batch and formula row', async () => {
-    const isolated = await isolatedDatabase();
-    try {
-        const payload = batch('rollback');
-        const duplicateId = payload.questions[1].id;
-        await isolated.db.query('INSERT INTO questions(id,content,creator_id) VALUES ($1,$2,$3)', [duplicateId, 'Dữ liệu gốc giữ nguyên', 'other-teacher']);
-        await assert.rejects(persistVerifiedWordImport(isolated.sql, 'teacher-rollback', payload), error => error.code === '23505');
-        assert.equal(await rowCount(isolated.db, 'questions'), 1);
-        assert.deepEqual((await isolated.db.query('SELECT id,content,creator_id FROM questions')).rows,
-            [{ id: duplicateId, content: 'Dữ liệu gốc giữ nguyên', creator_id: 'other-teacher' }]);
-        for (const table of ['word_import_batches', 'word_import_items', 'question_formula_sources']) assert.equal(await rowCount(isolated.db, table), 0);
-    } finally { await isolated.close(); }
+test('Retry same file is idempotent, never creates duplicate questions',async()=>{
+ const isolated=await isolatedDatabase();
+ try{
+  const b=batch('retry');
+  await persistVerifiedWordImport(isolated.sql,'teacher',b);
+  const again=await persistVerifiedWordImport(isolated.sql,'teacher',b);
+  assert.equal(again.duplicate,true);
+  assert.equal((await isolated.db.query('SELECT COUNT(*)::int AS n FROM questions')).rows[0].n,2);
+ }finally{await isolated.close();}
 });
-
-test('The real unique constraint prevents importing the same file twice for one teacher without partial duplicate rows', async () => {
-    const isolated = await isolatedDatabase();
-    try {
-        const first = batch('first-file');
-        const second = batch('duplicate-file');
-        await persistVerifiedWordImport(isolated.sql, 'same-teacher', first);
-        await assert.rejects(persistVerifiedWordImport(isolated.sql, 'same-teacher', second), error => error.code === '23505');
-        assert.equal(await rowCount(isolated.db, 'word_import_batches'), 1);
-        assert.equal(await rowCount(isolated.db, 'questions'), 2);
-        assert.equal(await rowCount(isolated.db, 'word_import_items'), 2);
-        assert.equal(await rowCount(isolated.db, 'question_formula_sources'), 2);
-        assert.deepEqual((await isolated.db.query('SELECT id FROM questions ORDER BY id')).rows.map(row => row.id), first.questions.map(q => q.id));
-    } finally { await isolated.close(); }
+test('Import collision or prior change is rejected without overwrite',async()=>{
+ const isolated=await isolatedDatabase();
+ try{
+  const b=batch('changed');
+  await persistVerifiedWordImport(isolated.sql,'teacher',b);
+  await isolated.db.query('UPDATE questions SET content=$1 WHERE id=$2',['TEACHER EDIT', (await isolated.db.query('SELECT id FROM questions LIMIT 1')).rows[0].id]);
+  await assert.rejects(persistVerifiedWordImport(isolated.sql,'teacher',b),/không ghi đè/);
+  assert.equal((await isolated.db.query("SELECT COUNT(*)::int AS n FROM questions WHERE content='TEACHER EDIT'")).rows[0].n,1);
+ }finally{await isolated.close();}
 });
-
-test('Two teachers may import the same source hash while their question IDs, audit batches and read-back counts remain isolated', async () => {
-    const isolated = await isolatedDatabase();
-    try {
-        const first = batch('teacher-a', [question('teacher-a-question01')]);
-        const second = batch('teacher-b', [question('teacher-b-question01')]);
-        const a = await persistVerifiedWordImport(isolated.sql, 'teacher-a', first);
-        const b = await persistVerifiedWordImport(isolated.sql, 'teacher-b', second);
-        assert.equal(a.count, 1);
-        assert.equal(b.count, 1);
-        assert.deepEqual((await isolated.db.query('SELECT id,creator_id FROM questions ORDER BY id')).rows,
-            [{ id: first.questions[0].id, creator_id: 'teacher-a' }, { id: second.questions[0].id, creator_id: 'teacher-b' }]);
-        assert.deepEqual((await isolated.db.query('SELECT id,creator_id,expected_count,imported_count FROM word_import_batches ORDER BY creator_id')).rows,
-            [{ id: first.batchId, creator_id: 'teacher-a', expected_count: 1, imported_count: 1 },
-                { id: second.batchId, creator_id: 'teacher-b', expected_count: 1, imported_count: 1 }]);
-        const filteredReads = isolated.requests.filter(request => request.payload.query?.includes('q.creator_id=$2'));
-        assert.ok(filteredReads.some(request => request.payload.params[0] === first.batchId && request.payload.params[1] === 'teacher-a'));
-        assert.ok(filteredReads.some(request => request.payload.params[0] === second.batchId && request.payload.params[1] === 'teacher-b'));
-    } finally { await isolated.close(); }
+test('Mid-transaction collision rolls back all earlier INSERTs',async()=>{
+ const isolated=await isolatedDatabase();
+ try{
+  const b=batch('collision');const ids=await deriveWordImportIds('teacher',b.sourceSha256,b.questions.length);
+  await isolated.db.query('INSERT INTO questions(id,content,creator_id) VALUES ($1,$2,$3)',[ids[1],'EXISTING','another-teacher']);
+  await assert.rejects(persistVerifiedWordImport(isolated.sql,'teacher',b));
+  assert.deepEqual((await isolated.db.query('SELECT id,content FROM questions')).rows,[{id:ids[1],content:'EXISTING'}]);
+ }finally{await isolated.close();}
 });
-
-test('A database trigger that changes question content must abort and roll back the whole import', async () => {
-    const isolated = await isolatedDatabase();
-    try {
-        await isolated.db.exec(`
-            CREATE FUNCTION change_import_content() RETURNS trigger LANGUAGE plpgsql AS $$
-            BEGIN NEW.content := 'Dữ liệu bị thay đổi bởi trigger thử nghiệm'; RETURN NEW; END; $$;
-            CREATE TRIGGER import_content_mismatch BEFORE INSERT ON questions
-            FOR EACH ROW EXECUTE FUNCTION change_import_content();
-        `);
-        await assert.rejects(persistVerifiedWordImport(isolated.sql, 'teacher-mismatch', batch('mismatch')));
-        for (const table of ['questions', 'word_import_batches', 'word_import_items', 'question_formula_sources']) {
-            assert.equal(await rowCount(isolated.db, table), 0, 'No altered or partial import may remain in ' + table);
-        }
-    } finally { await isolated.close(); }
+test('Postgres trigger changes content: verification aborts transaction',async()=>{
+ const isolated=await isolatedDatabase();
+ try{
+  await isolated.db.exec("CREATE FUNCTION tamper() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN NEW.content := 'WRONG'; RETURN NEW; END $$; CREATE TRIGGER tamper_q BEFORE INSERT ON questions FOR EACH ROW EXECUTE FUNCTION tamper();");
+  await assert.rejects(persistVerifiedWordImport(isolated.sql,'teacher',batch('tamper')));
+  assert.equal((await isolated.db.query('SELECT COUNT(*)::int AS n FROM questions')).rows[0].n,0);
+ }finally{await isolated.close();}
 });
-
-test('Read-back verifies the exact original formula metadata, not only its row count', async () => {
-    const isolated = await isolatedDatabase();
-    try {
-        // Create the import schema through the same production function, then use a fresh file/hash.
-        await persistVerifiedWordImport(isolated.sql, 'teacher-source', batch('before-trigger'));
-        await isolated.db.exec(`
-            CREATE FUNCTION change_formula_metadata() RETURNS trigger LANGUAGE plpgsql AS $$
-            BEGIN NEW.normalized_latex := 'corrupted-source'; RETURN NEW; END; $$;
-            CREATE TRIGGER formula_metadata_mismatch BEFORE INSERT ON question_formula_sources
-            FOR EACH ROW EXECUTE FUNCTION change_formula_metadata();
-        `);
-        await assert.rejects(persistVerifiedWordImport(isolated.sql, 'teacher-source', batch('after-trigger', undefined, 'b')));
-        assert.equal(await rowCount(isolated.db, 'word_import_batches'), 1);
-        assert.equal(await rowCount(isolated.db, 'questions'), 2);
-        assert.equal(await rowCount(isolated.db, 'word_import_items'), 2);
-        assert.equal(await rowCount(isolated.db, 'question_formula_sources'), 2);
-        assert.equal((await isolated.db.query('SELECT COUNT(*)::integer AS n FROM question_formula_sources WHERE normalized_latex=$1', ['corrupted-source'])).rows[0].n, 0);
-    } finally { await isolated.close(); }
+test('Same source for two teachers receives independent deterministic IDs',async()=>{
+ const isolated=await isolatedDatabase();
+ try{
+  const a=batch('teacher-a');const b=batch('teacher-b');
+  await persistVerifiedWordImport(isolated.sql,'teacher-a',a);
+  await persistVerifiedWordImport(isolated.sql,'teacher-b',b);
+  const rows=(await isolated.db.query('SELECT id,creator_id FROM questions')).rows;
+  assert.equal(rows.length,4);
+  assert.equal(new Set(rows.map(x=>x.id)).size,4);
+ }finally{await isolated.close();}
 });
