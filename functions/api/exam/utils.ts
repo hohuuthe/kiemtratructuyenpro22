@@ -355,8 +355,6 @@ export async function getDynamicSecret(db: any, envSecret?: string) {
     try {
         if (!db) {
             throw new Error("JWT_SECRET required if database secret unavailable");
-            secretByDbCache.set(dbKey, fallbackSecret);
-            return fallbackSecret;
         }
         await db.prepare("CREATE TABLE IF NOT EXISTS _internal_secrets (key TEXT PRIMARY KEY, value TEXT)").run();
         const { results } = await db.prepare("SELECT value FROM _internal_secrets WHERE key = 'jwt'").all();
@@ -371,8 +369,6 @@ export async function getDynamicSecret(db: any, envSecret?: string) {
         return newSecret;
     } catch (e) {
         throw new Error("JWT_SECRET required if database secret unavailable");
-        secretByDbCache.set(dbKey, fallbackSecret);
-        return fallbackSecret;
     }
 }
 
