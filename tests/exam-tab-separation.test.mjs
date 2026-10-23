@@ -103,9 +103,11 @@ test('Security invariants: tenant routing, account secrecy and atomic exam revis
  const exams=read('functions/api/exams.ts');
  const accounts=read('functions/api/accounts.ts');
  const drafts=read('src/exam-editor-safety.js');
- assert.ok(adapter.includes('TENANT_HOST_MAP'));
- assert.ok(adapter.includes('Untrusted tenant selector'));
- assert.ok(adapter.includes('approvedHosts[host]'));
+ const hostMap=read('src/tenant-host-map.ts');
+ assert.ok(adapter.includes('resolveTenantFromRequest(request, env)'));
+ assert.ok(hostMap.includes('TENANT_HOST_MAP'));
+ assert.ok(hostMap.includes('Hostname is not registered'));
+ assert.ok(!adapter.includes('extractTenantSlug(req)'));
  assert.ok(!accounts.includes('SELECT accounts.id, accounts.user_id, accounts.username, accounts.password'));
  assert.ok(exams.includes('expected_updated_at'));
  assert.ok(exams.includes('updated_at IS NOT DISTINCT FROM ?'));
@@ -118,9 +120,9 @@ test('Security invariants: tenant routing, account secrecy and atomic exam revis
 test('Authentication is bound to live account state and privilege cannot rely on cached claims',()=>{
  const utils=read('functions/api/exam/utils.ts');
  const login=read('functions/api/auth/login.ts');
- for(const p of ["export async function verifyAuthSession(","accountProof(account, secret)","isLiveAccount(account)","decoded.tokenType !== 'auth'","account.role","account.password","profile_expiry_date"])assert.ok(utils.includes(p),p);
+ for(const p of ["export async function verifyAuthSession(","accountProof(account, secret, tenantKey)","isLiveAccount(account)","decoded.tokenType !== 'auth'","account.role","account.password","profile_expiry_date"])assert.ok(utils.includes(p),p);
  assert.ok(login.includes('signAuthSession(account,'));
- assert.ok(utils.includes('const actual = await accountProof(account, secret)'));
+ assert.ok(utils.includes('const actual = await accountProof(account, secret, String(db.connectionUrl || ''))'));
  for(const path of ['functions/api/exams.ts','functions/api/questions.ts','functions/api/results.ts','functions/api/accounts.ts','functions/api/users.ts','functions/api/teacher-classes.ts']) {
    const t=read(path);
    assert.ok(t.includes('verifyAuthSession('),path);
