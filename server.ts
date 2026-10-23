@@ -2625,6 +2625,10 @@ async function startServer() {
 
       // 3. Tải danh sách kết quả theo mã chia sẻ (?examId=xxx)
       if (examIdParam) {
+        if (isTeacher) {
+          const { results: ownExam } = await executeSqlQuery("SELECT id FROM exam_configs WHERE id = ? AND creator_id = ?", [examIdParam, user.id]);
+          if (!ownExam?.length) return res.status(403).json({ data: [], error: "Không có quyền xem đề thi này" });
+        }
         if (!isAdmin && !isTeacher) {
           const { results: sharedExam } = await executeSqlQuery(
             "SELECT id FROM exam_configs WHERE id = ? AND (is_shared_results = 1 OR is_shared_results = 'true' OR is_shared_results = true)",
