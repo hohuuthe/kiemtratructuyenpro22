@@ -198,11 +198,18 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
           options = excluded.options,
           answer = excluded.answer,
           image = excluded.image
+        WHERE questions.creator_id = excluded.creator_id
       `;
 
       for (const q of questions) {
         const qId = q.id || crypto.randomUUID();
-        const creatorId = (isAdmin && q.creatorId) ? q.creatorId : (q.creatorId || user.id);
+        const creatorId = isAdmin ? (q.creatorId || user.id) : user.id;
+        if (!isAdmin && q.id) {
+          const record = await db.prepare("SELECT creator_id FROM questions WHERE id = ?").bind(q.id).first();
+          if (record && String(record.creator_id) !== String(user.id)) {
+            return new Response(JSON.stringify({error:'Không có quyền sửa câu hỏi của tài khoản khác'}), {status:403,headers:corsHeaders});
+          }
+        }
         const safeOptions = typeof q.options === 'object' ? JSON.stringify(q.options) : (q.options || '{}');
 
         await db.prepare(upsertSql).bind(
