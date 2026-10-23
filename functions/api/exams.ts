@@ -240,36 +240,10 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     }), { status: 200, headers: corsHeaders });
   } catch (e: any) {
     console.warn("GET /api/exams fallback:", e.message || e);
-    const fallbackExams = [
-      {
-        id: 1789529400,
-        name: "TIN 12 - BÀI 1 (BỘ 15 CÂU)",
-        creator_id: "918ca52a-4656-4aeb-aa22-650c1d8946d3",
-        creatorId: "918ca52a-4656-4aeb-aa22-650c1d8946d3",
-        creator_name: "Hồ Hữu Thế",
-        creatorName: "Hồ Hữu Thế",
-        teacher_donvi: "THPT Lê Hoàn",
-        chedodethi: "Đề công khai",
-        mabaomatdethi: "",
-        time_limit: 45,
-        timeLimit: 45,
-        count_41: 15,
-        countTF4: 0,
-        countSQ: 0,
-        countTL: 0,
-        points_41: 10,
-        points_tf4: 0,
-        points_sq: 0,
-        points_tl: 0,
-        is_shared_results: true,
-        isSharedResults: true,
-        max_cheat_warnings: 5,
-        maxCheatWarnings: 5,
-        created_at: "2026-09-28T00:00:00.000Z"
-      }
-    ];
-    const allCreatorIds = ["918ca52a-4656-4aeb-aa22-650c1d8946d3"];
-    return new Response(JSON.stringify({ data: fallbackExams, allCreatorIds, error: null }), { status: 200, headers: corsHeaders });
+    // Fail closed: never fabricate exams after a database error.
+    return new Response(JSON.stringify({ data: null, error: 'Không thể tải danh sách đề thi từ cơ sở dữ liệu.' }), {
+      status: 503, headers: corsHeaders
+    });
   }
 };
 
@@ -307,7 +281,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       return new Response(JSON.stringify({ error: "Tên đề thi không được để trống" }), { status: 400, headers: corsHeaders });
     }
 
-    const assignedCreatorId = (isAdmin && (creator_id || creatorId)) ? (creator_id || creatorId) : (user.id || creator_id || creatorId);
+    const assignedCreatorId = (isAdmin && (creator_id || creatorId)) ? (creator_id || creatorId) : user.id;
+    // The server, not the client, controls ownership of new records.
+    if (!assignedCreatorId) return new Response(JSON.stringify({error:'Không xác định được tài khoản tạo đề'}), {status:403,headers:corsHeaders});
     const timeLimitVal = Number(body.time_limit ?? body.timeLimit ?? body.time ?? 45) || 45;
     const count41Val = Number(body.count_41 ?? body.count41 ?? body.num_trac_nghiem ?? 0) || 0;
     const countTF4Val = Number(body.count_tf4 ?? body.countTF4 ?? body.num_dung_sai ?? 0) || 0;
@@ -383,7 +359,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       return new Response(JSON.stringify({ success: true, type: 'updated', id: existingRecord.id, error: null }), { status: 200, headers: corsHeaders });
     } else {
       // Tạo mới
-      const newId = (id && /^\d+$/.test(String(id))) ? Number(id) : (typeof id === 'number' ? id : (Math.floor(Date.now() / 1000) + Math.floor(Math.random() * 1000)));
+      const newId = crypto.randomUUID();
       const insertSql = `
         INSERT INTO exam_configs (
           id, name, creator_id, time_limit, count_41, count_tf4, count_sq, count_tl,
