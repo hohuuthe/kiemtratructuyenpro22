@@ -739,8 +739,9 @@ async function startServer() {
           lop: account.lop || ''
       }, secret);
       
+      const { password: _passwordHash, ...safeAccount } = account;
       res.json({
-          data: account,
+          data: safeAccount,
           token: token,
           error: null
       });
