@@ -24,7 +24,9 @@ test('Nav, authorization and load flow target new editor tab',()=>{
  assert.ok(app.includes("tab === 'questions' || tab === 'exams' || tab === 'exam-editor'"));
  assert.ok(app.includes('await openExamEditorTab({newExam:false});'));
  assert.ok(app.includes('window.startNewExamConfig = async function startNewExamConfig()'));
- assert.ok(app.includes('if (newExam) resetExamPanelToDefault();'));
+ const openEditor = app.slice(app.indexOf('async function openExamEditorTab('), app.indexOf('window.startNewExamConfig = async function'));
+ assert.match(openEditor, /if\s*\(newExam\)\s*\{[^}]*\+\+examConfigLoadSeq;[^}]*resetExamPanelToDefault\(\);/s,
+   'Tạo mới must cancel pending requests and reset the configuration');
  assert.ok(app.includes('if (examEditorInitialized) {'));
 });
 test('Business save, export and delete functions still exist',()=>{
