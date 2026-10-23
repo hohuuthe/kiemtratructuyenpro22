@@ -599,3 +599,34 @@ button { touch-action: manipulation; }
   background: transparent;
   box-shadow: none;
 }
+
+/* Stable authoring workspace across manual, AI and Word-import steps.
+   The dialog is consistently sized on desktop; only its content scrolls. */
+#modal-content.question-authoring-modal {
+  box-sizing: border-box;
+  width: min(1024px, calc(100vw - 32px));
+  max-width: min(1024px, calc(100vw - 32px));
+  min-width: 0;
+  height: min(780px, calc(100vh - 32px));
+  height: min(780px, calc(100dvh - 32px));
+  min-height: 0;
+  max-height: min(780px, calc(100dvh - 32px));
+  overflow-x: hidden;
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+}
+#modal-content.question-authoring-modal > :first-child { min-width: 0; max-width: 100%; box-sizing: border-box; }
+#modal-content.question-authoring-modal input,
+#modal-content.question-authoring-modal textarea,
+#modal-content.question-authoring-modal select { min-width: 0; max-width: 100%; box-sizing: border-box; }
+#modal-content.question-authoring-modal img { max-width: 100%; height: auto; }
+@media (max-width: 639px) {
+  #modal-content.question-authoring-modal {
+    width: calc(100vw - 16px);
+    max-width: calc(100vw - 16px);
+    height: min(780px, calc(100dvh - 16px));
+    max-height: min(780px, calc(100dvh - 16px));
+    border-radius: 16px;
+  }
+}
