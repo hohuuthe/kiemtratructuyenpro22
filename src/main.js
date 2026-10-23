@@ -10033,17 +10033,9 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                             </div>
                         ` : ''}
 
-                        <!-- Footer đáp án & Nút hành động bổ sung -->
-                        <div class="w-full pt-2 border-t border-gray-100 text-xs sm:text-sm text-gray-600 flex flex-wrap items-center justify-between gap-2">
+                        <!-- Footer đáp án: các nút Sửa/Xóa chỉ đặt tại header của câu hỏi -->
+                        <div class="w-full pt-2 border-t border-gray-100 text-xs sm:text-sm text-gray-600">
                             <div class="font-medium text-gray-700">Đáp án: <span class="font-bold text-green-600">${formatContent(q.answer)}</span></div>
-                            <div class="flex items-center gap-2 ml-auto">
-                                <button type="button" onclick="editQuestion('${idStr}')" class="px-2.5 py-1 bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 rounded-md transition text-xs font-bold flex items-center gap-1 cursor-pointer" title="Sửa câu hỏi">
-                                    <span>✏️ Sửa</span>
-                                </button>
-                                <button type="button" onclick="deleteQuestion('${idStr}')" class="px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white rounded-md transition text-xs font-bold flex items-center gap-1 cursor-pointer shadow-xs active:scale-95" title="Xóa câu hỏi">
-                                    <span>🗑️ Xóa</span>
-                                </button>
-                            </div>
                         </div>
 
                         ${q.options && q.options.answerImage ? `<div class="mt-2"><img src="${q.options.answerImage}" alt="Answer Image" class="max-w-full sm:max-w-md h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage('${q.options.answerImage}')"></div>` : ''}
