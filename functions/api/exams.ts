@@ -83,6 +83,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
       await db.prepare("ALTER TABLE exam_configs ADD COLUMN tieu_de_bai_thi TEXT").run();
     } catch (e) {}
 
+    await db.prepare('ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS revision INTEGER NOT NULL DEFAULT 1').run();
     // 1. Lấy chi tiết một đề thi theo ID
     if (idParam) {
       const query = "SELECT * FROM exam_configs WHERE id = ?";
