@@ -55,7 +55,7 @@ export function restoreSafeHtmlTags(html: string): string {
         const close = new RegExp('&lt;\\/'+tag+'&gt;', 'gi');
         value=value.replace(open,'<'+tag+'>').replace(close,'</'+tag+'>');
     }
-    return value.replace(/&lt;br\\s*\\/?&gt;/gi,'<br/>');
+    return value.replaceAll('&lt;br&gt;', '<br/>').replaceAll('&lt;br/&gt;', '<br/>');
 }
 
 export function unescapeHtmlInsideMath(mathStr: string): string {
