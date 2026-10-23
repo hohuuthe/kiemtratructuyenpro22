@@ -2551,7 +2551,7 @@ async function startServer() {
             return res.status(403).json({ data: null, error: "Bạn không có quyền xem chi tiết kết quả này" });
           }
         } else if (isStudent) {
-          const isOwner = (row.user_id && (row.user_id === user.id || row.user_id === user.user_id)) || (!row.user_id && row.student_name === user.full_name);
+          const isOwner = row.user_id && (row.user_id === user.id || row.user_id === user.user_id);
           if (!isOwner) {
             return res.status(403).json({ data: null, error: "Bạn chỉ có thể xem chi tiết bài thi của chính mình" });
           }
@@ -2875,27 +2875,21 @@ async function startServer() {
             const delRes = await executeSqlQuery(
               `DELETE FROM results WHERE CAST(id AS TEXT) = ? AND (
                  CAST(exam_id AS TEXT) IN (SELECT CAST(id AS TEXT) FROM exam_configs WHERE creator_id = ? OR creator_id = ? OR creator_id = ?)
-                 OR LOWER(TRIM(exam_name)) IN (SELECT LOWER(TRIM(name)) FROM exam_configs WHERE creator_id = ? OR creator_id = ? OR creator_id = ?)
-                 OR user_id = ? OR user_id = ?
+
                )`,
               [
                 id,
-                teacherIdentifiers[0] || '', teacherIdentifiers[1] || '', teacherIdentifiers[2] || '',
-                teacherIdentifiers[0] || '', teacherIdentifiers[1] || '', teacherIdentifiers[2] || '',
-                teacherIdentifiers[0] || '', teacherIdentifiers[1] || ''
+                teacherIdentifiers[0] || '', teacherIdentifiers[1] || '', teacherIdentifiers[2] || ''
               ]
             );
             if (delRes && delRes.changes) {
               deletedCount += delRes.changes;
-            } else {
-              const fallbackRes = await executeSqlQuery(`DELETE FROM results WHERE CAST(id AS TEXT) = ?`, [id]);
-              deletedCount += (fallbackRes.changes || 1);
             }
           }
         }
       }
 
-      return res.json({ success: true, message: `Đã xóa ${deletedCount || ids.length} kết quả`, error: null });
+      return res.json({ success: true, message: `Đã xóa ${deletedCount} kết quả`, error: null });
     } catch (e: any) {
       if (e && e.message && e.message.includes("hạn mức dữ liệu")) {
         return res.status(400).json({ error: e.message });
@@ -3900,23 +3894,25 @@ CLOUDFLARE_R2_PUBLIC_URL: "${r2PublicUrl}"
   // ==========================================
   
   
-let cachedJwtSecret: string | null = null;
+const cachedJwtSecrets = new Map<string, string>();
 async function getServerSecret(): Promise<string> {
     if (process.env.JWT_SECRET) return process.env.JWT_SECRET;
-    if (cachedJwtSecret) return cachedJwtSecret;
+    const currentDb = tenantStorage.getStore()?.databaseUrl;
+    if (!currentDb) throw new Error('Tenant not configured');
+    if (cachedJwtSecrets.has(currentDb)) return cachedJwtSecrets.get(currentDb)!;
     try {
         await executeSqlQuery("CREATE TABLE IF NOT EXISTS _internal_secrets (key TEXT PRIMARY KEY, value TEXT)", []);
         const { results } = await executeSqlQuery("SELECT value FROM _internal_secrets WHERE key = 'jwt'", []);
         if (results && results.length > 0 && results[0]?.value) {
-            cachedJwtSecret = results[0].value;
-            return cachedJwtSecret;
+            cachedJwtSecrets.set(currentDb, results[0].value);
+            return results[0].value;
         }
         const newSecret = crypto.randomUUID() + "-" + crypto.randomUUID();
         await executeSqlQuery("INSERT OR REPLACE INTO _internal_secrets (key, value) VALUES (?, ?)", ['jwt', newSecret]);
-        cachedJwtSecret = newSecret;
-        return cachedJwtSecret;
+        cachedJwtSecrets.set(currentDb, newSecret);
+        return newSecret;
     } catch(e) {
-        return "FALLBACK_TO_HARDCODED_ONLY_IF_DB_FAILS_12345_XYZ";
+        throw new Error('JWT secret unavailable');
     }
 }
 
