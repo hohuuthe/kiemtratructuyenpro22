@@ -64,7 +64,7 @@ export async function onRequestGet(context: any) {
     try {
         if (isAdmin) {
             query = `
-                SELECT accounts.id, accounts.user_id, accounts.username, accounts.password, accounts.role, accounts.is_active, accounts.expiry_date, accounts.created_at,
+                SELECT accounts.id, accounts.user_id, accounts.username, accounts.role, accounts.is_active, accounts.expiry_date, accounts.created_at,
                        users.full_name, users.phone_number, users.donvi, users.lop, users.target_audience
                 FROM accounts
                 LEFT JOIN users ON users.id = COALESCE(accounts.user_id, accounts.id)
