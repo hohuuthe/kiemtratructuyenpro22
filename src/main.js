@@ -14334,14 +14334,7 @@ if (contentType && contentType.includes("application/json")) {
                 examConfig.isSharedResults = getChecked('exam-config-shared-results');
                 
                 // Mã chia sẻ kết quả gắn prefix
-                if (examConfig.id && typeof examConfig.id !== 'number') {
-                    const parsedId = parseInt(examConfig.id, 10);
-                    if (isNaN(parsedId)) {
-                        examConfig.id = Math.floor(Date.now() / 1000);
-                    } else {
-                        examConfig.id = parsedId;
-                    }
-                }
+                // IDs may be historical numbers or secure UUIDs. Never cast or regenerate an existing ID.
                 // Server allocates a fresh ID for every new exam.
                 
                 if (examConfig.isSharedResults) {
