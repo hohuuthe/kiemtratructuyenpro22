@@ -25,7 +25,7 @@ export function normalizeWordImportAnswer(type, answer) {
             {ok:false, reason:'Đáp án trắc nghiệm phải đúng một ký tự A, B, C hoặc D'};
     }
     if (type === 'TF4') {
-        const compact = raw.toUpperCase().replace(/\\s+/g,'');
+        const compact = raw.toUpperCase().replace(/\s+/g,'');
         let letters;
         if (/^[ĐS]{4}$/.test(compact)) {
             letters = [...compact].flatMap((v,i)=>v==='Đ' ? ['ABCD'[i]] : []);
@@ -37,7 +37,7 @@ export function normalizeWordImportAnswer(type, answer) {
             return {ok:false,reason:'Đáp án Đúng/Sai phải là bốn ký tự Đ/S hoặc danh sách các ý đúng A&B'};
         }
         if (new Set(letters).size !== letters.length) return {ok:false,reason:'Đáp án Đúng/Sai bị lặp ý'};
-        return {ok:true,value:letters.sort().join('&')};
+        return {ok:true,value:letters.length ? letters.sort().join('&') : 'NONE'};
     }
     if (type === 'SQ' || type === 'TL')
         return raw ? {ok:true,value:raw} : {ok:false,reason:'Thiếu đáp án'};
