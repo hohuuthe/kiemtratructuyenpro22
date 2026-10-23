@@ -30,7 +30,7 @@ test('Nav, authorization and load flow target new editor tab',()=>{
  assert.ok(app.includes('if (examEditorInitialized) {'));
 });
 test('Business save, export and delete functions still exist',()=>{
- for(const fn of ['window.saveExamConfig = async function saveExamConfig','saveExamConfigToDB()','window.deleteExamConfig = async function deleteExamConfig','window.openExportDocxModal = async function openExportDocxModal'])assert.ok(app.includes(fn),fn);
+ for(const fn of ['window.saveExamConfig = async function saveExamConfig','saveExamConfigToDB(draft, expected)','window.deleteExamConfig = async function deleteExamConfig','window.openExportDocxModal = async function openExportDocxModal'])assert.ok(app.includes(fn),fn);
 });
 
 test('Account transition clears editor, lesson checkboxes and cached exam list',()=>{
