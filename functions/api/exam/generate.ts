@@ -1,4 +1,4 @@
-import { signJWT, verifyJWT, getDynamicSecret, getDatabase } from './utils';
+import { signJWT, verifyAuthSession, getDynamicSecret, getDatabase } from './utils';
 import {makeGradeSessionConfig, accessCodeMatches} from './security';
 
 interface Env {
@@ -166,7 +166,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         if (authHeader && authHeader.startsWith('Bearer ')) {
             const token = authHeader.substring(7);
             try { 
-                tokenUser = await verifyJWT(token, SECRET); 
+                tokenUser = await verifyAuthSession(token, SECRET, db); 
                 if (tokenUser && (tokenUser.id || tokenUser.user_id)) {
                     try {
                         const { results: uRows } = await db.prepare(
