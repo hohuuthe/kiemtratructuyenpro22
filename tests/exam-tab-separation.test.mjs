@@ -93,7 +93,8 @@ test('Server-side exam confidentiality, JWT expiry and cross-owner write guards'
  assert.ok(generate.includes('makeGradeSessionConfig(activeExamConfig)'));
  assert.ok(questions.includes('WHERE questions.creator_id = excluded.creator_id'));
  assert.ok(login.includes('safeAccount'));
- assert.ok(login.includes('exp: Math.floor(Date.now() / 1000) + 12 * 3600'));
+ assert.ok(login.includes('signAuthSession(account,'));
+ assert.ok(utils.includes('exp:now + 12*3600'));
  assert.ok(utils.includes('Number(claims.exp) <= now'));
 });
 
