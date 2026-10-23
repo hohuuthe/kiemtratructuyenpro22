@@ -64,6 +64,7 @@ export async function onRequest(context: any): Promise<Response> {
     headers.set('Referrer-Policy','no-referrer');
     headers.set('Vary','Authorization, Origin');
     headers.set('Access-Control-Allow-Origin',origin || url.origin);
+    if (url.pathname === '/api/health') return new Response(result.body,{status:result.status,statusText:result.statusText,headers});
     if (result.status >= 500) return new Response(JSON.stringify({error:'Service unavailable. Your changes have not been confirmed.',code:'SERVICE_UNAVAILABLE'}),{status:result.status,headers});
     return new Response(result.body,{status:result.status,statusText:result.statusText,headers});
   } catch(error: any) {
