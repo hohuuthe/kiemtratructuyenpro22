@@ -1,5 +1,6 @@
 
 import 'katex/dist/katex.min.css';
+import { createEmptyExamDraft, mapStoredExamToDraft, resolveExamSaveIdentity } from './exam-editor-safety.js';
 import './style.css';
 import './pwa-manager.js';
 import './teacher-assignment.js';
@@ -5224,6 +5225,7 @@ if (contentType && contentType.includes("application/json")) {
 
         window.resetExamPanelToDefault = resetExamPanelToDefault;
         function resetExamPanelToDefault() {
+            ++examConfigLoadSeq;
             const selectEl = document.getElementById('exam-config-name');
             if (selectEl) selectEl.value = '';
 
@@ -5295,47 +5297,19 @@ if (contentType && contentType.includes("application/json")) {
             if (configDisplay) configDisplay.classList.add('hidden');
 
             // Reset global examConfig state
-            examConfig = {
-                id: '',
-                name: '',
-                creatorId: currentUser ? currentUser.id : '',
-                creatorName: currentUser ? currentUser.full_name : '',
-                chedodethi: 'Đề công khai',
-                mabaomatdethi: '',
-                target_lop: '',
-                targetLop: '',
-                lop: '',
-                target_donvi: '',
-                donvi: '',
-                timeLimit: 45,
-                count41: 0,
-                countTF4: 0,
-                countSQ: 0,
-                countTL: 0,
-                count41NB: 0, count41TH: 0, count41VD: 0,
-                countTF4NB: 0, countTF4TH: 0, countTF4VD: 0,
-                countSQNB: 0, countSQTH: 0, countSQVD: 0,
-                countTLNB: 0, countTLTH: 0, countTLVD: 0,
-                selectedLessons: [],
-                aiPrompt: '',
-                aiGradingKey: '',
-                points41: 1,
-                pointsTF4: 1,
-                pointsSQ: 1,
-                pointsTL: 1,
-                tf4ScoringMode: false,
-                tf4Points: { 1: 0.25, 2: 0.50, 3: 0.75, 4: 1.0 },
-                immediateFeedback: false,
-                sqCaseSensitive: false,
-                sqPunctuationSensitive: false,
-                autoGradeEssay: false,
-                showScore: true,
-                showDetails: false,
-                isSharedResults: false,
-                maxAttempts: 0,
-                max_attempts: 0,
-                accessControl: { enabled: false, startTime: '', endTime: '' }
-            };
+            examConfig = createEmptyExamDraft(currentUser);
+            examEditorRevision += 1;
+            document.getElementById('tf4-advanced-scoring')?.classList.add('hidden');
+            for (const [key, value] of Object.entries(examConfig.tf4Points)) {
+                const field = document.getElementById('tf4-points-' + key);
+                if (field) field.value = String(value);
+            }
+            const attemptsInput = document.getElementById('exam-config-max-attempts');
+            if (attemptsInput) attemptsInput.value = '0';
+            document.getElementById('btn-export-exam-docx')?.classList.add('hidden');
+            document.getElementById('teacher-quick-classes-container')?.classList.add('hidden');
+            const quickClasses = document.getElementById('teacher-quick-classes-list');
+            if (quickClasses) quickClasses.innerHTML = '';
 
             const lopInput = document.getElementById('exam-config-lop');
             if (lopInput) lopInput.value = '';
@@ -6586,76 +6560,14 @@ if (contentType && contentType.includes("application/json")) {
         }
 
         function applyExamConfig(cData) {
-            let parsedLessons = cData.selected_lessons || [];
-            if (typeof parsedLessons === 'string') {
-                try { parsedLessons = JSON.parse(parsedLessons); } catch(e) { parsedLessons = []; }
+            // Never merge missing fields from a previously loaded exam.
+            examConfig = mapStoredExamToDraft(cData, {currentUser, accounts, accountsMap});
+            examEditorRevision += 1;
+            document.getElementById('tf4-advanced-scoring')?.classList.toggle('hidden', !examConfig.tf4ScoringMode);
+            for (const [key, value] of Object.entries(examConfig.tf4Points)) {
+                const field = document.getElementById('tf4-points-' + key);
+                if (field) field.value = String(value);
             }
-            
-            let parsedCountsDetail = cData.counts_detail || {};
-            if (typeof parsedCountsDetail === 'string') {
-                try { parsedCountsDetail = JSON.parse(parsedCountsDetail); } catch(e) { parsedCountsDetail = {}; }
-            }
-            
-            let parsedAccessControl = cData.access_control || {};
-            if (typeof parsedAccessControl === 'string') {
-                try { parsedAccessControl = JSON.parse(parsedAccessControl); } catch(e) { parsedAccessControl = {}; }
-            }
-
-            cData.selected_lessons = parsedLessons;
-            cData.counts_detail = parsedCountsDetail;
-            cData.access_control = parsedAccessControl;
-
-            examConfig = {
-                ...examConfig, 
-                id: cData.id,
-                name: cData.name, 
-                creatorId: cData.creator_id,
-                creatorName: accounts.find(a => a.id === cData.creator_id)?.full_name || accountsMap[cData.creator_id] || 'Người dùng hệ thống', 
-                chedodethi: cData.chedodethi || 'Đề công khai',
-                mabaomatdethi: cData.mabaomatdethi || '',
-                timeLimit: cData.time_limit, 
-                count41: cData.count_41, 
-                countTF4: cData.count_tf4, 
-                countSQ: cData.count_sq, 
-                count41NB: cData.counts_detail?.count41NB || 0, 
-                count41TH: cData.counts_detail?.count41TH || 0, 
-                count41VD: cData.counts_detail?.count41VD || 0, 
-                countTF4NB: cData.counts_detail?.countTF4NB || 0, 
-                countTF4TH: cData.counts_detail?.countTF4TH || 0, 
-                countTF4VD: cData.counts_detail?.countTF4VD || 0, 
-                countSQNB: cData.counts_detail?.countSQNB || 0, 
-                countSQTH: cData.counts_detail?.countSQTH || 0, 
-                countSQVD: cData.counts_detail?.countSQVD || 0, 
-                countTL: cData.count_tl || 0,
-                countTLNB: cData.counts_detail?.countTLNB || 0,
-                countTLTH: cData.counts_detail?.countTLTH || 0,
-                countTLVD: cData.counts_detail?.countTLVD || 0,
-                creatorId: cData.creator_id || cData.counts_detail?.creatorId || null, 
-                selectedLessons: cData.selected_lessons || [], 
-                aiPrompt: cData.ai_prompt || '',
-                aiGradingKey: cData.ai_grading_key || '',
-                points41: parseFloat(cData.points_41 || 1), 
-                pointsTF4: parseFloat(cData.points_tf4 || 1), 
-                pointsSQ: parseFloat(cData.points_sq || 1), 
-                pointsTL: parseFloat(cData.points_tl || 1), 
-                tf4ScoringMode: cData.tf4_scoring_mode, 
-                tf4Points: cData.tf4_points || examConfig.tf4Points, 
-                immediateFeedback: Boolean(cData.immediate_feedback == 1 || cData.immediate_feedback === true || cData.immediate_feedback === '1' || cData.immediateFeedback == 1 || cData.immediateFeedback === true),
-                sqCaseSensitive: cData.sq_case_sensitive !== undefined ? cData.sq_case_sensitive : false,
-                sqPunctuationSensitive: cData.sq_punctuation_sensitive !== undefined ? cData.sq_punctuation_sensitive : false,
-                autoGradeEssay: cData.auto_grade_essay !== undefined ? cData.auto_grade_essay : false,
-                showScore: cData.show_score !== undefined ? cData.show_score : true,
-                showDetails: cData.show_details !== undefined ? cData.show_details : true,
-                isSharedResults: (cData.is_shared_results === true || cData.is_shared_results === 1 || cData.is_shared_results === 'true'),
-                maxCheatWarnings: (typeof cData.max_cheat_warnings === 'number' && cData.max_cheat_warnings > 0) ? cData.max_cheat_warnings : ((typeof cData.maxCheatWarnings === 'number' && cData.maxCheatWarnings > 0) ? cData.maxCheatWarnings : 5),
-                maxAttempts: (cData.max_attempts !== undefined && cData.max_attempts !== null) ? Number(cData.max_attempts) : ((cData.maxAttempts !== undefined && cData.maxAttempts !== null) ? Number(cData.maxAttempts) : 0),
-                max_attempts: (cData.max_attempts !== undefined && cData.max_attempts !== null) ? Number(cData.max_attempts) : ((cData.maxAttempts !== undefined && cData.maxAttempts !== null) ? Number(cData.maxAttempts) : 0),
-                accessControl: {
-                    enabled: cData.access_control?.enabled || (cData.tg_bd || cData.tg_kt ? true : false),
-                    startTime: cData.tg_bd || cData.access_control?.startTime || '',
-                    endTime: cData.tg_kt || cData.access_control?.endTime || ''
-                }
-            };
             // Cập nhật UI: chỉ gán giá trị vào select exam-config-name khi đang ở tab quản lý đề thi của giáo viên/admin
             const examConfigSelect = document.getElementById('exam-config-name');
             if (examConfigSelect && (isTeacherLoggedIn || isAdminLoggedIn)) {
@@ -13093,6 +13005,8 @@ D. Phát biểu SAI</pre>
         let examEditorInitializing = null;
         let examNamesRequestSeq = 0;
         let examConfigLoadSeq = 0;
+        let examEditorRevision = 0;
+        let examSavePending = false;
         function invalidateExamEditorSession() {
             authDataGeneration += 1;
             examEditorInitialized = false;
@@ -13100,6 +13014,7 @@ D. Phát biểu SAI</pre>
             examNamesRequestSeq += 1;
             examConfigLoadSeq += 1;
             window.allExamConfigsList = [];
+            accountsMap = {};
             window.examConfigCurrentPage = 1;
             const search = document.getElementById('search-exam-config-table');
             if (search) search.value = '';
@@ -22795,6 +22710,7 @@ CẤU TRÚC JSON:
         window.saveAIAppraisePrompt = saveAIAppraisePrompt;
         window.resetAIAppraisePrompt = resetAIAppraisePrompt;
         window.onNewExamNameInput = function(val) {
+            ++examConfigLoadSeq;
             const selectEl = document.getElementById('exam-config-name');
             if (selectEl && selectEl.value !== '') {
                 // Đang có cấu hình cũ được load, khi nhập tên mới thì đưa về mặc định
