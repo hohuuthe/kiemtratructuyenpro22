@@ -232,8 +232,8 @@ export const onRequestPost:PagesFunction<Env> = async(context)=>{
         return reply(response,response.duplicate?200:201);
     } catch(e:any) {
         if(e?.code==='WORD_IMPORT_CONFLICT'||e?.code==='23505')return reply({success:false,error:'File Word đã tồn tại hoặc bị thay đổi. Không có dữ liệu nào bị ghi đè.'},409);
-        console.error('[WordImport] atomic import failed:,String(e?.message||e).slice(0,200));
-        return reply({success:false,error:'Không xác nhận được biên nhận Import. Nếu kết nối lỗi sau khi commit, dữ liệu có thể đã lưu; hãy kiểm tra ngân hàng và lịch sử nhập trước khi thử lại.'},500);
+        console.error('[WordImport] atomic import failed:',String(e?.message||e).slice(0,200));
+        return reply({success:false,error:'Không xác nhận được biên nhận Import. Nếu kết nối lỗi sau khi commit, dữ liệu có thể đã lưu; hãy kiểm tra ngân hàng câu hỏi trước khi thử lại chính file Word.'},500);
     }
 };
 
