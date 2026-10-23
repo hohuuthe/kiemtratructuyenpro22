@@ -105,9 +105,10 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         lop: account.lop || ''
     }, SECRET);
 
-    // Trả về đúng cấu trúc giống endpoint cũ để Frontend không bị vỡ logic
+    // Never return password hashes to the browser, even after successful login.
+    const { password: _passwordHash, ...safeAccount } = account;
     return new Response(JSON.stringify({
-        data: account,
+        data: safeAccount,
         token: token,
         error: null
     }), { status: 200, headers: corsHeaders });
