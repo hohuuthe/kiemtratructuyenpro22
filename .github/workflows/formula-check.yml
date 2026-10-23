@@ -43,6 +43,8 @@ jobs:
         run: node --test tests/exam-tab-separation.test.mjs
       - name: Runtime authentication revocation tests
         run: node --import tsx --test tests/security-session-runtime.test.ts
+      - name: Tenant / revocation / CAS integration contracts
+        run: node --import tsx --test tests/security-tenant-integration.test.ts
       - name: Production build
         run: npm run build
       - name: Ensure DEV-only result fixture is absent in Production
