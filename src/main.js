@@ -3099,7 +3099,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                     results = Array.from(uniqueMap.values()).map(r => {
                         const matchedUser = (window.usersList || []).find(u => 
                             (r.user_id && (String(u.id) === String(r.user_id) || String(u.user_id) === String(r.user_id))) || 
-                            (!r.user_id && u.username && String(u.username) === String(r.student_name))
+                            false
                         );
                         const lop = r.lop || r.student_lop || (matchedUser ? matchedUser.lop : '') || '';
                         const donvi = r.don_vi || r.donvi || r.student_donvi || (matchedUser ? (matchedUser.donvi || matchedUser.address) : '') || r.student_class || '';
@@ -3136,7 +3136,9 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                     return loadAllResults(force, retryCount + 1, silent, onProgress);
                 }
                 console.error('Error loading all results:', e);
+                resultsLoaded = false;
                 if (force && !silent) showToast('Lỗi khi tải lại dữ liệu kết quả: ' + (e.message || ''), 'error');
+                throw e;
             }
         }
 
@@ -3298,7 +3300,7 @@ if (contentType && contentType.includes("application/json")) {
                     // Fetch exam configs, app settings, and public teacher accounts in parallel
                     const [ecResult, sResult, accResult] = await Promise.all([
                         fetch('/api/exams').then(res => res.json()).catch(() => ({error: 'Lỗi', data: []})),
-                        fetch('/api/settings', { headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('auth_token') || '') } }).then(res => res.json()).catch(() => ({error: 'Lỗi', data: null})),
+                        fetch('/api/settings').then(res => res.json()).catch(() => ({error: 'Lỗi', data: null})),
                         fetch('/api/accounts').then(res => res.json()).catch(() => ({error: 'Lỗi', data: []}))
                     ]);
                     
@@ -5086,7 +5088,7 @@ if (contentType && contentType.includes("application/json")) {
             if (!accounts || accounts.length === 0) {
                 const token = localStorage.getItem('auth_token') || '';
                 fetch('/api/accounts', { headers: token ? { 'Authorization': 'Bearer ' + token } : {} })
-                    .then(r => r.json())
+                    .then(async r => { const j=await r.json();if(!r.ok)throw new Error(j.error||'Không thể tải giáo viên');return j; })
                     .then(res => {
                         if (res && res.data && Array.isArray(res.data) && res.data.length > 0) {
                             accounts = res.data;
@@ -6678,7 +6680,11 @@ if (contentType && contentType.includes("application/json")) {
                 }
             }
             
-            const teachers = accounts.filter(acc => creatorIds.map(String).includes(String(acc.id)));
+            const teachers = accounts.filter(acc =>
+                ['teacher','giáo viên','admin'].includes(String(acc.role || '').toLowerCase()) &&
+                (creatorIds.includes(String(acc.id)) || creatorIds.includes(String(acc.user_id)) ||
+                  (currentUser && String(acc.id) === String(currentUser.id)))
+            );
             
             teachers.forEach(t => {
                 const opt = document.createElement('option');
