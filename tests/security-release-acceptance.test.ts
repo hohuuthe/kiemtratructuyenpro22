@@ -89,6 +89,24 @@ test('Security release: real API handlers on two isolated PostgreSQL engines (of
     await t.test('profile label cannot grant administrator access',async()=>{
       await sql("UPDATE users SET target_audience='admin' WHERE id='u-student'");assert.equal((await request('a','/api/settings',{method:'POST',token:await login('student'),body:{}})).status,403);await sql("UPDATE users SET target_audience=NULL WHERE id='u-student'");
     });
+    await t.test('public teacher directory returns role and only staff, not students or password hashes',async()=>{
+      const r=await request('a','/api/accounts');
+      assert.equal(r.status,200,JSON.stringify(r.body));
+      assert.ok(r.body.data.length>=2);
+      assert.ok(r.body.data.some((row:any)=>row.id==='teacher'&&row.role==='teacher'));
+      assert.ok(r.body.data.some((row:any)=>row.id==='admin'&&row.role==='admin'));
+      assert.ok(r.body.data.every((row:any)=>['teacher','admin'].includes(row.role)&&!('password' in row)));
+      assert.ok(!r.body.data.some((row:any)=>row.id==='student'));
+    });
+    await t.test('ranking without account requires auth instead of returning a fake empty success',async()=>{
+      const r=await request('a','/api/results?limit=1000');
+      assert.equal(r.status,401);
+      assert.equal(r.body.code,'AUTH_REQUIRED');
+      const admin=await login('admin');
+      const managed=await request('a','/api/results?limit=1000',{token:admin});
+      assert.equal(managed.status,200,JSON.stringify(managed.body));
+      assert.ok(managed.body.data.some((row:any)=>row.id==='result-a'));
+    });
     await t.test('same-name students and legacy ownership do not share results',async()=>{
       const token=await login('student'),list=await request('a','/api/results',{token});assert.deepEqual(list.body.data.map((r:any)=>r.id),['result-a']);assert.equal((await request('a','/api/results?id=result-b',{token})).status,404);assert.equal((await request('a','/api/results?id=legacy',{token})).status,404);assert.equal((await request('a','/api/results?count=true',{token})).body.count,1);
     });
