@@ -5545,6 +5545,7 @@ if (contentType && contentType.includes("application/json")) {
             if (!selectedId) return;
             const generation = authDataGeneration;
             const requestSeq = ++examConfigLoadSeq;
+            const userLoadIntent = ++examUserLoadIntentSeq;
             const selectEl = document.getElementById('exam-config-name');
             try {
                 const token = localStorage.getItem('auth_token') || '';
@@ -5566,6 +5567,7 @@ if (contentType && contentType.includes("application/json")) {
                     // requests. Do not discard the user-initiated load because of init.
                     const opened = await openExamEditorTab({newExam:false});
                     if (!opened || generation !== authDataGeneration ||
+                        userLoadIntent !== examUserLoadIntentSeq ||
                         !(isAdminLoggedIn || isTeacherLoggedIn)) return;
                     if (String(resJson.data.id) !== String(selectedId)) return;
                     applyExamConfig(resJson.data);
@@ -6486,6 +6488,7 @@ if (contentType && contentType.includes("application/json")) {
         }
 
         async function onExamNameChange() {
+            ++examUserLoadIntentSeq;
             const generation = authDataGeneration;
             const requestSeq = ++examConfigLoadSeq;
             const selectEl = document.getElementById('exam-config-name');
@@ -13010,6 +13013,7 @@ D. Phát biểu SAI</pre>
         let examEditorInitializing = null;
         let examNamesRequestSeq = 0;
         let examConfigLoadSeq = 0;
+        let examUserLoadIntentSeq = 0;
         let examEditorRevision = 0;
         let examSavePending = false;
         function invalidateExamEditorSession() {
@@ -13018,6 +13022,7 @@ D. Phát biểu SAI</pre>
             examEditorInitializing = null;
             examNamesRequestSeq += 1;
             examConfigLoadSeq += 1;
+            examUserLoadIntentSeq += 1;
             window.allExamConfigsList = [];
             accountsMap = {};
             window.examConfigCurrentPage = 1;
@@ -13045,6 +13050,7 @@ D. Phát biểu SAI</pre>
             if (!examEditorInitialized) await initExamPanel();
             if (generation !== authDataGeneration || !(isAdminLoggedIn || isTeacherLoggedIn)) return false;
             if (newExam) {
+                ++examUserLoadIntentSeq;
                 ++examConfigLoadSeq; // Cancel any in-flight Nạp/selection response.
                 resetExamPanelToDefault();
             }
@@ -22737,6 +22743,7 @@ CẤU TRÚC JSON:
         window.saveAIAppraisePrompt = saveAIAppraisePrompt;
         window.resetAIAppraisePrompt = resetAIAppraisePrompt;
         window.onNewExamNameInput = function(val) {
+            ++examUserLoadIntentSeq;
             ++examConfigLoadSeq;
             const selectEl = document.getElementById('exam-config-name');
             if (selectEl && selectEl.value !== '') {
