@@ -7,7 +7,7 @@
 import JSZip from 'jszip';
 import { DOMParser, XMLSerializer } from '@xmldom/xmldom';
 
-export const WORD_IMPORT_ENGINE_VERSION = 'word-omml-1.0';
+export const WORD_IMPORT_ENGINE_VERSION = 'word-omml-1.1';
 export const WORD_FORMULA_TOKEN = /__WMATH_[0-9]{6}__/g;
 const MAX_DOCX_BYTES = 24 * 1024 * 1024;
 const MAX_DECOMPRESSED_BYTES = 80 * 1024 * 1024;
@@ -44,27 +44,29 @@ const group = (node, tag) => {
 };
 const bs = String.fromCharCode(92);
 const symbolTable = {
-    '∞': '\\infty', '∑': '\\sum', '∏': '\\prod', '∫': '\\int', '∮': '\\oint',
+    '∞': '\\infty', '∑': '\\sum', '∏': '\\prod', '∫': '\\int', '∮': '\\oint', '∬':'\\iint', '∭':'\\iiint',
     '√': '\\sqrt{}', '≤': '\\leq', '≥': '\\geq', '≠': '\\neq', '≈': '\\approx',
     '×': '\\times', '÷': '\\div', '·': '\\cdot', '±': '\\pm', '∓': '\\mp',
     '→': '\\to', '←': '\\leftarrow', '↔': '\\leftrightarrow', '⇒': '\\Rightarrow',
     '∈': '\\in', '∉': '\\notin', '∩': '\\cap', '∪': '\\cup', '⊂': '\\subset',
     '⊆': '\\subseteq', '⊥': '\\perp', '∥': '\\parallel', '∠': '\\angle',
-    '°': '^{\\circ}', '∂': '\\partial', '∇': '\\nabla', '∀': '\\forall',
+    '°': '°', '∂': '\\partial', '∇': '\\nabla', '∀': '\\forall',
     '∃': '\\exists', '∅': '\\emptyset',
     'α': '\\alpha', 'β': '\\beta', 'γ': '\\gamma', 'δ': '\\delta',
-    'ε': '\\epsilon', 'ζ': '\\zeta', 'η': '\\eta', 'θ': '\\theta',
+    'ε': '\\varepsilon', 'ϵ':'\\epsilon', 'ζ': '\\zeta', 'η': '\\eta', 'θ': '\\theta',
     'ι': '\\iota', 'κ': '\\kappa', 'λ': '\\lambda', 'μ': '\\mu',
     'ν': '\\nu', 'ξ': '\\xi', 'π': '\\pi', 'ρ': '\\rho',
     'σ': '\\sigma', 'τ': '\\tau', 'υ': '\\upsilon',
-    'φ': '\\phi', 'χ': '\\chi', 'ψ': '\\psi', 'ω': '\\omega',
+    'φ': '\\varphi', 'ϕ':'\\phi', 'χ': '\\chi', 'ψ': '\\psi', 'ω': '\\omega',
     'Γ': '\\Gamma', 'Δ': '\\Delta', 'Θ': '\\Theta', 'Λ': '\\Lambda',
     'Ξ': '\\Xi', 'Π': '\\Pi', 'Σ': '\\Sigma', 'Φ': '\\Phi',
     'Ψ': '\\Psi', 'Ω': '\\Omega'
 };
 
-const escapeMathRun = value => String(value).replace(/[\\{}%#$&_~^∞∑∏∫∮√≤≥≠≈×÷·±∓→←↔⇒∈∉∩∪⊂⊆⊥∥∠°∂∇∀∃∅α-ωΓΔΘΛΞΠΣΦΨΩ]/gu,
-    char => symbolTable[char] || (char === bs ? '\\backslash ' :
+const escapeTextRun = value => String(value).replace(/[\\{}%#$&_~^]/g, char =>
+    ({'\\':'\\textbackslash{}','~':'\\textasciitilde{}','^':'\\textasciicircum{}'}[char] || '\\'+char));
+const escapeMathRun = value => String(value).replace(/[\\{}%#$&_~^∞∑∏∫∮∬∭√≤≥≠≈×÷·±∓→←↔⇒∈∉∩∪⊂⊆⊥∥∠°∂∇∀∃∅α-ωϕϵΓΔΘΛΞΠΣΦΨΩ]/gu,
+    char => (symbolTable[char] ? symbolTable[char] + (/^\\[A-Za-z]+$/.test(symbolTable[char]) ? '{}' : '') : null) || (char === bs ? '\\backslash ' :
         char === '{' ? '\\{' : char === '}' ? '\\}' :
         char === '^' ? '\\hat{}' : char === '_' ? '\\_' :
         char === '~' ? '\\sim ' : '\\' + char));
@@ -76,6 +78,75 @@ const mAttr = (node, prop, attribute, fallback) => {
     const p = child(node, prop);
     return attr(p ? child(p, attribute) : null, 'val') ?? fallback;
 };
+// CT_Char distinguishes an omitted element (the OOXML default) from a
+// present element without @val (an explicitly absent character).
+const mChar = (node, prop, attribute, fallback) => {
+    const element = child(child(node, prop), attribute);
+    return element ? (attr(element, 'val') ?? '') : fallback;
+};
+const enabled = node => node && !['0','false','off'].includes(attr(node, 'val'));
+const rejectProperties = (node, propertyName, unsupported) => {
+    const properties = child(node, propertyName);
+    for (const name of unsupported) {
+        if (enabled(child(properties, name))) throw new Error('Thuộc tính Office Math cần xác minh: m:' + name);
+    }
+};
+/**
+ * Reverse only the ruled-matrix representation emitted by our Word exporter.
+ * A partial border on an arbitrary expression is not an array rule. Require
+ * complete row/column rules and explicit column alignments before unwrapping
+ * the boxes; otherwise the ordinary converter keeps the object in review.
+ */
+function readRuledMatrix(node, rows, next) {
+    const width=rows[0].length;
+    if(width>64||rows.length>256)return null;
+    const styles=[];
+    for(const column of children(child(child(node,'mPr'),'mcs'),'mc')) {
+        const properties=child(column,'mcPr');
+        const count=Number(attr(child(properties,'count'),'val'));
+        const align={left:'l',center:'c',right:'r'}[attr(child(properties,'mcJc'),'val')];
+        if(!Number.isInteger(count)||count<1||count>width||!align)return null;
+        styles.push(...Array(count).fill(align));
+    }
+    if(styles.length!==width)return null;
+    let boxed=0;
+    const cells=rows.map(row=>row.map(cell=>{
+        const content=mathChildren(cell);
+        if(content.length!==1||nameOf(content[0])!=='borderBox') {
+            return {node:cell,top:false,bottom:false,left:false,right:false};
+        }
+        const box=content[0],properties=child(box,'borderBoxPr');
+        const known=['hideTop','hideBot','hideLeft','hideRight','strikeH','strikeV','strikeBLTR','strikeTLBR','ctrlPr'];
+        if(elements(properties).some(p=>!known.includes(nameOf(p))))return null;
+        if(['strikeH','strikeV','strikeBLTR','strikeTLBR'].some(p=>enabled(child(properties,p))))return null;
+        if(mathChildren(box).length!==1||!child(box,'e'))return null;
+        boxed++;
+        return {node:child(box,'e'),top:!enabled(child(properties,'hideTop')),
+            bottom:!enabled(child(properties,'hideBot')),left:!enabled(child(properties,'hideLeft')),
+            right:!enabled(child(properties,'hideRight'))};
+    }));
+    if(!boxed||cells.some(row=>row.some(cell=>!cell||cell.left)))return null;
+    const top=cells[0][0].top;
+    if(cells[0].some(cell=>cell.top!==top)||cells.slice(1).some(row=>row.some(cell=>cell.top)))return null;
+    const bottom=cells.map(row=>row[0].bottom);
+    if(cells.some((row,i)=>row.some(cell=>cell.bottom!==bottom[i])))return null;
+    const right=cells[0].map(cell=>cell.right);
+    if(cells.some(row=>row.some((cell,j)=>cell.right!==right[j])))return null;
+    if(!top&&!bottom.some(Boolean)&&!right.some(Boolean))return null;
+    const values=cells.map(row=>row.map(cell=>next(cell.node)));
+    // The current editable-array writer splits literal cell/row separators.
+    // A nested matrix or literal ampersand would therefore lose its rules;
+    // hold it for review instead of handing it to that writer as equivalent.
+    if(values.some(row=>row.some(value=>value.includes('&')||value.includes('\\\\'))))return null;
+    const spec=styles.map((style,j)=>style+(right[j]?'|':'')).join('');
+    let body=top?'\\hline ':'';
+    for(let i=0;i<cells.length;i++) {
+        body+=values[i].map(value=>value.trim()?value:'').join(' & ');
+        if(i<cells.length-1||bottom[i])body+=' \\\\ ';
+        if(bottom[i])body+='\\hline ';
+    }
+    return '\\begin{array}{'+spec+'}'+body+'\\end{array}';
+}
 function omml(node, depth = 0) {
     if (!node) throw new Error('Thiếu phần tử Equation');
     if (depth > 70) throw new Error('Độ sâu công thức vượt giới hạn an toàn');
@@ -85,22 +156,52 @@ function omml(node, depth = 0) {
     const val = (parent, tag) => next(group(parent, tag));
     switch(n) {
         case 'oMath': case 'oMathPara': case 'e': case 'num': case 'den':
-        case 'sub': case 'sup': case 'deg': case 'fName': case 'box':
+        case 'sub': case 'sup': case 'deg': case 'fName':
+            return all(node);
+        case 'box':
+            rejectProperties(node, 'boxPr', ['opEmu','diff']);
             return all(node);
         case 'r': {
             const parts = children(node, 't');
             if (!parts.length) throw new Error('Ký hiệu trong Equation Word không có nội dung m:t');
             const raw=parts.map(textOf).join('');
+            const properties=child(node,'rPr');
+            rejectProperties(node, 'rPr', ['lit']);
+            const style=attr(child(properties,'sty'),'val');
+            const script=attr(child(properties,'scr'),'val') || 'roman';
+            if(enabled(child(properties,'nor')) || (style==='p' && /\s/u.test(raw))) {
+                if(script!=='roman' || (style && style!=='p')) {
+                    throw new Error('Văn bản thường có kiểu chữ toán kết hợp cần xác minh');
+                }
+                return '\\text{'+escapeTextRun(raw)+'}';
+            }
             if(raw.includes('\\'))throw new Error('Equation chứa backslash dạng ký tự, không được tự hiểu là lệnh LaTeX');
+            if(/[\^√]/u.test(raw))throw new Error('Equation chứa ký hiệu tuyến tính cần xác minh, không tự đổi thành cấu trúc toán');
             const escaped=escapeMathRun(raw);
-            const style=attr(child(child(node,'rPr'),'sty'),'val');
+            const scripts={ 'double-struck':'\\mathbb', script:'\\mathcal', fraktur:'\\mathfrak',
+                'sans-serif':'\\mathsf', monospace:'\\mathtt' };
+            if(script!=='roman') {
+                if(!scripts[script] || style!=='p' || !/^[A-Za-z0-9]+$/.test(raw)) {
+                    throw new Error('Kiểu chữ toán học cần xác minh: '+script+' / '+(style||'default'));
+                }
+                return scripts[script]+'{'+escaped+'}';
+            }
+            if(style==='b' || style==='bi') {
+                if(style==='b' && !/^[A-Za-z0-9]+$/.test(raw))throw new Error('Ký hiệu in đậm đứng cần xác minh trước khi đổi LaTeX');
+                return (style==='b'?'\\mathbf':'\\boldsymbol')+'{'+escaped+'}';
+            }
+            if(style && !['p','i'].includes(style))throw new Error('Kiểu Office Math chưa hỗ trợ: '+style);
             // Word's m:sty="p" marks upright symbols. Preserve
             // chemical element symbols and scientific units as roman math.
-            if(style==='p' && /^[\p{L}]+$/u.test(raw))return '\\mathrm{'+escaped+'}';
+            if(style==='p' && /[A-Za-z]/.test(raw))return '\\mathrm{'+escaped+'}';
             return escaped;
         }
         case 't': return escapeMathRun(textOf(node));
-        case 'f': return '\\frac{' + val(node, 'num') + '}{' + val(node, 'den') + '}';
+        case 'f': {
+            const type=mAttr(node,'fPr','type','bar');
+            if(type!=='bar')throw new Error('Dạng phân số Word chưa chuyển đổi độc lập: '+type);
+            return '\\frac{' + val(node, 'num') + '}{' + val(node, 'den') + '}';
+        }
         case 'sSup': return '{' + val(node, 'e') + '}^{' + val(node, 'sup') + '}';
         case 'sSub': return '{' + val(node, 'e') + '}_{' + val(node, 'sub') + '}';
         case 'sSubSup': return '{' + val(node, 'e') + '}_{' + val(node, 'sub') + '}^{' + val(node, 'sup') + '}';
@@ -108,22 +209,35 @@ function omml(node, depth = 0) {
             const index = child(node, 'deg');
             const root = val(node, 'e');
             const deg = index ? next(index) : '';
+            if(deg && enabled(child(child(node,'radPr'),'degHide'))) {
+                throw new Error('Căn Word chứa bậc căn bị ẩn cần xác minh');
+            }
             return deg ? '\\sqrt[' + deg + ']{' + root + '}' : '\\sqrt{' + root + '}';
         }
         case 'd': {
-            const open = mAttr(node, 'dPr', 'begChr', '(');
-            const close = mAttr(node, 'dPr', 'endChr', ')');
-            const separator = mAttr(node, 'dPr', 'sepChr', ',');
-            const values = children(node, 'e').map(next);
+            const open = mChar(node, 'dPr', 'begChr', '(');
+            const close = mChar(node, 'dPr', 'endChr', ')');
+            const separator = mChar(node, 'dPr', 'sepChr', '|');
+            const bases=children(node,'e');
+            // A no-bar fraction inside exactly one pair of parentheses is
+            // the binomial object. A bare noBar stack must never become a/b.
+            const firstBase=mathChildren(bases[0]);
+            if(open==='(' && close===')' && bases.length===1 && firstBase.length===1 &&
+                nameOf(firstBase[0])==='f' && mAttr(firstBase[0],'fPr','type','bar')==='noBar') {
+                return '\\binom{'+val(firstBase[0],'num')+'}{'+val(firstBase[0],'den')+'}';
+            }
+            const values = bases.map(next);
             if (!values.length) throw new Error('Dấu ngoặc Equation không có nội dung');
-            return '\\left' + delimiters(open) + values.join(separator) + '\\right' + delimiters(close);
+            return '\\left' + delimiters(open) + values.join(separator==='│'?'|':escapeMathRun(separator)) + '\\right' + delimiters(close);
         }
         case 'm': {
-            const rows = children(node, 'mr').map(row => children(row, 'e').map(next));
-            if (!rows.length || rows.some(row => row.length !== rows[0].length)) {
+            const rows = children(node, 'mr').map(row => children(row, 'e'));
+            if (!rows.length || !rows[0].length || rows.some(row => row.length !== rows[0].length)) {
                 throw new Error('Ma trận Word thiếu hàng hoặc số cột không đồng đều');
             }
-            return '\\begin{matrix}' + rows.map(row => row.join(' & ')).join(' \\\\ ') + '\\end{matrix}';
+            const ruled=readRuledMatrix(node,rows,next);
+            if(ruled)return ruled;
+            return '\\begin{matrix}' + rows.map(row => row.map(next).join(' & ')).join(' \\\\ ') + '\\end{matrix}';
         }
         case 'eqArr': {
             const rows = children(node, 'e').map(next);
@@ -131,14 +245,19 @@ function omml(node, depth = 0) {
             return '\\begin{aligned}' + rows.join(' \\\\ ') + '\\end{aligned}';
         }
         case 'nary': {
-            const chr = mAttr(node, 'naryPr', 'chr', '∑');
+            const chr = mChar(node, 'naryPr', 'chr', '∫');
             const mapped = symbolTable[chr];
-            if (!mapped || !['\\sum','\\prod','\\int','\\oint'].includes(mapped)) {
+            if (!mapped || !['\\sum','\\prod','\\int','\\oint','\\iint','\\iiint'].includes(mapped)) {
                 throw new Error('Toán tử n-ary Word chưa được hỗ trợ: ' + chr);
             }
             const lower = child(node, 'sub'), upper = child(node, 'sup');
+            for(const [name,argument] of [['subHide',lower],['supHide',upper]]) {
+                if(enabled(child(child(node,'naryPr'),name)) && argument && textOf(argument).trim()) {
+                    throw new Error('Giới hạn toán tử Word bị ẩn cần xác minh: '+name);
+                }
+            }
             return mapped + (lower ? '_{' + next(lower) + '}' : '') +
-                (upper ? '^{' + next(upper) + '}' : '') + val(node, 'e');
+                (upper ? '^{' + next(upper) + '}' : '') + ' ' + val(node, 'e');
         }
         case 'func': {
             const fn = val(node, 'fName').replace(/\s+/g, '').trim();
@@ -150,7 +269,7 @@ function omml(node, depth = 0) {
         case 'limUpp': return '{' + val(node, 'e') + '}^{' + val(node, 'lim') + '}';
         case 'lim': return all(node);
         case 'acc': {
-            const char = mAttr(node, 'accPr', 'chr', '̂');
+            const char = mChar(node, 'accPr', 'chr', '̂');
             const accents = { '̂': '\\hat', '̄': '\\bar', '̃': '\\tilde', '⃗': '\\vec', '̇': '\\dot', '̈': '\\ddot', '→': '\\vec', '¯': '\\bar' };
             if (!accents[char]) throw new Error('Dấu toán học chưa hỗ trợ: ' + char);
             return accents[char] + '{' + val(node, 'e') + '}';
@@ -161,9 +280,16 @@ function omml(node, depth = 0) {
         }
         case 'groupChr': {
             const pos = mAttr(node, 'groupChrPr', 'pos', 'bot');
-            return (pos === 'top' ? '\\overbrace{' : '\\underbrace{') + val(node, 'e') + '}';
+            const chr = mChar(node,'groupChrPr','chr','⏟');
+            const commands = { 'top:⏞':'\\overbrace', 'bot:⏟':'\\underbrace',
+                'top:→':'\\overrightarrow', 'top:←':'\\overleftarrow', 'top:↔':'\\overleftrightarrow' };
+            const command=commands[pos+':'+chr];
+            if(!command)throw new Error('Ký hiệu nhóm Word cần xác minh: '+chr+' / '+pos);
+            return command+'{'+val(node,'e')+'}';
         }
-        case 'borderBox': return '\\boxed{' + val(node, 'e') + '}';
+        case 'borderBox':
+            rejectProperties(node,'borderBoxPr',['hideTop','hideBot','hideLeft','hideRight','strikeH','strikeV','strikeBLTR','strikeTLBR']);
+            return '\\boxed{' + val(node, 'e') + '}';
         case 'sPre':
             return '{}_{' + val(node, 'sub') + '}^{' + val(node, 'sup') + '}' + val(node, 'e');
         default:
@@ -337,6 +463,16 @@ export async function inspectScientificDocx(arrayBuffer) {
                 issues.push({kind:'field',reason:'Có trường Word (field code) cần kiểm tra; không suy đoán kết quả.'});
                 return;
             }
+            if (k==='AlternateContent' || k==='altChunk' || k==='moveFrom' || k==='moveTo') {
+                issues.push({kind:'structure',reason:'Nội dung Word chưa được xác minh: '+k+'. Không tự bỏ hoặc ghép các phiên bản thay thế.'});
+                return;
+            }
+            if (k==='sdt') {
+                const content=child(n,'sdtContent');
+                if(!content)issues.push({kind:'structure',reason:'Content control Word thiếu phần nội dung.'});
+                else for(const c of elements(content))await visit(c);
+                return;
+            }
             for (const c of elements(n)) await visit(c);
         }
         for(const part of elements(node)) await visit(part);
@@ -346,15 +482,24 @@ export async function inspectScientificDocx(arrayBuffer) {
         if(text || images.length) lines.push({text,image:images[0]||'',images});
     }
     async function parseTable(node) {
+        for(const item of elements(node)) {
+            if(!['tr','tblPr','tblGrid'].includes(nameOf(item))) {
+                issues.push({kind:'structure',reason:'Cấu trúc hàng bảng Word chưa hỗ trợ: '+nameOf(item)});
+            }
+        }
         for(const row of children(node,'tr')) {
+            for(const item of elements(row)) {
+                if(!['tc','trPr','tblPrEx'].includes(nameOf(item))) {
+                    issues.push({kind:'structure',reason:'Cấu trúc ô bảng Word chưa hỗ trợ: '+nameOf(item)});
+                }
+            }
             if(children(row,'tc').length>1) issues.push({kind:'table',reason:'Bảng Word nhiều cột chưa bảo toàn cấu trúc khi chuyển thành câu hỏi; cần xem lại nguồn.'});
             const columns=[];
             const rowImages=[];
             for(const cell of children(row,'tc')) {
                 const oldLines=lines.length;
                 for(const item of elements(cell)) {
-                    if(nameOf(item)==='p') await parseParagraph(item);
-                    else if(nameOf(item)==='tbl') await parseTable(item);
+                    if(nameOf(item)!=='tcPr')await parseBlock(item);
                 }
                 const newLines=lines.splice(oldLines);
                 columns.push(newLines.map(x=>x.text).join(' '));
@@ -365,13 +510,25 @@ export async function inspectScientificDocx(arrayBuffer) {
             if(text || rowImages.length) lines.push({text,image:rowImages[0]||'',images:rowImages});
         }
     }
-    for(const block of elements(body)) {
-        if(nameOf(block)==='p') await parseParagraph(block);
-        else if(nameOf(block)==='tbl') await parseTable(block);
+    async function parseBlock(block) {
+        const kind=nameOf(block);
+        if(kind==='p')await parseParagraph(block);
+        else if(kind==='tbl')await parseTable(block);
+        else if(kind==='sdt') {
+            const content=child(block,'sdtContent');
+            if(!content)issues.push({kind:'structure',reason:'Content control Word thiếu phần nội dung.'});
+            else for(const item of elements(content))await parseBlock(item);
+        } else if(kind==='customXml') {
+            for(const item of elements(block))if(nameOf(item)!=='customXmlPr')await parseBlock(item);
+        } else if(!['sectPr','bookmarkStart','bookmarkEnd','proofErr','permStart','permEnd'].includes(kind)) {
+            issues.push({kind:'structure',reason:'Khối nội dung Word chưa hỗ trợ: '+kind+'. Không cho phép lưu tài liệu bị bỏ sót nội dung.'});
+        }
     }
+    for(const block of elements(body))await parseBlock(block);
     for(const item of names.filter(x=>/^word\/(?:header|footer)\d+\.xml$/.test(x))) {
         const src=await zip.file(item).async('string');
         if(/<m:oMath\b|Câu\s*\d+:/i.test(src))issues.push({kind:'document',reason:'Tài liệu có nội dung quan trọng trong header/footer: '+item});
     }
     return { lines, formulas, issues, imageCount, paragraphCount, sourceSize:inputLength, engineVersion:WORD_IMPORT_ENGINE_VERSION };
 }
+

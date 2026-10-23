@@ -6,28 +6,73 @@
 import katex from 'katex';
 import 'katex/dist/contrib/mhchem.js';
 import { Math as WordMath } from 'docx/math';
+import { DOMParser } from '@xmldom/xmldom';
 import { makeWordMathRun } from './exam-docx-generator.ts';
 import { expandMhchemForWordMath, standaloneMhchemCommand, parseChemicalMath } from './word-editable-chemistry.js';
 import { splitScientificContent } from './scientific-formula-tokenizer.js';
 import { findIncompleteWordFractions } from './question-bank-docx-generator.ts';
-import { WORD_FORMULA_TOKEN, WORD_IMPORT_ENGINE_VERSION } from './word-omml-reader.js';
+import { WORD_FORMULA_TOKEN, WORD_IMPORT_ENGINE_VERSION, convertOmmlToLatex } from './word-omml-reader.js';
 
 const FIELD_NAMES = ['content', 'answer'];
 const optionText = option => typeof option === 'string' ? option : String(option?.text ?? '');
 const allowedTypes = new Set(['4-1','TF4','SQ','TL']);
 const allowedLevels = new Set(['NB','TH','VD','VDC']);
 const markedTokens = s => [...String(s || '').matchAll(new RegExp(WORD_FORMULA_TOKEN.source,'g'))].map(x=>x[0]);
+function exactOccurrences(text, value) {
+    const positions=[];
+    if(!value)return positions;
+    for(let from=0;from<text.length;) {
+        const at=text.indexOf(value,from);
+        if(at<0)break;
+        positions.push(at);
+        from=at+value.length;
+    }
+    return positions;
+}
+function sourceFormulaSpans(text, latexValues) {
+    const expected=new Set(latexValues),spans=[];
+    const escaped=at=>{
+        let count=0;
+        for(let i=at-1;i>=0 && text[i]==='\\';i--)count++;
+        return count%2===1;
+    };
+    for(let i=0;i<text.length;) {
+        if(escaped(i)){i++;continue;}
+        if(text[i]==='`') {
+            const mark=text.startsWith('```',i)?'```':'`';
+            const end=text.indexOf(mark,i+mark.length);
+            if(end>=0){i=end+mark.length;continue;}
+        }
+        if(text[i]==='$') {
+            const mark=text.startsWith('$$',i)?'$$':'$';
+            let end=i+mark.length;
+            while(end<text.length && (!text.startsWith(mark,end)||escaped(end)))end++;
+            if(end<text.length && end>i+mark.length) {
+                const value=text.slice(i+mark.length,end),after=end+mark.length;
+                // A known Equation such as 3,14159 is math even when the
+                // general prose tokenizer's currency heuristic says text.
+                if(expected.has(value))spans.push({value,start:i,end:after,mark});
+                if(expected.has(value) || splitScientificContent(text.slice(i,after)).some(part=>part.type==='math')) {
+                    i=after;continue;
+                }
+            }
+        }
+        i++;
+    }
+    return spans;
+}
 export function validateScientificLatexForImport(latex) {
     const value=String(latex ?? '').trim();
     if(!value) return {ok:false, reason:'Công thức LaTeX rỗng'};
     if(value.length > 9000) return {ok:false,reason:'Công thức dài bất thường'};
     if(findIncompleteWordFractions(value).length) return {ok:false,reason:'Thiếu tử số hoặc mẫu số'};
     if(/\\(?:begin|end)\{[^}]+\}/.test(value)) {
-        const opens=[...value.matchAll(/\\begin\{([^}]+)\}/g)].map(x=>x[1]);
-        const closes=[...value.matchAll(/\\end\{([^}]+)\}/g)].map(x=>x[1]);
-        if(JSON.stringify(opens.slice().reverse()) !== JSON.stringify(closes)) {
-            return {ok:false,reason:'Môi trường LaTeX mở/đóng không tương ứng'};
+        const stack=[];
+        for (const match of value.matchAll(/\\(begin|end)\{([^}]+)\}/g)) {
+            if (match[1]==='begin') stack.push(match[2]);
+            else if (stack.pop()!==match[2]) return {ok:false,reason:'Môi trường LaTeX mở/đóng không tương ứng'};
         }
+        if(stack.length) return {ok:false,reason:'Môi trường LaTeX mở/đóng không tương ứng'};
     }
     try {
         if(/\\(?:ce|pu)\s*\{/.test(value)) {
@@ -50,6 +95,42 @@ export function validateScientificLatexForImport(latex) {
         }
     } catch(e) {
         return {ok:false,reason:'Kiểm chứng Equation Word thất bại: '+String(e?.message||e).slice(0,180)};
+    }
+    return {ok:true};
+}
+
+/** Verify that automatic approval still agrees with the original Office Math. */
+export function validateWordFormulaSourceForImport(source) {
+    if (!source || !['verified','manual_verified'].includes(source.status)) {
+        return {ok:false,reason:'Nguồn Equation chưa được xác minh'};
+    }
+    const verdict=validateScientificLatexForImport(source.latex);
+    if (!verdict.ok) return verdict;
+    if (!['omml','embedded'].includes(source.sourceType) ||
+        typeof source.sourceOmml!=='string' || !source.sourceOmml.trim() ||
+        source.sourceOmml.length>150000 || /<!DOCTYPE|<!ENTITY/i.test(source.sourceOmml)) {
+        return {ok:false,reason:'Nguồn Equation gốc bị thiếu hoặc không hợp lệ'};
+    }
+    try {
+        const errors=[];
+        const xml=new DOMParser({onError(level,message){
+            if(level==='error'||level==='fatalError') errors.push(message);
+        }}).parseFromString(source.sourceOmml,'application/xml');
+        const root=xml.documentElement;
+        if(errors.length || !root || root.localName==='parsererror') throw new Error('XML gốc không hợp lệ');
+        if(source.sourceType==='omml' &&
+            (root.namespaceURI!=='http://schemas.openxmlformats.org/officeDocument/2006/math' ||
+             !['oMath','oMathPara'].includes(root.localName))) {
+            throw new Error('Nguồn không phải Office Math');
+        }
+        // An explicitly reviewed correction may intentionally differ from an
+        // unsupported original. Automatic approval must match the converter.
+        if(source.status==='verified' &&
+            (source.sourceType!=='omml' || convertOmmlToLatex(root)!==String(source.latex).trim())) {
+            throw new Error('LaTeX không khớp với nguồn Office Math đã xác minh');
+        }
+    } catch(error) {
+        return {ok:false,reason:'Không xác minh được nguồn Equation: '+String(error?.message||error).slice(0,180)};
     }
     return {ok:true};
 }
@@ -150,8 +231,9 @@ export function verifyImportedWordQuestions(rawQuestions, documentReport) {
 
 /** Apply an explicit, teacher-entered conversion to one original OMML token. */
 export function correctImportedWordEquation(q, sourceToken, editedLatex) {
-    const source=(q?.__wordFormulaSources||[]).find(x=>x.token===sourceToken);
-    if(!source)throw new Error('Không tìm thấy nguồn Equation Word cần sửa');
+    const matches=(q?.__wordFormulaSources||[]).filter(x=>x.token===sourceToken);
+    if(matches.length!==1)throw new Error('Không xác định được duy nhất nguồn Equation Word cần sửa');
+    const source=matches[0];
     const verdict=validateScientificLatexForImport(editedLatex);
     if(!verdict.ok)throw new Error(verdict.reason);
     let targetField=source.field,oldValue,set;
@@ -166,11 +248,30 @@ export function correctImportedWordEquation(q, sourceToken, editedLatex) {
             else q.options[key]={...choice,text:value};
         };
     } else throw new Error('Trường công thức Word không hợp lệ: '+targetField);
-    if(!oldValue.includes(sourceToken) && !oldValue.includes(source.latex)) {
-        throw new Error('Không còn mã Equation ở vị trí gốc: '+sourceToken);
+    const tokenPositions=exactOccurrences(oldValue,sourceToken);
+    let original=sourceToken,position,delimiter='$';
+    if(tokenPositions.length) {
+        if(tokenPositions.length!==1)throw new Error('Mã Equation xuất hiện ở nhiều vị trí: '+sourceToken);
+        position=tokenPositions[0];
+    } else {
+        if(!source.latex || !['verified','manual_verified'].includes(source.status)) {
+            throw new Error('Không còn mã Equation ở vị trí gốc: '+sourceToken);
+        }
+        const spans=sourceFormulaSpans(oldValue,[source.latex]);
+        const peers=(q.__wordFormulaSources||[]).filter(other=>other.field===targetField &&
+            other.latex===source.latex && ['verified','manual_verified'].includes(other.status));
+        // Equal equations retain the source order within their field. A
+        // missing or additional occurrence makes the target ambiguous.
+        if(spans.length!==peers.length) {
+            throw new Error('Không xác định chắc vị trí Equation gốc cần sửa: '+sourceToken);
+        }
+        const span=spans[peers.indexOf(source)];
+        if(!span)throw new Error('Không còn Equation ở vị trí gốc: '+sourceToken);
+        position=span.start;
+        original=oldValue.slice(span.start,span.end);
+        delimiter=span.mark;
     }
-    const original=oldValue.includes(sourceToken)?sourceToken:'$'+source.latex+'$';
-    set(oldValue.replace(original,'$'+String(editedLatex).trim()+'$'));
+    set(oldValue.slice(0,position)+delimiter+String(editedLatex).trim()+delimiter+oldValue.slice(position+original.length));
     source.latex=String(editedLatex).trim();
     source.status='manual_verified';
     source.reason='';
@@ -199,14 +300,23 @@ export function checkWordImportBeforeSave(questions, documentIssues = []) {
         if (!String(q.answer??'').trim()) errors.push(where+': thiếu đáp án');
         if (q.type === '4-1' || q.type === 'TF4') {
             for (const letter of ['A','B','C','D']) {
-                if (!optionText(q.options?.[letter]).trim()) errors.push(where+': thiếu phương án '+letter);
+                if (!optionText(q.options?.[letter]).trim() && !q.options?.[letter]?.image) errors.push(where+': thiếu phương án '+letter);
             }
         }
-        const texts=[String(q.content||''),String(q.answer||''),...['A','B','C','D'].map(letter=>optionText(q.options?.[letter]))];
+        const fieldTexts=[['content',String(q.content||'')],['answer',String(q.answer||'')],
+            ...['A','B','C','D'].map(letter=>['option.'+letter,optionText(q.options?.[letter])])];
+        const texts=fieldTexts.map(([,value])=>value);
         const text=texts.join('\n');
         if (markedTokens(text).length) errors.push(where+': vẫn còn công thức Word chưa chuyển đổi');
         for (const frac of findIncompleteWordFractions(text)) errors.push(where+': LaTeX thiếu tử/mẫu '+frac.slice(0,80));
-        for (const fieldText of texts) {
+        const formulaCounts=new Map();
+        for (const [fieldName,fieldText] of fieldTexts) {
+            const counts=new Map();
+            formulaCounts.set(fieldName,counts);
+            const sourceLatexes=(q.__wordFormulaSources||[]).filter(source=>source?.field===fieldName).map(source=>source.latex);
+            for(const span of sourceFormulaSpans(fieldText,sourceLatexes)) {
+                counts.set(span.value,(counts.get(span.value)||0)+1);
+            }
             for (const fragment of splitScientificContent(fieldText)) {
                 if (fragment.type !== 'math') continue;
                 const verdict=validateScientificLatexForImport(fragment.value);
@@ -227,12 +337,14 @@ export function checkWordImportBeforeSave(questions, documentIssues = []) {
             const location = source.field === 'content' ? String(q.content||'')
                 : source.field === 'answer' ? String(q.answer||'')
                 : /^option\.[A-D]$/.test(source.field) ? optionText(q.options?.[source.field.split('.')[1]]) : '';
-            if (!source.latex || !location.includes('$'+source.latex+'$')) {
+            const counts=formulaCounts.get(source.field),remaining=counts?.get(source.latex)||0;
+            if (!source.latex || !location.includes('$'+source.latex+'$') || remaining<1) {
                 errors.push(where+': công thức Equation khác nội dung đã được kiểm chứng '+source.token);
-            }
+            } else counts.set(source.latex,remaining-1);
             const valid=validateScientificLatexForImport(source.latex);
             if (!valid.ok) errors.push(where+': công thức '+source.token+' không đạt kiểm tra: '+valid.reason);
         }
     });
     return {ok:errors.length===0,errors,questionCount:questions.length};
 }
+

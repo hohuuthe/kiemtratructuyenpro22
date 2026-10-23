@@ -2,9 +2,11 @@ node_modules/
 build/
 dist/
 coverage/
+artifacts/
 .DS_Store
 *.log
 .env*
 !.env.example
 bun.lock
 bun.lockb
+

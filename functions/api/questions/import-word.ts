@@ -5,6 +5,7 @@
  */
 import { neon } from '@neondatabase/serverless';
 import { verifyJWT, getDynamicSecret, getDatabase } from '../exam/utils';
+import { checkWordImportBeforeSave, validateWordFormulaSourceForImport } from '../../../src/word-import-verification.js';
 
 interface Env { NEON_DATABASE_URL?: string; DATABASE_URL?: string; JWT_SECRET?: string; }
 const headers = {
@@ -75,6 +76,24 @@ export function validateBatchPayload(body:any) {
         }
         if(errors.length>25)break;
     }
+    // The server repeats the same verification as the preview. A status sent
+    // by a client is not evidence that the final LaTeX or its provenance is valid.
+    if (!errors.length) {
+        const checked = checkWordImportBeforeSave(questions.map((q:any) => ({
+            ...q,
+            __wordFormulaSources:q.formulaSources,
+            __wordImportIssues:q.importIssues || [],
+            __wordReviewed:false
+        })), []);
+        errors.push(...checked.errors.slice(0,26));
+        for (let i=0;i<questions.length && errors.length<26;i++) {
+            for (const source of questions[i].formulaSources) {
+                const verdict=validateWordFormulaSourceForImport(source);
+                if (!verdict.ok) errors.push('Câu '+(i+1)+': '+verdict.reason);
+                if (errors.length>=26) break;
+            }
+        }
+    }
     return errors;
 }
 /** Parameterized queries, atomic transaction and count verification. */
@@ -104,7 +123,57 @@ export async function persistVerifiedWordImport(sql:any,userId:string,body:any) 
             ));
         }
     }
-    await sql.transaction(queries,{isolationMode:'Serializable'});
+    // Verify full values inside the same PostgreSQL transaction. A mismatch
+    // (including a database trigger changing a value) must roll back before
+    // commit, rather than leave data behind with only a failed receipt.
+    const expectedQuestions=body.questions.map((q:any)=>({
+        id:q.id,type:q.type,level:q.level,lesson:q.lesson,content:q.content,
+        options:q.options||{},answer:q.answer,image:q.image||null,creator_id:userId
+    }));
+    const expectedSources=body.questions.flatMap((q:any)=>q.formulaSources.map((f:any)=>({
+        question_id:q.id,source_token:f.token,field_name:f.field,
+        source_type:f.sourceType||'omml',source_omml:f.sourceOmml,
+        normalized_latex:f.latex,review_status:f.status,
+        engine_version:f.engineVersion||'unknown',batch_id:batchId
+    })));
+    queries.push(sql.query(`
+        WITH expected_questions AS (
+            SELECT * FROM jsonb_to_recordset($3::jsonb) AS e(
+                id text,type text,level text,lesson text,content text,options jsonb,
+                answer text,image text,creator_id text)
+        ), saved_questions AS (
+            SELECT q.id,q.type,q.level,q.lesson,q.content,q.options::jsonb,
+                   q.answer,q.image,q.creator_id
+            FROM questions q JOIN word_import_items i ON q.id=i.question_id
+            WHERE i.batch_id=$1
+        ), question_differences AS (
+            (SELECT * FROM expected_questions EXCEPT ALL SELECT * FROM saved_questions)
+            UNION ALL
+            (SELECT * FROM saved_questions EXCEPT ALL SELECT * FROM expected_questions)
+        ), expected_sources AS (
+            SELECT * FROM jsonb_to_recordset($4::jsonb) AS e(
+                question_id text,source_token text,field_name text,source_type text,
+                source_omml text,normalized_latex text,review_status text,
+                engine_version text,batch_id text)
+        ), saved_sources AS (
+            SELECT question_id,source_token,field_name,source_type,source_omml,
+                   normalized_latex,review_status,engine_version,batch_id
+            FROM question_formula_sources WHERE batch_id=$1
+        ), source_differences AS (
+            (SELECT * FROM expected_sources EXCEPT ALL SELECT * FROM saved_sources)
+            UNION ALL
+            (SELECT * FROM saved_sources EXCEPT ALL SELECT * FROM expected_sources)
+        )
+        SELECT 1 / CASE WHEN
+            NOT EXISTS (SELECT 1 FROM question_differences)
+            AND NOT EXISTS (SELECT 1 FROM source_differences)
+            AND EXISTS (SELECT 1 FROM word_import_batches
+                        WHERE id=$1 AND creator_id=$2 AND expected_count=$5
+                              AND imported_count=$5 AND source_sha256=$6)
+        THEN 1 ELSE 0 END AS word_import_verified
+    `,[batchId,userId,JSON.stringify(expectedQuestions),JSON.stringify(expectedSources),
+        body.questions.length,String(body.sourceSha256||'')]));
+    await sql.transaction(queries,{isolationLevel:'Serializable'});
     const result=await sql.query(
         'SELECT COUNT(*)::integer AS n FROM word_import_items i JOIN questions q ON q.id=i.question_id WHERE i.batch_id=$1 AND q.creator_id=$2',
         [batchId,userId]
@@ -174,3 +243,4 @@ export const onRequestPost:PagesFunction<Env> = async(context)=>{
         return reply({success:false,error:'Không xác nhận được biên nhận Import. Nếu kết nối lỗi sau khi commit, dữ liệu có thể đã lưu; hãy kiểm tra ngân hàng và lịch sử nhập trước khi thử lại.'},500);
     }
 };
+

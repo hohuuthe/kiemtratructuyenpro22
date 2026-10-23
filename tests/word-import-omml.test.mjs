@@ -213,3 +213,256 @@ test('A single original Word Equation cannot be silently duplicated across separ
  assert.ok(res.documentIssues.some(x=>x.kind==='structure'));
  assert.equal(checkWordImportBeforeSave(res.questions,res.documentIssues).ok,false);
 });
+
+
+const parsedMath = xml => new DOMParser().parseFromString(
+    '<m:oMath xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math">'+xml+'</m:oMath>',
+    'application/xml').documentElement;
+const mathRun = text => '<m:r><m:t>'+text+'</m:t></m:r>';
+const mathArg = (tag,text) => '<m:'+tag+'>'+mathRun(text)+'</m:'+tag+'>';
+
+test('OOXML omitted operator and separator use integral and vertical bar defaults',()=>{
+    // ISO 29500 chr/sepChr defaults: integral for nary; vertical bar for d.
+    const integral=convertOmmlToLatex(parsedMath('<m:nary>'+mathArg('sub','0')+
+        mathArg('sup','1')+mathArg('e','x')+'</m:nary>'));
+    assert.equal(integral,'\\int_{0}^{1} x');
+    assert.equal(validateScientificLatexForImport(integral).ok,true);
+    assert.equal(convertOmmlToLatex(parsedMath('<m:nary>'+mathArg('e','x')+'</m:nary>')),'\\int x');
+    const delimiter=convertOmmlToLatex(parsedMath('<m:d>'+mathArg('e','A')+mathArg('e','B')+'</m:d>'));
+    assert.equal(delimiter,'\\left(A|B\\right)');
+    assert.equal(validateScientificLatexForImport(delimiter).ok,true);
+    // A present CT_Char without val is explicitly empty, not the omitted default.
+    assert.equal(convertOmmlToLatex(parsedMath('<m:d><m:dPr><m:begChr/><m:sepChr/></m:dPr>'+
+        mathArg('e','A')+mathArg('e','B')+'</m:d>')),'\\left.AB\\right)');
+    assert.throws(()=>convertOmmlToLatex(parsedMath('<m:nary><m:naryPr><m:chr/></m:naryPr>'+
+        mathArg('e','x')+'</m:nary>')),/chưa được hỗ trợ/);
+});
+
+test('Binomial noBar preserves its meaning; a standalone stack cannot become a quotient',async()=>{
+    const noBar='<m:f><m:fPr><m:type m:val="noBar"/></m:fPr>'+mathArg('num','n')+
+        mathArg('den','k')+'</m:f>';
+    const binomial=convertOmmlToLatex(parsedMath('<m:d><m:e>'+noBar+'</m:e></m:d>'));
+    assert.equal(binomial,'\\binom{n}{k}');
+    assert.equal(validateScientificLatexForImport(binomial).ok,true);
+    const report=await inspectScientificDocx(await fixture(prefix+'<m:oMath>'+noBar+'</m:oMath></w:p>'+p('Đáp án: 1')));
+    assert.equal(report.formulas[0].status,'review');
+    assert.match(report.formulas[0].reason,/noBar/);
+    const audited=verifyImportedWordQuestions([{id:'binomial01',type:'TL',level:'NB',lesson:'BÀI 1',
+        content:report.lines[0].text,answer:'1',options:{}}],report);
+    assert.equal(checkWordImportBeforeSave(audited.questions,audited.documentIssues).ok,false);
+});
+
+test('Distinct mathematical alphabets and bold vectors survive native Word roundtrip',async()=>{
+    const cases=['\\mathbb{R}','\\mathcal{F}','\\mathfrak{g}','\\mathsf{X}','\\mathtt{A}',
+        '\\mathbf{v}','\\boldsymbol{v}','\\mathrm{H2O}'];
+    for(const latex of cases) {
+        const word=makeWordMathRun(latex);
+        assert.ok(word instanceof WordMath,'Must create editable Equation: '+latex);
+        const file=await Packer.toBlob(new Document({sections:[{children:[
+            new Paragraph({children:[new TextRun('Câu 1: [BÀI 1][NB][TL] '),word]}),
+            new Paragraph({text:'Đáp án: 1'})
+        ]}]}));
+        const report=await inspectScientificDocx(new Uint8Array(await file.arrayBuffer()));
+        assert.equal(report.formulas.length,1);
+        assert.equal(report.formulas[0].status,'parsed',report.formulas[0].reason);
+        assert.equal(report.formulas[0].latex,latex,'The alphabet/style carries mathematical meaning');
+        assert.equal(validateScientificLatexForImport(report.formulas[0].latex).ok,true);
+    }
+    assert.throws(()=>convertOmmlToLatex(parsedMath('<m:r><m:rPr><m:scr m:val="double-struck"/>'+
+        '<m:sty m:val="bi"/></m:rPr><m:t>R</m:t></m:r>')),/cần xác minh/);
+});
+
+test('Group arrows are not braces, and semantic properties without a faithful mapping require review',()=>{
+    assert.equal(convertOmmlToLatex(parsedMath('<m:groupChr><m:groupChrPr>'+
+        '<m:chr m:val="→"/><m:pos m:val="top"/></m:groupChrPr>'+
+        mathArg('e','AB')+'</m:groupChr>')),'\\overrightarrow{AB}');
+    for(const xml of [
+        '<m:borderBox><m:borderBoxPr><m:hideTop/><m:hideBot/><m:hideRight/></m:borderBoxPr>'+mathArg('e','x')+'</m:borderBox>',
+        '<m:borderBox><m:borderBoxPr><m:strikeH/></m:borderBoxPr>'+mathArg('e','x')+'</m:borderBox>',
+        '<m:groupChr><m:groupChrPr><m:chr m:val="⌢"/><m:pos m:val="top"/></m:groupChrPr>'+mathArg('e','AB')+'</m:groupChr>',
+        '<m:nary><m:naryPr><m:subHide/></m:naryPr>'+mathArg('sub','0')+mathArg('e','x')+'</m:nary>',
+        '<m:rad><m:radPr><m:degHide/></m:radPr>'+mathArg('deg','3')+mathArg('e','x')+'</m:rad>',
+        '<m:box><m:boxPr><m:opEmu/></m:boxPr>'+mathArg('e','mod')+'</m:box>',
+        '<m:r><m:rPr><m:lit/></m:rPr><m:t>a b</m:t></m:r>',
+        '<m:r><m:t>x^2</m:t></m:r>'
+    ])assert.throws(()=>convertOmmlToLatex(parsedMath(xml)),/xác minh/,xml);
+    assert.equal(convertOmmlToLatex(parsedMath('<m:borderBox><m:borderBoxPr><m:hideTop m:val="0"/>'+
+        '</m:borderBoxPr>'+mathArg('e','x')+'</m:borderBox>')),'\\boxed{x}');
+});
+
+test('Adjacent Unicode symbols do not become different LaTeX command names',()=>{
+    assert.equal(convertOmmlToLatex(parsedMath(mathRun('αx'))),'\\alpha{}x');
+    const latex=convertOmmlToLatex(parsedMath(mathRun('α')+mathRun('x')));
+    assert.equal(latex,'\\alpha{}x');
+    assert.equal(validateScientificLatexForImport(latex).ok,true);
+});
+
+test('Content controls and custom XML wrappers retain every question and formula in source order',async()=>{
+    const normal=prefix+eqFraction+'</w:p>'+p('Đáp án: 1');
+    const second='<w:sdt><w:sdtPr/><w:sdtContent>'+
+        normal.replace('Câu 1:','Câu 2:')+'</w:sdtContent></w:sdt>';
+    const third='<w:customXml><w:customXmlPr/>'+
+        normal.replace('Câu 1:','Câu 3:')+'</w:customXml>';
+    const report=await inspectScientificDocx(await fixture(normal+second+third));
+    assert.equal(report.lines.length,6);
+    assert.equal(report.formulas.length,3);
+    assert.equal(report.issues.length,0);
+    assert.match(report.lines[0].text,/Câu 1:/);
+    assert.match(report.lines[2].text,/Câu 2:/);
+    assert.match(report.lines[4].text,/Câu 3:/);
+    assert.equal(new Set(report.formulas.map(f=>f.token)).size,3);
+});
+
+test('Unknown document/table wrappers and alternate content cannot silently drop or duplicate questions',async()=>{
+    const cases=[
+        '<w:altChunk r:id="chunk1"/>',
+        '<w:sdt><w:sdtPr/></w:sdt>',
+        '<w:tbl><w:sdt><w:sdtContent><w:tr><w:tc>'+p('Câu 2: hidden')+
+            '</w:tc></w:tr></w:sdtContent></w:sdt></w:tbl>',
+        '<w:p><mc:AlternateContent xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006">'+
+            '<mc:Choice Requires="w">'+p('Câu 2: choice')+'</mc:Choice>'+
+            '<mc:Fallback>'+p('Câu 2: fallback')+'</mc:Fallback></mc:AlternateContent></w:p>'
+    ];
+    for(const extra of cases){
+        const report=await inspectScientificDocx(await fixture(prefix+eqFraction+'</w:p>'+p('Đáp án: 1')+extra));
+        assert.ok(report.issues.some(x=>x.kind==='structure'),'Unsupported source must be a document blocker: '+extra);
+        const audited=verifyImportedWordQuestions([{id:'wrapper001',type:'TL',level:'NB',lesson:'BÀI 1',
+            content:report.lines[0].text,answer:'1',options:{}}],report);
+        assert.equal(checkWordImportBeforeSave(audited.questions,audited.documentIssues).ok,false);
+    }
+});
+
+
+test('Greek variants and an existing superscript degree keep their source symbols',async()=>{
+    for(const [source,latex] of [['φ','\\varphi{}'],['ϕ','\\phi{}'],['ε','\\varepsilon{}'],['ϵ','\\epsilon{}']]){
+        assert.equal(convertOmmlToLatex(parsedMath(mathRun(source))),latex);
+        const blob=await Packer.toBlob(new Document({sections:[{children:[new Paragraph({
+            children:[makeWordMathRun(latex)]
+        })]}]}));
+        const zip=await JSZip.loadAsync(await blob.arrayBuffer());
+        const xml=await zip.file('word/document.xml').async('string');
+        assert.ok(xml.includes('<m:t>'+source+'</m:t>'),'Source glyph must survive a second Word export: '+source);
+    }
+    const degree=convertOmmlToLatex(parsedMath('<m:sSup>'+mathArg('e','450')+mathArg('sup','°')+'</m:sSup>'));
+    assert.equal(degree,'{450}^{°}');
+    const blob=await Packer.toBlob(new Document({sections:[{children:[new Paragraph({children:[makeWordMathRun(degree)]})]}]}));
+    const zip=await JSZip.loadAsync(await blob.arrayBuffer());
+    const xml=await zip.file('word/document.xml').async('string');
+    assert.equal((xml.match(/<m:sSup>/g)||[]).length,1,'Do not add a second exponent to a degree already in m:sup');
+    assert.ok(xml.includes('<m:t>°</m:t>'),'Preserve the original degree glyph rather than replacing it with a composition circle');
+    assert.equal(convertOmmlToLatex(parsedMath(mathRun('450°'))),'450°');
+});
+
+test('Normal and upright Vietnamese text preserve spaces through import and re-export',async()=>{
+    for(const properties of ['<m:nor/>','<m:sty m:val="p"/>']){
+        const converted=convertOmmlToLatex(parsedMath('<m:r><m:rPr>'+properties+
+            '</m:rPr><m:t xml:space="preserve">áp suất</m:t></m:r>'));
+        assert.equal(converted,'\\text{áp suất}');
+        const blob=await Packer.toBlob(new Document({sections:[{children:[new Paragraph({
+            children:[makeWordMathRun(converted)]
+        })]}]}));
+        const zip=await JSZip.loadAsync(await blob.arrayBuffer());
+        const xml=await zip.file('word/document.xml').async('string');
+        assert.ok(xml.includes('áp suất'),'Vietnamese text cannot collapse its spaces');
+    }
+});
+
+test('Double and triple integrals keep their exact operator glyphs',async()=>{
+    for(const [symbol,command] of [['∬','\\iint'],['∭','\\iiint']]){
+        const converted=convertOmmlToLatex(parsedMath('<m:nary><m:naryPr><m:chr m:val="'+symbol+
+            '"/></m:naryPr>'+mathArg('e','f')+'</m:nary>'));
+        assert.equal(converted,command+' f');
+        assert.equal(validateScientificLatexForImport(converted).ok,true);
+        const blob=await Packer.toBlob(new Document({sections:[{children:[new Paragraph({
+            children:[makeWordMathRun(converted)]
+        })]}]}));
+        const zip=await JSZip.loadAsync(await blob.arrayBuffer());
+        const xml=await zip.file('word/document.xml').async('string');
+        assert.ok(xml.includes('m:val="'+symbol+'"'),'The integral must retain its multiplicity');
+    }
+});
+
+
+test('Ruled Word matrices reconstruct array lines and preserve every cell border on re-export',async()=>{
+    const namespace='http://schemas.openxmlformats.org/officeDocument/2006/math';
+    const direct=(node,name)=>Array.from(node.childNodes||[]).filter(x=>x.nodeType===1&&x.localName===name);
+    const propertyOn=(properties,name)=>{
+        const node=direct(properties||{},name)[0];
+        return Boolean(node)&&!['0','false','off'].includes(node.getAttributeNS(namespace,'val'));
+    };
+    const matrixSignature=xml=>{
+        const dom=new DOMParser().parseFromString(xml,'application/xml');
+        const matrix=dom.getElementsByTagNameNS(namespace,'m')[0];
+        assert.ok(matrix,'Must retain a native OMML matrix');
+        const columns=Array.from(matrix.getElementsByTagNameNS(namespace,'mc')).flatMap(column=>{
+            const count=column.getElementsByTagNameNS(namespace,'count')[0];
+            const alignment=column.getElementsByTagNameNS(namespace,'mcJc')[0];
+            return Array(Number(count.getAttributeNS(namespace,'val'))).fill(alignment.getAttributeNS(namespace,'val'));
+        });
+        const rows=direct(matrix,'mr').map(row=>direct(row,'e').map(cell=>{
+            const box=direct(cell,'borderBox')[0];
+            const properties=box?direct(box,'borderBoxPr')[0]:null;
+            return {
+                text:Array.from(cell.getElementsByTagNameNS(namespace,'t')).map(t=>t.textContent).join(''),
+                borders:{
+                    top:Boolean(box)&&!propertyOn(properties,'hideTop'),
+                    bottom:Boolean(box)&&!propertyOn(properties,'hideBot'),
+                    left:Boolean(box)&&!propertyOn(properties,'hideLeft'),
+                    right:Boolean(box)&&!propertyOn(properties,'hideRight')
+                }
+            };
+        }));
+        return {columns,rows};
+    };
+    const exportMath=async latex=>{
+        const word=makeWordMathRun(latex);
+        assert.ok(word instanceof WordMath);
+        const blob=await Packer.toBlob(new Document({sections:[{children:[
+            new Paragraph({children:[new TextRun('Câu 1: [BÀI 1][NB][TL] '),word]}),
+            new Paragraph({text:'Đáp án: 1'})
+        ]}]}));
+        const data=new Uint8Array(await blob.arrayBuffer());
+        const zip=await JSZip.loadAsync(data);
+        return {data,xml:await zip.file('word/document.xml').async('string')};
+    };
+    const patterns=[
+        '\\begin{array}{c|cc}&A&B\\\\\\hline A&1&0\\\\B&0&1\\end{array}',
+        '\\begin{array}{l|rc|}\\hline x&y&z\\\\\\hline a&b&c\\\\\\hline\\end{array}'
+    ];
+    for(let i=0;i<patterns.length;i++){
+        const original=await exportMath(patterns[i]);
+        const report=await inspectScientificDocx(original.data);
+        assert.equal(report.formulas[0].status,'parsed',report.formulas[0].reason);
+        assert.match(report.formulas[0].latex,/^\\begin\{array\}/);
+        assert.equal(validateScientificLatexForImport(report.formulas[0].latex).ok,true);
+        const regenerated=await exportMath(report.formulas[0].latex);
+        const sourceSignature=matrixSignature(original.xml);
+        assert.deepEqual(matrixSignature(regenerated.xml),sourceSignature,'Every border must remain on the same cell');
+        if(i===0){
+            assert.deepEqual(sourceSignature.columns,['center','center','center']);
+            assert.equal(sourceSignature.rows.length,3);
+            for(let r=0;r<3;r++)for(let c=0;c<3;c++){
+                assert.deepEqual(sourceSignature.rows[r][c].borders,{
+                    top:false,bottom:r===0,left:false,right:c===0
+                });
+            }
+        }
+    }
+});
+
+test('An isolated or inconsistent partial cell border cannot be inferred as a full array rule',()=>{
+    const props='<m:mPr><m:mcs><m:mc><m:mcPr><m:count m:val="2"/>'+
+        '<m:mcJc m:val="center"/></m:mcPr></m:mc></m:mcs></m:mPr>';
+    const cell=(text,boxed=false)=>'<m:e>'+(boxed?'<m:borderBox><m:borderBoxPr>'+
+        '<m:hideTop/><m:hideBot/><m:hideLeft/></m:borderBoxPr>':'')+
+        (boxed?mathArg('e',text):mathRun(text))+(boxed?'</m:borderBox>':'')+'</m:e>';
+    // Right border exists only in row 1. Making a c|c array would add a new
+    // border to row 2, which must never be inferred.
+    const matrix='<m:m>'+props+'<m:mr>'+cell('a',true)+cell('b')+'</m:mr>'+
+        '<m:mr>'+cell('c')+cell('d')+'</m:mr></m:m>';
+    assert.throws(()=>convertOmmlToLatex(parsedMath(matrix)),/xác minh/);
+    const literalSeparator='<m:m>'+props+'<m:mr>'+cell('a&amp;b',true)+cell('b')+'</m:mr>'+
+        '<m:mr>'+cell('c',true)+cell('d')+'</m:mr></m:m>';
+    assert.throws(()=>convertOmmlToLatex(parsedMath(literalSeparator)),/xác minh/,
+        'A literal ampersand cannot be mistaken for an extra array column');
+});

@@ -27,6 +27,10 @@ jobs:
         run: node --import tsx --test tests/scientific-formula-unified.test.mjs tests/exam-export-regression.test.mjs tests/exam-detail-formula-parity.test.mjs tests/word-editable-chemistry.test.mjs tests/question-bank-word-export.test.mjs tests/question-bank-fraction-regression.test.mjs
       - name: Verified Word Office Math import and database transaction tests
         run: node --import tsx --test tests/word-import-omml.test.mjs tests/word-import-transaction.test.mjs
+      - name: Complete Word corpus import and re-export fidelity
+        run: node --import tsx --test tests/word-import-corpus-roundtrip.test.mjs
+      - name: PostgreSQL rollback and actual Neon driver contract
+        run: node --import tsx --test tests/word-import-postgres.test.mjs
       - name: Production build
         run: npm run build
       - name: Ensure DEV-only result fixture is absent in Production
@@ -35,3 +39,12 @@ jobs:
             echo "::error::DEV-only exam detail fixture was included in the Production bundle."
             exit 1
           fi
+      - name: Upload Word round-trip acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: word-import-corpus-acceptance
+          path: artifacts/corpus-review/
+          retention-days: 14
+          if-no-files-found: warn
+
