@@ -1,4 +1,4 @@
-import { verifyJWT, getDynamicSecret, hashPasswordPBKDF2, getDatabase } from '../exam/utils';
+import { verifyAuthSession, getDynamicSecret, hashPasswordPBKDF2, getDatabase } from '../exam/utils';
 
 export async function onRequestPut(context: any) {
     const { request, env, params } = context;
@@ -17,7 +17,7 @@ export async function onRequestPut(context: any) {
         return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: corsHeaders });
     }
     const token = authHeader.substring(7);
-    const user = await verifyJWT(token, SECRET);
+    const user = await verifyAuthSession(token, SECRET, db);
     if (!user || user.role !== 'admin') {
         return new Response(JSON.stringify({ error: "Chỉ Admin mới được sửa tài khoản" }), { status: 403, headers: corsHeaders });
     }
@@ -81,7 +81,7 @@ export async function onRequestDelete(context: any) {
         return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: corsHeaders });
     }
     const token = authHeader.substring(7);
-    const user = await verifyJWT(token, SECRET);
+    const user = await verifyAuthSession(token, SECRET, db);
     if (!user || user.role !== 'admin') {
         return new Response(JSON.stringify({ error: "Chỉ Admin mới được xóa tài khoản" }), { status: 403, headers: corsHeaders });
     }
