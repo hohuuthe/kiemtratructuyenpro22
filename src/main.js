@@ -80,51 +80,16 @@ if (typeof window !== 'undefined') {
     window.getTenantSlugFromUrl = getTenantSlugFromUrl;
     window.__CURRENT_TENANT_SLUG = getTenantSlugFromUrl();
 
-    // Global Fetch Interceptor: Tự động đính kèm Header X-Tenant-Slug cho toàn bộ API calls
-    const originalWindowFetch = (typeof window !== 'undefined' && window.fetch) ? window.fetch.bind(window) : fetch;
+    // Database selection is performed exclusively by the trusted request hostname.
+    // The earlier X-Tenant-Slug interceptor caused 421 rejections after backend hardening.
+    const originalWindowFetch = window.fetch.bind(window);
     const patchedFetch = async function(resource, init) {
-        const slug = window.__CURRENT_TENANT_SLUG || getTenantSlugFromUrl();
-        if (slug) {
-            let isApi = false;
-            if (typeof resource === 'string') {
-                isApi = resource.startsWith('/api') || resource.includes('/api/');
-            } else if (resource instanceof Request) {
-                isApi = resource.url.startsWith('/api') || resource.url.includes('/api/');
-            }
-
-            if (isApi) {
-                init = init || {};
-                let headers;
-                if (init.headers instanceof Headers) {
-                    headers = init.headers;
-                } else if (init.headers && typeof init.headers === 'object') {
-                    headers = new Headers(init.headers);
-                } else if (resource instanceof Request) {
-                    headers = new Headers(resource.headers);
-                } else {
-                    headers = new Headers();
-                }
-
-                if (!headers.has('X-Tenant-Slug')) {
-                    headers.set('X-Tenant-Slug', slug);
-                }
-                init.headers = headers;
-                if (resource instanceof Request) {
-                    resource = new Request(resource, { headers });
-                }
-            }
-        }
         const response = await originalWindowFetch(resource, init);
-        if (response.status === 503 || response.status === 500) {
+        if (response.status >= 500) {
             try {
-                const clone = response.clone();
-                const json = await clone.json();
-                if (json && (json.db_not_configured || (typeof json.error === 'string' && json.error.includes('Không thể kết nối tới Cơ sở dữ liệu')))) {
-                    if (typeof window.showDatabaseErrorDialog === 'function') {
-                        window.showDatabaseErrorDialog();
-                    } else if (typeof window.showToast === 'function') {
-                        window.showToast('Không thể kết nối tới Cơ sở dữ liệu, xin vui lòng liên hệ với quản trị hệ thống.', 'error');
-                    }
+                const json = await response.clone().json();
+                if (json && json.db_not_configured && typeof window.showDatabaseErrorDialog === 'function') {
+                    window.showDatabaseErrorDialog();
                 }
             } catch {}
         }
@@ -2088,7 +2053,11 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                         submitBtn.innerHTML = 'Đăng nhập';
                     }
                     if (!isAutoLogin) {
-                        const errMsg = error && error.includes('hạn mức') ? error : '❌ Tên đăng nhập hoặc mật khẩu không đúng!';
+                        const errMsg = response.status === 401 ? '❌ Tên đăng nhập hoặc mật khẩu không đúng!' :
+                          response.status === 403 ? 'Tài khoản bị khóa, hết hạn hoặc chưa được cấp quyền.' :
+                          response.status === 421 ? 'Tên miền chưa được cấu hình truy cập cơ sở dữ liệu. Vui lòng liên hệ quản trị viên.' :
+                          response.status === 503 || response.status >= 500 ? 'Máy chủ hoặc cơ sở dữ liệu đang gặp lỗi. Vui lòng thử lại sau.' :
+                          (error || 'Không thể đăng nhập.');
                         showToast(errMsg, 'error');
                     }
                     document.getElementById('login-btn')?.classList.remove('hidden');
