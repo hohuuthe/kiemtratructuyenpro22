@@ -1,4 +1,4 @@
-import { verifyJWT, getDynamicSecret, getDatabase } from './exam/utils';
+import { verifyAuthSession, getDynamicSecret, getDatabase } from './exam/utils';
 
 interface Env {
   NEON_DATABASE_URL?: string;
@@ -64,7 +64,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
   let user: any = null;
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const token = authHeader.substring(7);
-    user = await verifyJWT(token, SECRET);
+    user = await verifyAuthSession(token, SECRET, db);
   }
 
   // Bảo mật nghiêm ngặt: Học sinh không được phép tải toàn bộ ngân hàng câu hỏi (có đáp án)
@@ -158,7 +158,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: corsHeaders });
   }
   const token = authHeader.substring(7);
-  const user = await verifyJWT(token, SECRET);
+  const user = await verifyAuthSession(token, SECRET, db);
   if (!user) {
     return new Response(JSON.stringify({ error: "Phiên đăng nhập không hợp lệ" }), { status: 401, headers: corsHeaders });
   }
@@ -260,7 +260,7 @@ export const onRequestDelete: PagesFunction<Env> = async (context) => {
     return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: corsHeaders });
   }
   const token = authHeader.substring(7);
-  const user = await verifyJWT(token, SECRET);
+  const user = await verifyAuthSession(token, SECRET, db);
   if (!user) {
     return new Response(JSON.stringify({ error: "Phiên đăng nhập không hợp lệ" }), { status: 401, headers: corsHeaders });
   }
