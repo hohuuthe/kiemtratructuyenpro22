@@ -96,3 +96,20 @@ test('Server-side exam confidentiality, JWT expiry and cross-owner write guards'
  assert.ok(login.includes('exp: Math.floor(Date.now() / 1000) + 12 * 3600'));
  assert.ok(utils.includes('Number(claims.exp) <= now'));
 });
+
+test('Security invariants: tenant routing, account secrecy and atomic exam revisions',()=>{
+ const adapter=read('functions/api/neon-adapter.ts');
+ const exams=read('functions/api/exams.ts');
+ const accounts=read('functions/api/accounts.ts');
+ const drafts=read('src/exam-editor-safety.js');
+ assert.ok(adapter.includes('TENANT_HOST_MAP'));
+ assert.ok(adapter.includes('Untrusted tenant selector'));
+ assert.ok(adapter.includes('approvedHosts[host]'));
+ assert.ok(!accounts.includes('SELECT accounts.id, accounts.user_id, accounts.username, accounts.password'));
+ assert.ok(exams.includes('expected_updated_at'));
+ assert.ok(exams.includes('updated_at IS NOT DISTINCT FROM ?'));
+ assert.ok(exams.includes('EXAM_VERSION_CONFLICT'));
+ assert.ok(exams.includes('DUPLICATE_EXAM_NAME'));
+ assert.ok(drafts.includes("updatedAt: text(row.updated_at ?? row.updatedAt)"));
+ assert.ok(app.includes('expected_updated_at: draft.id ?'));
+});
