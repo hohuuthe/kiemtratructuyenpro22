@@ -1,3 +1,4 @@
+import { accountSessionState } from '../../../src/security-session';
 import { signJWT, getDynamicSecret, verifyPassword, hashPasswordPBKDF2, getDatabase } from '../exam/utils';
 
 interface Env {
@@ -96,6 +97,8 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     const SECRET = await getDynamicSecret(db, env.JWT_SECRET);
     const token = await signJWT({ 
         id: account.id,
+        auth_state: await accountSessionState(account),
+        exp: Math.floor(Date.now() / 1000) + 12 * 60 * 60,
         user_id: account.user_id || account.id,
         role: account.role, 
         target_audience: finalTargetAudience,

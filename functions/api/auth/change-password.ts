@@ -1,4 +1,4 @@
-import { verifyPasswordPBKDF2, hashPasswordPBKDF2, getDatabase } from '../exam/utils';
+import { verifyPassword, hashPasswordPBKDF2, getDatabase } from '../exam/utils';
 
 export async function onRequestPost(context: any) {
     const { request, env } = context;
@@ -28,7 +28,7 @@ export async function onRequestPost(context: any) {
         }
 
         const account = results[0];
-        const isValid = await verifyPasswordPBKDF2(oldPassword, account.password);
+        const isValid = await verifyPassword(oldPassword, account.password);
         if (!isValid) {
             return new Response(JSON.stringify({ error: "Tên đăng nhập hoặc mật khẩu cũ không đúng!" }), { status: 400, headers: corsHeaders });
         }

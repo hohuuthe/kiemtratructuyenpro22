@@ -1,3 +1,4 @@
+import { resolveTenantFromRequest } from '../../src/tenant-host-map';
 import { neon } from '@neondatabase/serverless';
 
 /**
@@ -369,7 +370,7 @@ export function getEffectiveDb(envOrContext: any, requestOrSlug?: any): any {
     }
   }
 
-  const slug = extractTenantSlug(req);
+  const slug = req && typeof req === 'object' && req.url ? resolveTenantFromRequest(req, env) : ''; // Never trust client tenant selectors
   const { url: databaseUrl, source } = getTenantDatabaseUrl(env, slug);
 
   if (!databaseUrl || databaseUrl.trim().length === 0) {

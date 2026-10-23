@@ -83,6 +83,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
       await db.prepare("ALTER TABLE exam_configs ADD COLUMN tieu_de_bai_thi TEXT").run();
     } catch (e) {}
 
+    await db.prepare('ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS revision INTEGER NOT NULL DEFAULT 1').run();
     // 1. Lấy chi tiết một đề thi theo ID
     if (idParam) {
       const query = "SELECT * FROM exam_configs WHERE id = ?";
@@ -342,17 +343,22 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     const safeKeepRawScore = (body.keep_raw_score || body.keepRawScore) ? 1 : 0;
     const now = new Date().toISOString();
 
+    await db.prepare('ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS revision INTEGER NOT NULL DEFAULT 1').run();
     // Kiểm tra xem đề đã tồn tại chưa (theo id hoặc theo name + creator_id)
     let existingRecord: any = null;
     if (id) {
-      const { results } = await db.prepare("SELECT id, creator_id FROM exam_configs WHERE id = ?").bind(id).all();
+      const { results } = await db.prepare("SELECT id, creator_id, revision FROM exam_configs WHERE id = ?").bind(id).all();
       if (results && results.length > 0) existingRecord = results[0];
     } else {
-      const { results } = await db.prepare("SELECT id, creator_id FROM exam_configs WHERE name = ? AND creator_id = ?").bind(name.trim(), assignedCreatorId).all();
+      const { results } = await db.prepare("SELECT id, creator_id, revision FROM exam_configs WHERE name = ? AND creator_id = ?").bind(name.trim(), assignedCreatorId).all();
       if (results && results.length > 0) existingRecord = results[0];
     }
 
     if (existingRecord) {
+      const submittedRevision = Number(body.revision);
+      if (!Number.isInteger(submittedRevision) || submittedRevision < 1) {
+        return new Response(JSON.stringify({ error: 'Đề đã có phiên bản mới. Vui lòng nạp lại đề trước khi lưu.', code: 'EXAM_VERSION_REQUIRED' }), { status: 409, headers: corsHeaders });
+      }
       // Kiểm tra quyền sửa
       if (!isAdmin && existingRecord.creator_id !== user.id) {
         return new Response(JSON.stringify({ error: "Bạn không có quyền chỉnh sửa đề thi của người khác" }), { status: 403, headers: corsHeaders });
@@ -366,21 +372,22 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
           immediate_feedback = ?, show_score = ?, show_details = ?,
           sq_case_sensitive = ?, sq_punctuation_sensitive = ?, auto_grade_essay = ?,
           counts_detail = ?, chedodethi = ?, mabaomatdethi = ?, target_lop = ?, lop = ?, tg_bd = ?, tg_kt = ?,
-          ai_prompt = ?, ai_grading_key = ?, tieu_de_bai_thi = ?, is_shared_results = ?, max_attempts = ?, keep_raw_score = ?, updated_at = ?
-        WHERE id = ?
+          ai_prompt = ?, ai_grading_key = ?, tieu_de_bai_thi = ?, is_shared_results = ?, max_attempts = ?, keep_raw_score = ?, updated_at = ?, revision = revision + 1
+        WHERE id = ? AND revision = ?
       `;
 
-      await db.prepare(updateSql).bind(
+      const updateResult = await db.prepare(updateSql).bind(
         name.trim(), timeLimitVal, count41Val, countTF4Val, countSQVal, countTLVal,
         points41Val, pointsTF4Val, pointsSQVal, pointsTLVal,
         safeSelectedLessons, safeTf4ScoringMode, safeTf4Points, safeAccessControl,
         safeImmediateFeedback, safeShowScore, safeShowDetails,
         safeSqCaseSensitive, safeSqPunctuationSensitive, safeAutoGradeEssay,
         safeCountsDetail, chedodethiVal, mabaomatdethiVal, targetLopVal, targetLopVal, tgBdVal, tgKtVal,
-        aiPromptVal, aiGradingKeyVal, tieuDeBaiThiVal, safeIsShared, maxAttemptsVal, safeKeepRawScore, now, existingRecord.id
+        aiPromptVal, aiGradingKeyVal, tieuDeBaiThiVal, safeIsShared, maxAttemptsVal, safeKeepRawScore, now, existingRecord.id, submittedRevision
       ).run();
 
-      return new Response(JSON.stringify({ success: true, type: 'updated', id: existingRecord.id, error: null }), { status: 200, headers: corsHeaders });
+      if (Number(updateResult?.meta?.changes || 0) !== 1) return new Response(JSON.stringify({ error: 'Xung đột phiên bản: đề đã được sửa trên thiết bị khác. Vui lòng tải lại.', code: 'EXAM_CONFLICT' }), { status: 409, headers: corsHeaders });
+      return new Response(JSON.stringify({ success: true, type: 'updated', revision: submittedRevision + 1, id: existingRecord.id, error: null }), { status: 200, headers: corsHeaders });
     } else {
       // Tạo mới
       const newId = (id && /^\d+$/.test(String(id))) ? Number(id) : (typeof id === 'number' ? id : (Math.floor(Date.now() / 1000) + Math.floor(Math.random() * 1000)));
@@ -406,7 +413,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         aiPromptVal, safeIsShared, aiGradingKeyVal, maxAttemptsVal, safeKeepRawScore, tieuDeBaiThiVal, now, now
       ).run();
 
-      return new Response(JSON.stringify({ success: true, type: 'inserted', id: newId, error: null }), { status: 200, headers: corsHeaders });
+      return new Response(JSON.stringify({ success: true, type: 'inserted', revision: 1, id: newId, error: null }), { status: 200, headers: corsHeaders });
     }
   } catch (e: any) {
     return new Response(JSON.stringify({ error: e.message || "Lỗi lưu đề thi", success: false }), { status: 500, headers: corsHeaders });
