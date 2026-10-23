@@ -387,6 +387,10 @@ export function getEffectiveDb(envOrContext: any, requestOrSlug?: any): any {
       throw new Error('Tenant configuration invalid: contact administrator');
     }
     const host = origin.hostname.toLowerCase();
+    if (Object.keys(approvedHosts).length > 0 &&
+        !Object.prototype.hasOwnProperty.call(approvedHosts, host)) {
+      throw new Error('Hostname is not approved for tenant routing');
+    }
     if (Object.prototype.hasOwnProperty.call(approvedHosts, host)) {
       const approvedSlug = approvedHosts[host];
       if (typeof approvedSlug !== 'string' || !/^[a-z0-9_-]{1,64}$/i.test(approvedSlug)) {
