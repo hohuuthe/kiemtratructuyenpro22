@@ -355,6 +355,7 @@ export function getEffectiveDb(envOrContext: any, requestOrSlug?: any): any {
 
   const request = req && typeof req === 'object' ? (req.request || req) : null;
   const slug = request ? resolveTenantFromRequest(request, env) : 'default';
+  // Configured exact slug takes precedence; absence of a tenant must use the default Neon URL.
   const { url: databaseUrl, source } = getTenantDatabaseUrl(env, slug);
 
   if (!databaseUrl || databaseUrl.trim().length === 0) {
