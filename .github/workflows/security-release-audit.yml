@@ -40,8 +40,8 @@ jobs:
           if ! grep -q "fetch('/api/auth/me'" src/main.js; then
             python3 scripts/security-audit-20261023/14-credential-session-dom.py
           fi
-          if grep -q "headers.set('X-Tenant-Slug'" src/main.js; then
-            python3 scripts/security-audit-20261023/16-tenant-preview-auth-compat.py
+          if ! grep -q "initialTenantSlug" src/main.js; then
+            python3 scripts/security-audit-20261023/17-path-tenant-routing.py
           fi
       - name: Install locked dependencies
         run: npm ci --ignore-scripts --no-audit --no-fund
