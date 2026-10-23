@@ -1,0 +1,63 @@
+name: Default Neon login and API smoke on deployed Cloudflare
+on:
+  pull_request:
+    branches: [main]
+    paths: [.github/workflows/default-neon-login-diagnosis.yml]
+permissions:
+  contents: read
+  checks: read
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Probe default tenant on production and preview without real credentials
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ github.event.pull_request.head.sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          const pause=ms=>new Promise(r=>setTimeout(r,ms));
+          let preview='';
+          for(let i=0;i<35;i++){
+            const r=await fetch(`https://api.github.com/repos/${process.env.REPO}/commits/${process.env.TARGET_SHA}/check-runs`,{headers:{Authorization:`Bearer ${process.env.GH_TOKEN}`,Accept:'application/vnd.github+json'},signal:AbortSignal.timeout(15000)});
+            assert.equal(r.status,200);
+            const check=(await r.json()).check_runs.find(x=>x.name==='Cloudflare Pages'&&x.head_sha===process.env.TARGET_SHA);
+            if(check?.status==='completed'){
+              assert.equal(check.conclusion,'success');
+              preview=check.output.summary.match(/https:\/\/[a-f0-9]{8}\.kiemtratructuyenpro\.pages\.dev/)?.[0]||'';
+              break;
+            }
+            await pause(8000);
+          }
+          assert.ok(preview,'No matching deployed preview');
+          const sites=[['production','https://kiemtratructuyenpro.pages.dev'],['reported_immutable','https://d245bedf.kiemtratructuyenpro.pages.dev'],['candidate',preview]];
+          const checks=[
+            ['/api/health',{method:'GET'}],
+            ['/api/config',{method:'GET'}],
+            ['/api/accounts',{method:'GET'}],
+            ['/api/questions?count=true',{method:'GET'}],
+            ['/api/exams',{method:'GET'}],
+            ['/api/auth/me',{method:'GET'}],
+            ['/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:'__nonexistent_public_diagnostic_account_2026__',password:'!not-a-real-password!'})}]
+          ];
+          for(const [site,origin] of sites)for(const [path,params] of checks) {
+            try{
+              const r=await fetch(new URL(path,origin),{...params,redirect:'manual',signal:AbortSignal.timeout(12000)});
+              let data={};try{data=await r.json()}catch{await r.body?.cancel();}
+              const status=data?.database?.status;
+              const info={site,path,http:r.status,contentType:r.headers.get('content-type')?.split(';')[0],
+                db:status||null,tenant:data?.tenant_slug||null,build:data?.build_sha||null,
+                errorCode:data?.code||null,errorKind:data?.error==='Tên đăng nhập hoặc mật khẩu không đúng.'?'INVALID_CREDENTIALS':
+                  data?.error==='Không có quyền truy cập ngân hàng câu hỏi'?'EXPECTED_ACCESS_DENIED':
+                    typeof data?.error==='string'?data.error.slice(0,75):null,
+                rows:Array.isArray(data?.data)?'ARRAY':null};
+              console.log(JSON.stringify(info));
+            }catch(e){console.log(JSON.stringify({site,path,networkError:e?.name||'FETCH_ERROR'}));}
+          }
+          NODE
