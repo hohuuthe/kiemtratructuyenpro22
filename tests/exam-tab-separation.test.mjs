@@ -122,7 +122,7 @@ test('Authentication is bound to live account state and privilege cannot rely on
  const login=read('functions/api/auth/login.ts');
  for(const p of ["export async function verifyAuthSession(","accountProof(account, secret, tenantKey)","isLiveAccount(account)","decoded.tokenType !== 'auth'","account.role","account.password","profile_expiry_date"])assert.ok(utils.includes(p),p);
  assert.ok(login.includes('signAuthSession(account,'));
- assert.ok(utils.includes('const actual = await accountProof(account, secret, String(db.connectionUrl || ''))'));
+ assert.ok(utils.includes("const actual = await accountProof(account, secret, String(db.connectionUrl || ''))"));
  for(const path of ['functions/api/exams.ts','functions/api/questions.ts','functions/api/results.ts','functions/api/accounts.ts','functions/api/users.ts','functions/api/teacher-classes.ts']) {
    const t=read(path);
    assert.ok(t.includes('verifyAuthSession('),path);
