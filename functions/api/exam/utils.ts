@@ -416,7 +416,11 @@ async function bindSecretToDatabase(rawSecret: string, db: any): Promise<string>
 }
 export async function getDynamicSecret(db: any, envSecret?: string) {
     if (!db) throw new Error('Database unavailable');
-    if (envSecret?.trim()) return bindSecretToDatabase(envSecret.trim(), db);
+    // Legacy installations may provide a short JWT_SECRET. Use the persistent,
+    // randomly generated per-database key in that case instead of breaking login.
+    const configured = typeof envSecret === 'string' ? envSecret.trim() : '';
+    if (configured.length >= 32) return bindSecretToDatabase(configured, db);
+    if (configured) console.warn('[AUTH] Weak JWT_SECRET detected, using DB-scoped random key');
     // ON CONFLICT plus re-read prevents concurrent cold starts signing with different keys.
     await db.prepare('CREATE TABLE IF NOT EXISTS _internal_secrets (key TEXT PRIMARY KEY, value TEXT)').run();
     await db.prepare("INSERT INTO _internal_secrets (key,value) VALUES ('jwt',?) ON CONFLICT(key) DO NOTHING")
