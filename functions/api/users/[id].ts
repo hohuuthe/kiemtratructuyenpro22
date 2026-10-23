@@ -1,4 +1,4 @@
-import { verifyJWT, getDynamicSecret, getDatabase } from '../exam/utils';
+import { verifyAuthSession, getDynamicSecret, getDatabase } from '../exam/utils';
 
 interface Env {
   NEON_DATABASE_URL?: string;
@@ -27,7 +27,7 @@ export const onRequestPut: PagesFunction<Env> = async (context) => {
     return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: corsHeaders });
   }
   const token = authHeader.substring(7);
-  const user: any = await verifyJWT(token, SECRET);
+  const user: any = await verifyAuthSession(token, SECRET, db);
   if (!user || user.role !== 'admin') {
     return new Response(JSON.stringify({ error: "Chỉ Quản trị viên mới được sửa hồ sơ người dùng" }), { status: 403, headers: corsHeaders });
   }
@@ -73,7 +73,7 @@ export const onRequestDelete: PagesFunction<Env> = async (context) => {
     return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: corsHeaders });
   }
   const token = authHeader.substring(7);
-  const user: any = await verifyJWT(token, SECRET);
+  const user: any = await verifyAuthSession(token, SECRET, db);
   if (!user || user.role !== 'admin') {
     return new Response(JSON.stringify({ error: "Chỉ Quản trị viên mới được xóa hồ sơ người dùng" }), { status: 403, headers: corsHeaders });
   }

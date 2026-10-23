@@ -1,4 +1,5 @@
-import { signJWT, verifyJWT, getDynamicSecret, getDatabase } from './utils';
+import { signJWT, verifyAuthSession, getDynamicSecret, getDatabase } from './utils';
+import {makeGradeSessionConfig, accessCodeMatches} from './security';
 
 interface Env {
   NEON_DATABASE_URL?: string;
@@ -26,6 +27,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     try {
         const body: any = await request.json();
         const { teacherId, examId, examName, examConfig } = body;
+        const submittedAccessCode = body.examAccessCode;
 
         if (!teacherId) {
             return new Response(JSON.stringify({ error: 'Thiếu thông tin giáo viên (teacherId)' }), { status: 400, headers: corsHeaders });
@@ -164,7 +166,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         if (authHeader && authHeader.startsWith('Bearer ')) {
             const token = authHeader.substring(7);
             try { 
-                tokenUser = await verifyJWT(token, SECRET); 
+                tokenUser = await verifyAuthSession(token, SECRET, db); 
                 if (tokenUser && (tokenUser.id || tokenUser.user_id)) {
                     try {
                         const { results: uRows } = await db.prepare(
@@ -182,13 +184,20 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             } catch(e) {}
         }
         const isAdmin = tokenUser && tokenUser.role === 'admin';
-        const isTeacher = tokenUser && (tokenUser.target_audience === 'Giáo viên' || tokenUser.role === 'teacher' || String(tokenUser.id) === String(activeExamConfig.creator_id || effectiveTeacherId));
+        const isTeacher = !!tokenUser && String(tokenUser.id) === String(dbExam?.creator_id || effectiveTeacherId) && (tokenUser.target_audience === 'Giáo viên' || tokenUser.role === 'teacher');
 
+        if (dbExam && String(dbExam.creator_id) !== String(teacherId)) {
+            return new Response(JSON.stringify({error:'Đề thi không thuộc giáo viên đã chọn'}), {status:403,headers:corsHeaders});
+        }
         // BẢO VỆ CHỐNG LÀM GIẢ: Thí sinh chỉ được làm đề đã lưu trong CSDL, không được tự chế examConfig
         if (!dbExam && !isAdmin && !isTeacher) {
             return new Response(JSON.stringify({ error: 'Đề thi không tồn tại hoặc chưa được lưu trên hệ thống!' }), { status: 404, headers: corsHeaders });
         }
 
+        if (dbExam?.chedodethi === 'Đề có mã bảo mật' && !isAdmin && !isTeacher &&
+            !accessCodeMatches(submittedAccessCode, dbExam.mabaomatdethi)) {
+            return new Response(JSON.stringify({error:'Mã bảo vệ đề thi không chính xác'}), {status:403,headers:corsHeaders});
+        }
         // KIỂM TRA QUYỀN TRUY CẬP ĐỐI VỚI ĐỀ CHO ĐƠN VỊ
         if (activeExamConfig.chedodethi === 'Đề cho đơn vị' || activeExamConfig.chedodethi === 'Đề thi cho đơn vị') {
             if (!isAdmin && !isTeacher) {
@@ -533,10 +542,11 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
         const payload = {
             questionIds,
-            examConfig: activeExamConfig,
+            examConfig: makeGradeSessionConfig(activeExamConfig),
             maxCheatWarnings: maxCheatWarningsFromDB,
             teacherId: effectiveTeacherId,
-            timestamp: Date.now()
+            timestamp: Date.now(),
+            exp: Math.floor(Date.now() / 1000) + Math.max(3600, Math.min(8 * 3600, (Number(activeExamConfig.time_limit || 45) + 60) * 60))
         };
 
         const token = await signJWT(payload, SECRET);

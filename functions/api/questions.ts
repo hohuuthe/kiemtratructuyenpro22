@@ -1,4 +1,4 @@
-import { verifyJWT, getDynamicSecret, getDatabase } from './exam/utils';
+import { verifyAuthSession, getDynamicSecret, getDatabase } from './exam/utils';
 
 interface Env {
   NEON_DATABASE_URL?: string;
@@ -64,7 +64,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
   let user: any = null;
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const token = authHeader.substring(7);
-    user = await verifyJWT(token, SECRET);
+    user = await verifyAuthSession(token, SECRET, db);
   }
 
   // Bảo mật nghiêm ngặt: Học sinh không được phép tải toàn bộ ngân hàng câu hỏi (có đáp án)
@@ -158,7 +158,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: corsHeaders });
   }
   const token = authHeader.substring(7);
-  const user = await verifyJWT(token, SECRET);
+  const user = await verifyAuthSession(token, SECRET, db);
   if (!user) {
     return new Response(JSON.stringify({ error: "Phiên đăng nhập không hợp lệ" }), { status: 401, headers: corsHeaders });
   }
@@ -198,11 +198,18 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
           options = excluded.options,
           answer = excluded.answer,
           image = excluded.image
+        WHERE questions.creator_id = excluded.creator_id
       `;
 
       for (const q of questions) {
         const qId = q.id || crypto.randomUUID();
-        const creatorId = (isAdmin && q.creatorId) ? q.creatorId : (q.creatorId || user.id);
+        const creatorId = isAdmin ? (q.creatorId || user.id) : user.id;
+        if (!isAdmin && q.id) {
+          const record = await db.prepare("SELECT creator_id FROM questions WHERE id = ?").bind(q.id).first();
+          if (record && String(record.creator_id) !== String(user.id)) {
+            return new Response(JSON.stringify({error:'Không có quyền sửa câu hỏi của tài khoản khác'}), {status:403,headers:corsHeaders});
+          }
+        }
         const safeOptions = typeof q.options === 'object' ? JSON.stringify(q.options) : (q.options || '{}');
 
         await db.prepare(upsertSql).bind(
@@ -253,7 +260,7 @@ export const onRequestDelete: PagesFunction<Env> = async (context) => {
     return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: corsHeaders });
   }
   const token = authHeader.substring(7);
-  const user = await verifyJWT(token, SECRET);
+  const user = await verifyAuthSession(token, SECRET, db);
   if (!user) {
     return new Response(JSON.stringify({ error: "Phiên đăng nhập không hợp lệ" }), { status: 401, headers: corsHeaders });
   }

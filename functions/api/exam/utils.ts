@@ -61,9 +61,87 @@ export async function verifyJWT(token: string, secret: string) {
     if (!isValid) return null;
     
     try {
-        return JSON.parse(b64DecodeUnicode(encodedPayload));
+        const claims = JSON.parse(b64DecodeUnicode(encodedPayload));
+        const now = Math.floor(Date.now() / 1000);
+        if (claims.exp !== undefined && (!Number.isFinite(Number(claims.exp)) || Number(claims.exp) <= now)) return null;
+        if (claims.nbf !== undefined && Number(claims.nbf) > now) return null;
+        return claims;
     } catch {
         return null;
+    }
+}
+
+/**
+ * Bind authorization to the current account record.
+ * Re-evaluating this fingerprint on every privileged API request revokes all older
+ * tokens as soon as an account is disabled, its password/role expires or its
+ * linked profile permission changes. Legacy JWTs without proof fail closed.
+ */
+export function isLiveAccount(row: any): boolean {
+    if (!row || !row.id || !row.password) return false;
+    const active = (value: any) => value === undefined || value === null ||
+      !['0', 'false', 'disabled'].includes(String(value).toLowerCase().trim());
+    if (!active(row.is_active) || !active(row.profile_active)) return false;
+    const now = Date.now();
+    const notExpired = (value: any) => {
+      if (!value) return true;
+      const raw = String(value).trim();
+      const date = /^\d{4}-\d{2}-\d{2}$/.test(raw)
+        ? raw + 'T23:59:59.999+07:00' : raw;
+      const at = Date.parse(date);
+      return Number.isFinite(at) && at >= now;
+    };
+    return notExpired(row.expiry_date) && notExpired(row.profile_expiry_date);
+}
+
+async function accountProof(account: any, secret: string, tenantKey = ''): Promise<string> {
+    const parts = [
+      tenantKey,
+      account.id, account.user_id || account.id, account.password,
+      account.role || '', account.is_active ?? 1, account.expiry_date || '',
+      account.target_audience || '', account.profile_active ?? 1,
+      account.profile_expiry_date || ''
+    ].map(value => String(value));
+    const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret),
+      {name: 'HMAC', hash: 'SHA-256'}, false, ['sign']);
+    const signature = await crypto.subtle.sign('HMAC', key,
+      new TextEncoder().encode(JSON.stringify(parts)));
+    return Array.from(new Uint8Array(signature)).map(v => v.toString(16).padStart(2, '0')).join('');
+}
+export async function signAuthSession(account: any, claims: any, secret: string, tenantKey = ''): Promise<string> {
+    if (!isLiveAccount(account)) throw new Error('Account inactive or expired');
+    const now = Math.floor(Date.now() / 1000);
+    const proof = await accountProof(account, secret, tenantKey);
+    return signJWT({...claims, tokenType:'auth', authProof:proof, iat:now, exp:now + 12*3600}, secret);
+}
+export async function verifyAuthSession(token: string, secret: string, db: any): Promise<any | null> {
+    if (!db) return null;
+    const decoded = await verifyJWT(token, secret);
+    if (!decoded || decoded.tokenType !== 'auth' || !decoded.authProof ||
+        !Number.isFinite(Number(decoded.exp))) return null;
+    try {
+      const account: any = await db.prepare(`
+        SELECT a.id, a.user_id, a.username, a.password, a.role, a.is_active, a.expiry_date,
+               u.full_name, u.target_audience, u.donvi, u.lop,
+               u.is_active AS profile_active, u.expiry_date AS profile_expiry_date
+        FROM accounts a LEFT JOIN users u ON u.id = COALESCE(a.user_id, a.id)
+        WHERE a.id = ? LIMIT 1
+      `).bind(decoded.id).first();
+      if (!isLiveAccount(account)) return null;
+      const actual = await accountProof(account, secret, String(db.connectionUrl || ''));
+      if (actual !== decoded.authProof) return null;
+      const audience = account.target_audience ||
+        (String(account.role).toLowerCase() === 'admin' ? 'Quản trị viên' :
+        ['teacher','giáo viên'].includes(String(account.role).toLowerCase()) ? 'Giáo viên' : 'Học sinh');
+      return {
+        ...decoded, id:account.id, user_id:account.user_id || account.id,
+        username:account.username, role:account.role, target_audience:audience,
+        full_name:account.full_name || account.username,
+        donvi:account.donvi || '', lop:account.lop || ''
+      };
+    } catch (err) {
+      console.error('Authorization state validation unavailable');
+      return null; // Never authorize when the account database cannot be verified.
     }
 }
 
@@ -353,9 +431,7 @@ export async function getDynamicSecret(db: any, envSecret?: string) {
     }
     try {
         if (!db) {
-            const fallbackSecret = "FALLBACK_TO_HARDCODED_ONLY_IF_DB_FAILS_12345_XYZ";
-            secretByDbCache.set(dbKey, fallbackSecret);
-            return fallbackSecret;
+            throw new Error('Database unavailable: refusing insecure JWT fallback');
         }
         await db.prepare("CREATE TABLE IF NOT EXISTS _internal_secrets (key TEXT PRIMARY KEY, value TEXT)").run();
         const { results } = await db.prepare("SELECT value FROM _internal_secrets WHERE key = 'jwt'").all();
@@ -369,9 +445,7 @@ export async function getDynamicSecret(db: any, envSecret?: string) {
         secretByDbCache.set(dbKey, newSecret);
         return newSecret;
     } catch (e) {
-        const fallbackSecret = "FALLBACK_TO_HARDCODED_ONLY_IF_DB_FAILS_12345_XYZ";
-        secretByDbCache.set(dbKey, fallbackSecret);
-        return fallbackSecret;
+        throw new Error('Authentication unavailable: secure JWT secret could not be loaded');
     }
 }
 
@@ -486,6 +560,6 @@ export function checkIsTeacherOrAdmin(user: any): boolean {
     if (checkIsAdmin(user)) return true;
     const role = String(user.role || '').toLowerCase();
     const audience = String(user.target_audience || '').toLowerCase();
-    return role === 'giáo viên' || audience === 'giáo viên' || role === 'teacher' || role === 'khác';
+    return role === 'giáo viên' || audience === 'giáo viên' || role === 'teacher';
 }
 

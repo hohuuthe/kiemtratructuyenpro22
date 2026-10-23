@@ -1,0 +1,66 @@
+name: Preview Neon API smoke (read only)
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/preview-neon-smoke.yml'
+      - 'functions/**'
+      - 'wrangler.toml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  preview-neon:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Probe Cloudflare Preview config and Neon health without credentials
+        env:
+          PREVIEW_BASE: https://feat-separate-exam-managemen.kiemtratructuyenpro.pages.dev
+        run: |
+          node --input-type=module <<'NODE'
+          const base = process.env.PREVIEW_BASE;
+          const probe = async (path) => {
+            try {
+              const response = await fetch(new URL(path, base), {
+                signal: AbortSignal.timeout(12000),
+                headers: { Accept: 'application/json', 'Cache-Control': 'no-cache' }
+              });
+              const contentType = response.headers.get('content-type') || '';
+              let json = null;
+              if (contentType.includes('application/json')) {
+                json = await response.json().catch(() => null);
+              }
+              return { status: response.status, isJson: !!json, json };
+            } catch (err) {
+              return { status: 0, isJson: false, reason: err?.name || 'FETCH_FAILED' };
+            }
+          };
+          let healthy = false;
+          for (let i = 1; i <= 4; i++) {
+            const config = await probe('/api/config');
+            const health = await probe('/api/health');
+            const configured = config.json?.isNeonConfigured === true;
+            const connected = health.json?.database?.status === 'CONNECTED_OK';
+            console.log('Attempt ' + i + ': /api/config HTTP=' + config.status
+              + ' json=' + config.isJson + ' neonConfigured=' + configured);
+            console.log('Attempt ' + i + ': /api/health HTTP=' + health.status
+              + ' json=' + health.isJson + ' databaseConnected=' + connected);
+            if (config.status === 200 && configured && health.status === 200 && connected) {
+              healthy = true;
+              break;
+            }
+            if (i < 4) await new Promise(resolve => setTimeout(resolve, 8000));
+          }
+          if (!healthy) {
+            console.error('Preview API/Neon is NOT READY. Check Cloudflare Pages > Settings > Variables and Secrets > Preview, especially NEON_DATABASE_URL (encrypted), and Pages Functions runtime logs.');
+            process.exitCode = 1;
+          } else {
+            console.log('Preview API/Neon is READY. Read-only connection checks passed.');
+          }
+          NODE

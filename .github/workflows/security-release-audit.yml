@@ -1,0 +1,123 @@
+name: Security release audit - isolated PostgreSQL and all regressions
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/security-audit-20261023/**'
+      - 'tests/security-release-acceptance.test.ts'
+      - '.github/workflows/security-release-audit.yml'
+      - 'docs/SECURITY_AUDIT_20261023_APPLIED.json'
+permissions:
+  contents: write
+concurrency:
+  group: security-release-audit-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  audit:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'security/integrated-auth-tenants-cas-20261023'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Apply reviewed audit corrections to the isolated candidate
+        run: |
+          if [ ! -f docs/SECURITY_AUDIT_20261023_APPLIED.json ]; then
+            for patch in scripts/security-audit-20261023/[0-9][0-9]-*.py; do
+              python3 "$patch"
+            done
+          fi
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Parse frontend and TypeScript source
+        run: |
+          node --check src/main.js
+          node --input-type=module <<'NODE'
+          import ts from 'typescript';
+          import fs from 'node:fs';
+          import path from 'node:path';
+          let failures=0;
+          function walk(dir){for(const item of fs.readdirSync(dir,{withFileTypes:true})){
+            const file=path.join(dir,item.name);
+            if(item.isDirectory())walk(file);
+            else if(/\.tsx?$/.test(file)){
+              const source=ts.createSourceFile(file,fs.readFileSync(file,'utf8'),ts.ScriptTarget.Latest,true);
+              for(const diagnostic of source.parseDiagnostics){console.error(file,ts.flattenDiagnosticMessageText(diagnostic.messageText,' '));failures++;}
+            }
+          }}
+          for(const root of ['src','functions','tests'])walk(root);
+          if(failures)process.exit(1);
+          NODE
+      - name: Two isolated PostgreSQL engines and real API security acceptance
+        run: |
+          mkdir -p artifacts/security-audit
+          set -o pipefail
+          npm run test:security 2>&1 | tee artifacts/security-audit/security-api.tap
+      - name: Complete repository regression tests
+        run: |
+          set -o pipefail
+          node --import tsx --test --test-concurrency=1 tests/*.test.mjs tests/*.test.ts 2>&1 | tee artifacts/security-audit/regression.tap
+      - name: Build deployable bundles and reject private public assets
+        run: |
+          set -o pipefail
+          npm run build 2>&1 | tee artifacts/security-audit/build.log
+          if find dist -type f | grep -E '\.(sql|db|sqlite|sqlite3|map|cjs)$|/\.env'; then
+            echo 'Private server or database file in public build'; exit 1
+          fi
+          test -f build/server.cjs
+      - name: Record dependency audit without claiming unresolved advisories passed
+        if: always()
+        run: |
+          mkdir -p artifacts/security-audit
+          npm audit --omit=dev --json > artifacts/security-audit/dependency-audit.json || true
+      - name: Commit tested source only to the authorized draft branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+          TARGET_BRANCH: security/integrated-auth-tenants-cas-20261023
+        run: |
+          set -eu
+          test "$GITHUB_REPOSITORY" = 'hohuuthe/kiemtratructuyenpro22'
+          test "$TARGET_BRANCH" != 'main'
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          mkdir -p docs
+          if [ ! -f docs/SECURITY_AUDIT_20261023_APPLIED.json ]; then
+            python3 - <<'PY'
+          import json,os,pathlib
+          pathlib.Path('docs/SECURITY_AUDIT_20261023_APPLIED.json').write_text(json.dumps({
+            'source_head':os.environ['EXPECTED_HEAD'],
+            'workflow_run':os.environ['GITHUB_RUN_ID'],
+            'scope':'API tests on two isolated PostgreSQL engines with Neon HTTP transport substituted',
+            'real_neon_cloud_tenants_verified':False,
+            'production_changed':False
+          },indent=2)+'\n')
+          PY
+          fi
+          # Workflow policy changes are reviewed and committed through the connector separately.
+          git restore --source=HEAD .github/workflows/formula-check.yml
+          git add -u
+          # This repository ignores functions/; explicitly stage reviewed new source only.
+          git add -f functions/api/_middleware.ts functions/_middleware.ts functions/api/exam/attempt-envelope.ts functions/api/exam/submission.ts src/security-policy.ts src/pages-api-dispatch.ts src/safe-image-url.js public/_headers tests/excel-security-version.test.mjs tests/safe-image-url.test.mjs docs/SECURITY_AUDIT_20261023_APPLIED.json
+          git diff --cached --binary > artifacts/security-audit/tested-source.patch
+          if git diff --cached --quiet; then exit 0; fi
+          git config user.name 'KTTT security regression'
+          git config user.email '92618324+hohuuthe@users.noreply.github.com'
+          git commit -m 'security: apply audited API, grading, tenant and browser fixes after isolated PostgreSQL regressions'
+          AUTH=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          REMOTE=$(git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $AUTH" ls-remote https://github.com/hohuuthe/kiemtratructuyenpro22.git "refs/heads/$TARGET_BRANCH" | cut -f1)
+          test "$REMOTE" = "$EXPECTED_HEAD"
+          git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $AUTH" push https://github.com/hohuuthe/kiemtratructuyenpro22.git "HEAD:refs/heads/$TARGET_BRANCH"
+          git rev-parse HEAD > artifacts/security-audit/tested-source.sha
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-release-audit-evidence
+          path: artifacts/security-audit/
+          retention-days: 7

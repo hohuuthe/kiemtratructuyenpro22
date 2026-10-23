@@ -1,0 +1,459 @@
+<div id="tab-exam-editor" class="tab-content w-full">
+  <div id="exam-editor-panel" class="hidden w-full">
+        <!-- Exam Configuration -->
+        <div class="bg-white rounded-2xl shadow-xl p-4 mb-4 w-full">
+         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5 border-b border-purple-100 pb-4">
+            <div>
+              <h3 class="font-bold text-gray-800 text-lg">📝 QL Tạo/sửa đề thi</h3>
+              <p class="text-xs text-gray-500 mt-1">Tạo đề thi mới hoặc nạp đề đã tạo để xem và chỉnh sửa. Giữ nguyên toàn bộ nghiệp vụ cấu hình và lưu đề.</p>
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <button type="button" onclick="startNewExamConfig()" id="btn-exam-editor-new" class="px-3 py-2 rounded-lg font-bold text-sm bg-emerald-600 text-white hover:bg-emerald-700">＋ Tạo đề thi mới</button>
+              <button type="button" onclick="switchTab('exams')" class="px-3 py-2 rounded-lg text-sm font-bold border border-purple-200 bg-purple-50 text-purple-800 hover:bg-purple-100">← QL Đề thi</button>
+            </div>
+          </div>
+         
+         <!-- Hiển thị cấu hình hiện tại -->
+         <div id="current-config-display" class="mb-6 p-4 bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl border border-purple-200 shadow-sm hidden">
+         </div>
+
+         <div class="mb-4">
+          <label class="block text-sm font-semibold text-gray-700 mb-1">Nhập tên đề thi mới</label>
+          <input type="text" id="new-exam-name" placeholder="Nhập tên đề thi mới" class="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:border-purple-500 focus:outline-none mb-2" oninput="if(window.onNewExamNameInput) window.onNewExamNameInput(this.value);">
+          
+          <div class="flex items-center justify-between mb-1">
+            <label class="block text-sm font-semibold text-gray-700">Chọn bộ câu hỏi hoặc đề thi</label>
+            <button type="button" onclick="window.refreshExamsData()" class="text-xs text-purple-700 hover:text-purple-900 font-bold flex items-center gap-1 cursor-pointer" title="Tải lại toàn bộ danh sách đề thi">
+              <span>🔄 Tải lại dữ liệu đề thi</span>
+            </button>
+          </div>
+          <div class="flex gap-2 w-full overflow-hidden">
+           <button type="button" onclick="window.refreshExamsData()" class="shrink-0 p-2 bg-purple-50 text-purple-700 border border-purple-200 rounded-lg hover:bg-purple-100 transition flex items-center justify-center font-bold cursor-pointer" title="Tải lại danh sách đề thi">
+             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+           </button>
+           <select id="exam-config-name" onchange="onExamNameChange(); document.getElementById('new-exam-name').value = '';" class="flex-1 min-w-0 px-3 py-2 border-2 border-gray-200 rounded-lg focus:border-purple-500 focus:outline-none text-sm md:text-base">
+            <option value="">Chọn đề thi có sẵn</option>
+           </select>
+           <button id="btn-export-exam-docx" type="button" onclick="openExportDocxModal()" class="hidden shrink-0 px-3.5 py-2 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-lg shadow-md font-bold transition flex items-center justify-center gap-1.5 cursor-pointer text-xs md:text-sm active:scale-95" title="Xuất đề thi ra file Word (.docx) theo cấu trúc chuẩn">
+            <svg class="w-4 h-4 md:w-5 md:h-5 text-amber-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+            </svg>
+            <span class="whitespace-nowrap">📄 Xuất đề thi</span>
+           </button>
+           <button onclick="deleteExamConfig()" class="shrink-0 px-3 py-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition flex items-center justify-center font-bold" title="Xóa đề thi này">
+            <span>🗑️</span>
+           </button>
+          </div>
+         </div>
+
+         <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+          <div>
+           <label class="block text-sm font-semibold text-gray-700 mb-1">Chế độ của đề thi</label>
+           <select id="exam-config-mode" onchange="toggleExamMode()" class="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:border-purple-500 focus:outline-none">
+            <option value="Đề công khai">Đề công khai</option>
+            <option value="Đề cho đơn vị">Đề cho đơn vị</option>
+            <option value="Đề có mã bảo mật">Đề có mã bảo mật</option>
+           </select>
+          </div>
+          <div id="exam-donvi-container" class="hidden">
+           <label class="block text-sm font-semibold text-gray-700 mb-1">Đơn vị áp dụng <span class="text-xs font-normal text-purple-600">(Trường/Đơn vị)</span></label>
+           <input type="text" id="exam-config-donvi" placeholder="VD: THPT Chuyên, THCS..." class="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:border-purple-500 focus:outline-none" oninput="if(window.examConfig) { examConfig.target_donvi = this.value.trim(); examConfig.donvi = this.value.trim(); }">
+          </div>
+          <div id="exam-class-container" class="hidden">
+           <label class="block text-sm font-semibold text-gray-700 mb-1">Lớp áp dụng <span class="text-xs font-normal text-purple-600">(Dành cho Đề cho đơn vị, nhiều lớp cách nhau bởi dấu phẩy)</span></label>
+           <input type="text" id="exam-config-lop" placeholder="VD: 12A1, 12A2, 10B (cách nhau bởi dấu phẩy)" class="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:border-purple-500 focus:outline-none" oninput="if(window.examConfig) { examConfig.target_lop = this.value.trim(); examConfig.lop = this.value.trim(); }">
+           <div id="teacher-quick-classes-container" class="mt-2 hidden p-2.5 bg-purple-50/70 border border-purple-200/80 rounded-xl">
+             <div class="flex items-center justify-between text-xs text-purple-900 font-bold mb-1.5">
+               <span class="flex items-center gap-1">🎒 Lớp tôi phụ trách:</span>
+               <button type="button" onclick="window.selectAllMyClassesForExam()" class="text-[11px] text-purple-700 hover:text-purple-900 underline font-semibold cursor-pointer">
+                 Chọn tất cả
+               </button>
+             </div>
+             <div id="teacher-quick-classes-list" class="flex flex-wrap gap-1.5">
+               <!-- Badges populated by JS -->
+             </div>
+           </div>
+          </div>
+         </div>
+
+         <div id="exam-password-container" class="mb-4 hidden">
+          <label class="block text-sm font-semibold text-gray-700 mb-1">Mã bảo mật đề thi</label>
+          <input type="text" id="exam-config-password" placeholder="Nhập mã bảo mật" class="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:border-purple-500 focus:outline-none">
+         </div>
+
+         <div class="mb-4">
+           <label class="block text-sm font-semibold text-gray-700 mb-1">Thời gian (phút)</label> <input type="number" id="exam-config-time" value="15" min="1" max="180" class="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:border-purple-500 focus:outline-none">
+         </div>
+         <div class="mb-4">
+           <label class="block text-sm font-semibold text-gray-700 mb-1">Số lần cho phép rời màn hình (giám sát thi)</label>
+           <input type="number" id="exam-config-max-cheat-warnings" value="5" min="1" max="100" placeholder="Mặc định: 5 lần" class="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:border-purple-500 focus:outline-none">
+           <p class="text-xs text-gray-500 mt-1">* Khi làm bài toàn màn hình, nếu học sinh rời màn hình vượt quá số lần này, hệ thống sẽ tự động khóa và thu bài thi.</p>
+         </div>
+         <div class="mb-4">
+           <label class="block text-sm font-semibold text-gray-700 mb-1">Giới hạn số lần học sinh làm bài thi</label>
+           <input type="number" id="exam-config-max-attempts" value="0" min="0" max="100" placeholder="Mặc định: 0 (Không giới hạn)" class="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:border-purple-500 focus:outline-none">
+           <p class="text-xs text-gray-500 mt-1">* Giới hạn số lần làm bài đối với mỗi học sinh cho đề thi này (Nhập 0 hoặc để trống nếu không giới hạn số lần làm bài).</p>
+         </div>
+
+         <!-- Access Control Configuration -->
+         <div class="mb-6 p-4 bg-amber-50 rounded-xl border border-amber-200 shadow-sm">
+          <div class="flex items-center justify-between mb-3">
+           <h4 class="font-bold text-amber-800 flex items-center gap-2">🕒 Thiết lập thời gian bắt đầu và kết thúc</h4>
+           <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" id="exam-access-enabled" class="sr-only peer" onchange="toggleAccessControl()">
+            <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
+            <span class="ml-3 text-sm font-medium text-amber-900">Kích hoạt</span>
+           </label>
+          </div>
+          <div id="access-control-inputs" class="grid md:grid-cols-2 gap-4 hidden">
+           <div>
+            <label class="block text-xs font-bold text-amber-700 uppercase mb-1">Thời gian bắt đầu (tg_bd)</label>
+            <input type="datetime-local" id="exam-access-start" class="w-full px-3 py-2 border border-amber-300 rounded-lg text-sm focus:ring-amber-500 focus:border-amber-500">
+           </div>
+           <div>
+            <label class="block text-xs font-bold text-amber-700 uppercase mb-1">Thời gian kết thúc (tg_kt)</label>
+            <input type="datetime-local" id="exam-access-end" class="w-full px-3 py-2 border border-amber-300 rounded-lg text-sm focus:ring-amber-500 focus:border-amber-500">
+           </div>
+          </div>
+          <p class="mt-2 text-xs text-amber-600 italic">* Nếu kích hoạt, học sinh chỉ có thể bắt đầu làm bài trong khoảng thời gian này.</p>
+         </div>
+         <div class="mb-4">
+          <div class="flex justify-between items-center mb-2">
+           <label class="block text-sm font-semibold text-gray-700">Chọn bài (Phải chọn bài mới có câu hỏi)</label>
+           <div class="flex gap-2">
+            <button onclick="toggleAllLessons(true)" class="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition font-medium">Chọn tất cả</button>
+            <button onclick="toggleAllLessons(false)" class="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition font-medium">Bỏ chọn</button>
+           </div>
+          </div>
+          <div id="exam-global-stats" class="mb-2 p-2 bg-gray-50 rounded border border-gray-200 text-xl text-gray-600 grid grid-cols-4 gap-2"></div>
+          <div id="exam-lesson-selection-container" class="border-2 border-gray-200 rounded-lg p-2 max-h-[570px] overflow-y-auto bg-gray-50">
+           <div id="exam-lesson-selection" class="space-y-1">
+           </div>
+          </div>
+         </div>
+          <div class="grid md:grid-cols-4 gap-4 mb-4">
+           <!-- [4-1] Configuration -->
+           <div class="p-4 bg-blue-50 rounded-lg border-2 border-blue-200">
+            <div class="flex justify-between items-center mb-2">
+             <label class="font-bold text-blue-800">Trắc nghiệm [4-1]</label>
+             <span class="text-xs font-bold bg-blue-200 text-blue-800 px-2 py-1 rounded" id="total-41-display">0 câu</span>
+            </div>
+            <div class="space-y-2">
+             <div>
+              <div class="flex justify-between text-xs mb-1">
+               <span class="text-blue-700 font-semibold">Nhận biết</span>
+               <span class="text-gray-500">Có: <span id="available-41-nb" class="font-bold">0</span></span>
+              </div>
+              <input type="number" id="exam-count-41-nb" value="0" min="0" class="w-full px-3 py-1.5 border border-blue-300 rounded-lg text-sm focus:border-blue-500 focus:outline-none" onchange="updateExamCounts(true)">
+             </div>
+             <div>
+              <div class="flex justify-between text-xs mb-1">
+               <span class="text-blue-700 font-semibold">Thông hiểu</span>
+               <span class="text-gray-500">Có: <span id="available-41-th" class="font-bold">0</span></span>
+              </div>
+              <input type="number" id="exam-count-41-th" value="0" min="0" class="w-full px-3 py-1.5 border border-blue-300 rounded-lg text-sm focus:border-blue-500 focus:outline-none" onchange="updateExamCounts(true)">
+             </div>
+             <div>
+              <div class="flex justify-between text-xs mb-1">
+               <span class="text-blue-700 font-semibold">Vận dụng</span>
+               <span class="text-gray-500">Có: <span id="available-41-vd" class="font-bold">0</span></span>
+              </div>
+              <input type="number" id="exam-count-41-vd" value="0" min="0" class="w-full px-3 py-1.5 border border-blue-300 rounded-lg text-sm focus:border-blue-500 focus:outline-none" onchange="updateExamCounts(true)">
+             </div>
+            </div>
+            <input type="hidden" id="exam-count-41" value="0">
+           </div>
+
+           <!-- [TF4] Configuration -->
+           <div class="p-4 bg-green-50 rounded-lg border-2 border-green-200">
+            <div class="flex justify-between items-center mb-2">
+             <label class="font-bold text-green-800">Đúng/Sai [TF4]</label>
+             <span class="text-xs font-bold bg-green-200 text-green-800 px-2 py-1 rounded" id="total-tf4-display">0 câu</span>
+            </div>
+            <div class="space-y-2">
+             <div>
+              <div class="flex justify-between text-xs mb-1">
+               <span class="text-green-700 font-semibold">Nhận biết</span>
+               <span class="text-gray-500">Có: <span id="available-tf4-nb" class="font-bold">0</span></span>
+              </div>
+              <input type="number" id="exam-count-tf4-nb" value="0" min="0" class="w-full px-3 py-1.5 border border-green-300 rounded-lg text-sm focus:border-green-500 focus:outline-none" onchange="updateExamCounts(true)">
+             </div>
+             <div>
+              <div class="flex justify-between text-xs mb-1">
+               <span class="text-green-700 font-semibold">Thông hiểu</span>
+               <span class="text-gray-500">Có: <span id="available-tf4-th" class="font-bold">0</span></span>
+              </div>
+              <input type="number" id="exam-count-tf4-th" value="0" min="0" class="w-full px-3 py-1.5 border border-green-300 rounded-lg text-sm focus:border-green-500 focus:outline-none" onchange="updateExamCounts(true)">
+             </div>
+             <div>
+              <div class="flex justify-between text-xs mb-1">
+               <span class="text-green-700 font-semibold">Vận dụng</span>
+               <span class="text-gray-500">Có: <span id="available-tf4-vd" class="font-bold">0</span></span>
+              </div>
+              <input type="number" id="exam-count-tf4-vd" value="0" min="0" class="w-full px-3 py-1.5 border border-green-300 rounded-lg text-sm focus:border-green-500 focus:outline-none" onchange="updateExamCounts(true)">
+             </div>
+            </div>
+            <input type="hidden" id="exam-count-tf4" value="0">
+           </div>
+
+           <!-- [SQ] Configuration -->
+           <div class="p-4 bg-orange-50 rounded-lg border-2 border-orange-200">
+            <div class="flex justify-between items-center mb-2">
+             <label class="font-bold text-orange-800">Tự luận ngắn [SQ]</label>
+             <span class="text-xs font-bold bg-orange-200 text-orange-800 px-2 py-1 rounded" id="total-sq-display">0 câu</span>
+            </div>
+            <div class="space-y-2">
+             <div>
+              <div class="flex justify-between text-xs mb-1">
+               <span class="text-orange-700 font-semibold">Nhận biết</span>
+               <span class="text-gray-500">Có: <span id="available-sq-nb" class="font-bold">0</span></span>
+              </div>
+              <input type="number" id="exam-count-sq-nb" value="0" min="0" class="w-full px-3 py-1.5 border border-orange-300 rounded-lg text-sm focus:border-orange-500 focus:outline-none" onchange="updateExamCounts(true)">
+             </div>
+             <div>
+              <div class="flex justify-between text-xs mb-1">
+               <span class="text-orange-700 font-semibold">Thông hiểu</span>
+               <span class="text-gray-500">Có: <span id="available-sq-th" class="font-bold">0</span></span>
+              </div>
+              <input type="number" id="exam-count-sq-th" value="0" min="0" class="w-full px-3 py-1.5 border border-orange-300 rounded-lg text-sm focus:border-orange-500 focus:outline-none" onchange="updateExamCounts(true)">
+             </div>
+             <div>
+              <div class="flex justify-between text-xs mb-1">
+               <span class="text-orange-700 font-semibold">Vận dụng</span>
+               <span class="text-gray-500">Có: <span id="available-sq-vd" class="font-bold">0</span></span>
+              </div>
+              <input type="number" id="exam-count-sq-vd" value="0" min="0" class="w-full px-3 py-1.5 border border-orange-300 rounded-lg text-sm focus:border-orange-500 focus:outline-none" onchange="updateExamCounts(true)">
+             </div>
+            </div>
+            <input type="hidden" id="exam-count-sq" value="0">
+           </div>
+
+           <!-- [TL] Configuration -->
+           <div class="p-4 bg-red-50 rounded-lg border-2 border-red-200">
+            <div class="flex justify-between items-center mb-2">
+             <label class="font-bold text-red-800">Tự luận [TL]</label>
+             <span class="text-xs font-bold bg-red-200 text-red-800 px-2 py-1 rounded" id="total-tl-display">0 câu</span>
+            </div>
+            <div class="space-y-2">
+             <div>
+              <div class="flex justify-between text-xs mb-1">
+               <span class="text-red-700 font-semibold">Nhận biết</span>
+               <span class="text-gray-500">Có: <span id="available-tl-nb" class="font-bold">0</span></span>
+              </div>
+              <input type="number" id="exam-count-tl-nb" value="0" min="0" class="w-full px-3 py-1.5 border border-red-300 rounded-lg text-sm focus:border-red-500 focus:outline-none" onchange="updateExamCounts(true)">
+             </div>
+             <div>
+              <div class="flex justify-between text-xs mb-1">
+               <span class="text-red-700 font-semibold">Thông hiểu</span>
+               <span class="text-gray-500">Có: <span id="available-tl-th" class="font-bold">0</span></span>
+              </div>
+              <input type="number" id="exam-count-tl-th" value="0" min="0" class="w-full px-3 py-1.5 border border-red-300 rounded-lg text-sm focus:border-red-500 focus:outline-none" onchange="updateExamCounts(true)">
+             </div>
+             <div>
+              <div class="flex justify-between text-xs mb-1">
+               <span class="text-red-700 font-semibold">Vận dụng</span>
+               <span class="text-gray-500">Có: <span id="available-tl-vd" class="font-bold">0</span></span>
+              </div>
+              <input type="number" id="exam-count-tl-vd" value="0" min="0" class="w-full px-3 py-1.5 border border-red-300 rounded-lg text-sm focus:border-red-500 focus:outline-none" onchange="updateExamCounts(true)">
+             </div>
+            </div>
+            <input type="hidden" id="exam-count-tl" value="0">
+           </div>
+          </div>
+         <div class="mb-4">
+          <label class="block text-sm font-semibold text-gray-700 mb-2">💯 Điểm số cho mỗi phần</label>
+          <div class="grid md:grid-cols-4 gap-4 mb-4">
+           <div class="p-3 bg-blue-50 rounded-lg">
+            <label class="block text-xs font-semibold text-blue-700 mb-1">Điểm/câu [4-1]</label> <input type="number" id="exam-points-41" value="1" min="0" step="0.1" class="w-full px-3 py-2 border-2 border-blue-200 rounded-lg focus:border-blue-500 focus:outline-none text-sm" onchange="updatePointsPreview()">
+           </div>
+           <div class="p-3 bg-green-50 rounded-lg flex flex-col">
+            <label class="block text-xs font-semibold text-green-700 mb-1 flex items-center gap-2">Điểm/câu [TF4] <button type="button" onclick="toggleTF4ScoringMode()" class="px-2 py-0.5 bg-green-200 text-green-700 rounded text-xs font-bold hover:bg-green-300 transition">⚙️</button></label> <input type="number" id="exam-points-tf4" value="1" min="0" step="0.1" class="w-full px-3 py-2 border-2 border-green-200 rounded-lg focus:border-green-500 focus:outline-none text-sm" onchange="updatePointsPreview()">
+           </div>
+           <div class="p-3 bg-orange-50 rounded-lg">
+            <label class="block text-xs font-semibold text-orange-700 mb-1">Điểm/câu [SQ]</label> <input type="number" id="exam-points-sq" value="1" min="0" step="0.1" class="w-full px-3 py-2 border-2 border-orange-200 rounded-lg focus:border-orange-500 focus:outline-none text-sm" onchange="updatePointsPreview()">
+           </div>
+           <div class="p-3 bg-red-50 rounded-lg">
+            <label class="block text-xs font-semibold text-red-700 mb-1">Điểm/câu [TL]</label> <input type="number" id="exam-points-tl" value="1" min="0" step="0.1" class="w-full px-3 py-2 border-2 border-red-200 rounded-lg focus:border-red-500 focus:outline-none text-sm" onchange="updatePointsPreview()">
+           </div>
+          </div>
+          <div id="tf4-advanced-scoring" class="hidden mb-4 p-4 bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg border-2 border-green-300">
+           <p class="text-sm font-bold text-green-700 mb-3">🎯 Cấu hình điểm cho TF4 (theo số ý đúng):</p>
+           <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div class="p-3 bg-white rounded-lg border-2 border-green-200">
+             <label class="block text-xs font-semibold text-green-700 mb-1">Đúng 1 ý</label> <input type="number" id="tf4-points-1" value="0.25" min="0" step="0.001" class="w-full px-2 py-1 border-2 border-green-200 rounded text-sm focus:border-green-500 focus:outline-none" onchange="updatePointsPreview()">
+            </div>
+            <div class="p-3 bg-white rounded-lg border-2 border-green-200">
+             <label class="block text-xs font-semibold text-green-700 mb-1">Đúng 2 ý</label> <input type="number" id="tf4-points-2" value="0.25" min="0" step="0.001" class="w-full px-2 py-1 border-2 border-green-200 rounded text-sm focus:border-green-500 focus:outline-none" onchange="updatePointsPreview()">
+            </div>
+            <div class="p-3 bg-white rounded-lg border-2 border-green-200">
+             <label class="block text-xs font-semibold text-green-700 mb-1">Đúng 3 ý</label> <input type="number" id="tf4-points-3" value="0.25" min="0" step="0.001" class="w-full px-2 py-1 border-2 border-green-200 rounded text-sm focus:border-green-500 focus:outline-none" onchange="updatePointsPreview()">
+            </div>
+            <div class="p-3 bg-white rounded-lg border-2 border-green-200">
+             <label class="block text-xs font-semibold text-green-700 mb-1">Đúng 4 ý</label> <input type="number" id="tf4-points-4" value="0.25" min="0" step="0.001" class="w-full px-2 py-1 border-2 border-green-200 rounded text-sm focus:border-green-500 focus:outline-none" onchange="updatePointsPreview()">
+            </div>
+           </div>
+          </div>
+          <div class="p-4 bg-purple-50 rounded-lg border-2 border-purple-200">
+           <p class="text-sm font-semibold text-purple-700 mb-2">📈 Tính toán điểm:</p>
+           <div id="points-preview" class="text-sm text-gray-700 space-y-1">
+            <p>[4-1]: 0 câu × 0.5 = <span class="font-bold text-blue-600">0 điểm</span></p>
+            <p>[TF4]: 0 câu × 0.5 = <span class="font-bold text-green-600">0 điểm</span></p>
+            <p>[SQ]: 0 câu × 0.5 = <span class="font-bold text-orange-600">0 điểm</span></p>
+            <p>[TL]: 0 câu × 0.5 = <span class="font-bold text-red-600">0 điểm</span></p>
+            <p class="pt-2 border-t border-purple-200 font-bold text-purple-700">Tổng cộng: <span id="total-points-preview">0</span>/10</p>
+           </div>
+          </div>
+         </div>
+
+         <!-- Group 2: Logic & Grading -->
+         <div class="mb-6 p-4 bg-indigo-50 rounded-xl border border-indigo-200 shadow-sm">
+          <h4 class="font-bold text-gray-800 flex items-center gap-2 mb-4">
+           <span class="text-indigo-500 text-xl">🎯</span> Logic chấm điểm (Câu hỏi Ngắn - SQ)
+          </h4>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6 divide-y md:divide-y-0 md:divide-x divide-indigo-100">
+           <!-- Case Sensitive -->
+           <div class="flex items-start justify-between pb-4 md:pb-0 md:pr-6 pt-4 md:pt-0">
+            <div class="pr-4">
+             <h5 class="text-sm font-semibold text-gray-700 mb-1">Cần phân biệt hoa/thường</h5>
+             <p class="text-xs text-gray-500 font-medium">Bật: "Hanoi" và "hanoi" sẽ được chấm là hai đáp án khác nhau.</p>
+            </div>
+            <label class="relative inline-flex items-center cursor-pointer shrink-0 mt-1">
+             <input type="checkbox" id="exam-config-sq-case-sensitive" class="sr-only peer">
+             <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+            </label>
+           </div>
+           
+           <!-- Punctuation -->
+           <div class="flex items-start justify-between pt-4 md:pt-0 md:pl-6">
+            <div class="pr-4">
+             <h5 class="text-sm font-semibold text-gray-700 mb-1">Phân biệt dấu chấm (.), phẩy (,)</h5>
+             <p class="text-xs text-gray-500 font-medium">Bật: Học sinh gõ "1.2" và "1,2" sẽ được tính là kết quả khác nhau.</p>
+            </div>
+            <label class="relative inline-flex items-center cursor-pointer shrink-0 mt-1">
+             <input type="checkbox" id="exam-config-sq-punctuation-sensitive" class="sr-only peer">
+             <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+            </label>
+           </div>
+          </div>
+         </div>
+
+         <!-- AI Grading Prompt Configuration -->
+         <div class="mb-6 p-4 bg-purple-50 rounded-xl border border-purple-200 shadow-sm">
+          <div class="flex items-center justify-between mb-4 border-b border-purple-200 pb-4">
+           <div>
+            <h5 class="text-sm font-semibold text-purple-800">⚡ Tự động chấm tự luận bằng AI</h5>
+            <p class="text-xs text-purple-600">Tự động gửi bài làm tự luận cho AI chấm điểm ngay khi nộp bài. Khuyến nghị BẬT!</p>
+           </div>
+           <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" id="exam-config-auto-grade-essay" class="sr-only peer" onchange="updateAIGradingKeyLabel(); document.getElementById('ai-grading-key-container').classList.toggle('hidden', !this.checked)">
+            <div class="w-11 h-6 bg-purple-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-purple-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+           </label>
+          </div>
+          
+          <div id="ai-grading-key-container" class="mb-4 bg-white/80 p-4 rounded-lg border border-purple-100 hidden">
+             <div class="flex items-center justify-between mb-2">
+                <label id="ai-grading-key-label" class="block text-sm font-semibold text-gray-700">Gemini API Key (Tùy chọn):</label>
+                <span class="text-[11px] text-purple-600 font-semibold bg-purple-50 px-2 py-0.5 rounded-full">Hỗ trợ nhiều key (cách nhau bởi dấu cách)</span>
+             </div>
+             <div class="relative">
+                <div id="ai-key-status" class="absolute left-3 top-2.5 hidden z-10">
+                    <!-- Status icons will be injected here -->
+                </div>
+                <textarea id="exam-config-ai-grading-key" rows="2" placeholder="Nhập một hoặc nhiều API Key (cách nhau bởi dấu cách)..." class="w-full pl-10 px-4 py-2 border-2 border-purple-100 rounded-xl focus:border-purple-500 focus:outline-none text-sm font-mono mb-2" onchange="validateAIGradingKey(this.value)"></textarea>
+             </div>
+             <p id="ai-key-msg" class="text-[10px] mt-1 hidden font-medium"></p>
+             <p class="text-xs text-purple-600 mt-2">
+               * Hướng dẫn: Bạn có thể nhập nhiều key cách nhau bởi dấu cách. Khi một key hết hạn mức hoặc lỗi, hệ thống sẽ tự động chuyển sang key kế tiếp cho đến khi hoàn thành bài thi.
+               <br>
+               Nếu để trống, hệ thống sẽ tự động sử dụng danh sách key mặc định từ Cài đặt hệ thống.
+             </p>
+          </div>
+
+          <div class="flex items-center justify-between mb-4">
+           <h4 class="font-bold text-purple-800 flex items-center gap-2">
+            <span class="text-purple-500 text-xl">🤖</span> Cấu hình AI chấm điểm (Tự luận - TL)
+           </h4>
+           <button onclick="restoreDefaultAIPrompt()" class="text-xs px-3 py-1 bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200 transition font-bold flex items-center gap-1 shadow-sm">
+            <span>🔄</span> Khôi phục gốc
+           </button>
+          </div>
+          <div class="mb-4">
+           <label class="block text-sm font-semibold text-gray-700 mb-2">Prompt hướng dẫn cho AI chấm điểm:</label>
+           <textarea id="exam-config-ai-prompt" rows="8" placeholder="Để trống để sử dụng prompt mặc định..." class="w-full px-4 py-3 border-2 border-purple-100 rounded-xl focus:border-purple-500 focus:outline-none text-sm leading-relaxed bg-white/80 font-mono"></textarea>
+           <p class="mt-2 text-xs text-purple-600 italic">
+            * Prompt này sẽ được gửi kèm bài làm của học sinh và hướng dẫn chấm tới AI để thực hiện chấm điểm tự động. Để trống nếu muốn sử dụng prompt mặc định.
+           </p>
+          </div>
+         </div>
+
+         <!-- Hiển thị cấu hình cho phép học sinh xem các thông tin -->
+         <div class="mb-6 p-4 bg-gray-50 rounded-xl border border-gray-200 shadow-sm">
+          <h4 class="font-bold text-gray-800 mb-4 flex items-center gap-2">👀 Tùy chọn hiển thị kết quả</h4>
+          
+          <div class="space-y-4">
+           <!-- Immediate feedback -->
+           <div class="flex items-center justify-between">
+            <div>
+             <h5 class="text-sm font-semibold text-gray-700">⚡ Công bố đáp án đúng sai ngay lập tức</h5>
+             <p class="text-xs text-gray-500">Học sinh sẽ biết đúng/sai ngay sau khi chọn đáp án (từng câu)</p>
+            </div>
+            <label class="relative inline-flex items-center cursor-pointer">
+             <input type="checkbox" id="exam-config-immediate-feedback" class="sr-only peer">
+             <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+            </label>
+           </div>
+           
+           <!-- Show score -->
+           <div class="flex items-center justify-between">
+            <div>
+             <h5 class="text-sm font-semibold text-gray-700">💯 Cho phép xem điểm sau khi nộp bài</h5>
+             <p class="text-xs text-gray-500">Học sinh sẽ thấy điểm tổng kết của mình ngay sau khi hoàn thành</p>
+            </div>
+            <label class="relative inline-flex items-center cursor-pointer">
+             <input type="checkbox" id="exam-config-show-score" class="sr-only peer" checked>
+             <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+            </label>
+           </div>
+
+           <!-- Show details -->
+           <div class="flex items-center justify-between">
+            <div>
+             <h5 class="text-sm font-semibold text-gray-700">🔍 Cho phép xem chi tiết bài làm</h5>
+             <p class="text-xs text-gray-500">Học sinh được phép xem lại từng câu, đáp án đúng và lời giải chi tiết</p>
+            </div>
+            <label class="relative inline-flex items-center cursor-pointer">
+             <input type="checkbox" id="exam-config-show-details" class="sr-only peer">
+             <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+            </label>
+           </div>
+          </div>
+         </div>
+
+         <div class="mb-6 p-4 bg-teal-50 rounded-xl border border-teal-200 shadow-sm">
+          <h4 class="font-bold text-teal-800 mb-2 flex items-center gap-2">🤝 Chia sẻ kết quả thi</h4>
+          <div class="flex items-center justify-between">
+           <div>
+            <h5 class="text-sm font-semibold text-gray-700">Cho phép xem kết quả qua ID đề thi</h5>
+            <p class="text-xs text-gray-500">Giáo viên khác sử dụng ID của đề thi này để xem điểm bên tab Quản lý kết quả.</p>
+           </div>
+           <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" id="exam-config-shared-results" class="sr-only peer" onchange="document.getElementById('shared-code-container').classList.toggle('hidden', !this.checked)">
+            <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-teal-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-teal-600"></div>
+           </label>
+          </div>
+          
+          <div id="shared-code-container" class="mt-4 pt-4 border-t border-teal-200 hidden">
+             <label class="block text-sm font-semibold text-gray-700 mb-2">ID Đề thi (Mã chia sẻ):</label>
+             <div class="flex space-x-2">
+                 <input type="text" id="exam-shared-code" class="px-3 py-2 border border-gray-300 rounded focus:ring-teal-500 focus:border-teal-500 text-sm font-bold flex-1 bg-gray-100" readonly placeholder="Lưu đề thi để tạo ID...">
+                 <button onclick="navigator.clipboard.writeText(document.getElementById('exam-shared-code').value); showToast('Đã copy ID!', 'success');" class="px-3 py-2 bg-teal-600 text-white rounded text-sm hover:bg-teal-700">Copy ID</button>
+             </div>
+             <p class="text-xs text-gray-500 mt-1">Lưu ý: Mặc định ID sẽ tự động được tạo sau khi bạn lưu cấu hình lần đầu.</p>
+          </div>
+         </div>
+
+         <button onclick="saveExamConfig()" class="w-full py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-bold rounded-lg hover:from-purple-700 hover:to-pink-700 transition"> 💾 Lưu cấu hình đề thi </button>
+
+        </div>
+  </div>
+</div>

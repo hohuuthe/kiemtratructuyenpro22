@@ -1,3 +1,5 @@
+import { accountSessionMaterial, isAccountEnabled, isUnexpiredAccountToken } from './src/security-session';
+import { resolveTenantFromHostname } from './src/tenant-host-map';
 import crypto from 'crypto';
 import express from "express";
 import rateLimit from "express-rate-limit";
@@ -151,9 +153,13 @@ async function startServer() {
 
   // Áp dụng Middleware xác định Tenant / Cơ sở dữ liệu theo Slug
   app.use((req, res, next) => {
-    const headerSlug = (req.headers['x-tenant-slug'] || req.headers['x-tenant'] || '') as string;
-    const querySlug = (req.query.tenant || req.query.slug || '') as string;
-    const slug = (headerSlug || querySlug || '').trim();
+    let slug = '';
+    try {
+      // Only the server-recognized request hostname can pick the database.
+      slug = resolveTenantFromHostname(req.hostname || 'localhost', process.env);
+    } catch {
+      return res.status(421).json({ error: 'Hostname chưa được khai báo trong TENANT_HOST_MAP' });
+    }
     const { url: databaseUrl } = getTenantDatabaseConfig(slug);
 
     if (slug && (!databaseUrl || databaseUrl.trim().length === 0)) {
@@ -177,6 +183,27 @@ async function startServer() {
   app.use('/api', globalLimiter);
 
   app.use(express.json({ limit: "50mb" }));
+
+  // Any signed account token must match CURRENT account credentials and status.
+  // Requests without a bearer are handled by individual route access checks.
+  app.use('/api', async (req, res, next) => {
+    if (!req.headers.authorization) return next();
+    if (req.path === '/auth/login' || req.path === '/auth/change-password' || req.path === '/auth/register' || req.path === '/exam/grade') return next();
+    const header = req.headers.authorization;
+    if (!header.startsWith('Bearer ')) return res.status(401).json({ error: 'Phiên đăng nhập không hợp lệ' });
+    try {
+      const decoded = verifyJWTSync(header.slice(7), await getServerSecret());
+      if (!isUnexpiredAccountToken(decoded)) return res.status(401).json({ error: 'Vui lòng đăng nhập lại' });
+      const lookup = await executeSqlQuery('SELECT id, user_id, username, password, role, is_active, expiry_date FROM accounts WHERE id = ?', [decoded.id]);
+      const row = lookup.results?.[0];
+      if (!isAccountEnabled(row)) return res.status(401).json({ error: 'Tài khoản đã bị khóa hoặc xóa' });
+      const state = crypto.createHash('sha256').update(accountSessionMaterial(row)).digest('hex');
+      if (state !== decoded.auth_state) return res.status(401).json({ error: 'Quyền hoặc mật khẩu đã thay đổi. Vui lòng đăng nhập lại' });
+      next();
+    } catch (error) {
+      return res.status(503).json({ error: 'Không xác minh được trạng thái phiên' });
+    }
+  });
 
   // --- In-Memory Query Cache for high-speed performance ---
   const queryMemoryCache = new Map<string, { timestamp: number; data: any }>();
@@ -215,13 +242,14 @@ async function startServer() {
     params = params.map(p => p === undefined ? null : p);
     
     const store = tenantStorage.getStore();
-    const targetUrl = store?.databaseUrl || getTenantDatabaseConfig('').url;
+    const targetUrl = store?.databaseUrl;
+    if (!targetUrl) throw new Error('Tenant database not configured');
     
     const isSelect = sql.trim().toUpperCase().startsWith("SELECT");
     const cacheKey = `${targetUrl}::${sql.trim().toLowerCase()}::${JSON.stringify(params)}`;
 
     // If SELECT and recently cached (TTL 10s), return memory cache immediately
-    if (isSelect && queryMemoryCache.has(cacheKey)) {
+    if (isSelect && !sql.includes('FROM accounts') && queryMemoryCache.has(cacheKey)) {
       const cached = queryMemoryCache.get(cacheKey)!;
       if (Date.now() - cached.timestamp < 10000) {
         return cached.data;
@@ -239,7 +267,7 @@ async function startServer() {
           changes: neonRes.rowCount || 0,
           lastRowId: null
         };
-        if (isSelect) {
+        if (isSelect && !sql.includes('FROM accounts')) {
           queryMemoryCache.set(cacheKey, { timestamp: Date.now(), data: finalResult });
         } else {
           queryMemoryCache.clear();
@@ -508,6 +536,7 @@ async function startServer() {
   try { await executeSqlQuery("ALTER TABLE results ADD COLUMN IF NOT EXISTS ai_grading_summary TEXT", []); } catch (e) {}
 
   try { await executeSqlQuery("ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS created_at TEXT", []); } catch (e) {}
+  try { await executeSqlQuery("ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS revision INTEGER NOT NULL DEFAULT 1", []); } catch (e) {}
   try { await executeSqlQuery("ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS max_cheat_warnings INTEGER DEFAULT 5", []); } catch (e) {}
   try { await executeSqlQuery("ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS target_lop TEXT", []); } catch (e) {}
   try { await executeSqlQuery("ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS lop TEXT", []); } catch (e) {}
@@ -698,7 +727,9 @@ async function startServer() {
       
       const secret = await getServerSecret();
       const token = signJWTSync({ 
-          id: account.id, 
+          id: account.id,
+          auth_state: crypto.createHash('sha256').update(accountSessionMaterial(account)).digest('hex'),
+          exp: Math.floor(Date.now() / 1000) + 12 * 60 * 60,
           user_id: account.user_id || account.id,
           role: account.role, 
           target_audience: finalTargetAudience,
@@ -708,8 +739,9 @@ async function startServer() {
           lop: account.lop || ''
       }, secret);
       
+      const { password: _passwordHash, ...safeAccount } = account;
       res.json({
-          data: account,
+          data: safeAccount,
           token: token,
           error: null
       });
@@ -818,7 +850,7 @@ async function startServer() {
       let query = "";
       const queryParams: any[] = [];
       if (isAdmin) {
-        query = `SELECT accounts.id, accounts.user_id, accounts.username, accounts.password, accounts.role, accounts.is_active, accounts.expiry_date, accounts.created_at,
+        query = `SELECT accounts.id, accounts.user_id, accounts.username, accounts.role, accounts.is_active, accounts.expiry_date, accounts.created_at,
                         users.full_name,
                         users.phone_number,
                         users.target_audience,
@@ -2092,17 +2124,24 @@ async function startServer() {
       const tieuDeBaiThiVal = (body.tieu_de_bai_thi ?? body.tieuDeBaiThi ?? '').trim();
       const now = new Date().toISOString();
 
+      await executeSqlQuery('ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS revision INTEGER NOT NULL DEFAULT 1', []);
       let existingRecord: any = null;
       if (id) {
-        const { results } = await executeSqlQuery("SELECT id, creator_id FROM exam_configs WHERE id = ?", [id]);
+        const { results } = await executeSqlQuery("SELECT id, creator_id, updated_at FROM exam_configs WHERE id = ?", [id]);
         if (results && results.length > 0) existingRecord = results[0];
       }
       if (!existingRecord) {
-        const { results } = await executeSqlQuery("SELECT id, creator_id FROM exam_configs WHERE name = ? AND creator_id = ?", [name.trim(), assignedCreatorId]);
+        const { results } = await executeSqlQuery("SELECT id, creator_id, updated_at FROM exam_configs WHERE name = ? AND creator_id = ?", [name.trim(), assignedCreatorId]);
         if (results && results.length > 0) existingRecord = results[0];
       }
 
+      if (id && !existingRecord) return res.status(404).json({ error: 'Đề thi cần cập nhật không còn tồn tại' });
       if (existingRecord) {
+        if (!id) return res.status(409).json({ error: 'Tên đề đã tồn tại; không được tự ghi đè', code: 'DUPLICATE_EXAM_NAME' });
+        const expectedRevision = String(body.expected_updated_at ?? '');
+        if (body.expected_updated_at === undefined || expectedRevision !== String(existingRecord.updated_at ?? '')) {
+          return res.status(409).json({ error: 'Phiên bản đề thi đã thay đổi. Vui lòng nạp lại.', code: 'EXAM_VERSION_REQUIRED' });
+        }
         if (!isAdmin && existingRecord.creator_id !== user.id) {
           return res.status(403).json({ error: "Bạn không có quyền chỉnh sửa đề thi của người khác" });
         }
@@ -2116,22 +2155,23 @@ async function startServer() {
             sq_case_sensitive = ?, sq_punctuation_sensitive = ?, auto_grade_essay = ?,
             counts_detail = ?, chedodethi = ?, mabaomatdethi = ?, target_lop = ?, lop = ?, target_donvi = ?, donvi = ?, tg_bd = ?, tg_kt = ?,
             ai_prompt = ?, is_shared_results = ?, max_cheat_warnings = ?, max_attempts = ?, ai_grading_key = ?, tieu_de_bai_thi = ?, updated_at = ?
-          WHERE id = ?
+          WHERE id = ? AND updated_at IS NOT DISTINCT FROM ?
         `;
 
-        await executeSqlQuery(updateSql, [
+        const updateResult = await executeSqlQuery(updateSql, [
           name.trim(), timeLimitVal, count41Val, countTF4Val, countSQVal, countTLVal,
           points41Val, pointsTF4Val, pointsSQVal, pointsTLVal,
           safeSelectedLessons, safeTf4ScoringMode, safeTf4Points, safeAccessControl,
           safeImmediateFeedback, safeShowScore, safeShowDetails,
           safeSqCaseSensitive, safeSqPunctuationSensitive, safeAutoGradeEssay,
           safeCountsDetail, chedodethiVal, mabaomatdethiVal, targetLopVal, targetLopVal, targetDonviVal, targetDonviVal, tgBdVal, tgKtVal,
-          aiPromptVal, safeIsShared, maxCheatWarningsVal, maxAttemptsVal, aiGradingKeyVal, tieuDeBaiThiVal, now, existingRecord.id
+          aiPromptVal, safeIsShared, maxCheatWarningsVal, maxAttemptsVal, aiGradingKeyVal, tieuDeBaiThiVal, now, existingRecord.id, existingRecord.updated_at ?? null
         ]);
 
-        return res.json({ success: true, type: 'updated', id: existingRecord.id, error: null });
+        if (Number(updateResult.changes || 0) !== 1) return res.status(409).json({ error: 'Đề thi đã được lưu trên thiết bị khác. Vui lòng tải lại.', code: 'EXAM_CONFLICT' });
+        return res.json({ success: true, type: 'updated', updated_at: now, id: existingRecord.id, error: null });
       } else {
-        const newId = (id && /^\d+$/.test(String(id))) ? Number(id) : (typeof id === 'number' ? id : (Math.floor(Date.now() / 1000) + Math.floor(Math.random() * 1000)));
+        const newId = crypto.randomUUID();
         const insertSql = `
           INSERT INTO exam_configs (
             id, name, creator_id, time_limit, count_41, count_tf4, count_sq, count_tl,
@@ -2154,7 +2194,7 @@ async function startServer() {
           aiPromptVal, safeIsShared, maxCheatWarningsVal, maxAttemptsVal, aiGradingKeyVal, tieuDeBaiThiVal, now, now
         ]);
 
-        return res.json({ success: true, type: 'inserted', id: newId, error: null });
+        return res.json({ success: true, type: 'inserted', updated_at: now, id: newId, error: null });
       }
     } catch (e: any) {
       if (e && e.message && e.message.includes("hạn mức dữ liệu")) {
@@ -2514,7 +2554,7 @@ async function startServer() {
             return res.status(403).json({ data: null, error: "Bạn không có quyền xem chi tiết kết quả này" });
           }
         } else if (isStudent) {
-          const isOwner = (row.user_id && (row.user_id === user.id || row.user_id === user.user_id)) || (!row.user_id && row.student_name === user.full_name);
+          const isOwner = row.user_id && (row.user_id === user.id || row.user_id === user.user_id);
           if (!isOwner) {
             return res.status(403).json({ data: null, error: "Bạn chỉ có thể xem chi tiết bài thi của chính mình" });
           }
@@ -2577,8 +2617,8 @@ async function startServer() {
           const studentUserId = user.user_id || user.id;
           const studentAccountId = user.id;
           const { results: countRows } = await executeSqlQuery(
-            "SELECT COUNT(*) as cnt FROM results WHERE (user_id = ? OR user_id = ? OR (user_id IS NULL AND student_name = ?))",
-            [studentAccountId, studentUserId, user.full_name]
+            "SELECT COUNT(*) as cnt FROM results WHERE (user_id = ? OR user_id = ?)",
+            [studentAccountId, studentUserId]
           );
           const count = countRows && countRows.length > 0 ? Number((countRows[0] as any).cnt) || 0 : 0;
           return res.json({ count, error: null });
@@ -2588,6 +2628,10 @@ async function startServer() {
 
       // 3. Tải danh sách kết quả theo mã chia sẻ (?examId=xxx)
       if (examIdParam) {
+        if (isTeacher) {
+          const { results: ownExam } = await executeSqlQuery("SELECT id FROM exam_configs WHERE id = ? AND creator_id = ?", [examIdParam, user.id]);
+          if (!ownExam?.length) return res.status(403).json({ data: [], error: "Không có quyền xem đề thi này" });
+        }
         if (!isAdmin && !isTeacher) {
           const { results: sharedExam } = await executeSqlQuery(
             "SELECT id FROM exam_configs WHERE id = ? AND (is_shared_results = 1 OR is_shared_results = 'true' OR is_shared_results = true)",
@@ -2721,16 +2765,16 @@ async function startServer() {
             LEFT JOIN accounts a ON (r.user_id IS NOT NULL AND r.user_id != '' AND (r.user_id = a.id OR r.user_id = a.user_id))
             LEFT JOIN users u ON (r.user_id IS NOT NULL AND r.user_id != '' AND r.user_id = u.id)
             LEFT JOIN users u2 ON (a.user_id IS NOT NULL AND a.user_id != '' AND a.user_id = u2.id)
-            WHERE (r.user_id = ? OR r.user_id = ? OR (r.user_id IS NULL AND r.student_name = ?)) 
+            WHERE (r.user_id = ? OR r.user_id = ?) 
             GROUP BY r.id, r.user_id, r.student_name, r.student_class, r.score, r.correct_count, r.total_questions, r.time_taken, r.exam_name, r.exam_id, r.created_at, r.loai_thi_sinh, r.cheat_warning_count, r.ai_grading_summary
             ORDER BY r.created_at DESC, r.id DESC 
             ${paginationClause}
-          `, [studentAccountId, studentUserId, user.full_name]);
+          `, [studentAccountId, studentUserId]);
           rows = results || [];
         } catch (err) {
           const { results } = await executeSqlQuery(
-            `SELECT ${fallbackColumns} FROM results WHERE (user_id = ? OR user_id = ? OR (user_id IS NULL AND student_name = ?)) ORDER BY created_at DESC, id DESC ${paginationClause}`,
-            [studentAccountId, studentUserId, user.full_name]
+            `SELECT ${fallbackColumns} FROM results WHERE (user_id = ? OR user_id = ?) ORDER BY created_at DESC, id DESC ${paginationClause}`,
+            [studentAccountId, studentUserId]
           );
           rows = results || [];
         }
@@ -2764,7 +2808,7 @@ async function startServer() {
 
       if (isTeacher && !isAdmin) {
         const { results: checkRows } = await executeSqlQuery(
-          "SELECT r.id FROM results r JOIN exam_configs e ON (r.exam_id = e.id OR r.exam_name = e.name) WHERE r.id = ? AND e.creator_id = ?",
+          "SELECT r.id FROM results r JOIN exam_configs e ON (r.exam_id = e.id) WHERE r.id = ? AND e.creator_id = ?",
           [id, user.id]
         );
         if (!checkRows || checkRows.length === 0) {
@@ -2838,27 +2882,21 @@ async function startServer() {
             const delRes = await executeSqlQuery(
               `DELETE FROM results WHERE CAST(id AS TEXT) = ? AND (
                  CAST(exam_id AS TEXT) IN (SELECT CAST(id AS TEXT) FROM exam_configs WHERE creator_id = ? OR creator_id = ? OR creator_id = ?)
-                 OR LOWER(TRIM(exam_name)) IN (SELECT LOWER(TRIM(name)) FROM exam_configs WHERE creator_id = ? OR creator_id = ? OR creator_id = ?)
-                 OR user_id = ? OR user_id = ?
+
                )`,
               [
                 id,
-                teacherIdentifiers[0] || '', teacherIdentifiers[1] || '', teacherIdentifiers[2] || '',
-                teacherIdentifiers[0] || '', teacherIdentifiers[1] || '', teacherIdentifiers[2] || '',
-                teacherIdentifiers[0] || '', teacherIdentifiers[1] || ''
+                teacherIdentifiers[0] || '', teacherIdentifiers[1] || '', teacherIdentifiers[2] || ''
               ]
             );
             if (delRes && delRes.changes) {
               deletedCount += delRes.changes;
-            } else {
-              const fallbackRes = await executeSqlQuery(`DELETE FROM results WHERE CAST(id AS TEXT) = ?`, [id]);
-              deletedCount += (fallbackRes.changes || 1);
             }
           }
         }
       }
 
-      return res.json({ success: true, message: `Đã xóa ${deletedCount || ids.length} kết quả`, error: null });
+      return res.json({ success: true, message: `Đã xóa ${deletedCount} kết quả`, error: null });
     } catch (e: any) {
       if (e && e.message && e.message.includes("hạn mức dữ liệu")) {
         return res.status(400).json({ error: e.message });
@@ -3863,23 +3901,25 @@ CLOUDFLARE_R2_PUBLIC_URL: "${r2PublicUrl}"
   // ==========================================
   
   
-let cachedJwtSecret: string | null = null;
+const cachedJwtSecrets = new Map<string, string>();
 async function getServerSecret(): Promise<string> {
     if (process.env.JWT_SECRET) return process.env.JWT_SECRET;
-    if (cachedJwtSecret) return cachedJwtSecret;
+    const currentDb = tenantStorage.getStore()?.databaseUrl;
+    if (!currentDb) throw new Error('Tenant not configured');
+    if (cachedJwtSecrets.has(currentDb)) return cachedJwtSecrets.get(currentDb)!;
     try {
         await executeSqlQuery("CREATE TABLE IF NOT EXISTS _internal_secrets (key TEXT PRIMARY KEY, value TEXT)", []);
         const { results } = await executeSqlQuery("SELECT value FROM _internal_secrets WHERE key = 'jwt'", []);
         if (results && results.length > 0 && results[0]?.value) {
-            cachedJwtSecret = results[0].value;
-            return cachedJwtSecret;
+            cachedJwtSecrets.set(currentDb, results[0].value);
+            return results[0].value;
         }
         const newSecret = crypto.randomUUID() + "-" + crypto.randomUUID();
         await executeSqlQuery("INSERT OR REPLACE INTO _internal_secrets (key, value) VALUES (?, ?)", ['jwt', newSecret]);
-        cachedJwtSecret = newSecret;
-        return cachedJwtSecret;
+        cachedJwtSecrets.set(currentDb, newSecret);
+        return newSecret;
     } catch(e) {
-        return "FALLBACK_TO_HARDCODED_ONLY_IF_DB_FAILS_12345_XYZ";
+        throw new Error('JWT secret unavailable');
     }
 }
 

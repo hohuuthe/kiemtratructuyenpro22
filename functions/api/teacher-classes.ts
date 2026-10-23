@@ -1,4 +1,4 @@
-import { verifyJWT, getDynamicSecret, checkIsAdmin, checkIsTeacherOrAdmin, getDatabase } from './exam/utils';
+import { verifyAuthSession, getDynamicSecret, checkIsAdmin, checkIsTeacherOrAdmin, getDatabase } from './exam/utils';
 
 interface Env {
   NEON_DATABASE_URL?: string;
@@ -29,7 +29,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
   }
 
   const token = authHeader.substring(7);
-  const user: any = await verifyJWT(token, SECRET);
+  const user: any = await verifyAuthSession(token, SECRET, db);
   if (!user) {
     return new Response(JSON.stringify({ error: "Phiên đăng nhập không hợp lệ" }), { status: 401, headers: corsHeaders });
   }
@@ -98,7 +98,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
   }
 
   const token = authHeader.substring(7);
-  const user: any = await verifyJWT(token, SECRET);
+  const user: any = await verifyAuthSession(token, SECRET, db);
   if (!user) {
     return new Response(JSON.stringify({ error: "Phiên đăng nhập không hợp lệ" }), { status: 401, headers: corsHeaders });
   }
@@ -188,7 +188,7 @@ export const onRequestDelete: PagesFunction<Env> = async (context) => {
   }
 
   const token = authHeader.substring(7);
-  const user: any = await verifyJWT(token, SECRET);
+  const user: any = await verifyAuthSession(token, SECRET, db);
   if (!user) {
     return new Response(JSON.stringify({ error: "Phiên đăng nhập không hợp lệ" }), { status: 401, headers: corsHeaders });
   }
