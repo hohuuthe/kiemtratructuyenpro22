@@ -37,6 +37,8 @@ jobs:
         run: node --test tests/word-import-image-key.test.mjs
       - name: Chemistry arrow positioning in exam and question-bank DOCX
         run: node --import tsx --test tests/word-chemistry-arrow-position.test.mjs
+      - name: Word OMML heating-arrow roundtrip and both export paths
+        run: node --import tsx --test tests/word-import-chemistry-heat-roundtrip.test.mjs
       - name: Production build
         run: npm run build
       - name: Ensure DEV-only result fixture is absent in Production
