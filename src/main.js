@@ -3053,7 +3053,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
 
                 if (data && Array.isArray(data)) {
                     questions = data.map(q => ({
-                        id: q.id, type: q.type, level: q.level, lesson: q.lesson, content: q.content, options: q.options || {}, answer: q.answer, image: q.image || '', creatorId: q.creatorId || q.creator_id
+                        id: q.id, type: q.type, level: q.level, lesson: q.lesson, content: q.content, options: q.options || {}, answer: q.answer, image: q.image || '', created_at: q.created_at || null, creatorId: q.creatorId || q.creator_id
                     }));
                     questionsLoaded = true;
                     updateStats();
@@ -9750,14 +9750,16 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             const ids = new Set(plan.ids);
             const found = questions.filter(q => ids.has(String(q.id)) && isUserQuestionCreator(q));
             recentlySavedIds = new Set(found.map(q => String(q.id)));
-            showOnlyRecentlySaved = plan.lessonCount > 1;
+            showOnlyRecentlySaved = false;
             updateLessonFilter();
             const lessonEl = document.getElementById('question-lesson-filter');
-            if (lessonEl) lessonEl.value = showOnlyRecentlySaved ? '' :
-                ([...lessonEl.options].some(x=>x.value===plan.primaryLesson) ? plan.primaryLesson : '');
+            if (lessonEl) lessonEl.value = '';
             const searchEl = document.getElementById('question-search');
             if (searchEl) searchEl.value = '';
-            questionTypeFilter = plan.typeFilter;
+            questionTypeFilter = 'ALL';
+            document.querySelectorAll('.q-type-btn').forEach(btn => {
+                btn.classList.remove('ring-2','ring-offset-2','ring-blue-500');
+            });
             window.questionsCurrentPage = 1;
             updateQuestionStats();
             renderQuestionsList();
@@ -9971,8 +9973,13 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
 
             let filteredQuestions = questions.filter(q => (questionTypeFilter === 'ALL' || matchesQuestionType(q,questionTypeFilter)) && isUserQuestionCreator(q));
             
-            if (showOnlyRecentlySaved) filteredQuestions = filteredQuestions.filter(q=>recentlySavedIds.has(String(q.id)));
-            filteredQuestions.sort((a,b)=>Number(recentlySavedIds.has(String(b.id)))-Number(recentlySavedIds.has(String(a.id))));
+            filteredQuestions.sort((a,b) => {
+                const recent = Number(recentlySavedIds.has(String(b.id))) - Number(recentlySavedIds.has(String(a.id)));
+                if (recent) return recent;
+                const timeA = Date.parse(a.created_at || '') || 0;
+                const timeB = Date.parse(b.created_at || '') || 0;
+                return timeB - timeA || String(b.id).localeCompare(String(a.id));
+            });
             if (lessonFilter) {
                 filteredQuestions = filteredQuestions.filter(q => q.lesson === lessonFilter);
             }
