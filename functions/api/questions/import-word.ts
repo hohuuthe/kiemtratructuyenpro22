@@ -191,7 +191,7 @@ export async function persistVerifiedWordImport(sql:any,userId:string,body:any) 
     const statements:any[]=[];
     for (const q of expected) {
         statements.push(sql.query(
-            'INSERT INTO questions (id,type,level,lesson,content,options,answer,image,creator_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',
+            'INSERT INTO questions (id,type,level,lesson,content,options,answer,image,creator_id,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,CURRENT_TIMESTAMP)',
             [q.id,q.type,q.level,q.lesson,q.content,JSON.stringify(q.options),q.answer,q.image,userId]
         ));
     }
