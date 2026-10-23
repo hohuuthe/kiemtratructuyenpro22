@@ -78,3 +78,27 @@ test('Exam configuration isolation, UUID identity and backend failure safety', a
  assert.ok(app.includes('structuredClone(examConfig)'));
  assert.ok(!app.includes('const parsedId = parseInt(examConfig.id, 10)'));
 });
+
+test('Server-side exam confidentiality, JWT expiry and cross-owner write guards',async()=>{
+ const {redactExamForPublic,makeGradeSessionConfig,accessCodeMatches,isExamOwner} = await import('../functions/api/exam/security.ts');
+ const data={id:'exam-1',name:'Test',creator_id:'teacher-A',ai_grading_key:'SECRET_KEY',ai_prompt:'PRIVATE_PROMPT',mabaomatdethi:'123456',password:'SECRET_PASSWORD',points_41:1};
+ const anon=redactExamForPublic(data);
+ for(const field of ['ai_grading_key','ai_prompt','mabaomatdethi','password'])assert.ok(!(field in anon),field);
+ assert.equal(anon.id,'exam-1');assert.equal(anon.name,'Test');
+ assert.equal(isExamOwner({id:'teacher-B',role:'teacher'},data),false);
+ assert.equal(isExamOwner({id:'teacher-A',role:'teacher'},data),true);
+ const grading=makeGradeSessionConfig(data);
+ for(const field of ['ai_grading_key','ai_prompt','mabaomatdethi','password'])assert.ok(!(field in grading),field);
+ assert.equal(accessCodeMatches('123456','123456'),true);
+ assert.equal(accessCodeMatches('wrong','123456'),false);
+ const api=read('functions/api/exams.ts'), generate=read('functions/api/exam/generate.ts');
+ const questions=read('functions/api/questions.ts'), login=read('functions/api/auth/login.ts');
+ const utils=read('functions/api/exam/utils.ts');
+ assert.ok(api.includes('redactExamForPublic'));
+ assert.ok(generate.includes('accessCodeMatches(submittedAccessCode, dbExam.mabaomatdethi)'));
+ assert.ok(generate.includes('makeGradeSessionConfig(activeExamConfig)'));
+ assert.ok(questions.includes('WHERE questions.creator_id = excluded.creator_id'));
+ assert.ok(login.includes('safeAccount'));
+ assert.ok(login.includes('exp: Math.floor(Date.now() / 1000) + 12 * 3600'));
+ assert.ok(utils.includes('Number(claims.exp) <= now'));
+});
