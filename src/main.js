@@ -1496,12 +1496,14 @@ Trả về kết quả dưới dạng JSON Array, mỗi phần tử tương ứn
         async function init() {
             try {
                 console.log('Initializing application components...');
+                localStorage.removeItem('remember_password');
                 
                 // Kiểm tra và tự động đăng nhập nếu đã lưu (Làm sớm để tránh flicker)
                 if (localStorage.getItem('is_auto_login') === 'true') {
                     console.log('Attempting auto-login...');
                     try {
-                        await adminLogin(true);
+                        const resumed=await adminLogin(true);
+                        if (!resumed) await loadData().catch(()=>{});
                     } catch (err) {
                         console.error('Auto-login failed:', err);
                         document.getElementById('login-btn')?.classList.remove('hidden');
@@ -1761,8 +1763,8 @@ Trả về kết quả dưới dạng JSON Array, mỗi phần tử tương ứn
         }
         function showAdminLoginModal() {
             const savedUsername = localStorage.getItem('remember_username') || '';
-            const savedPassword = localStorage.getItem('remember_password') || '';
-            const isRemembered = localStorage.getItem('is_auto_login') !== 'false' ? 'checked' : '';
+            localStorage.removeItem('remember_password');
+            const isRemembered = localStorage.getItem('is_auto_login') === 'true' ? 'checked' : '';
 
             const modalContent = `
                 <div class="p-8 text-center w-full mx-auto">
@@ -1772,17 +1774,17 @@ Trả về kết quả dưới dạng JSON Array, mỗi phần tử tương ứn
                     
                     <form onsubmit="event.preventDefault(); adminLogin();" class="space-y-4 text-left">
                         <div>
-                            <input type="text" id="login-username" name="username" autocomplete="username" value="${savedUsername}" placeholder="Tên đăng nhập" class="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-purple-500 focus:outline-none text-lg">
+                            <input type="text" id="login-username" name="username" autocomplete="username" value="${escapeHTML(savedUsername)}" placeholder="Tên đăng nhập" class="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-purple-500 focus:outline-none text-lg">
                         </div>
                         <div class="relative">
-                            <input type="password" id="global-admin-password" name="password" autocomplete="current-password" value="${savedPassword}" placeholder="Nhập mật khẩu" class="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-purple-500 focus:outline-none text-lg pr-12">
+                            <input type="password" id="global-admin-password" name="password" autocomplete="current-password" value="" placeholder="Nhập mật khẩu" class="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-purple-500 focus:outline-none text-lg pr-12">
                             <button type="button" onclick="togglePasswordVisibility('global-admin-password', this)" class="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-500 hover:text-gray-700">
                                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
                             </button>
                         </div>
                         <div class="flex items-center mt-2">
                             <input type="checkbox" id="login-remember" ${isRemembered} class="w-4 h-4 text-purple-600 bg-gray-100 border-gray-300 rounded focus:ring-purple-500">
-                            <label for="login-remember" class="ml-2 text-sm font-medium text-gray-700">Lưu tài khoản và mật khẩu</label>
+                            <label for="login-remember" class="ml-2 text-sm font-medium text-gray-700">Duy trì đăng nhập tối đa 12 giờ (không lưu mật khẩu)</label>
                         </div>
                         
                         <div class="mt-6 flex justify-end gap-3">
@@ -2045,12 +2047,13 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             const submitBtn = document.getElementById('login-submit-btn');
 
             const username = usernameInput ? usernameInput.value.trim() : (isAutoLogin ? localStorage.getItem('remember_username') : '');
-            const password = passwordInput ? passwordInput.value : (isAutoLogin ? localStorage.getItem('remember_password') : '');
+            const password = isAutoLogin ? '' : (passwordInput ? passwordInput.value : '');
+            const previousToken = isAutoLogin ? localStorage.getItem('auth_token') : null;
             
-            if (!username || !password) {
+            if (isAutoLogin ? !previousToken : (!username || !password)) {
                 if (!isAutoLogin) showToast('Vui lòng nhập đầy đủ tên đăng nhập và mật khẩu!', 'error');
                 document.getElementById('login-btn')?.classList.remove('hidden');
-                return;
+                return false;
             }
 
             if (submitBtn && !isAutoLogin) {
@@ -2059,11 +2062,11 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             }
 
             try {
-                const response = await fetch('/api/auth/login', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username, password })
-                });
+                const response = isAutoLogin
+                    ? await fetch('/api/auth/me',{headers:{'Authorization':'Bearer '+previousToken},cache:'no-store'})
+                    : await fetch('/api/auth/login',{
+                        method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password})
+                    });
 
                 let data, error, token;
                 
@@ -2075,10 +2078,11 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                     const resJson = await response.json();
                     data = resJson.data;
                     error = resJson.error;
-                    token = resJson.token;
+                    token = isAutoLogin ? previousToken : resJson.token;
                 }
 
                 if (error || !data) {
+                    if(isAutoLogin){localStorage.removeItem('auth_token');localStorage.setItem('is_auto_login','false');}
                     if (submitBtn) {
                         submitBtn.disabled = false;
                         submitBtn.innerHTML = 'Đăng nhập';
@@ -2088,7 +2092,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                         showToast(errMsg, 'error');
                     }
                     document.getElementById('login-btn')?.classList.remove('hidden');
-                    return;
+                    return false;
                 }
 
                 if (data.expiry_date && new Date(data.expiry_date) < new Date()) {
@@ -2109,22 +2113,24 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                     return;
                 }
 
-                // Luôn lưu lại thông tin đăng nhập thành công vào localStorage để tự động login lần sau
-                localStorage.setItem('remember_username', username);
-                localStorage.setItem('remember_password', password);
-                localStorage.setItem('is_auto_login', 'true');
+                // Never persist reusable passwords in the browser.
+                localStorage.removeItem('remember_password');
+                const keepSignedIn=isAutoLogin||!!document.getElementById('remember-login')?.checked||!!document.getElementById('rememberMe')?.checked;
+                localStorage.setItem('remember_username',String(data.username||username));
+                localStorage.setItem('is_auto_login',keepSignedIn?'true':'false');
 
                 if (token) localStorage.setItem('auth_token', token);
                 currentUser = data;
                 window.currentUser = currentUser;
                 const roleLower = String(data.role || '').toLowerCase();
                 const audienceLower = String(data.target_audience || '').toLowerCase();
-                isAdminLoggedIn = (roleLower === 'admin' || audienceLower === 'admin' || audienceLower === 'quản trị viên');
-                isTeacherLoggedIn = !isAdminLoggedIn && (audienceLower === 'giáo viên' || roleLower === 'teacher' || roleLower === 'giáo viên');
+                isAdminLoggedIn = roleLower === 'admin';
+                isTeacherLoggedIn = roleLower === 'teacher' || roleLower === 'giáo viên';
                 window.isAdminLoggedIn = isAdminLoggedIn;
                 window.isTeacherLoggedIn = isTeacherLoggedIn;
                 
                 await handleSuccessfulLogin();
+                return true;
             } catch (err) {
                 if (submitBtn) {
                     submitBtn.disabled = false;
@@ -2136,6 +2142,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                     console.error(err);
                 }
                 if (!isAutoLogin) showToast('❌ Lỗi kết nối máy chủ!', 'error');
+                return false;
             }
         }
 
@@ -2471,6 +2478,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
         async function adminLogout() {
             closeModal();
             localStorage.removeItem('auth_token');
+            localStorage.removeItem('remember_password');
             isAdminLoggedIn = false;
             isTeacherLoggedIn = false;
             currentUser = null;
@@ -3066,24 +3074,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
 
         async function fetchAllResultsChunked(onProgress) {
             let token = localStorage.getItem('auth_token') || '';
-            if (!token && localStorage.getItem('is_auto_login') === 'true') {
-                const savedU = localStorage.getItem('remember_username');
-                const savedP = localStorage.getItem('remember_password');
-                if (savedU && savedP) {
-                    try {
-                        const authRes = await fetch('/api/auth/login', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ username: savedU, password: savedP })
-                        });
-                        const authJson = await authRes.json();
-                        if (authJson && authJson.token) {
-                            token = authJson.token;
-                            localStorage.setItem('auth_token', token);
-                        }
-                    } catch (e) {}
-                }
-            }
+
             const chunkSize = 1000;
             let offset = 0;
             let allRawResults = [];
@@ -3415,7 +3406,7 @@ if (contentType && contentType.includes("application/json")) {
                             qrCodeUrl: sData.qr_code_url || ''
                         };
                         window.appSettings = appSettings;
-                        localStorage.setItem('appSettings', JSON.stringify(appSettings));
+                        localStorage.setItem('appSettings', JSON.stringify({...appSettings, aiGradingKey: ''}));
                         if (appSettings.appTitle === "ỨNG DỤNG KIỂM TRA TRẮC NGHIỆM - PRO V1.0" || appSettings.appTitle === "KIỂM TRA TRẮC NGHIỆM HHT PRO V1.0" || appSettings.appTitle === "Hệ Thống Khảo Sát & Đánh Giá Năng Lực Trực Tuyến" || appSettings.appTitle === "Hệ thống khảo sát & đánh giá năng lực trực tuyến" || appSettings.appTitle === "PHẦN MỀM KIỂM TRA TRẮC NGHIỆM" || appSettings.appTitle === "PHẦN MỀM KIỂM TRA TRỰC TUYẾN") {
                             appSettings.appTitle = "HỆ THỐNG KIỂM TRA TRỰC TUYẾN";
                         }
@@ -3624,7 +3615,7 @@ if (contentType && contentType.includes("application/json")) {
                     if (appSettings.appTitle === "ỨNG DỤNG KIỂM TRA TRẮC NGHIỆM - PRO V1.0" || appSettings.appTitle === "KIỂM TRA TRẮC NGHIỆM HHT PRO V1.0" || appSettings.appTitle === "Hệ Thống Khảo Sát & Đánh Giá Năng Lực Trực Tuyến" || appSettings.appTitle === "Hệ thống khảo sát & đánh giá năng lực trực tuyến" || appSettings.appTitle === "PHẦN MỀM KIỂM TRA TRẮC NGHIỆM" || appSettings.appTitle === "PHẦN MỀM KIỂM TRA TRỰC TUYẾN") {
                         appSettings.appTitle = "HỆ THỐNG KIỂM TRA TRỰC TUYẾN";
                     }
-                    localStorage.setItem('appSettings', JSON.stringify(appSettings));
+                    localStorage.setItem('appSettings', JSON.stringify({...appSettings, aiGradingKey: ''}));
                 }
                 
                 // Khôi phục cấu hình cá nhân của người dùng (nếu có) để đè lên cấu hình mặc định từ DB
@@ -3707,24 +3698,7 @@ if (e && e.message && e.message.includes('hạn mức')) {
                 window.lastResultsError = null;
                 let token = localStorage.getItem('auth_token') || '';
                 
-                if (!token && localStorage.getItem('is_auto_login') === 'true') {
-                    const savedU = localStorage.getItem('remember_username');
-                    const savedP = localStorage.getItem('remember_password');
-                    if (savedU && savedP) {
-                        try {
-                            const authRes = await fetch('/api/auth/login', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ username: savedU, password: savedP })
-                            });
-                            const authJson = await authRes.json();
-                            if (authJson && authJson.token) {
-                                token = authJson.token;
-                                localStorage.setItem('auth_token', token);
-                            }
-                        } catch (e) {}
-                    }
-                }
+
 
                 if (deletedIds && deletedIds.length > 0) {
                     const response = await fetch('/api/results', {
@@ -3850,7 +3824,7 @@ if (e && e.message && e.message.includes('hạn mức')) {
 
         async function saveSettingsToDB() {
             try {
-                localStorage.setItem('appSettings', JSON.stringify(appSettings));
+                localStorage.setItem('appSettings', JSON.stringify({...appSettings, aiGradingKey: ''}));
                 
                 // Lưu cấu hình hiển thị của người dùng (kể cả admin và học sinh)
                 const userPrefs = {
@@ -10019,7 +9993,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                             ${formatContent(q.content)}
                         </div>
 
-                        ${q.image ? `<div><img src="${safeImageSrc(q.image)}" alt="Question" class="max-w-full sm:max-w-md h-auto rounded cursor-zoom-in hover:scale-[1.01] transition-transform border border-gray-100" onclick="zoomImage('${q.image}')"></div>` : ''}
+                        ${q.image ? `<div><img src="${safeImageSrc(q.image)}" alt="Question" class="max-w-full sm:max-w-md h-auto rounded cursor-zoom-in hover:scale-[1.01] transition-transform border border-gray-100" onclick="zoomImage(this.src)"></div>` : ''}
                         ${(q.type === '4-1' || q.type === 'TF4') && q.options ? `
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
                                 ${['A','B','C','D'].map(key => {
@@ -10043,7 +10017,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                             </div>
                         </div>
 
-                        ${q.options && q.options.answerImage ? `<div class="mt-2"><img src="${safeImageSrc(q.options.answerImage)}" alt="Answer Image" class="max-w-full sm:max-w-md h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage('${q.options.answerImage}')"></div>` : ''}
+                        ${q.options && q.options.answerImage ? `<div class="mt-2"><img src="${safeImageSrc(q.options.answerImage)}" alt="Answer Image" class="max-w-full sm:max-w-md h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage(this.src)"></div>` : ''}
                     </div>
                 `;
             }).join('');
@@ -11535,7 +11509,7 @@ D. Phát biểu SAI</pre>
                         <div class="text-sm font-semibold text-gray-800 mb-2">
                             <span class="text-blue-600">Câu ${index + 1}:</span></u> ${formatContent(q.content)}
                         </div>
-                        ${q.image ? `<img src="${safeImageSrc(q.image)}" class="max-w-xs h-auto rounded-lg border border-gray-200 mb-2 cursor-zoom-in" onclick="zoomImage('${q.image}')">` : ''}
+                        ${q.image ? `<img src="${safeImageSrc(q.image)}" class="max-w-xs h-auto rounded-lg border border-gray-200 mb-2 cursor-zoom-in" onclick="zoomImage(this.src)">` : ''}
                     </div>
                     
                     ${(q.type === '4-1' || q.type === 'TF4') ? `
@@ -11545,7 +11519,7 @@ D. Phát biểu SAI</pre>
                                     <span class="w-5 h-5 flex-shrink-0 flex items-center justify-center rounded-full text-[10px] font-bold ${q.answer.includes(opt) ? 'bg-green-500 text-white' : 'bg-gray-300 text-gray-700'}">${opt}</span></u>
                                     <div class="flex-1">
                                         <div class="text-xs ${q.answer.includes(opt) ? 'text-green-800 font-bold' : 'text-gray-600'}">${formatContent(q.options[opt]?.text || '')}</div>
-                                        ${q.options[opt]?.image ? `<img src="${safeImageSrc(q.options[opt].image)}" class="mt-1 max-w-[100px] h-auto rounded border border-gray-200 cursor-zoom-in" onclick="zoomImage('${q.options[opt].image}')">` : ''}
+                                        ${q.options[opt]?.image ? `<img src="${safeImageSrc(q.options[opt].image)}" class="mt-1 max-w-[100px] h-auto rounded border border-gray-200 cursor-zoom-in" onclick="zoomImage(this.src)">` : ''}
                                     </div>
                                 </div>
                             `).join('')}
@@ -11553,7 +11527,7 @@ D. Phát biểu SAI</pre>
                     ` : `
                         <div class="p-2 bg-green-50 border border-green-200 rounded-lg mb-3">
                             <div class="text-xs font-bold text-green-700">Đáp án: ${formatContent(q.answer)}</div>
-                            ${q.options && q.options.answerImage ? `<img src="${safeImageSrc(q.options.answerImage)}" class="mt-2 max-w-xs h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage('${q.options.answerImage}')">` : ''}
+                            ${q.options && q.options.answerImage ? `<img src="${safeImageSrc(q.options.answerImage)}" class="mt-2 max-w-xs h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage(this.src)">` : ''}
                         </div>
                     `}
                 </div>
@@ -22397,7 +22371,7 @@ CẤU TRÚC JSON:
                     optionsHtml = `
                         <div class="mt-2 text-sm p-2 bg-green-50 border border-green-200 rounded">
                             <strong>Đáp án:</strong> ${formatContent(q.answer)}
-                            ${q.options && q.options.answerImage ? `<div class="mt-2 text-xs font-semibold text-green-700">Hình ảnh đáp án:</div><img src="${safeImageSrc(q.options.answerImage)}" class="mt-1 max-w-xs h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage('${q.options.answerImage}')">` : ''}
+                            ${q.options && q.options.answerImage ? `<div class="mt-2 text-xs font-semibold text-green-700">Hình ảnh đáp án:</div><img src="${safeImageSrc(q.options.answerImage)}" class="mt-1 max-w-xs h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage(this.src)">` : ''}
                         </div>`;
                 }
 

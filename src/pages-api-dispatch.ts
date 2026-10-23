@@ -1,3 +1,4 @@
+import * as sessionMe from '../functions/api/auth/me';
 import * as h0 from '../functions/api/accounts';
 import * as h1 from '../functions/api/accounts/clean-schema';
 import * as h2 from '../functions/api/auth/change-password';
@@ -26,6 +27,7 @@ const routes: Record<string, any> = {
   '/api/accounts':h0,
   '/api/accounts/clean-schema':h1,
   '/api/auth/change-password':h2,
+  '/api/auth/me':sessionMe,
   '/api/auth/login':h3,
   '/api/auth/register':h4,
   '/api/ai/generate':h5,
