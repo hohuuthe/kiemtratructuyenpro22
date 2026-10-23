@@ -5,7 +5,7 @@
  */
 export function createEmptyExamDraft(user = null) {
   return {
-    id: '', name: '', creatorId: user?.id || '', creatorName: user?.full_name || '',
+    id: '', updatedAt: '', name: '', creatorId: user?.id || '', creatorName: user?.full_name || '',
     chedodethi: 'Đề công khai', mabaomatdethi: '', target_lop: '', targetLop: '',
     lop: '', target_donvi: '', donvi: '', timeLimit: 45, maxCheatWarnings: 5,
     maxAttempts: 0, max_attempts: 0,
@@ -77,6 +77,7 @@ export function mapStoredExamToDraft(row, {currentUser = null, accounts = [], ac
   return {
     ...defaults,
     id: row.id,
+    updatedAt: text(row.updated_at ?? row.updatedAt),
     name: text(row.name),
     creatorId, creatorName,
     chedodethi: mode, mabaomatdethi: text(row.mabaomatdethi),
