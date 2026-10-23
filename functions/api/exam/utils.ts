@@ -94,8 +94,9 @@ export function isLiveAccount(row: any): boolean {
     return notExpired(row.expiry_date) && notExpired(row.profile_expiry_date);
 }
 
-async function accountProof(account: any, secret: string): Promise<string> {
+async function accountProof(account: any, secret: string, tenantKey = ''): Promise<string> {
     const parts = [
+      tenantKey,
       account.id, account.user_id || account.id, account.password,
       account.role || '', account.is_active ?? 1, account.expiry_date || '',
       account.target_audience || '', account.profile_active ?? 1,
@@ -107,10 +108,10 @@ async function accountProof(account: any, secret: string): Promise<string> {
       new TextEncoder().encode(JSON.stringify(parts)));
     return Array.from(new Uint8Array(signature)).map(v => v.toString(16).padStart(2, '0')).join('');
 }
-export async function signAuthSession(account: any, claims: any, secret: string): Promise<string> {
+export async function signAuthSession(account: any, claims: any, secret: string, tenantKey = ''): Promise<string> {
     if (!isLiveAccount(account)) throw new Error('Account inactive or expired');
     const now = Math.floor(Date.now() / 1000);
-    const proof = await accountProof(account, secret);
+    const proof = await accountProof(account, secret, tenantKey);
     return signJWT({...claims, tokenType:'auth', authProof:proof, iat:now, exp:now + 12*3600}, secret);
 }
 export async function verifyAuthSession(token: string, secret: string, db: any): Promise<any | null> {
@@ -127,7 +128,7 @@ export async function verifyAuthSession(token: string, secret: string, db: any):
         WHERE a.id = ? LIMIT 1
       `).bind(decoded.id).first();
       if (!isLiveAccount(account)) return null;
-      const actual = await accountProof(account, secret);
+      const actual = await accountProof(account, secret, String(db.connectionUrl || ''));
       if (actual !== decoded.authProof) return null;
       const audience = account.target_audience ||
         (String(account.role).toLowerCase() === 'admin' ? 'Quản trị viên' :
