@@ -79,55 +79,38 @@ if (typeof window !== 'undefined') {
 
     window.getTenantSlugFromUrl = getTenantSlugFromUrl;
     window.__CURRENT_TENANT_SLUG = getTenantSlugFromUrl();
+    // Auth/session caches belong to exactly one path-based tenant.
+    const previousTenant = sessionStorage.getItem('kttt_last_tenant_slug');
+    if (previousTenant !== null && previousTenant !== window.__CURRENT_TENANT_SLUG) {
+        localStorage.removeItem('auth_token');
+        localStorage.setItem('is_auto_login','false');
+    }
+    sessionStorage.setItem('kttt_last_tenant_slug',window.__CURRENT_TENANT_SLUG);
 
-    // Database selection is performed exclusively by the trusted request hostname.
-    // The earlier X-Tenant-Slug interceptor caused 421 rejections after backend hardening.
+
+    // Tenant follows the visible /v1 path. Cloudflare validates this selector
+    // against configured database bindings; it must not change mid-session.
+    const initialTenantSlug = window.__CURRENT_TENANT_SLUG || '';
     const originalWindowFetch = window.fetch.bind(window);
     const patchedFetch = async function(resource, init) {
+        const raw = typeof resource === 'string' ? resource : resource instanceof URL ? resource.href : resource?.url;
+        let target;
+        try { target = new URL(raw, window.location.origin); } catch {}
+        const isApi = target?.origin === window.location.origin && target.pathname.startsWith('/api/');
+        if (isApi && initialTenantSlug) {
+            const headers = new Headers(init?.headers || (resource instanceof Request ? resource.headers : undefined));
+            headers.set('X-Tenant-Slug', initialTenantSlug);
+            init = {...init, headers};
+        }
         const response = await originalWindowFetch(resource, init);
         if (response.status >= 500) {
             try {
                 const json = await response.clone().json();
-                if (json && json.db_not_configured && typeof window.showDatabaseErrorDialog === 'function') {
+                if (json && json.db_not_configured && typeof window.showDatabaseErrorDialog === 'function')
                     window.showDatabaseErrorDialog();
-                }
             } catch {}
         }
         return response;
-    };
-
-    window.showDatabaseErrorDialog = function() {
-        if (document.getElementById('db-connection-error-modal')) return;
-        const modal = document.createElement('div');
-        modal.id = 'db-connection-error-modal';
-        modal.className = 'fixed inset-0 z-[999999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in';
-        modal.innerHTML = `
-            <div class="relative bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-red-200 dark:border-red-900/50 max-w-lg w-full p-6 text-center animate-bounce-short">
-                <button type="button" onclick="document.getElementById('db-connection-error-modal')?.remove()" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer" title="Đóng">
-                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
-                    </svg>
-                </button>
-                <div class="w-16 h-16 bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
-                    </svg>
-                </div>
-                <h3 class="text-xl font-bold text-gray-900 dark:text-white mb-2">Thông Báo Kết Nối</h3>
-                <p class="text-base font-medium text-red-600 dark:text-red-400 mb-6 leading-relaxed">
-                    Không thể kết nối tới Cơ sở dữ liệu, xin vui lòng liên hệ với quản trị hệ thống.
-                </p>
-                <div class="flex items-center justify-center gap-3">
-                    <button type="button" onclick="document.getElementById('db-connection-error-modal')?.remove()" class="px-6 py-2.5 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 font-semibold rounded-xl transition cursor-pointer">
-                        Đóng
-                    </button>
-                    <button type="button" onclick="window.location.reload()" class="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl shadow-lg shadow-blue-500/20 transition cursor-pointer">
-                        Thử lại
-                    </button>
-                </div>
-            </div>
-        `;
-        document.body.appendChild(modal);
     };
 
     try {
