@@ -173,8 +173,8 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
             COALESCE(u.lop, u2.lop, '') as lop,
             COALESCE(u.donvi, u.address, u2.donvi, u2.address, r.student_class, '') as don_vi
           FROM results r
-          LEFT JOIN users u ON (r.user_id = u.id OR (r.user_id IS NULL AND (r.student_name = u.full_name OR r.student_name = u.id)))
-          LEFT JOIN accounts a ON (r.user_id = a.id OR r.user_id = a.user_id OR (r.user_id IS NULL AND r.student_name = a.username))
+          LEFT JOIN users u ON r.user_id = u.id
+          LEFT JOIN accounts a ON (r.user_id = a.id OR r.user_id = a.user_id)
           LEFT JOIN users u2 ON (a.user_id = u2.id)
           WHERE r.id = ?
         `).bind(idParam).all();
@@ -267,8 +267,8 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
         const res = await db.prepare(`
           SELECT ${columns} 
           FROM results r
-          LEFT JOIN users u ON (r.user_id = u.id OR (r.user_id IS NULL AND (r.student_name = u.full_name OR r.student_name = u.id)))
-          LEFT JOIN accounts a ON (r.user_id = a.id OR r.user_id = a.user_id OR (r.user_id IS NULL AND r.student_name = a.username))
+          LEFT JOIN users u ON r.user_id = u.id
+          LEFT JOIN accounts a ON (r.user_id = a.id OR r.user_id = a.user_id)
           LEFT JOIN users u2 ON (a.user_id = u2.id)
           WHERE r.exam_id = ? 
           ORDER BY r.created_at DESC, r.id DESC 
@@ -290,8 +290,8 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
         const res = await db.prepare(`
           SELECT ${columns} 
           FROM results r
-          LEFT JOIN users u ON (r.user_id = u.id OR (r.user_id IS NULL AND (r.student_name = u.full_name OR r.student_name = u.id)))
-          LEFT JOIN accounts a ON (r.user_id = a.id OR r.user_id = a.user_id OR (r.user_id IS NULL AND r.student_name = a.username))
+          LEFT JOIN users u ON r.user_id = u.id
+          LEFT JOIN accounts a ON (r.user_id = a.id OR r.user_id = a.user_id)
           LEFT JOIN users u2 ON (a.user_id = u2.id)
           ORDER BY r.created_at DESC, r.id DESC 
           ${paginationClause}
@@ -318,8 +318,8 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
         const res = await db.prepare(`
           SELECT ${columns} 
           FROM results r
-          LEFT JOIN users u ON (r.user_id = u.id OR (r.user_id IS NULL AND (r.student_name = u.full_name OR r.student_name = u.id)))
-          LEFT JOIN accounts a ON (r.user_id = a.id OR r.user_id = a.user_id OR (r.user_id IS NULL AND r.student_name = a.username))
+          LEFT JOIN users u ON r.user_id = u.id
+          LEFT JOIN accounts a ON (r.user_id = a.id OR r.user_id = a.user_id)
           LEFT JOIN users u2 ON (a.user_id = u2.id)
           WHERE r.exam_id IN (${placeholders}) 
           ORDER BY r.created_at DESC, r.id DESC 
@@ -342,8 +342,8 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
         const res = await db.prepare(`
           SELECT ${columns} 
           FROM results r
-          LEFT JOIN users u ON (r.user_id = u.id OR (r.user_id IS NULL AND (r.student_name = u.full_name OR r.student_name = u.id)))
-          LEFT JOIN accounts a ON (r.user_id = a.id OR r.user_id = a.user_id OR (r.user_id IS NULL AND r.student_name = a.username))
+          LEFT JOIN users u ON r.user_id = u.id
+          LEFT JOIN accounts a ON (r.user_id = a.id OR r.user_id = a.user_id)
           LEFT JOIN users u2 ON (a.user_id = u2.id)
           WHERE (r.user_id = ? OR r.user_id = ?) 
           ORDER BY r.created_at DESC, r.id DESC 
