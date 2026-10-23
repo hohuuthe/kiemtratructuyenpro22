@@ -1,6 +1,6 @@
 import {
     Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
-    WidthType, AlignmentType, PageNumber, BorderStyle, UnderlineType,
+    WidthType, TableLayoutType, AlignmentType, PageNumber, BorderStyle, UnderlineType,
     ImageRun, Footer
 } from 'docx';
 import { Math as WordMath, latexToMath } from 'docx/math';
@@ -403,211 +403,102 @@ export function extractOptionsABCD(opts: any, q?: any): {
 }
 
 /**
- * Helper to build borderless Table for 4 options (A, B, C, D) or 4 true/false sub-items (a, b, c, d).
- * Guarantees perfect column alignment across all questions using Word tables without borders.
+ * Approximate printed glyph width solely to choose a Word column count.
+ * It never changes the option text or editable Office Math that is exported.
+ * TeX command names and HTML tags are markup, not visible characters.
+ */
+function estimateOptionPrintedWidth(source: string): { width: number; longToken: number; multiline: boolean } {
+    const raw = String(source || '');
+    const multiline = /<br\s*\/?>|<\/p>|<\/div>|[\r\n]|\\begin\s*\{(?:matrix|pmatrix|bmatrix|vmatrix|Vmatrix|array|aligned|align|cases|gathered)\}|\\\\/i.test(raw);
+    const printed = raw
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<[^>]*>/g, '')
+        .replace(/&(nbsp|lt|gt|amp|quot|apos);/gi, (_match, name) => ({ nbsp: ' ', lt: '<', gt: '>', amp: '&', quot: '"', apos: "'" } as Record<string,string>)[String(name).toLowerCase()] || ' ')
+        .replace(/\\(?:left|right|text|mathrm|mathbf|mathit|mathsf|mathtt|ce|pu)\b/g, '')
+        .replace(/\\(?:dfrac|tfrac|frac)\b/g, '/')
+        .replace(/\\(?:sqrt|overline|underline|overrightarrow|vec)\b/g, '')
+        .replace(/\\(?:quad|qquad)\b/g, ' ')
+        .replace(/\\(?:,|;|!|:|\s)/g, ' ')
+        .replace(/\\[a-zA-Z]+/g, 'x')
+        .replace(/\\[()[\]]/g, '')
+        .replace(/[{}^_$]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    const width = [...printed].reduce((n, ch) =>
+        n + (/[\t ]/.test(ch) ? 0.45 : /[MW@#%]/.test(ch) ? 1.35 : /[il.,;:!|']/i.test(ch) ? 0.55 : 1), 0);
+    const tokens = printed.split(/\s+/);
+    const longToken = Math.max(0, ...tokens.map(token => [...token].length));
+    return { width, longToken, multiline };
+}
+
+/**
+ * Word A4 usable width: 17 cm (2 cm margins on both sides).
+ * Four compact answers share one row, medium answers use a 2x2 grid,
+ * and prose / matrices get four full-width rows. Longer raw TeX source
+ * does not falsely force a one-column layout.
+ */
+export function chooseWordOptionColumnCount(texts: readonly string[]): 1 | 2 | 4 {
+    if (!texts.some(text => String(text || '').trim())) return 1;
+    const sizes = texts.map(estimateOptionPrintedWidth);
+    if (sizes.some(item => item.multiline)) return 1;
+    const widths = sizes.map(item => item.width);
+    const maxWidth = Math.max(...widths);
+    const sumWidth = widths.reduce((sum, width) => sum + width, 0);
+    const maxToken = Math.max(...sizes.map(item => item.longToken));
+
+    // 4 x 4.25 cm; keep fractions/chemical expressions native and editable.
+    if (maxWidth <= 16 && sumWidth <= 62 && maxToken <= 15) return 4;
+    // 2 x 8.5 cm: allow wrapped answers when this saves meaningful height.
+    if (maxWidth <= 92 && sumWidth <= 260 && maxToken <= 42) return 2;
+    return 1;
+}
+
+/**
+ * Borderless Word table in every layout, including full-width long answers.
+ * Explicit A4 grid widths prevent Word from unpredictably stretching columns.
+ * A–D/a–d order and native editable OMML are preserved by parseFormattedText.
  */
 export function buildOptionsTable(
     labels: [string, string, string, string],
     texts: [string, string, string, string],
     noBordersObj: any
 ): Table | Paragraph[] {
-    const [lblA, lblB, lblC, lblD] = labels;
-    const [optA, optB, optC, optD] = texts;
+    if (!texts.some(value => String(value || '').trim())) return [];
+    const columns = chooseWordOptionColumnCount(texts);
+    const printableWidth = 9638; // A4 11906 twips - two 1134-twip margins
+    const standardWidth = Math.floor(printableWidth / columns);
+    const columnWidths = Array.from({ length: columns }, (_, index) =>
+        index === columns - 1 ? printableWidth - standardWidth * (columns - 1) : standardWidth);
 
-    const hasAnyOption = Boolean(optA.trim() || optB.trim() || optC.trim() || optD.trim());
-    if (!hasAnyOption) {
-        return [];
-    }
-
-    const lenA = String(optA).length;
-    const lenB = String(optB).length;
-    const lenC = String(optC).length;
-    const lenD = String(optD).length;
-    const maxLen = Math.max(lenA, lenB, lenC, lenD);
-    const sumLen = lenA + lenB + lenC + lenD;
-
-    // Case 1: Short options on 1 row (4 columns, 25% width each)
-    if (maxLen <= 12 && sumLen <= 48) {
-        return new Table({
-            width: { size: 100, type: WidthType.PERCENTAGE },
-            borders: noBordersObj,
-            rows: [
-                new TableRow({
-                    cantSplit: true,
-                    children: [
-                        new TableCell({
-                            width: { size: 25, type: WidthType.PERCENTAGE },
-                            borders: noBordersObj,
-                            children: [
-                                new Paragraph({
-                                    alignment: AlignmentType.LEFT,
-                                    spacing: { before: 20, after: 30, line: 276 },
-                                    children: [
-                                        new TextRun({ text: lblA, font: "Times New Roman", size: 26, bold: true }),
-                                        ...parseFormattedText(optA)
-                                    ]
-                                })
-                            ]
-                        }),
-                        new TableCell({
-                            width: { size: 25, type: WidthType.PERCENTAGE },
-                            borders: noBordersObj,
-                            children: [
-                                new Paragraph({
-                                    alignment: AlignmentType.LEFT,
-                                    spacing: { before: 20, after: 30, line: 276 },
-                                    children: [
-                                        new TextRun({ text: lblB, font: "Times New Roman", size: 26, bold: true }),
-                                        ...parseFormattedText(optB)
-                                    ]
-                                })
-                            ]
-                        }),
-                        new TableCell({
-                            width: { size: 25, type: WidthType.PERCENTAGE },
-                            borders: noBordersObj,
-                            children: [
-                                new Paragraph({
-                                    alignment: AlignmentType.LEFT,
-                                    spacing: { before: 20, after: 30, line: 276 },
-                                    children: [
-                                        new TextRun({ text: lblC, font: "Times New Roman", size: 26, bold: true }),
-                                        ...parseFormattedText(optC)
-                                    ]
-                                })
-                            ]
-                        }),
-                        new TableCell({
-                            width: { size: 25, type: WidthType.PERCENTAGE },
-                            borders: noBordersObj,
-                            children: [
-                                new Paragraph({
-                                    alignment: AlignmentType.LEFT,
-                                    spacing: { before: 20, after: 30, line: 276 },
-                                    children: [
-                                        new TextRun({ text: lblD, font: "Times New Roman", size: 26, bold: true }),
-                                        ...parseFormattedText(optD)
-                                    ]
-                                })
-                            ]
-                        })
-                    ]
-                })
-            ]
+    const rows: TableRow[] = [];
+    for (let rowStart = 0; rowStart < 4; rowStart += columns) {
+        const cells = labels.slice(rowStart, rowStart + columns).map((label, cellIndex) => {
+            const text = texts[rowStart + cellIndex];
+            return new TableCell({
+                width: { size: columnWidths[cellIndex], type: WidthType.DXA },
+                borders: noBordersObj,
+                margins: { top: 0, bottom: 0, left: 80, right: 80 },
+                children: [
+                    new Paragraph({
+                        alignment: AlignmentType.LEFT,
+                        spacing: { before: 0, after: 0, line: 276 },
+                        children: [
+                            new TextRun({ text: label, font: 'Times New Roman', size: 26, bold: true }),
+                            ...parseFormattedText(text)
+                        ]
+                    })
+                ]
+            });
         });
+        rows.push(new TableRow({ cantSplit: columns > 1 || texts[rowStart].length < 180, children: cells }));
     }
-
-    // Case 2: Medium options on 2 rows (2 columns, 50% width each)
-    if (maxLen <= 38) {
-        return new Table({
-            width: { size: 100, type: WidthType.PERCENTAGE },
-            borders: noBordersObj,
-            rows: [
-                new TableRow({
-                    cantSplit: true,
-                    children: [
-                        new TableCell({
-                            width: { size: 50, type: WidthType.PERCENTAGE },
-                            borders: noBordersObj,
-                            children: [
-                                new Paragraph({
-                                    alignment: AlignmentType.LEFT,
-                                    spacing: { before: 20, after: 20, line: 276 },
-                                    children: [
-                                        new TextRun({ text: lblA, font: "Times New Roman", size: 26, bold: true }),
-                                        ...parseFormattedText(optA)
-                                    ]
-                                })
-                            ]
-                        }),
-                        new TableCell({
-                            width: { size: 50, type: WidthType.PERCENTAGE },
-                            borders: noBordersObj,
-                            children: [
-                                new Paragraph({
-                                    alignment: AlignmentType.LEFT,
-                                    spacing: { before: 20, after: 20, line: 276 },
-                                    children: [
-                                        new TextRun({ text: lblB, font: "Times New Roman", size: 26, bold: true }),
-                                        ...parseFormattedText(optB)
-                                    ]
-                                })
-                            ]
-                        })
-                    ]
-                }),
-                new TableRow({
-                    cantSplit: true,
-                    children: [
-                        new TableCell({
-                            width: { size: 50, type: WidthType.PERCENTAGE },
-                            borders: noBordersObj,
-                            children: [
-                                new Paragraph({
-                                    alignment: AlignmentType.LEFT,
-                                    spacing: { before: 20, after: 30, line: 276 },
-                                    children: [
-                                        new TextRun({ text: lblC, font: "Times New Roman", size: 26, bold: true }),
-                                        ...parseFormattedText(optC)
-                                    ]
-                                })
-                            ]
-                        }),
-                        new TableCell({
-                            width: { size: 50, type: WidthType.PERCENTAGE },
-                            borders: noBordersObj,
-                            children: [
-                                new Paragraph({
-                                    alignment: AlignmentType.LEFT,
-                                    spacing: { before: 20, after: 30, line: 276 },
-                                    children: [
-                                        new TextRun({ text: lblD, font: "Times New Roman", size: 26, bold: true }),
-                                        ...parseFormattedText(optD)
-                                    ]
-                                })
-                            ]
-                        })
-                    ]
-                })
-            ]
-        });
-    }
-
-    // Case 3: Long options (> 38 chars) -> 4 separate paragraphs
-    return [
-        new Paragraph({
-            alignment: AlignmentType.LEFT,
-            spacing: { before: 20, after: 20, line: 276 },
-            children: [
-                new TextRun({ text: lblA, font: "Times New Roman", size: 26, bold: true }),
-                ...parseFormattedText(optA)
-            ]
-        }),
-        new Paragraph({
-            alignment: AlignmentType.LEFT,
-            spacing: { before: 20, after: 20, line: 276 },
-            children: [
-                new TextRun({ text: lblB, font: "Times New Roman", size: 26, bold: true }),
-                ...parseFormattedText(optB)
-            ]
-        }),
-        new Paragraph({
-            alignment: AlignmentType.LEFT,
-            spacing: { before: 20, after: 20, line: 276 },
-            children: [
-                new TextRun({ text: lblC, font: "Times New Roman", size: 26, bold: true }),
-                ...parseFormattedText(optC)
-            ]
-        }),
-        new Paragraph({
-            alignment: AlignmentType.LEFT,
-            spacing: { before: 20, after: 30, line: 276 },
-            children: [
-                new TextRun({ text: lblD, font: "Times New Roman", size: 26, bold: true }),
-                ...parseFormattedText(optD)
-            ]
-        })
-    ];
+    return new Table({
+        width: { size: printableWidth, type: WidthType.DXA },
+        layout: TableLayoutType.FIXED,
+        columnWidths,
+        borders: noBordersObj,
+        rows
+    });
 }
 
 /**
