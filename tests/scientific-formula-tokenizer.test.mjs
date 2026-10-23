@@ -21,3 +21,12 @@ test('unmatched dollar never discards original text', () => { const tokens = spl
 test('HTML stays text, never interpreted as LaTeX', () => { const tokens = splitScientificContent('<script>alert(1)</script>'); assert.equal(tokens[0].type, 'text'); });
 test('code examples are not typeset', () => { const tokens = splitScientificContent('Code: `$x^2$` và $y^2$'); assert.equal(tokens[0].type,'text'); assert.equal(tokens[1].value,'y^2'); });
 test('math source is unchanged through tokenization', () => { const v = String.raw`\\begin{aligned}E &= mc^2 \\\\ F &= ma\\end{aligned}`; const t = splitScientificContent(v); assert.equal(t.map(z=>z.value).join(''), v); });
+
+test('numeric math with explicit dollar delimiters is never currency', () => {
+  for(const raw of ['$3,14159$', '$2,5$', '$3.14159$', '$1,234$', '$60$']) {
+    const tokens=splitScientificContent('Kết quả '+raw+' đơn vị');
+    const math=tokens.filter(t=>t.type==='math');
+    assert.equal(math.length,1,raw);
+    assert.equal(math[0].value,raw.slice(1,-1));
+  }
+});

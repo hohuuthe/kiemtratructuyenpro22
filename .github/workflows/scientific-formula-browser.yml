@@ -6,6 +6,8 @@ on:
       - 'src/**'
       - 'tests/**'
       - '.github/workflows/scientific-formula-browser.yml'
+  push:
+    branches: [refactor/word-import-questions-only-20261023]
   workflow_dispatch:
 
 permissions:
@@ -29,11 +31,20 @@ jobs:
           npx playwright install --with-deps chromium
       - name: Perform visual and export acceptance
         run: node tests/scientific-formula-browser-acceptance.mjs
+      - name: Build production bundle for Word import acceptance
+        run: npm run build
+      - name: Verify production Word OMML import and teacher review UI
+        run: node tests/word-import-browser-acceptance.mjs
+        env:
+          WORD_IMPORT_SERVE_DIST: '1'
       - name: Upload screenshot, generated files and acceptance JSON
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: scientific-formula-visual-acceptance
-          path: artifacts/formula-visual-qa/
+          path: |
+            artifacts/formula-visual-qa/
+            artifacts/word-import-visual-qa/
           retention-days: 14
           if-no-files-found: warn
+

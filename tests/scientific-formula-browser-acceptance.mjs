@@ -7,7 +7,10 @@ import { setTimeout as sleep } from 'node:timers/promises';
 
 const root = 'artifacts/formula-visual-qa';
 mkdirSync(root, { recursive: true });
-const report = { timestamp: new Date().toISOString(), checks: [], errors: [], files: [] };
+// Some local test runners use an HTTPS inspection proxy whose CA is not in
+// Chromium's trust store. Keep TLS verification enabled unless explicitly set.
+const ignoreHTTPSErrors = process.env.SCIENTIFIC_IGNORE_HTTPS_ERRORS === '1';
+const report = { timestamp: new Date().toISOString(), ignoreHTTPSErrors, checks: [], errors: [], files: [] };
 const check = (label, condition, detail = '') => {
   report.checks.push({ label, passed: Boolean(condition), detail });
   if (!condition) report.errors.push({ label, detail });
@@ -45,10 +48,11 @@ let browser;
 try {
   await ready();
   browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
-  const page = await browser.newPage({ viewport: {width: 1365,height: 850}, deviceScaleFactor: 1 });
+  const page = await browser.newPage({ viewport: {width: 1365,height: 850}, deviceScaleFactor: 1, ignoreHTTPSErrors });
   page.on('pageerror', e => report.errors.push({ label:'pageerror', detail: e.message }));
   await page.goto(url, {waitUntil:'domcontentloaded',timeout:45000});
-  await page.waitForFunction(() => typeof window.renderScientificContent === 'function' && typeof window.queueMathJax === 'function', { timeout: 40000 });
+  await page.waitForFunction(() => typeof window.renderScientificContent === 'function' && typeof window.queueMathJax === 'function', null, { timeout: 40000 });
+  await page.waitForFunction(() => typeof window.MathJax?.typesetPromise === 'function', null, { timeout: 30000 });
   check('Student renderer initialized',true);
   // Use the actual built-in renderer and fallback on controlled, synthetic data.
   await page.evaluate((items) => {
@@ -70,7 +74,10 @@ try {
     document.body.append(root);
     window.queueMathJax(root);
   },examples);
-  await page.waitForFunction(() => document.querySelectorAll('#formula-visual-qa .scientific-mathjax-pending').length === 0, {timeout:30000});
+  await page.waitForFunction(expectedCount =>
+    document.querySelectorAll('#formula-visual-qa .scientific-qa-row').length === expectedCount &&
+    document.querySelectorAll('#formula-visual-qa .scientific-mathjax-pending').length === 0,
+  examples.length, {timeout:30000});
   await sleep(300);
   const measured=await page.evaluate(() => [...document.querySelectorAll('.scientific-qa-row')].map(el=>({
     id:el.dataset.formulaId,
@@ -80,6 +87,7 @@ try {
     source:el.querySelector('.scientific-qa-formula')?.textContent?.slice(0,100),
     nestedScrollbars:[...el.querySelectorAll('mjx-container:not([display])')].filter(n=>getComputedStyle(n).overflowX==='auto').length
   })));
+  assert.equal(measured.length, examples.length, 'The full formula fixture must still exist after rendering');
   report.measured=measured;
   for(const x of measured) check('Formula '+x.id+' correctly rendered',x.hasMath && !x.pending && !x.unresolved,JSON.stringify(x));
   check('Inline MathJax has no unnecessary scrollbars',measured.every(x=>!x.nestedScrollbars));
@@ -285,3 +293,4 @@ try {
   console.log('SCIENTIFIC_VISUAL_ACCEPTANCE '+JSON.stringify({passed:report.passed,failed:report.failed,files:report.files,errors:report.errors.slice(0,10),measured:report.measured}));
   if(report.failed || report.errors.length)process.exitCode=1;
 }
+

@@ -58,6 +58,9 @@ function isCurrencyStart(source, index) {
   if (!m) return false;
   const nextDollar = rest.indexOf('$');
   const mathCandidate = nextDollar < 0 ? rest : rest.slice(0, nextDollar);
+  // $2,5$ and $3.14159$ are explicitly delimited mathematics, not
+  // currency. Do not classify their opening $ as currency.
+  if (nextDollar >= 0 && /^\d+(?:[.,]\d+)*$/.test(mathCandidate.trim())) return false;
   return !/[=^_+*<>]/.test(mathCandidate);
 }
 function looksLikeStandaloneMath(text) {

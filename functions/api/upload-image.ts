@@ -1,5 +1,6 @@
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { verifyJWT, getDynamicSecret, getDatabase } from './exam/utils';
+import { wordImportImageObjectKey } from '../../src/word-import-image-key.js';
 
 interface Env {
   NEON_DATABASE_URL?: string;
@@ -46,6 +47,13 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
     const body: any = await request.json();
     const { base64 } = body;
+    const wordImportContentAddressed = body?.wordImportContentAddressed === true;
+    if (wordImportContentAddressed && !isStaff) {
+      return new Response(JSON.stringify({error:'Chỉ giáo viên hoặc quản trị viên được tải ảnh nhập Word'}), {status:403,headers:{'Content-Type':'application/json'}});
+    }
+    if (wordImportContentAddressed && (typeof base64 !== 'string' || base64.length > 11_200_000)) {
+      return new Response(JSON.stringify({error:'Dữ liệu ảnh Word không hợp lệ hoặc vượt giới hạn'}), {status:413,headers:{'Content-Type':'application/json'}});
+    }
     
     if (!base64) {
       return new Response(JSON.stringify({ error: "Thiếu dữ liệu Base64 của ảnh!" }), { status: 400, headers: { 'Content-Type': 'application/json' } });
@@ -86,6 +94,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     
     const extension = mimeType.split("/")[1] || "jpg";
     const filename = `image-${Math.random().toString(36).substring(2)}-${Date.now()}.${extension}`;
+    const objectKey = wordImportContentAddressed
+      ? await wordImportImageObjectKey(bytes,String(user.id),mimeType)
+      : `luuhinhnh/${filename}`;
 
     const s3 = new S3Client({
       region: "auto",
@@ -100,7 +111,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
     const command = new PutObjectCommand({
       Bucket: r2BucketName,
-      Key: `luuhinhnh/${filename}`,
+      Key: objectKey,
       Body: bytes,
       ContentType: mimeType,
       CacheControl: "public, max-age=31536000, immutable",
@@ -116,7 +127,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       finalPublicUrl = finalPublicUrl.slice(0, -1);
     }
 
-    const fileUrl = `${finalPublicUrl}/luuhinhnh/${filename}`;
+    const fileUrl = `${finalPublicUrl}/${objectKey}`;
     
     return new Response(JSON.stringify({ 
       url: fileUrl,

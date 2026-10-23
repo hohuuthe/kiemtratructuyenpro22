@@ -42,45 +42,20 @@ export function sanitizeHtml(str: string): string {
         .replace(/'/g, '&#39;');
 }
 
+/**
+ * Restore only attribute-free formatting tags. Legacy HTML with attributes
+ * stays escaped: never revive arbitrary event handlers or external images.
+ */
 export function restoreSafeHtmlTags(html: string): string {
     if (!html) return '';
-    return html
-        .replace(/&lt;sup&gt;/gi, '<sup>')
-        .replace(/&lt;\/sup&gt;/gi, '</sup>')
-        .replace(/&lt;sub&gt;/gi, '<sub>')
-        .replace(/&lt;\/sub&gt;/gi, '</sub>')
-        .replace(/&lt;b&gt;/gi, '<b>')
-        .replace(/&lt;\/b&gt;/gi, '</b>')
-        .replace(/&lt;strong&gt;/gi, '<strong>')
-        .replace(/&lt;\/strong&gt;/gi, '</strong>')
-        .replace(/&lt;i&gt;/gi, '<i>')
-        .replace(/&lt;\/i&gt;/gi, '</i>')
-        .replace(/&lt;em&gt;/gi, '<em>')
-        .replace(/&lt;\/em&gt;/gi, '</em>')
-        .replace(/&lt;u&gt;/gi, '<u>')
-        .replace(/&lt;\/u&gt;/gi, '</u>')
-        .replace(/&lt;mark&gt;/gi, '<mark>')
-        .replace(/&lt;\/mark&gt;/gi, '</mark>')
-        .replace(/&lt;br\s*\/?&gt;/gi, '<br/>')
-        .replace(/&lt;p&gt;/gi, '<p>')
-        .replace(/&lt;\/p&gt;/gi, '</p>')
-        .replace(/&lt;span([^&]*)&gt;/gi, '<span$1>')
-        .replace(/&lt;\/span&gt;/gi, '</span>')
-        .replace(/&lt;div([^&]*)&gt;/gi, '<div$1>')
-        .replace(/&lt;\/div&gt;/gi, '</div>')
-        .replace(/&lt;table([^&]*)&gt;/gi, '<table$1>')
-        .replace(/&lt;\/table&gt;/gi, '</table>')
-        .replace(/&lt;thead([^&]*)&gt;/gi, '<thead$1>')
-        .replace(/&lt;\/thead&gt;/gi, '</thead>')
-        .replace(/&lt;tbody([^&]*)&gt;/gi, '<tbody$1>')
-        .replace(/&lt;\/tbody&gt;/gi, '</tbody>')
-        .replace(/&lt;tr([^&]*)&gt;/gi, '<tr$1>')
-        .replace(/&lt;\/tr&gt;/gi, '</tr>')
-        .replace(/&lt;th([^&]*)&gt;/gi, '<th$1>')
-        .replace(/&lt;\/th&gt;/gi, '</th>')
-        .replace(/&lt;td([^&]*)&gt;/gi, '<td$1>')
-        .replace(/&lt;\/td&gt;/gi, '</td>')
-        .replace(/&lt;img\s+([^&>]+)&gt;/gi, '<img $1>');
+    const allowed = ['sup','sub','b','strong','i','em','u','mark','p','span','div','table','thead','tbody','tr','th','td'];
+    let value=html;
+    for (const tag of allowed) {
+        const open = new RegExp('&lt;'+tag+'&gt;', 'gi');
+        const close = new RegExp('&lt;\\/'+tag+'&gt;', 'gi');
+        value=value.replace(open,'<'+tag+'>').replace(close,'</'+tag+'>');
+    }
+    return value.replaceAll('&lt;br&gt;', '<br/>').replaceAll('&lt;br/&gt;', '<br/>');
 }
 
 export function unescapeHtmlInsideMath(mathStr: string): string {
