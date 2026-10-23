@@ -322,7 +322,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     // Kiểm tra xem đề đã tồn tại chưa (theo id hoặc theo name + creator_id)
     let existingRecord: any = null;
     if (id) {
-      const { results } = await db.prepare("SELECT id, creator_id FROM exam_configs WHERE id = ?").bind(id).all();
+      const { results } = await db.prepare("SELECT id, creator_id, updated_at FROM exam_configs WHERE id = ?").bind(id).all();
       if (results && results.length > 0) existingRecord = results[0];
     } else {
       const { results } = await db.prepare("SELECT id, creator_id FROM exam_configs WHERE name = ? AND creator_id = ?").bind(name.trim(), assignedCreatorId).all();
@@ -331,6 +331,11 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
     if (id && !existingRecord) return new Response(JSON.stringify({error:'Đề thi cần cập nhật không tồn tại'}), {status:404,headers:corsHeaders});
     if (existingRecord) {
+      if (!id) return new Response(JSON.stringify({error:'Tên đề đã tồn tại. Không tự ghi đè đề cũ.',code:'DUPLICATE_EXAM_NAME'}), {status:409,headers:corsHeaders});
+      if (body.expected_updated_at === undefined || body.expected_updated_at === null ||
+          String(body.expected_updated_at) !== String(existingRecord.updated_at ?? '')) {
+        return new Response(JSON.stringify({error:'Đề đã thay đổi ở thiết bị khác. Hãy nạp lại trước khi lưu.',code:'EXAM_VERSION_CONFLICT'}), {status:409,headers:corsHeaders});
+      }
       // Kiểm tra quyền sửa
       if (!isAdmin && existingRecord.creator_id !== user.id) {
         return new Response(JSON.stringify({ error: "Bạn không có quyền chỉnh sửa đề thi của người khác" }), { status: 403, headers: corsHeaders });
@@ -345,20 +350,21 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
           sq_case_sensitive = ?, sq_punctuation_sensitive = ?, auto_grade_essay = ?,
           counts_detail = ?, chedodethi = ?, mabaomatdethi = ?, target_lop = ?, lop = ?, tg_bd = ?, tg_kt = ?,
           ai_prompt = ?, ai_grading_key = ?, tieu_de_bai_thi = ?, is_shared_results = ?, max_attempts = ?, keep_raw_score = ?, updated_at = ?
-        WHERE id = ?
+        WHERE id = ? AND updated_at IS NOT DISTINCT FROM ?
       `;
 
-      await db.prepare(updateSql).bind(
+      const updateResult = await db.prepare(updateSql).bind(
         name.trim(), timeLimitVal, count41Val, countTF4Val, countSQVal, countTLVal,
         points41Val, pointsTF4Val, pointsSQVal, pointsTLVal,
         safeSelectedLessons, safeTf4ScoringMode, safeTf4Points, safeAccessControl,
         safeImmediateFeedback, safeShowScore, safeShowDetails,
         safeSqCaseSensitive, safeSqPunctuationSensitive, safeAutoGradeEssay,
         safeCountsDetail, chedodethiVal, mabaomatdethiVal, targetLopVal, targetLopVal, tgBdVal, tgKtVal,
-        aiPromptVal, aiGradingKeyVal, tieuDeBaiThiVal, safeIsShared, maxAttemptsVal, safeKeepRawScore, now, existingRecord.id
+        aiPromptVal, aiGradingKeyVal, tieuDeBaiThiVal, safeIsShared, maxAttemptsVal, safeKeepRawScore, now, existingRecord.id, existingRecord.updated_at ?? null
       ).run();
+      if (updateResult.meta?.changes !== 1) return new Response(JSON.stringify({error:'Đề đã thay đổi đồng thời, hãy nạp lại.',code:'EXAM_VERSION_CONFLICT'}), {status:409,headers:corsHeaders});
 
-      return new Response(JSON.stringify({ success: true, type: 'updated', id: existingRecord.id, error: null }), { status: 200, headers: corsHeaders });
+      return new Response(JSON.stringify({ success: true, type: 'updated', id: existingRecord.id, updated_at: now, error: null }), { status: 200, headers: corsHeaders });
     } else {
       // Tạo mới
       const newId = crypto.randomUUID();
@@ -384,7 +390,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         aiPromptVal, safeIsShared, aiGradingKeyVal, maxAttemptsVal, safeKeepRawScore, tieuDeBaiThiVal, now, now
       ).run();
 
-      return new Response(JSON.stringify({ success: true, type: 'inserted', id: newId, error: null }), { status: 200, headers: corsHeaders });
+      return new Response(JSON.stringify({ success: true, type: 'inserted', id: newId, updated_at: now, error: null }), { status: 200, headers: corsHeaders });
     }
   } catch (e: any) {
     return new Response(JSON.stringify({ error: e.message || "Lỗi lưu đề thi", success: false }), { status: 500, headers: corsHeaders });
