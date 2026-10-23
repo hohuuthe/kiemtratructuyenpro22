@@ -4723,7 +4723,7 @@ if (contentType && contentType.includes("application/json")) {
             // Reset custom style overrides if any
             el.style.width = '';
             el.style.backgroundColor = '';
-            el.classList.remove('always-scrollbar-y');
+            el.classList.remove('always-scrollbar-y', 'exam-export-modal');
             
             el.innerHTML = content;
             
@@ -4745,7 +4745,7 @@ if (contentType && contentType.includes("application/json")) {
                 'max-w-2xl', 'max-w-3xl', 'max-w-4xl', 'max-w-5xl', 'max-w-6xl', 'max-w-7xl', 'xl:max-w-6xl', '2xl:max-w-7xl',
                 'w-[98vw]', 'w-[96vw]', 'w-[92vw]', 'w-full',
                 'h-[94vh]', 'max-h-[94vh]', 'max-h-[92vh]', 'max-h-[90vh]', 'sm:max-h-[92vh]', 'sm:max-h-[90vh]', 
-                'md:max-w-[98vw]', 'md:h-[95vh]', 'max-w-[98vw]', 'h-[95vh]', 'max-w-sm', 'max-w-md'
+                'md:max-w-[98vw]', 'md:h-[95vh]', 'max-w-[98vw]', 'h-[95vh]', 'max-w-sm', 'max-w-md', 'lg:max-w-5xl', 'md:w-full'
             );
 
             if (fullScreen === true || fullScreen === 'full') {
@@ -4754,6 +4754,9 @@ if (contentType && contentType.includes("application/json")) {
                 el.classList.add('w-[96vw]', 'md:w-full', 'max-w-5xl', 'xl:max-w-6xl', '2xl:max-w-7xl', 'max-h-[94vh]', 'sm:max-h-[92vh]', 'overflow-y-auto');
             } else if (fullScreen === 'wide' || fullScreen === '4xl' || fullScreen === '5xl' || fullScreen === 'large') {
                 el.classList.add('w-full', 'max-w-4xl', 'lg:max-w-5xl', 'max-h-[92vh]', 'sm:max-h-[90vh]', 'overflow-y-auto');
+            } else if (fullScreen === 'exam-export') {
+                // Export dialog has fixed viewport-safe dimensions and its own scrolling.
+                el.classList.add('exam-export-modal', 'overflow-y-auto');
             } else if (fullScreen === '3xl' || fullScreen === 'medium') {
                 el.classList.add('w-full', 'max-w-3xl', 'max-h-[92vh]', 'sm:max-h-[90vh]', 'overflow-y-auto');
             } else if (fullScreen === 'compact' || fullScreen === 'sm' || fullScreen === 'small') {
@@ -5660,43 +5663,22 @@ if (contentType && contentType.includes("application/json")) {
             };
 
             const modalContent = `
-                <div class="p-4 sm:p-6 text-left w-full max-w-3xl mx-auto">
-                    <div class="flex items-center justify-between pb-3.5 mb-4 border-b border-gray-100">
-                        <div class="flex items-center gap-3">
+                <div class="exam-export-body p-4 sm:p-6 text-left w-full min-w-0">
+                    <div class="flex items-start justify-between pb-3.5 mb-4 border-b border-gray-100">
+                        <div class="flex items-start gap-3 min-w-0 pr-7">
                             <div class="w-11 h-11 rounded-2xl bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-600 text-white flex items-center justify-center shadow-lg shadow-blue-500/20 shrink-0">
                                 <svg class="w-6 h-6 text-amber-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
                                 </svg>
                             </div>
-                            <div>
-                                <h3 class="text-lg sm:text-xl font-black text-gray-800 leading-tight">Xuất đề thi (Word / PDF / Excel đáp án)</h3>
-                                <p class="text-xs sm:text-sm text-gray-500 font-medium">Định dạng A4 chuẩn Bộ GD&ĐT, tùy chọn xuất file Word (.docx) hoặc PDF (.pdf) kèm bảng đáp án Excel</p>
+                            <div class="min-w-0 flex-1">
+                                <h3 class="text-lg sm:text-xl font-black text-gray-800 leading-tight break-words">Xuất đề thi (Word / Excel đáp án)</h3>
+                                <p class="text-xs sm:text-sm text-gray-500 font-medium leading-relaxed">Xuất đề Word (.docx) khổ A4 và bảng đáp án Excel (.xlsx) trong một tệp ZIP.</p>
                             </div>
                         </div>
                     </div>
 
                     <form onsubmit="event.preventDefault(); window.executeDocxExport('${targetExamId}');" class="space-y-4">
-                        <!-- Format Selection (Word / PDF) -->
-                        <div class="bg-gradient-to-r from-blue-50/80 via-indigo-50/80 to-purple-50/80 p-3.5 rounded-2xl border border-blue-200/90 shadow-2xs space-y-2">
-                            <label class="block text-xs md:text-sm font-bold text-gray-800 flex items-center gap-1.5">
-                                <span>📦</span> Chọn định dạng file xuất đề thi:
-                            </label>
-                            <div class="grid grid-cols-2 gap-3">
-                                <label class="flex items-center gap-2.5 p-3 bg-white rounded-xl border-2 border-blue-500 cursor-pointer hover:bg-blue-50/50 transition font-bold text-xs md:text-sm text-blue-900 shadow-2xs has-checked:border-blue-600 has-checked:bg-blue-50">
-                                    <input type="radio" name="export-format" value="docx" checked class="w-4 h-4 text-blue-600 focus:ring-blue-500 cursor-pointer">
-                                    <span class="flex items-center gap-1.5">
-                                        <span class="text-base">📝</span> File Word (.docx)
-                                    </span>
-                                </label>
-                                <label class="flex items-center gap-2.5 p-3 bg-white rounded-xl border-2 border-gray-200 cursor-pointer hover:bg-red-50/50 transition font-bold text-xs md:text-sm text-gray-700 shadow-2xs has-checked:border-red-500 has-checked:bg-red-50">
-                                    <input type="radio" name="export-format" value="pdf" class="w-4 h-4 text-red-600 focus:ring-red-500 cursor-pointer">
-                                    <span class="flex items-center gap-1.5">
-                                        <span class="text-base">📑</span> File PDF (.pdf)
-                                    </span>
-                                </label>
-                            </div>
-                        </div>
-
                         <!-- Prominent Full-Width Exam Title Field -->
                         <div class="bg-blue-50/60 p-3.5 rounded-2xl border border-blue-200/80 space-y-1">
                             <label class="block text-xs md:text-sm font-bold text-blue-950 mb-1 flex items-center gap-1.5">
@@ -5720,8 +5702,8 @@ if (contentType && contentType.includes("application/json")) {
                         </div>
 
                         <!-- Subject & Year Info -->
-                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                            <div class="sm:col-span-2">
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                            <div class="md:col-span-2">
                                 <label class="block text-xs md:text-sm font-bold text-gray-700 mb-1">Môn học / Lớp:</label>
                                 <input type="text" id="docx-export-monhoc" value="${escapeHtml(defaultMon)}" class="w-full px-3.5 py-2 text-xs md:text-sm border border-gray-300 rounded-xl focus:border-blue-500 focus:outline-none bg-white font-medium">
                             </div>
@@ -5737,7 +5719,7 @@ if (contentType && contentType.includes("application/json")) {
                                 <span class="text-amber-600 text-lg">🎲</span>
                                 <span>Tùy chọn bốc câu hỏi ngẫu nhiên & Xuất nhiều mã đề thi:</span>
                             </div>
-                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
                                 <div>
                                     <label class="block text-xs font-bold text-amber-950 mb-1">
                                         Số lượng đề thi cần xuất:
@@ -5815,7 +5797,7 @@ if (contentType && contentType.includes("application/json")) {
                     </form>
                 </div>
             `;
-            showModal(modalContent, '3xl', true);
+            showModal(modalContent, 'exam-export');
             if (window.updateExportMaDeNote) {
                 window.updateExportMaDeNote();
             }
