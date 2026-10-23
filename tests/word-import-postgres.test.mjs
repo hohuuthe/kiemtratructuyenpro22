@@ -128,7 +128,7 @@ test('Import collision or prior change is rejected without overwrite',async()=>{
   const b=batch('changed');
   await persistVerifiedWordImport(isolated.sql,'teacher',b);
   await isolated.db.query('UPDATE questions SET content=$1 WHERE id=$2',['TEACHER EDIT', (await isolated.db.query('SELECT id FROM questions LIMIT 1')).rows[0].id]);
-  await assert.rejects(persistVerifiedWordImport(isolated.sql,'teacher',b),/không ghi đè/);
+  await assert.rejects(persistVerifiedWordImport(isolated.sql,'teacher',b),/ghi đè dữ liệu cũ/i);
   assert.equal((await isolated.db.query("SELECT COUNT(*)::int AS n FROM questions WHERE content='TEACHER EDIT'")).rows[0].n,1);
  }finally{await isolated.close();}
 });
