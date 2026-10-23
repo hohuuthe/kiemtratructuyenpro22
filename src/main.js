@@ -6959,6 +6959,7 @@ if (contentType && contentType.includes("application/json")) {
         window._studentExamChangeSeq = 0;
         window.onStudentExamNameChange = async function onStudentExamNameChange() {
             const currentExamSeq = ++window._studentExamChangeSeq;
+            window._studentExamAccessCode = '';
             console.log('onStudentExamNameChange called, seq:', currentExamSeq);
             const elTeacher = document.getElementById('student-teacher-filter');
             const teacherId = elTeacher ? elTeacher.value : '';
@@ -7047,12 +7048,8 @@ if (contentType && contentType.includes("application/json")) {
                             updateCurrentExamInfo();
                             return;
                         }
-                        if (code !== data.mabaomatdethi) {
-                            showToast('❌ Mã bảo mật không chính xác!', 'error');
-                            examSelect.value = ''; // Reset dropdown
-                            updateCurrentExamInfo();
-                            return;
-                        }
+                        // The backend verifies the code; never expose the correct code in GET.
+                        window._studentExamAccessCode = code;
                     }
                     
                     if (currentExamSeq !== window._studentExamChangeSeq) return;
@@ -7645,7 +7642,8 @@ if (contentType && contentType.includes("application/json")) {
                     studentClass: studentClass,
                     userLop: (currentUser && currentUser.lop) ? currentUser.lop : inputLop,
                     userDonvi: (currentUser && (currentUser.donvi || currentUser.address)) ? (currentUser.donvi || currentUser.address) : inputDonvi,
-                    examConfig
+                    examConfig,
+                    examAccessCode: window._studentExamAccessCode || ''
                 };
                 
                 const authToken = localStorage.getItem('auth_token') || '';
