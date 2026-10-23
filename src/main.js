@@ -3030,11 +3030,11 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
         window.fetchAllQuestionsChunked = fetchAllQuestionsChunked;
 
         async function loadQuestions(force = false, onProgress = null) {
-            if (questionsLoaded && !force) return;
+            if (questionsLoaded && !force) return true;
             try {
                 if (!isAdminLoggedIn && !isTeacherLoggedIn) {
                     console.log('Skipping lazy load questions: unauthorized role for fetching question bank.');
-                    return;
+                    return false;
                 }
 
                 console.log('Loading questions from /api/questions (chunked)...');
@@ -3052,9 +3052,12 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                     if (typeof updateCurrentExamInfo === 'function') {
                         updateCurrentExamInfo();
                     }
+                    return true;
                 }
+                return false;
             } catch (e) {
                 console.error('Error loading questions:', e);
+                return false;
             }
         }
 
@@ -11853,7 +11856,7 @@ D. Phát biểu SAI</pre>
                             'Content-Type':'application/json',
                             'Authorization':'Bearer '+(localStorage.getItem('auth_token')||'')
                         },
-                        body:JSON.stringify({base64:source})
+                        body:JSON.stringify({base64:source,wordImportContentAddressed:true})
                     });
                     if(!response.ok)throw new Error('Không tải được hình gốc lên R2 tại '+where);
                     const result=await response.json();
@@ -11908,12 +11911,26 @@ D. Phát biểu SAI</pre>
                 wordImportVerification=null;
                 wordImportFileMeta=null;
                 closeModal();
-                await loadQuestions(true);
-                updateQuestionStats?.();
-                updateLessonFilter?.();
-                renderQuestionsList?.();
-                showToast('Import thành công '+count+
-                    ' câu (đã xác minh sau lưu). Biên nhận '+String(receipt.batchId).slice(0,8),'success');
+                // Persistence was independently confirmed by the server.
+                // A subsequent UI refresh failure must never be reported as an
+                // import failure, otherwise a teacher may unknowingly retry.
+                let refreshed=false;
+                try {
+                    refreshed=await loadQuestions(true)===true;
+                    if(refreshed){
+                        updateQuestionStats?.();
+                        updateLessonFilter?.();
+                        renderQuestionsList?.();
+                    }
+                } catch(refreshError) {
+                    console.warn('[WordImport] Bank refresh failed AFTER successful save:',refreshError);
+                }
+                const baseMessage=receipt.duplicate
+                    ?'Tệp Word đã được nhập trước đó: '+count+' câu khớp dữ liệu.'
+                    :'Đã lưu và đối chiếu thành công '+count+' câu.';
+                showToast(baseMessage+(refreshed
+                    ?' Mã xác nhận: '+String(receipt.importKey||receipt.batchId).slice(0,12)
+                    :' Không tải lại được danh sách; dữ liệu đã lưu, hãy tải lại trang.'),refreshed?'success':'warning');
             }catch(error){
                 console.error('[WordImport] Transaction failed:',error);
                 showToast('Import chưa hoàn tất: '+(error.message||error)+

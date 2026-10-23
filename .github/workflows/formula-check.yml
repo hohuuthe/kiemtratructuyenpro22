@@ -33,6 +33,8 @@ jobs:
         run: node --import tsx --test tests/word-import-corpus-roundtrip.test.mjs
       - name: PostgreSQL rollback and actual Neon driver contract
         run: node --import tsx --test tests/word-import-postgres.test.mjs
+      - name: Deterministic Word-image upload retry contract
+        run: node --test tests/word-import-image-key.test.mjs
       - name: Production build
         run: npm run build
       - name: Ensure DEV-only result fixture is absent in Production
