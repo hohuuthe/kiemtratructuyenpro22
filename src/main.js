@@ -2374,7 +2374,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 } else if (tab === 'ranking') {
                     // QL Kết quả: Hiển thị cho Giáo viên và Admin (ẩn đối với Học sinh)
                     visible = isTeacher || isAdmin;
-                } else if (tab === 'questions' || tab === 'exams') {
+                } else if (tab === 'questions' || tab === 'exams' || tab === 'exam-editor') {
                     // QL Câu hỏi, QL Đề thi: Dành cho Giáo viên và Admin
                     visible = isTeacher || isAdmin;
                 } else if (tab === 'users') {
@@ -2569,6 +2569,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             // Đóng các tab bảo mật
             if(document.getElementById('questions-panel')) document.getElementById('questions-panel').classList.add('hidden');
             if(document.getElementById('exams-panel')) document.getElementById('exams-panel').classList.add('hidden');
+            document.getElementById('exam-editor-panel')?.classList.add('hidden');
             if (document.getElementById('questions-login')) document.getElementById('questions-login').classList.remove('hidden');
             if (document.getElementById('exams-login')) document.getElementById('exams-login').classList.remove('hidden');
             
@@ -2591,8 +2592,8 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 const p = document.getElementById('questions-panel');
                 if (p && !p.classList.contains('hidden')) return;
             }
-            if (currentActiveTab.id === 'tab-exams') {
-                const p = document.getElementById('exams-panel');
+            if (currentActiveTab.id === 'tab-exam-editor') {
+                const p = document.getElementById('exam-editor-panel');
                 if (p && !p.classList.contains('hidden')) return;
             }
             if (currentActiveTab.id === 'tab-settings') {
@@ -2631,8 +2632,10 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 renderQuestionsList();
                 updateLessonFilter();
             } else if (tabName === 'exams') {
+                if (!examsLoaded) await updateExamNamesList(true);
+                renderExamConfigsTable();
+            } else if (tabName === 'exam-editor') {
                 await initExamPanel();
-                // Check sufficiency when opening tab
                 checkExamConfigSufficiency();
             } else if (tabName === 'settings') {
                 loadSettings();
@@ -3981,7 +3984,7 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
             }
 
             // Các tab bảo mật
-            const protectedTabs = ['questions', 'exams', 'accounts', 'users', 'settings', 'ranking', 'teacher-assignment'];
+            const protectedTabs = ['questions', 'exams', 'exam-editor', 'accounts', 'users', 'settings', 'ranking', 'teacher-assignment'];
             
             // Nếu là tab bảo mật và chưa đăng nhập, yêu cầu xác thực
             if (protectedTabs.includes(tabName)) {
@@ -4029,12 +4032,11 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
             
             // Cập nhật danh sách đề thi khi chuyển sang tab exams
             if (tabName === 'exams') {
-                if (!examsLoaded) {
-                    updateExamNamesList();
-                }
+                if (!examsLoaded) updateExamNamesList();
+                else renderExamConfigsTable();
             }
 
-            if (tabName === 'questions' || tabName === 'exams') {
+            if (tabName === 'questions' || tabName === 'exam-editor') {
                 if (!questionsLoaded) {
                     showLoadingProgress('Đang tải Ngân hàng Câu hỏi', async () => {
                         await loadQuestions();
@@ -4042,7 +4044,7 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
                             updateQuestionStats();
                             renderQuestionsList();
                             updateLessonFilter();
-                        } else if (tabName === 'exams') {
+                        } else if (tabName === 'exam-editor') {
                             await initExamPanel();
                             checkExamConfigSufficiency();
                         }
@@ -4141,7 +4143,7 @@ if (contentType && contentType.includes("application/json")) {
                 activeBtn.classList.add('active');
                 activeBtn.classList.remove('bg-emerald-800/40', 'text-emerald-50');
             }
-            if (tabName === 'exams') {
+            if (tabName === 'exam-editor') {
                 // Khởi tạo exam panel khi chuyển sang tab
                 setTimeout(() => {
                     initExamPanel();
@@ -5561,9 +5563,6 @@ if (contentType && contentType.includes("application/json")) {
         window.loadExamConfigById = async function loadExamConfigById(selectedId) {
             if (!selectedId) return;
             const selectEl = document.getElementById('exam-config-name');
-            if (selectEl) {
-                selectEl.value = selectedId;
-            }
             try {
                 const token = localStorage.getItem('auth_token') || '';
                 const res = await fetch(`/api/exams?id=${encodeURIComponent(selectedId)}`, {
@@ -5578,12 +5577,14 @@ if (contentType && contentType.includes("application/json")) {
                 }
                 
                 if (res.ok && resJson.data) {
+                    await openExamEditorTab({newExam:false});
                     applyExamConfig(resJson.data);
+                    if (selectEl) selectEl.value = String(resJson.data.id || selectedId);
                     showToast(`📂 Đã nạp cấu hình đề: ${resJson.data.name || selectedId}`, 'success');
                     const btnExport = document.getElementById('btn-export-exam-docx');
                     if (btnExport) btnExport.classList.remove('hidden');
                     // Cuộn mượt lên phần thông tin cấu hình
-                    const topPanel = document.getElementById('tab-exams');
+                    const topPanel = document.getElementById('tab-exam-editor');
                     if (topPanel) topPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 }
             } catch (e) {
@@ -6641,7 +6642,7 @@ if (contentType && contentType.includes("application/json")) {
             const examConfigSelect = document.getElementById('exam-config-name');
             if (examConfigSelect && (isTeacherLoggedIn || isAdminLoggedIn)) {
                 const activeTab = document.querySelector('.tab-content.active')?.id;
-                if (activeTab === 'tab-exams') {
+                if (activeTab === 'tab-exam-editor') {
                     examConfigSelect.value = examConfig.id || '';
                 }
             }
@@ -13070,7 +13071,34 @@ D. Phát biểu SAI</pre>
         }
 
         // ==================== EXAMS MANAGEMENT ====================
+        let examEditorInitialized = false;
+        let examEditorInitializing = null;
+        window.openExamEditorTab = openExamEditorTab;
+        async function openExamEditorTab({newExam = false} = {}) {
+            if (!(isAdminLoggedIn || isTeacherLoggedIn)) {
+                showAdminLoginModal();
+                return false;
+            }
+            switchTab('exam-editor');
+            if (examEditorInitializing) await examEditorInitializing;
+            if (!examEditorInitialized) await initExamPanel();
+            if (newExam) resetExamPanelToDefault();
+            return true;
+        }
+        window.startNewExamConfig = async function startNewExamConfig() {
+            return openExamEditorTab({newExam:true});
+        };
         async function initExamPanel() {
+            if (examEditorInitialized) {
+                updateAvailableCounts();
+                return;
+            }
+            if (examEditorInitializing) return examEditorInitializing;
+            examEditorInitializing = initializeExamEditorOnce();
+            try { await examEditorInitializing; }
+            finally { examEditorInitializing = null; }
+        }
+        async function initializeExamEditorOnce() {
             // Guard: If exam-lesson-selection is not in DOM, skip without error (tab not loaded/active)
             if (!document.getElementById('exam-lesson-selection')) {
                 return;
@@ -13106,6 +13134,7 @@ D. Phát biểu SAI</pre>
                 await updateExamNamesList(false);
             }
             resetExamPanelToDefault();
+            examEditorInitialized = true;
             
             // 5. Cập nhật thông tin đề thi
             updateCurrentExamInfo();
@@ -21304,7 +21333,7 @@ CẤU TRÚC JSON:
             componentsLoadedFlag = true;
 
             const components = [
-                'modal-container', 'tab-exam', 'tab-questions', 'tab-exams',
+                'modal-container', 'tab-exam', 'tab-questions', 'tab-exams', 'tab-exam-editor',
                 'tab-teacher-assignment', 'tab-accounts', 'tab-users', 'tab-ranking', 'tab-settings', 'tab-help',
                 'toast-container-center', 'toast-container-right', 'account-modal', 'user-modal'
             ];
