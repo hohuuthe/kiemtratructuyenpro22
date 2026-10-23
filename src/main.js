@@ -5389,7 +5389,7 @@ if (contentType && contentType.includes("application/json")) {
                 let lopBadge = '';
                 if (mode === 'Đề cho đơn vị' || mode === 'Đề thi cho đơn vị') {
                     if (donvi || lop) {
-                        lopBadge = `<div class="flex flex-col gap-1">${donvi ? `<span class="px-2 py-0.5 bg-purple-100 text-purple-800 text-[11px] font-semibold rounded border border-purple-200" title="Đơn vị áp dụng">🏫 ${escapeHTML(donvi)}</span>` : ''}${lop ? `<span class="px-2 py-0.5 bg-blue-100 text-blue-800 text-[11px] font-bold rounded border border-blue-200" title="Lớp áp dụng">🏷️ ${escapeHTML(lop)}</span>` : ''}</div>`;
+                        lopBadge = `<div class="exam-config-scope-list">${donvi ? `<span class="exam-config-scope-tag bg-purple-50 text-purple-800 text-[11px] font-semibold border border-purple-100" title="Đơn vị áp dụng">🏫 ${escapeHTML(donvi)}</span>` : ''}${lop ? `<span class="exam-config-scope-tag bg-blue-50 text-blue-800 text-[11px] font-semibold border border-blue-100" title="Lớp áp dụng">🏷️ ${escapeHTML(lop)}</span>` : ''}</div>`;
                     } else {
                         lopBadge = `<span class="text-xs text-gray-400 italic">Tất cả đơn vị & lớp</span>`;
                     }
@@ -5430,7 +5430,7 @@ if (contentType && contentType.includes("application/json")) {
                 const isCreator = currentUser && (String(item.creator_id || item.creatorId) === String(currentUser.id) || isAdminLoggedIn);
 
                 return `
-                    <tr class="hover:bg-purple-50/50 transition border-b border-gray-100">
+                    <tr class="transition-colors border-b border-slate-100">
                         <td class="py-3 px-3 text-center text-xs font-medium text-gray-500">${globalIdx}</td>
                         <td class="py-3 px-3 text-center text-xs font-mono text-gray-600 whitespace-nowrap">
                             <span class="bg-gray-100 px-2 py-1 rounded text-xs font-bold text-gray-700 select-all">${item.id}</span>
@@ -5442,7 +5442,7 @@ if (contentType && contentType.includes("application/json")) {
                             <span class="text-xs font-semibold text-gray-600">${escapeHTML(creator)}</span>
                         </td>
                         <td class="py-3 px-3 whitespace-nowrap">${modeBadge}</td>
-                        <td class="py-3 px-3 whitespace-nowrap">${lopBadge}</td>
+                        <td class="exam-config-scope-column py-3 px-3 align-middle">${lopBadge}</td>
                         <td class="py-3 px-3 text-center text-xs text-gray-700 whitespace-nowrap font-medium">${time} phút</td>
                         <td class="py-3 px-3 text-center text-xs font-semibold text-purple-700 whitespace-nowrap">
                             <span class="font-bold text-purple-800">${totalQ} câu</span>
@@ -5482,7 +5482,7 @@ if (contentType && contentType.includes("application/json")) {
             if (!container) {
                 container = document.createElement('div');
                 container.id = 'exam-configs-pagination-container';
-                container.className = 'flex flex-wrap items-center justify-between gap-3 pt-4 px-2 text-xs text-gray-600 font-medium border-t border-gray-100 mt-2';
+                container.className = 'flex flex-wrap items-center justify-between gap-3 px-3 py-3 text-xs text-slate-600 font-medium border-t border-slate-100';
                 table.parentNode.insertBefore(container, table.nextSibling);
             }
 
