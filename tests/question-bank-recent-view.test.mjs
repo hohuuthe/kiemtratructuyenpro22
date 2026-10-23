@@ -26,6 +26,25 @@ test('Three pathways await acknowledged save or readback before focusing',()=>{
  assert.match(src,/const refreshed = await loadQuestions\(true\)/);
  assert.match(src,/receipt\.success !== true/);
  assert.match(src,/recentlySavedIds\.has\(String\(a\.id\)\)/);
+ assert.match(src,/lessonEl\.value = ''/);
+ assert.match(src,/questionTypeFilter = 'ALL'/);
+ assert.match(src,/timeB - timeA/);
+ assert.match(src,/created_at: q\.created_at/);
  assert.match(html,/id="questions-recent-notice"/);
  assert.match(html,/showAllQuestionBank\(\)/);
+});
+
+test('New questions have persistent creation times and API pagination is newest first',()=>{
+ const api=readFileSync('functions/api/questions.ts','utf8');
+ const word=readFileSync('functions/api/questions/import-word.ts','utf8');
+ assert.match(api,/ORDER BY created_at DESC NULLS LAST, id DESC/);
+ assert.match(api,/creator_id, created_at\)/);
+ assert.match(word,/creator_id,created_at\)/);
+});
+test('Manual, AI and Word modals use a stable viewport-safe width',()=>{
+ const css=readFileSync('src/style.css','utf8');
+ assert.match(css,/#modal-content\.question-authoring-modal/);
+ assert.match(css,/width: min\(1024px, calc\(100vw - 32px\)\)/);
+ assert.match(css,/height: min\(780px, calc\(100dvh - 32px\)\)/);
+ assert.ok((src.match(/showModal\(modalContent, 'question-authoring', true\)/g)||[]).length >= 8);
 });
