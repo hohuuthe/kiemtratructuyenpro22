@@ -399,7 +399,10 @@ export function extractOptionsABCD(opts: any, q?: any): {
             imgD: extractImg(objD, 'D')
         };
     }
-    return { optA: '', optB: '', optC: ''/**
+    return { optA: '', optB: '', optC: '', optD: '' };
+}
+
+/**
  * Approximate printed glyph width solely to choose a Word column count.
  * It never changes the option text or editable Office Math that is exported.
  * TeX command names and HTML tags are markup, not visible characters.
@@ -496,10 +499,6 @@ export function buildOptionsTable(
         borders: noBordersObj,
         rows
     });
-}
-
-    })
-    ];
 }
 
 /**
