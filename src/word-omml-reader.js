@@ -204,8 +204,12 @@ const chemText = input => {
     if(!raw)return '';
     if(raw.includes('\\')||/[{}[\]$]/.test(raw))
         throw new Error('Ký tự điều kiện hóa học Word cần xác minh');
-    if(/[À-ỹ]/u.test(raw))return '\\text{'+escapeTextRun(raw)+'}';
+    // The broad Unicode range À-ỹ also contains GREEK letters. Decode
+    // Greek symbols before choosing Vietnamese plain-text formatting.
     const greek={'ν':'\\nu','Δ':'\\Delta','α':'\\alpha','β':'\\beta','γ':'\\gamma'};
+    if(/^[A-Za-z\\sνΔαβγ]+$/u.test(raw) && /[νΔαβγ]/u.test(raw))
+        return Array.from(raw,ch=>greek[ch]||ch).join('');
+    if(/[À-ỹ]/u.test(raw))return '\\text{'+escapeTextRun(raw)+'}';
     return Array.from(raw,ch=>greek[ch]||ch).join('');
 };
 function nativeChemistry(node, depth=0) {
