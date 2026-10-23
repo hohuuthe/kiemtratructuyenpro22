@@ -1753,6 +1753,8 @@ Trả về kết quả dưới dạng JSON Array, mỗi phần tử tương ứn
         let isAdminLoggedIn = false;
         let isTeacherLoggedIn = false;
         let currentUser = null;
+        // Bumped for every successful sign-in or sign-out; rejects stale private API responses.
+        let authDataGeneration = 0;
 
         window._realShowAdminLoginModal = showAdminLoginModal;
         window.showAdminLoginModal = showAdminLoginModal;
@@ -2157,6 +2159,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             resultsLoaded = false;
             accountsLoaded = false;
             examsLoaded = false;
+            invalidateExamEditorSession();
 
             if (typeof examToCreatorMap !== 'undefined') {
                 for (let key in examToCreatorMap) delete examToCreatorMap[key];
@@ -2490,6 +2493,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             resultsLoaded = false;
             accountsLoaded = false;
             examsLoaded = false;
+            invalidateExamEditorSession();
             
             // Xóa sạch các bản đồ ánh xạ metadata và phân quyền
             if (typeof examToCreatorMap !== 'undefined') {
@@ -3040,8 +3044,10 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                     return false;
                 }
 
+                const generation = authDataGeneration;
                 console.log('Loading questions from /api/questions (chunked)...');
                 const data = await fetchAllQuestionsChunked(onProgress);
+                if (generation !== authDataGeneration || !(isAdminLoggedIn || isTeacherLoggedIn)) return false;
 
                 if (data && Array.isArray(data)) {
                     questions = data.map(q => ({
@@ -5562,6 +5568,8 @@ if (contentType && contentType.includes("application/json")) {
 
         window.loadExamConfigById = async function loadExamConfigById(selectedId) {
             if (!selectedId) return;
+            const generation = authDataGeneration;
+            const requestSeq = ++examConfigLoadSeq;
             const selectEl = document.getElementById('exam-config-name');
             try {
                 const token = localStorage.getItem('auth_token') || '';
@@ -5576,8 +5584,11 @@ if (contentType && contentType.includes("application/json")) {
                     throw new Error("Server returned non-JSON response. Status: " + res.status);
                 }
                 
+                if (generation !== authDataGeneration || requestSeq !== examConfigLoadSeq ||
+                    !(isAdminLoggedIn || isTeacherLoggedIn)) return;
                 if (res.ok && resJson.data) {
-                    await openExamEditorTab({newExam:false});
+                    const opened = await openExamEditorTab({newExam:false});
+                    if (!opened || generation !== authDataGeneration || requestSeq !== examConfigLoadSeq) return;
                     applyExamConfig(resJson.data);
                     if (selectEl) selectEl.value = String(resJson.data.id || selectedId);
                     showToast(`📂 Đã nạp cấu hình đề: ${resJson.data.name || selectedId}`, 'success');
@@ -6410,9 +6421,12 @@ if (contentType && contentType.includes("application/json")) {
                 console.warn('updateExamNamesList: currentUser missing');
                 return;
             }
-            
+            const generation = authDataGeneration;
+            const requestSeq = ++examNamesRequestSeq;
             try {
                 const data = await fetchAllExamsChunked(onProgress);
+                // A previous teacher's response must not restore their exam list.
+                if (generation !== authDataGeneration || requestSeq !== examNamesRequestSeq || !currentUser) return;
                 console.log('✅ Exam names loaded:', data.length, 'items');
                 window.allExamConfigsList = data;
                 renderExamConfigsTable();
@@ -6493,6 +6507,8 @@ if (contentType && contentType.includes("application/json")) {
         }
 
         async function onExamNameChange() {
+            const generation = authDataGeneration;
+            const requestSeq = ++examConfigLoadSeq;
             const selectEl = document.getElementById('exam-config-name');
             const selectedId = selectEl?.value?.trim();
             if (!selectedId) {
@@ -6517,6 +6533,8 @@ if (contentType && contentType.includes("application/json")) {
     throw new Error("Server returned non-JSON response (likely 502/504 during restart). Status: " + res.status);
 }
                 
+                if (generation !== authDataGeneration || requestSeq !== examConfigLoadSeq ||
+                    String(selectEl?.value || '') !== String(selectedId) || !currentUser) return;
                 if (res.ok && resJson.data) {
                     applyExamConfig(resJson.data);
                     showToast(`📂 Đã tải cấu hình đề: ${name}`, 'success');
@@ -13073,16 +13091,43 @@ D. Phát biểu SAI</pre>
         // ==================== EXAMS MANAGEMENT ====================
         let examEditorInitialized = false;
         let examEditorInitializing = null;
+        let examNamesRequestSeq = 0;
+        let examConfigLoadSeq = 0;
+        function invalidateExamEditorSession() {
+            authDataGeneration += 1;
+            examEditorInitialized = false;
+            examEditorInitializing = null;
+            examNamesRequestSeq += 1;
+            examConfigLoadSeq += 1;
+            window.allExamConfigsList = [];
+            window.examConfigCurrentPage = 1;
+            const search = document.getElementById('search-exam-config-table');
+            if (search) search.value = '';
+            const examListSelect = document.getElementById('exam-config-name');
+            if (examListSelect) examListSelect.innerHTML = '<option value="">Chọn đề thi có sẵn</option>';
+            const lessonList = document.getElementById('exam-lesson-selection');
+            if (lessonList) lessonList.innerHTML = '';
+            const teacherSelect = document.getElementById('exam-teacher-filter');
+            if (teacherSelect) teacherSelect.value = '';
+            document.getElementById('btn-export-exam-docx')?.classList.add('hidden');
+            resetExamPanelToDefault();
+            renderExamConfigsTable();
+        }
         window.openExamEditorTab = openExamEditorTab;
         async function openExamEditorTab({newExam = false} = {}) {
             if (!(isAdminLoggedIn || isTeacherLoggedIn)) {
                 showAdminLoginModal();
                 return false;
             }
+            const generation = authDataGeneration;
             switchTab('exam-editor');
             if (examEditorInitializing) await examEditorInitializing;
             if (!examEditorInitialized) await initExamPanel();
-            if (newExam) resetExamPanelToDefault();
+            if (generation !== authDataGeneration || !(isAdminLoggedIn || isTeacherLoggedIn)) return false;
+            if (newExam) {
+                ++examConfigLoadSeq; // Cancel any in-flight Nạp/selection response.
+                resetExamPanelToDefault();
+            }
             return true;
         }
         window.startNewExamConfig = async function startNewExamConfig() {
@@ -13094,11 +13139,13 @@ D. Phát biểu SAI</pre>
                 return;
             }
             if (examEditorInitializing) return examEditorInitializing;
-            examEditorInitializing = initializeExamEditorOnce();
-            try { await examEditorInitializing; }
-            finally { examEditorInitializing = null; }
+            const request = initializeExamEditorOnce();
+            examEditorInitializing = request;
+            try { await request; }
+            finally { if (examEditorInitializing === request) examEditorInitializing = null; }
         }
         async function initializeExamEditorOnce() {
+            const generation = authDataGeneration;
             // Guard: If exam-lesson-selection is not in DOM, skip without error (tab not loaded/active)
             if (!document.getElementById('exam-lesson-selection')) {
                 return;
@@ -13106,6 +13153,7 @@ D. Phát biểu SAI</pre>
             // Refresh accounts to get newly registered ones
             try {
                 const { data } = await fetch('/api/accounts', { headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('auth_token') || '') } }).then(res => res.json()).catch(() => ({error: 'Lỗi', data: null}));
+                if (generation !== authDataGeneration) return;
                 if (data) {
                     accounts = data;
                     // Update the mapping too
@@ -13116,6 +13164,7 @@ D. Phát biểu SAI</pre>
             } catch (e) {
                 console.error('Failed to refresh accounts during exam panel init:', e);
             }
+            if (generation !== authDataGeneration) return;
             
             // 0. Cập nhật bộ lọc giáo viên
             updateExamTeacherFilter();
@@ -13133,6 +13182,7 @@ D. Phát biểu SAI</pre>
             if (currentUser && !isAdminLoggedIn) {
                 await updateExamNamesList(false);
             }
+            if (generation !== authDataGeneration) return;
             resetExamPanelToDefault();
             examEditorInitialized = true;
             

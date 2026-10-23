@@ -30,3 +30,22 @@ test('Nav, authorization and load flow target new editor tab',()=>{
 test('Business save, export and delete functions still exist',()=>{
  for(const fn of ['window.saveExamConfig = async function saveExamConfig','saveExamConfigToDB()','window.deleteExamConfig = async function deleteExamConfig','window.openExportDocxModal = async function openExportDocxModal'])assert.ok(app.includes(fn),fn);
 });
+
+test('Account transition clears editor, lesson checkboxes and cached exam list',()=>{
+ const login = app.slice(app.indexOf('async function handleSuccessfulLogin()'), app.indexOf('function updateSidebarVisibility()'));
+ const logout = app.slice(app.indexOf('async function adminLogout()'), app.indexOf('function initProtectedTabs()'));
+ const clear = app.slice(app.indexOf('function invalidateExamEditorSession()'), app.indexOf('window.openExamEditorTab = openExamEditorTab'));
+ assert.ok(login.includes('invalidateExamEditorSession();'), 'login clears old account');
+ assert.ok(logout.includes('invalidateExamEditorSession();'), 'logout clears old account');
+ for (const statement of ['authDataGeneration += 1','examEditorInitialized = false','examEditorInitializing = null','window.allExamConfigsList = []',"lessonList.innerHTML = ''",'resetExamPanelToDefault();'])
+   assert.ok(clear.includes(statement), statement);
+});
+test('Late private fetches cannot overwrite state after teacher switches or new exam creation',()=>{
+ for(const guard of [
+   'generation !== authDataGeneration || !(isAdminLoggedIn || isTeacherLoggedIn)',
+   'requestSeq !== examNamesRequestSeq',
+   'requestSeq !== examConfigLoadSeq',
+   'if (generation !== authDataGeneration) return;',
+   '++examConfigLoadSeq; // Cancel any in-flight Nạp/selection response.'
+ ]) assert.ok(app.includes(guard), guard);
+});
