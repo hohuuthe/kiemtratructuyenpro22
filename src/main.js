@@ -16,7 +16,6 @@ import { inspectScientificDocx, WORD_IMPORT_ENGINE_VERSION } from './word-omml-r
 import { verifyImportedWordQuestions, checkWordImportBeforeSave, correctImportedWordEquation, normalizeWordImportAnswer } from './word-import-verification.js';
 import { splitScientificContent } from './scientific-formula-tokenizer.js';
 import { splitLabeledScientificRecords } from './scientific-formula-records.js';
-import { generateExamPdfBlob } from './exam-pdf-generator.ts';
 import { generateExamAnswerExcel } from './exam-excel-generator.ts';
 import { 
     renderScientificContent, 
@@ -5807,7 +5806,6 @@ if (contentType && contentType.includes("application/json")) {
             const btn = document.getElementById('btn-submit-docx-export');
             const originalText = btn ? btn.innerHTML : '';
 
-            const exportFormat = document.querySelector('input[name="export-format"]:checked')?.value || 'docx';
             const soGiaoDuc = document.getElementById('docx-export-so')?.value || '';
             const truongHoc = document.getElementById('docx-export-truong')?.value || '';
             const deThiTitle = document.getElementById('docx-export-title')?.value || '';
@@ -5841,8 +5839,7 @@ if (contentType && contentType.includes("application/json")) {
                 if (progressCount && countText) progressCount.innerText = countText;
             };
 
-            const formatName = exportFormat === 'pdf' ? 'PDF' : 'Word';
-            updateProgress(10, `Đang khởi tạo bốc câu hỏi ngẫu nhiên cho ${soLuongDe} mã đề (${formatName})...`, `0 / ${soLuongDe} đề`);
+            updateProgress(10, `Đang khởi tạo bốc câu hỏi ngẫu nhiên cho ${soLuongDe} mã đề (Word)...`, `0 / ${soLuongDe} đề`);
 
             // Nhường lượt vẽ DOM ngay lập tức cho trình duyệt để hiển thị thanh tiến trình tức thì không giật lag
             await new Promise(resolve => setTimeout(resolve, 60));
@@ -5852,9 +5849,6 @@ if (contentType && contentType.includes("application/json")) {
                 let useClientFallback = false;
                 let downloaded = false;
 
-                if (exportFormat === 'pdf') {
-                    useClientFallback = true;
-                } else {
                     // 1. Gọi API Server xuất trọn bộ đề thi Word và file Excel bảng đáp án
                     try {
                         updateProgress(25, `Đang bốc ngẫu nhiên câu hỏi & tạo ${soLuongDe} mã đề thi Word kèm Excel đáp án...`, `0 / ${soLuongDe} đề`);
@@ -5875,7 +5869,7 @@ if (contentType && contentType.includes("application/json")) {
                                 maDe: baseMaDe,
                                 soLuongDe,
                                 thoiGian,
-                                exportFormat
+                                exportFormat: 'docx'
                             })
                         });
 
@@ -5926,11 +5920,10 @@ if (contentType && contentType.includes("application/json")) {
                         console.warn("Server API export failed, switching to client-side generator:", serverErr);
                         useClientFallback = true;
                     }
-                }
 
-                // 2. Chế độ tạo tài liệu phía Client (Hỗ trợ định dạng PDF & Word)
+                // 2. Chế độ tạo tài liệu phía Client: Word và Excel
                 if (useClientFallback && !downloaded) {
-                    console.log(`Running client-side ${formatName} & Excel document generator...`);
+                    console.log('Running client-side Word & Excel document generator...');
                     const headerOpts = {
                         soGiaoDuc,
                         truongHoc,
@@ -5940,7 +5933,7 @@ if (contentType && contentType.includes("application/json")) {
                         thoiGian,
                         maDe: baseMaDe
                     };
-                    await generateDocxClientSide(targetExamId, headerOpts, soLuongDe, updateProgress, exportFormat);
+                    await generateDocxClientSide(targetExamId, headerOpts, soLuongDe, updateProgress);
                 }
 
                 setTimeout(() => {
@@ -5959,7 +5952,7 @@ if (contentType && contentType.includes("application/json")) {
             }
         };
 
-        async function generateDocxClientSide(targetExamId, headerOpts, soLuongDe, updateProgress, exportFormat = 'docx') {
+        async function generateDocxClientSide(targetExamId, headerOpts, soLuongDe, updateProgress) {
             // 1. Tìm cấu hình đề thi mục tiêu từ các nguồn bộ nhớ client
             let targetExam = (window.allExamConfigsList || []).find(e => String(e.id) === String(targetExamId));
             if (!targetExam && window.examsList) {
@@ -6180,7 +6173,6 @@ if (contentType && contentType.includes("application/json")) {
             const generatedFiles = [];
             const examAnswerDocs = [];
             const baseMaDe = headerOpts.maDe || '1201';
-            const isPdfFormat = exportFormat === 'pdf';
 
             for (let v = 0; v < soLuongDe; v++) {
                 const currentMaDe = formatNextMaDe(baseMaDe, v);
@@ -6239,16 +6231,8 @@ if (contentType && contentType.includes("application/json")) {
                 // Yield lượt vẽ cho trình duyệt để đảm bảo giao diện cuộn mượt mà, không bị đơ
                 await new Promise(resolve => setTimeout(resolve, 80));
 
-                let docBlob, fileExt;
-                if (isPdfFormat) {
-                    docBlob = await generateExamPdfBlob(currentHeader, selectedQuestions);
-                    fileExt = 'pdf';
-                } else {
-                    docBlob = await generateExamDocx(currentHeader, selectedQuestions);
-                    fileExt = 'docx';
-                }
-
-                const safeFileName = `De_Thi_${headerOpts.deThiTitle.replace(/[^a-zA-Z0-9_\u00C0-\u1EF9]/g, '_')}_MaDe_${currentMaDe}.${fileExt}`;
+                const docBlob = await generateExamDocx(currentHeader, selectedQuestions);
+                const safeFileName = `De_Thi_${headerOpts.deThiTitle.replace(/[^a-zA-Z0-9_\u00C0-\u1EF9]/g, '_')}_MaDe_${currentMaDe}.docx`;
 
                 generatedFiles.push({
                     maDe: currentMaDe,
@@ -6262,7 +6246,7 @@ if (contentType && contentType.includes("application/json")) {
                 });
 
                 const endPercent = Math.round(((v + 1) / soLuongDe) * 80);
-                if (updateProgress) updateProgress(endPercent, `✅ Đã bốc ngẫu nhiên & tạo thành công mã đề ${currentMaDe} (${isPdfFormat ? 'PDF' : 'Word'})`, `Đã xong ${v + 1} / ${soLuongDe} đề`);
+                if (updateProgress) updateProgress(endPercent, `✅ Đã bốc ngẫu nhiên & tạo thành công mã đề ${currentMaDe} (Word)`, `Đã xong ${v + 1} / ${soLuongDe} đề`);
             }
 
             // 3. Tạo file Excel Bảng đáp án tổng hợp theo các cột mã đề thi
@@ -6284,9 +6268,8 @@ if (contentType && contentType.includes("application/json")) {
                 ? `Bang_Dap_An_MaDe_${startCode}.xlsx`
                 : `Bang_Dap_An_Tong_Hop_Cac_Ma_De_${startCode}_den_${endCode}.xlsx`;
 
-            // 4. Đóng gói toàn bộ file Word/PDF và file Excel đáp án vào file .ZIP
-            const fileTypeName = isPdfFormat ? 'PDF' : 'Word';
-            if (updateProgress) updateProgress(92, `📦 Đang nén các file ${fileTypeName} và file Excel đáp án vào file .ZIP...`, `${soLuongDe} / ${soLuongDe} đề`);
+            // 4. Đóng gói file Word và Excel đáp án vào file .ZIP
+            if (updateProgress) updateProgress(92, `📦 Đang nén các file Word và file Excel đáp án vào file .ZIP...`, `${soLuongDe} / ${soLuongDe} đề`);
             const zip = new JSZip();
             for (const doc of generatedFiles) {
                 zip.file(doc.fileName, doc.blob);
@@ -6322,8 +6305,8 @@ if (contentType && contentType.includes("application/json")) {
                 }, 500);
             }
 
-            if (updateProgress) updateProgress(100, `🎉 Hoàn tất! Đã tải về thành công bộ ${soLuongDe} đề thi ${fileTypeName} kèm file Excel đáp án`, `${soLuongDe} / ${soLuongDe} đề`);
-            showToast(`✅ Đã bốc ngẫu nhiên và xuất thành công bộ ${soLuongDe} mã đề thi ${fileTypeName} kèm file Excel đáp án (.zip)!`, 'success');
+            if (updateProgress) updateProgress(100, `🎉 Hoàn tất! Đã tải về thành công bộ ${soLuongDe} đề thi Word kèm file Excel đáp án`, `${soLuongDe} / ${soLuongDe} đề`);
+            showToast(`✅ Đã bốc ngẫu nhiên và xuất thành công bộ ${soLuongDe} mã đề thi Word kèm file Excel đáp án (.zip)!`, 'success');
 
             return generatedFiles;
         }
