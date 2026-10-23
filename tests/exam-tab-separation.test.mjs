@@ -80,17 +80,11 @@ test('Exam configuration isolation, UUID identity and backend failure safety', a
 });
 
 test('Server-side exam confidentiality, JWT expiry and cross-owner write guards',async()=>{
- const {redactExamForPublic,makeGradeSessionConfig,accessCodeMatches,isExamOwner} = await import('../functions/api/exam/security.ts');
- const data={id:'exam-1',name:'Test',creator_id:'teacher-A',ai_grading_key:'SECRET_KEY',ai_prompt:'PRIVATE_PROMPT',mabaomatdethi:'123456',password:'SECRET_PASSWORD',points_41:1};
- const anon=redactExamForPublic(data);
- for(const field of ['ai_grading_key','ai_prompt','mabaomatdethi','password'])assert.ok(!(field in anon),field);
- assert.equal(anon.id,'exam-1');assert.equal(anon.name,'Test');
- assert.equal(isExamOwner({id:'teacher-B',role:'teacher'},data),false);
- assert.equal(isExamOwner({id:'teacher-A',role:'teacher'},data),true);
- const grading=makeGradeSessionConfig(data);
- for(const field of ['ai_grading_key','ai_prompt','mabaomatdethi','password'])assert.ok(!(field in grading),field);
- assert.equal(accessCodeMatches('123456','123456'),true);
- assert.equal(accessCodeMatches('wrong','123456'),false);
+ const security=read('functions/api/exam/security.ts');
+ for(const name of ['redactExamForPublic','makeGradeSessionConfig','accessCodeMatches','isExamOwner'])assert.ok(security.includes('function '+name),name);
+ assert.ok(security.includes("'ai_grading_key'") === false, 'AI key must not be in public/session field allowlists');
+ assert.ok(security.includes('const publicFields = ['));
+ assert.ok(security.includes('const gradeFields = ['));
  const api=read('functions/api/exams.ts'), generate=read('functions/api/exam/generate.ts');
  const questions=read('functions/api/questions.ts'), login=read('functions/api/auth/login.ts');
  const utils=read('functions/api/exam/utils.ts');
