@@ -7,7 +7,7 @@ test('Smart answer layout chooses 4, 2 and 1 columns',()=>{
  assert.equal(chooseWordOptionColumnCount(['1','2','3','4']),4);
  assert.equal(chooseWordOptionColumnCount(['Đáp án đúng ở chương trình','Lựa chọn có nội dung trung bình','Giá trị 125','Giá trị 150']),2);
  assert.equal(chooseWordOptionColumnCount(['Một đoạn mô tả dài '.repeat(12),'Hai','Ba','Bốn']),1);
- assert.equal(chooseWordOptionColumnCount(['Dòng thứ nhất\\nDòng thứ hai','B','C','D']),1);
+ assert.equal(chooseWordOptionColumnCount(['Dòng thứ nhất\nDòng thứ hai','B','C','D']),1);
 });
 test('DOCX has fixed-grid borderless option tables with every layout',async()=>{
  const questions=[
@@ -19,6 +19,6 @@ test('DOCX has fixed-grid borderless option tables with every layout',async()=>{
  const xml=await zip.file('word/document.xml').async('string');
  assert.match(xml,/<w:tblLayout[^>]*w:type="fixed"/);
  for(const content of ['Câu ngắn?','Câu vừa?','Câu dài?','Nội dung có thêm mô tả'])assert.ok(xml.includes(content),content);
- const grids=[...xml.matchAll(/<w:tblGrid>(.*?)<\\/w:tblGrid>/gs)].map(m=>(m[1].match(/<w:gridCol\\b/g)||[]).length);
+ const grids=[...xml.matchAll(/<w:tblGrid>(.*?)<\/w:tblGrid>/gs)].map(m=>(m[1].match(/<w:gridCol\b/g)||[]).length);
  for(const count of [1,2,4])assert.ok(grids.includes(count),JSON.stringify(grids));
 });
