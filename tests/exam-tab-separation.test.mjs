@@ -113,3 +113,30 @@ test('Security invariants: tenant routing, account secrecy and atomic exam revis
  assert.ok(drafts.includes("updatedAt: text(row.updated_at ?? row.updatedAt)"));
  assert.ok(app.includes('expected_updated_at: draft.id ?'));
 });
+
+test('Authentication is bound to live account state and privilege cannot rely on cached claims',()=>{
+ const utils=read('functions/api/exam/utils.ts');
+ const login=read('functions/api/auth/login.ts');
+ for(const p of ["export async function verifyAuthSession(","accountProof(account, secret)","isLiveAccount(account)","decoded.tokenType !== 'auth'","account.role","account.password","profile_expiry_date"])assert.ok(utils.includes(p),p);
+ assert.ok(login.includes('signAuthSession(account,'));
+ assert.ok(utils.includes('const actual = await accountProof(account, secret)'));
+ for(const path of ['functions/api/exams.ts','functions/api/questions.ts','functions/api/results.ts','functions/api/accounts.ts','functions/api/users.ts','functions/api/teacher-classes.ts']) {
+   const t=read(path);
+   assert.ok(t.includes('verifyAuthSession('),path);
+   assert.ok(!t.includes('await verifyJWT('),path);
+ }
+});
+test('Results no longer authorize ambiguous student names or exam-name ownership',()=>{
+ const result=read('functions/api/results.ts');
+ assert.ok(!result.includes('r.exam_name = e.name'));
+ assert.ok(!result.includes('row.student_name === user.full_name'));
+ assert.ok(!result.includes('r.user_id IS NULL AND r.student_name = ?'));
+ assert.ok(result.includes('String(row.user_id) === String(user.id)'));
+});
+test('Two-client conflict SQL has atomic compare-and-swap',()=>{
+ const exams=read('functions/api/exams.ts');
+ assert.ok(exams.includes("updated_at IS NOT DISTINCT FROM ?"));
+ assert.ok(exams.includes('updateResult.meta?.changes !== 1'));
+ assert.ok(exams.includes('code:\'EXAM_VERSION_CONFLICT\''));
+ assert.ok(app.includes('expected_updated_at: draft.id ?'));
+});
