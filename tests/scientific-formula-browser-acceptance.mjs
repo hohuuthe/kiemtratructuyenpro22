@@ -119,7 +119,13 @@ try {
   }else check('Authoring form availability',false,'window.showAddQuestionModal unavailable');
 
   // Exercise real in-browser DOCX/PDF/XLSX generators with fake exam data.
-  const files = await page.evaluate(async () => {
+  // The application can perform an initialization navigation while opening its editor.
+  // Retry the browser export acceptance only for navigation-destroyed contexts;
+  // actual document generation failures are still asserted below.
+  let files;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      files = await page.evaluate(async () => {
     const header={soGiaoDuc:'KIEM THU NOI BO',truongHoc:'DE MO PHONG',deThiTitle:'DE NGHIEM THU CONG THUC',namHoc:'2026',monHoc:'Da mon',thoiGian:15,maDe:'9001'};
     const questions=[
       {id:1,type:'4-1',content:'Tính $\\frac{\\sqrt{x}}{2}$',answer:'A',options:{A:{text:'$\\frac{1}{2}$'},B:{text:'$x^2$'},C:{text:'$\\sqrt{2}$'},D:{text:'$\\pi$'}}},
@@ -144,7 +150,14 @@ try {
       }catch(err){produced.push({name,error:String(err?.stack||err)})}
     }
     return produced;
-  });
+      });
+      break;
+    } catch (error) {
+      if (!/Execution context was destroyed|most likely because of a navigation/i.test(String(error)) || attempt === 2) throw error;
+      await page.waitForLoadState('domcontentloaded', {timeout: 30000});
+      await page.waitForFunction(() => typeof window.renderScientificContent === 'function', null, {timeout: 30000});
+    }
+  }
   for(const item of files){
     check('Actual browser export '+item.name,!item.error && item.size>500,'size='+item.size+' '+(item.error||''));
     if(!item.error){
