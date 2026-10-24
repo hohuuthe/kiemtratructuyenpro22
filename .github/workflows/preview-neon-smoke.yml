@@ -21,10 +21,17 @@ jobs:
           node-version: '22'
       - name: Probe Cloudflare Preview config and Neon health without credentials
         env:
-          PREVIEW_BASE: https://feat-separate-exam-managemen.kiemtratructuyenpro.pages.dev
+          PAGES_SITE: kiemtratructuyenpro.pages.dev
         run: |
           node --input-type=module <<'NODE'
-          const base = process.env.PREVIEW_BASE;
+          // A PR must test its OWN deployed branch alias, never a stale preview.
+          // Cloudflare Pages truncates sanitized branch aliases to 28 characters.
+          const branch = process.env.GITHUB_HEAD_REF || process.env.GITHUB_REF_NAME || '';
+          const alias = branch.toLowerCase().replace(/[^a-z0-9-]/g, '-')
+            .replace(/-+/g, '-').replace(/^-+|-+$/g, '').slice(0, 28).replace(/-+$/g, '');
+          if (!alias) throw new Error('Missing branch name for Preview health check');
+          const base = 'https://' + (alias === 'main' ? '' : alias + '.') + process.env.PAGES_SITE;
+          console.log('Checking current branch Preview: ' + base);
           const probe = async (path) => {
             try {
               const response = await fetch(new URL(path, base), {
