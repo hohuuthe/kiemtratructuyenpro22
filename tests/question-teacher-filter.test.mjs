@@ -27,7 +27,7 @@ test('Match exact creator account ID, not teacher name or prefix',()=>{
 });
 test('Admin dropdown lists only unique creators of available questions and resolves duplicate names safely',()=>{
  const opts=questionTeacherOptions(questions,accounts,{id:'admin-1'},true);
- assert.deepEqual(opts.map(o=>o.id).sort(),['teacher-a','teacher-b','teacher-abc']);
+ assert.deepEqual(opts.map(o=>o.id).sort(),['teacher-a','teacher-abc','teacher-b']);
  assert.match(opts.find(o=>o.id==='teacher-a').label,/gva/);
  assert.match(opts.find(o=>o.id==='teacher-b').label,/gvb/);
  assert.match(opts.find(o=>o.id==='teacher-abc').label,/teacher-abc/);
@@ -48,7 +48,7 @@ test('UI uses the teacher filter in all dependent bank operations and resets sel
  assert.match(html,/onchange="onQuestionTeacherFilterChange\(\)"/);
  assert.match(src,/function updateQuestionTeacherFilter\(\)/);
  assert.match(src,/function getSelectedQuestionTeacherId\(\)/);
- assert.match(src,/window\.onQuestionTeacherFilterChange = function\(\) \{\s*selectedQuestionIds\.clear\(\)/);
+ assert.match(src,/window\.onQuestionTeacherFilterChange = function\(\) \{[\s\S]{0,200}selectedQuestionIds\.clear\(\)/);
  assert.match(src,/let lastQuestionsTeacherFilter = ''/);
  assert.match(src,/function updateLessonFilter\(\) \{[\s\S]{0,250}matchesQuestionTeacher\(q, selectedTeacher\)/);
  assert.match(src,/function updateQuestionStats\(\) \{[\s\S]{0,420}matchesQuestionTeacher\(q, selectedTeacher\)/);

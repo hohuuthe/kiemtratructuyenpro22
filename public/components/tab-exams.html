@@ -32,6 +32,28 @@
            </div>
           </div>
 
+          <!-- Exam management filters: only the class selector is visible to teachers. -->
+          <div id="exam-config-management-filters" class="flex flex-wrap items-center gap-2 mb-3" aria-label="Bộ lọc danh sách đề thi">
+            <div id="exam-config-creator-filter-wrap" class="hidden w-full sm:w-auto" hidden>
+              <label class="sr-only" for="exam-config-creator-filter">Lọc đề thi theo giáo viên hoặc người tạo</label>
+              <select id="exam-config-creator-filter" aria-label="Lọc theo giáo viên / người tạo" onchange="onExamConfigCreatorFilterChange()" disabled class="w-full sm:w-56 px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:border-purple-500 focus:outline-none">
+                <option value="">Tất cả giáo viên / người tạo</option>
+              </select>
+            </div>
+            <div id="exam-config-school-filter-wrap" class="hidden w-full sm:w-auto" hidden>
+              <label class="sr-only" for="exam-config-school-filter">Lọc đề thi theo trường hoặc đơn vị</label>
+              <select id="exam-config-school-filter" aria-label="Lọc theo trường / đơn vị" onchange="onExamConfigSchoolFilterChange()" disabled class="w-full sm:w-52 px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:border-purple-500 focus:outline-none" title="Đề theo đơn vị áp dụng; đề công khai theo trường của người tạo">
+                <option value="">Tất cả trường / đơn vị</option>
+              </select>
+            </div>
+            <div class="w-full sm:w-auto">
+              <label class="sr-only" for="exam-config-class-filter">Lọc đề thi theo lớp áp dụng</label>
+              <select id="exam-config-class-filter" aria-label="Lọc theo lớp" onchange="onExamConfigClassFilterChange()" disabled class="w-full sm:w-44 px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:border-purple-500 focus:outline-none" title="Lọc theo lớp áp dụng của đề thi">
+                <option value="">Tất cả lớp</option>
+              </select>
+            </div>
+          </div>
+
           <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
            <div id="exam-configs-table-scroll" class="overflow-x-auto custom-scrollbar" role="region" aria-label="Bảng cấu hình quản lý đề thi, cuộn ngang để xem các cột" tabindex="0">
             <table class="exam-configs-table w-full text-left border-collapse text-sm">

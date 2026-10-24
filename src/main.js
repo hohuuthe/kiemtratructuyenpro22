@@ -5,6 +5,7 @@ import './style.css';
 import { planRecentQuestionView, resolveWordImportedQuestionIds } from './question-bank-recent-view.js';
 import { questionCreatorId, matchesQuestionTeacher, questionTeacherOptions } from './question-teacher-filter.js';
 import { matchesRankingTeacher, rankingTeacherOptions } from './ranking-teacher-filter.js';
+import { examManagementCreatorId, examManagementSchool, examManagementClassTokens, matchesExamManagement, examManagementFilterChoices } from './exam-management-filters.js';
 import './pwa-manager.js';
 import './teacher-assignment.js';
 import { typesetScientificMath } from './scientific-formula-typeset.js';
@@ -4315,7 +4316,9 @@ if (contentType && contentType.includes("application/json")) {
             const admin = !!(isAdminLoggedIn && currentUser);
             for (const [wrapId, selectId] of [
                 ['question-teacher-filter-wrap','question-teacher-filter'],
-                ['ranking-teacher-filter-wrap','ranking-teacher-filter']
+                ['ranking-teacher-filter-wrap','ranking-teacher-filter'],
+                ['exam-config-creator-filter-wrap','exam-config-creator-filter'],
+                ['exam-config-school-filter-wrap','exam-config-school-filter']
             ]) {
                 const wrap = document.getElementById(wrapId);
                 const select = document.getElementById(selectId);
@@ -5519,26 +5522,92 @@ if (contentType && contentType.includes("application/json")) {
         window.allExamConfigsList = [];
         window.examConfigPageSize = 30;
         window.examConfigCurrentPage = 1;
+        let lastExamManagementFilterKey = '';
+
+        function examManagementSelection() {
+            const isAdmin=!!(isAdminLoggedIn && currentUser);
+            return {
+                creatorId: isAdmin ? (document.getElementById('exam-config-creator-filter')?.value || '') : '',
+                school: isAdmin ? (document.getElementById('exam-config-school-filter')?.value || '') : '',
+                className: (isAdmin || isTeacherLoggedIn) ? (document.getElementById('exam-config-class-filter')?.value || '') : ''
+            };
+        }
+
+        function updateExamManagementFilters() {
+            syncAdminTeacherFilterVisibility();
+            const creator=document.getElementById('exam-config-creator-filter');
+            const school=document.getElementById('exam-config-school-filter');
+            const classroom=document.getElementById('exam-config-class-filter');
+            if(!creator || !school || !classroom)return;
+            const isAdmin=!!(currentUser && isAdminLoggedIn);
+            const canView=!!(currentUser && (isAdminLoggedIn || isTeacherLoggedIn));
+            const prev=examManagementSelection();
+            const rows=canView ? (window.allExamConfigsList || []) : [];
+            const makeOptions=(control,options,previous)=>{
+                const expected=options.map(item=>({value:String(item.value),label:String(item.label)}));
+                const changed=control.options.length!==expected.length ||
+                    expected.some((x,i)=>control.options[i].value!==x.value||control.options[i].textContent!==x.label);
+                if(changed)control.replaceChildren(...expected.map(x=>new Option(x.label,x.value)));
+                control.value=expected.some(x=>x.value===previous)?previous:'';
+                return control.value;
+            };
+            const base=examManagementFilterChoices(rows,accounts,{isAdmin});
+            const creatorId=makeOptions(creator,[{value:'',label:'Tất cả giáo viên / người tạo'},...base.creators],prev.creatorId);
+            const byTeacher=examManagementFilterChoices(rows,accounts,{isAdmin,creatorId});
+            const unit=makeOptions(school,[{value:'',label:'Tất cả trường / đơn vị'},...byTeacher.schools],prev.school);
+            const bySchool=examManagementFilterChoices(rows,accounts,{isAdmin,creatorId,school:unit});
+            makeOptions(classroom,[{value:'',label:'Tất cả lớp'},...bySchool.classes],prev.className);
+            creator.disabled=!isAdmin;
+            school.disabled=!isAdmin;
+            classroom.disabled=!canView;
+        }
+
+        window.onExamConfigCreatorFilterChange=function(){
+            if(!isAdminLoggedIn){syncAdminTeacherFilterVisibility();return;}
+            const unit=document.getElementById('exam-config-school-filter');
+            const classroom=document.getElementById('exam-config-class-filter');
+            if(unit)unit.value='';
+            if(classroom)classroom.value='';
+            window.examConfigCurrentPage=1;
+            renderExamConfigsTable();
+        };
+        window.onExamConfigSchoolFilterChange=function(){
+            if(!isAdminLoggedIn){syncAdminTeacherFilterVisibility();return;}
+            const classroom=document.getElementById('exam-config-class-filter');
+            if(classroom)classroom.value='';
+            window.examConfigCurrentPage=1;
+            renderExamConfigsTable();
+        };
+        window.onExamConfigClassFilterChange=function(){
+            if(!isAdminLoggedIn&&!isTeacherLoggedIn)return;
+            window.examConfigCurrentPage=1;
+            renderExamConfigsTable();
+        };
 
         window.renderExamConfigsTable = function renderExamConfigsTable() {
             const tbody = document.getElementById('exam-configs-table-body');
             if (!tbody) return;
-
-            const searchKw = (document.getElementById('search-exam-config-table')?.value || '').trim().toLowerCase();
-            const list = (window.allExamConfigsList || []).filter(ex => {
-                if (!searchKw) return true;
-                const name = String(ex.name || '').toLowerCase();
-                const mode = String(ex.chedodethi || '').toLowerCase();
-                const lop = String(ex.target_lop || ex.lop || '').toLowerCase();
-                const id = String(ex.id || '').toLowerCase();
-                return name.includes(searchKw) || mode.includes(searchKw) || lop.includes(searchKw) || id.includes(searchKw);
-            });
+            updateExamManagementFilters();
+            const selections=examManagementSelection();
+            const searchKw=(document.getElementById('search-exam-config-table')?.value || '').trim();
+            const filterKey=JSON.stringify([selections.creatorId,selections.school,selections.className,searchKw]);
+            if(filterKey!==lastExamManagementFilterKey){
+                lastExamManagementFilterKey=filterKey;
+                window.examConfigCurrentPage=1;
+            }
+            const list=(window.allExamConfigsList || []).filter(ex=>matchesExamManagement(ex,{
+                creatorId:selections.creatorId,
+                school:selections.school,
+                className:selections.className,
+                schoolAccounts:accounts,
+                query:searchKw
+            }));
 
             if (list.length === 0) {
                 tbody.innerHTML = `
                     <tr>
                         <td colspan="10" class="text-center py-8 text-gray-400 italic">
-                            ${searchKw ? 'Không tìm thấy đề thi nào phù hợp với từ khóa!' : 'Chưa có cấu hình đề thi nào trong danh sách.'}
+                            ${(searchKw || selections.creatorId || selections.school || selections.className) ? 'Không tìm thấy đề thi phù hợp với bộ lọc.' : 'Chưa có cấu hình đề thi nào trong danh sách.'}
                         </td>
                     </tr>
                 `;
@@ -13362,6 +13431,16 @@ D. Phát biểu SAI</pre>
             window.allExamConfigsList = [];
             accountsMap = {};
             window.examConfigCurrentPage = 1;
+            lastExamManagementFilterKey = '';
+            for(const [id,label] of [
+                ['exam-config-creator-filter','Tất cả giáo viên / người tạo'],
+                ['exam-config-school-filter','Tất cả trường / đơn vị'],
+                ['exam-config-class-filter','Tất cả lớp']
+            ]){
+                const control=document.getElementById(id);
+                if(control)control.replaceChildren(new Option(label,''));
+            }
+            syncAdminTeacherFilterVisibility();
             const search = document.getElementById('search-exam-config-table');
             if (search) search.value = '';
             const examListSelect = document.getElementById('exam-config-name');
