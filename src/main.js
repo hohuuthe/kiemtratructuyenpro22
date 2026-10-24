@@ -6705,7 +6705,8 @@ if (contentType && contentType.includes("application/json")) {
                     closeModal(); // Đóng modal sau khi xóa thành công
                 } catch (e) {
                     console.error('Error deleting exam config:', e);
-                    showToast('Lỗi khi xóa đề thi! (Bạn có thể không có quyền xóa đề này)', 'error');
+                    const message = e?.message || 'Không thể xóa đề thi';
+                    showToast('Không thể xóa đề thi: ' + message, 'error');
                 }
             });
         }
