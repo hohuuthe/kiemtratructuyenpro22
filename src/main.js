@@ -9818,6 +9818,78 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             }
         }
 
+        window.deleteQuestionsBySelectedLesson = async function() {
+            if (!isTeacherLoggedIn && !isAdminLoggedIn) return showToast('Không có quyền xóa câu hỏi.', 'error');
+            const lesson = document.getElementById('question-lesson-filter')?.value || '';
+            if (!lesson) return showToast('Hãy chọn một bài cụ thể, không chọn Tất cả bài.', 'warning');
+            const token=localStorage.getItem('auth_token') || '';
+            const generation=authDataGeneration;
+            const account=String(currentUser?.id||'');
+            const button=document.getElementById('btn-delete-question-lesson');
+            if(button)button.disabled=true;
+            try {
+                const call=async body=>{
+                    const response=await fetch('/api/questions/delete-by-lesson',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},body:JSON.stringify(body),cache:'no-store'});
+                    const json=await response.json().catch(()=>({}));
+                    if(!response.ok)throw new Error(json.error||'Không thể thực hiện yêu cầu ('+response.status+')');
+                    return json;
+                };
+                const preview=await call({action:'preview',lesson});
+                if(generation!==authDataGeneration||account!==String(currentUser?.id||''))return;
+                if(preview.count===0)return showToast('Không có câu hỏi nào được phép xóa trong bài này.', 'warning');
+                // Compact, dedicated layout: no changes to other modal widths.
+                const modalContent='<div class="p-4 space-y-3 text-sm">'+
+                    '<h3 class="pr-9 text-base leading-6 font-bold text-red-700">🗑️ Xóa câu hỏi theo bài</h3>'+
+                    '<div class="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 space-y-1.5">'+
+                        '<div class="flex items-start justify-between gap-2"><span class="shrink-0 text-gray-600">Bài chọn:</span><strong id="delete-lesson-name" class="min-w-0 flex-1 text-right text-gray-900" style="overflow-wrap:anywhere"></strong></div>'+
+                        '<div class="flex items-center justify-between gap-2"><span class="text-gray-600">Số câu sẽ xóa:</span><strong id="delete-lesson-count" class="text-red-700"></strong></div>'+
+                    '</div>'+
+                    '<p class="text-xs leading-5 text-red-700">Không thể hoàn tác. '+(preview.scope==='all'?'Quản trị viên: xóa câu hỏi của tất cả người tạo trong bài này. ':'Giáo viên: chỉ xóa câu hỏi của mình trong bài này. ')+'Áp dụng cho mọi loại câu hỏi, không phụ thuộc bộ lọc.</p>'+
+                    '<div class="flex items-center gap-3">'+
+                        '<label class="min-w-0 flex-1 text-xs font-semibold text-gray-700" for="delete-lesson-confirmation">Nhập mã xác nhận <strong class="text-red-700">123</strong></label>'+
+                        '<input id="delete-lesson-confirmation" type="text" inputmode="numeric" autocomplete="off" maxlength="3" aria-describedby="delete-lesson-error" class="w-24 shrink-0 px-3 py-2 text-center text-sm font-semibold tracking-widest border border-gray-300 rounded-lg focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-100" placeholder="123">'+
+                    '</div>'+
+                    '<p id="delete-lesson-error" class="empty:hidden text-red-600 text-xs" role="alert"></p>'+
+                    '<div class="flex items-center justify-end gap-2 pt-1"><button id="delete-lesson-cancel" type="button" class="px-3 py-2 text-sm font-medium rounded-lg border border-gray-300 hover:bg-gray-50">Hủy</button><button id="delete-lesson-submit" type="button" class="px-3 py-2 text-sm font-semibold rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50">Xác nhận xóa</button></div></div>';
+                showModal(modalContent,'compact');
+                const deleteLessonModal = document.getElementById('modal-content');
+                if (deleteLessonModal) deleteLessonModal.style.width = 'min(340px, calc(100vw - 24px))';
+                document.getElementById('delete-lesson-name').textContent=lesson;
+                document.getElementById('delete-lesson-count').textContent=String(preview.count);
+                document.getElementById('delete-lesson-cancel').onclick=closeModal;
+                document.getElementById('delete-lesson-submit').onclick=async()=>{
+                    const code=document.getElementById('delete-lesson-confirmation')?.value;
+                    const error=document.getElementById('delete-lesson-error');
+                    if(code!=='123'){if(error)error.textContent='Mã xác nhận không đúng.';return;}
+                    const submit=document.getElementById('delete-lesson-submit');
+                    submit.disabled=true;
+                    try{
+                        if(generation!==authDataGeneration||account!==String(currentUser?.id||''))throw new Error('Phiên đăng nhập đã thay đổi.');
+                        if(document.getElementById('question-lesson-filter')?.value!==lesson)throw new Error('Bài học đang chọn đã thay đổi. Hãy xem lại số lượng trước khi xóa.');
+                        const result=await call({action:'delete',lesson,confirmation:code,expectedCount:preview.count});
+                        if(generation!==authDataGeneration||account!==String(currentUser?.id||''))return;
+                        closeModal();
+                        selectedQuestionIds.clear();
+                        clearRecentQuestionFocus();
+                        const loaded=await loadQuestions(true);
+                        if(!loaded){showToast('Đã xóa '+result.deletedCount+' câu hỏi nhưng chưa tải lại được danh sách. Vui lòng bấm Tải lại.', 'warning');return;}
+                        updateLessonFilter();
+                        updateQuestionStats();
+                        updateAvailableCounts();
+                        updateExamGlobalStats();
+                        checkExamConfigSufficiency();
+                        showToast('Đã xóa '+result.deletedCount+' câu hỏi thuộc bài '+lesson+'.', 'success');
+                    }catch(e){if(error)error.textContent=e.message||'Không thể xóa';showToast(e.message||'Không thể xóa câu hỏi', 'error');}
+                    finally{submit.disabled=false;}
+                };
+            }catch(e){showToast(e.message||'Không thể kiểm tra câu hỏi trong bài.', 'error');}
+            finally{if(button)button.disabled=!document.getElementById('question-lesson-filter')?.value;}
+        };
+        function updateDeleteQuestionLessonButton(){
+            const btn=document.getElementById('btn-delete-question-lesson');
+            if(btn)btn.disabled=!(document.getElementById('question-lesson-filter')?.value)||(!isTeacherLoggedIn&&!isAdminLoggedIn);
+        }
+
         function updateLessonFilter() {
             let filteredQuestions = questions.filter(isUserQuestionCreator);
             const lessons = [...new Set(filteredQuestions.map(q => q.lesson).filter(Boolean))];
@@ -9825,7 +9897,8 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             if (!select) return;
             const currentVal = select.value;
             select.innerHTML = `<option value="">Tất cả bài</option>` +
-                lessons.map(l => `<option value="${l}" ${l === currentVal ? 'selected' : ''}>${l}</option>`).join('');
+                lessons.map(l => `<option value="${escapeHTML(l)}" ${l === currentVal ? 'selected' : ''}>${escapeHTML(l)}</option>`).join('');
+            updateDeleteQuestionLessonButton();
         }
 
         function setQuestionTypeFilter(type) {
@@ -9882,6 +9955,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
         };
 
         window.filterQuestions = function filterQuestions() {
+            updateDeleteQuestionLessonButton();
             clearRecentQuestionFocus();
             updateQuestionStats();
             renderQuestionsList();
