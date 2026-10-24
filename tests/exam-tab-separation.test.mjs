@@ -146,7 +146,7 @@ test('Results no longer authorize ambiguous student names or exam-name ownership
 test('Two-client conflict SQL has atomic compare-and-swap',()=>{
  const exams=read('functions/api/exams.ts');
  assert.ok(exams.includes("updated_at IS NOT DISTINCT FROM ?"));
- assert.ok(exams.includes('updateResult.meta?.changes !== 1'));
+ assert.ok(exams.includes('result.meta?.changes!==1'));
  assert.ok(exams.includes('code:\'EXAM_VERSION_CONFLICT\''));
  assert.ok(app.includes('expected_updated_at: draft.id ?'));
 });
