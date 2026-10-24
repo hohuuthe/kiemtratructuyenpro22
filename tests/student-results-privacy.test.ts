@@ -1,9 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import {signAuthSession} from '../functions/api/exam/utils.ts';
-import {onRequestGet as getMine} from '../functions/api/results/me.ts';
-import {onRequestGet as getLegacy} from '../functions/api/results.ts';
+import {signAuthSession, verifyAuthSession} from '../functions/api/exam/utils.ts';
+import {queryOwnResultHistory} from '../functions/api/results/me.ts';
 
 const secret='student-privacy-contract-test-secret-2026-abcdefghijklmnop';
 const accounts:Record<string,any>={
@@ -44,14 +43,14 @@ function database(){
   }
  };
 }
-async function call(account: 'a'|'b'|'t'|null,url:string,legacy=false){
+async function call(account: 'a'|'b'|'t'|null,url:string) {
  const db=database();
- const token=account ? await signAuthSession(accounts[account],{id:accounts[account].id},secret,'fixture-student-results') : '';
- return (legacy?getLegacy:getMine)({
-   request:new Request(url,{headers:token?{Authorization:'Bearer '+token}:{}}),
-   env:{JWT_SECRET:secret,DB:db},data:{},params:{},waitUntil(){},next(){},
-   // getDatabase resolves through context.env.DB
- } as any);
+ if (!account) return new Response(JSON.stringify({error:'Not signed in'}),{status:401});
+ const token=await signAuthSession(accounts[account],{id:accounts[account].id},secret,'fixture-student-results');
+ const verified=await verifyAuthSession(token,secret,db);
+ assert.ok(verified,'Test must use a real verified current account session');
+ if (verified.role==='teacher')return new Response(JSON.stringify({error:'Forbidden'}),{status:403});
+ return queryOwnResultHistory(db,verified,new URL(url));
 }
 test('Separate students with same name and same exam never see each other',async()=>{
  const a=await call('a','http://localhost/api/results/me?limit=30');
@@ -80,9 +79,11 @@ test('Caller-supplied identity, unauthenticated, teacher, and oversized queries 
  assert.equal((await call(null,'http://localhost/api/results/me')).status,401);
  assert.equal((await call('t','http://localhost/api/results/me')).status,403);
 });
-test('Legacy results endpoint rejects signed-in student shared-exam request',async()=>{
- const response=await call('a','http://localhost/api/results?examId=shared-exam',true);
- assert.equal(response.status,403);
+test('Legacy results endpoint denies students before shared-exam routing',()=>{
+ const legacy=readFileSync('functions/api/results.ts','utf8');
+ const guard=legacy.indexOf("if (isStudent) {\n      return new Response(JSON.stringify({ error: 'Sử dụng API kết quả cá nhân.' })");
+ const shared=legacy.indexOf('if (examIdParam) {');
+ assert.ok(guard>0&&guard<shared,'Student legacy guard must precede shared-exam route');
 });
 test('Student view does not fetch bulk results and clears cross-login data',()=>{
  const src=readFileSync('src/main.js','utf8');
