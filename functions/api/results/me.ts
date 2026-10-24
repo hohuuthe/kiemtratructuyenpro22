@@ -25,24 +25,7 @@ const privateHeaders = {
 const reply = (data: any, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: privateHeaders });
 
-export const onRequestGet: PagesFunction<Env> = async (context) => {
-  try {
-    const { request, env } = context;
-    const header = request.headers.get('Authorization') || '';
-    if (!header.startsWith('Bearer ') || !header.substring(7).trim()) {
-      return reply({ error: 'Vui lòng đăng nhập để xem kết quả của mình.' }, 401);
-    }
-
-    const db = getDatabase(context);
-    const secret = await getDynamicSecret(db, env.JWT_SECRET);
-    const user = await verifyAuthSession(header.substring(7), secret, db);
-    if (!user) return reply({ error: 'Phiên đăng nhập không hợp lệ hoặc đã hết hạn.' }, 401);
-    if (checkIsTeacherOrAdmin(user) ||
-        !['học sinh', 'student'].includes(String(user.target_audience || '').toLowerCase().trim())) {
-      return reply({ error: 'Chỉ tài khoản học sinh mới có thể truy cập kết quả cá nhân.' }, 403);
-    }
-
-    const url = new URL(request.url);
+export async function queryOwnResultHistory(db: any, user: any, url: URL) {
     // Fail closed on all caller-supplied identity fields, including aliases.
     for (const key of ['userId','user_id','studentId','student_id','accountId','account_id','studentName','student_name']) {
       if (url.searchParams.has(key)) {
@@ -99,6 +82,26 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
       total, limit: limitRaw, offset: offsetRaw,
       has_more: offsetRaw + rows.length < total, error: null
     });
+  }
+
+export const onRequestGet: PagesFunction<Env> = async (context) => {
+  try {
+    const { request, env } = context;
+    const header = request.headers.get('Authorization') || '';
+    if (!header.startsWith('Bearer ') || !header.substring(7).trim()) {
+      return reply({ error: 'Vui lòng đăng nhập để xem kết quả của mình.' }, 401);
+    }
+
+    const db = getDatabase(context);
+    const secret = await getDynamicSecret(db, env.JWT_SECRET);
+    const user = await verifyAuthSession(header.substring(7), secret, db);
+    if (!user) return reply({ error: 'Phiên đăng nhập không hợp lệ hoặc đã hết hạn.' }, 401);
+    if (checkIsTeacherOrAdmin(user) ||
+        !['học sinh', 'student'].includes(String(user.target_audience || '').toLowerCase().trim())) {
+      return reply({ error: 'Chỉ tài khoản học sinh mới có thể truy cập kết quả cá nhân.' }, 403);
+    }
+
+    return await queryOwnResultHistory(db, user, new URL(request.url));
   } catch (error) {
     console.error('[results/me] Student history query failed');
     return reply({ error: 'Không thể tải kết quả cá nhân. Vui lòng thử lại.' }, 503);
