@@ -17,6 +17,13 @@ test('Editor retains original fields and existing save action',()=>{
  assert.ok(editor.includes('onclick="saveExamConfig()"'));
  assert.deepEqual(ids(manager).filter(id=>ids(editor).includes(id)),[]);
 });
+test('Exam editor uses the exact new tab name without changing its tab identifier',()=>{
+ const editorButton = index.match(/<button[^>]*data-sidebar-tab="exam-editor"[\s\S]*?<\/button>/)?.[0] || '';
+ assert.match(editorButton, /<span class="truncate">Tạo, sửa đề thi<\/span>/);
+ assert.ok(editor.includes('<h3 class="font-bold text-gray-800 text-lg">📝 Tạo, sửa đề thi</h3>'));
+ assert.ok(!index.includes('QL Tạo/sửa đề thi'));
+ assert.ok(!editor.includes('QL Tạo/sửa đề thi'));
+});
 test('Nav, authorization and load flow target new editor tab',()=>{
  assert.ok(index.includes('data-sidebar-tab="exam-editor"'));
  assert.ok(index.includes('id="tab-exam-editor"'));
