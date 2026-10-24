@@ -262,6 +262,16 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     if (!user) return respond({error:'Phiên đăng nhập không hợp lệ'},401);
     if (!checkIsTeacherOrAdmin(user)) return respond({error:'Chỉ giáo viên hoặc quản trị viên được lưu đề thi'},403);
     const isAdmin=checkIsAdmin(user);
+    // Existing Neon schemas may predate these persisted editor fields.
+    // IF NOT EXISTS is idempotent and avoids dropping or rewriting old exam data.
+    for (const ddl of [
+      'ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS target_donvi TEXT',
+      'ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS donvi TEXT',
+      'ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS max_cheat_warnings INTEGER DEFAULT 5',
+      'ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS keep_raw_score INTEGER DEFAULT 0',
+      'ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS tieu_de_bai_thi TEXT',
+      'ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS max_attempts INTEGER DEFAULT 0'
+    ]) await db.prepare(ddl).run();
     const body:any=await request.json();
     if (!body || typeof body!=='object' || Array.isArray(body)) return respond({error:'Cấu hình không hợp lệ'},400);
     const id=body.id == null ? '' : String(body.id).trim();
