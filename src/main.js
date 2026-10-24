@@ -9818,6 +9818,70 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             }
         }
 
+        window.deleteQuestionsBySelectedLesson = async function() {
+            if (!isTeacherLoggedIn && !isAdminLoggedIn) return showToast('Không có quyền xóa câu hỏi.', 'error');
+            const lesson = document.getElementById('question-lesson-filter')?.value || '';
+            if (!lesson) return showToast('Hãy chọn một bài cụ thể, không chọn Tất cả bài.', 'warning');
+            const token=localStorage.getItem('auth_token') || '';
+            const generation=authDataGeneration;
+            const account=String(currentUser?.id||'');
+            const button=document.getElementById('btn-delete-question-lesson');
+            if(button)button.disabled=true;
+            try {
+                const call=async body=>{
+                    const response=await fetch('/api/questions/delete-by-lesson',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},body:JSON.stringify(body),cache:'no-store'});
+                    const json=await response.json().catch(()=>({}));
+                    if(!response.ok)throw new Error(json.error||'Không thể thực hiện yêu cầu ('+response.status+')');
+                    return json;
+                };
+                const preview=await call({action:'preview',lesson});
+                if(generation!==authDataGeneration||account!==String(currentUser?.id||''))return;
+                if(preview.count===0)return showToast('Không có câu hỏi nào được phép xóa trong bài này.', 'warning');
+                const modalContent='<div class="p-5 sm:p-6 space-y-4">'+
+                    '<h3 class="font-bold text-lg text-red-700">🗑️ Xóa câu hỏi theo bài</h3>'+
+                    '<p class="text-sm text-gray-700">Bài được chọn: <strong id="delete-lesson-name"></strong></p>'+
+                    '<p class="text-sm">Số câu dự kiến xóa: <strong id="delete-lesson-count"></strong></p>'+
+                    '<p class="text-xs text-red-700">Thao tác không thể hoàn tác. Chỉ xóa câu hỏi thuộc đúng bài này trong phạm vi quyền tài khoản, không phụ thuộc bộ lọc loại câu hoặc tìm kiếm.</p>'+
+                    '<label class="block text-sm font-semibold" for="delete-lesson-confirmation">Nhập mã xác nhận 123</label>'+
+                    '<input id="delete-lesson-confirmation" type="text" inputmode="numeric" autocomplete="off" maxlength="3" class="w-full px-3 py-2 border rounded-lg" placeholder="123">'+
+                    '<p id="delete-lesson-error" class="text-red-600 text-xs" role="alert"></p>'+
+                    '<div class="flex gap-2 justify-end"><button id="delete-lesson-cancel" type="button" class="px-4 py-2 rounded-lg border">Hủy</button><button id="delete-lesson-submit" type="button" class="px-4 py-2 rounded-lg bg-red-600 text-white font-bold">Xác nhận xóa</button></div></div>';
+                showModal(modalContent,'compact');
+                document.getElementById('delete-lesson-name').textContent=lesson;
+                document.getElementById('delete-lesson-count').textContent=String(preview.count);
+                document.getElementById('delete-lesson-cancel').onclick=closeModal;
+                document.getElementById('delete-lesson-submit').onclick=async()=>{
+                    const code=document.getElementById('delete-lesson-confirmation')?.value;
+                    const error=document.getElementById('delete-lesson-error');
+                    if(code!=='123'){if(error)error.textContent='Mã xác nhận không đúng.';return;}
+                    const submit=document.getElementById('delete-lesson-submit');
+                    submit.disabled=true;
+                    try{
+                        if(generation!==authDataGeneration||account!==String(currentUser?.id||''))throw new Error('Phiên đăng nhập đã thay đổi.');
+                        const result=await call({action:'delete',lesson,confirmation:code,expectedCount:preview.count});
+                        if(generation!==authDataGeneration||account!==String(currentUser?.id||''))return;
+                        closeModal();
+                        selectedQuestionIds.clear();
+                        clearRecentQuestionFocus();
+                        const loaded=await loadQuestions(true);
+                        if(!loaded)throw new Error('Đã xóa nhưng chưa tải lại được danh sách câu hỏi.');
+                        updateLessonFilter();
+                        updateQuestionStats();
+                        updateAvailableCounts();
+                        updateExamGlobalStats();
+                        checkExamConfigSufficiency();
+                        showToast('Đã xóa '+result.deletedCount+' câu hỏi thuộc bài '+lesson+'.', 'success');
+                    }catch(e){if(error)error.textContent=e.message||'Không thể xóa';showToast(e.message||'Không thể xóa câu hỏi', 'error');}
+                    finally{submit.disabled=false;}
+                };
+            }catch(e){showToast(e.message||'Không thể kiểm tra câu hỏi trong bài.', 'error');}
+            finally{if(button)button.disabled=!document.getElementById('question-lesson-filter')?.value;}
+        };
+        function updateDeleteQuestionLessonButton(){
+            const btn=document.getElementById('btn-delete-question-lesson');
+            if(btn)btn.disabled=!(document.getElementById('question-lesson-filter')?.value)&&(true);
+        }
+
         function updateLessonFilter() {
             let filteredQuestions = questions.filter(isUserQuestionCreator);
             const lessons = [...new Set(filteredQuestions.map(q => q.lesson).filter(Boolean))];
@@ -9825,7 +9889,8 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             if (!select) return;
             const currentVal = select.value;
             select.innerHTML = `<option value="">Tất cả bài</option>` +
-                lessons.map(l => `<option value="${l}" ${l === currentVal ? 'selected' : ''}>${l}</option>`).join('');
+                lessons.map(l => `<option value="${escapeHTML(l)}" ${l === currentVal ? 'selected' : ''}>${escapeHTML(l)}</option>`).join('');
+            updateDeleteQuestionLessonButton();
         }
 
         function setQuestionTypeFilter(type) {
@@ -9882,6 +9947,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
         };
 
         window.filterQuestions = function filterQuestions() {
+            updateDeleteQuestionLessonButton();
             clearRecentQuestionFocus();
             updateQuestionStats();
             renderQuestionsList();
