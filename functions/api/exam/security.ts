@@ -1,3 +1,5 @@
+import { canManageExamConfig } from '../../../src/exam-config-deletion-policy';
+
 /**
  * Explicit response allowlists for exam data sent to untrusted clients.
  * A signed JWT is readable by its holder; never put passwords, AI keys or prompts in it.
@@ -23,8 +25,8 @@ export function isExamOwner(user: any, row: any): boolean {
   if (!user || !row) return false;
   const role = String(user.role || '').trim().toLowerCase();
   const audience = String(user.target_audience || '').trim().toLowerCase();
-  if (role === 'admin' || audience === 'admin' || audience === 'quản trị viên') return true;
-  return !!row.creator_id && String(row.creator_id) === String(user.id);
+  const admin = role === 'admin' || audience === 'admin' || audience === 'quản trị viên';
+  return canManageExamConfig(user,row.creator_id,admin);
 }
 export function redactExamForPublic(row: any): any {
   const safe: any = {};
