@@ -11,9 +11,9 @@ import {
 } from '../src/student-results-ui.js';
 
 const rows = [
-    {id:'s1',exam_id:'e1',exam_name:'Kiểm tra Toán',score:8.5,correct_count:9,total_questions:10,time_taken:125,created_at:'2026-10-24T08:00:00Z'},
-    {id:'s2',exam_id:'e2',exam_name:'Kiểm tra Hóa',score:4.2,correct_count:4,total_questions:10,time_taken:80,created_at:'2026-10-23T08:00:00Z'},
-    {id:'s3',exam_id:'e1',exam_name:'Bài kiểm tra Toán',score:6,correct_count:6,total_questions:10,time_taken:65,created_at:'2026-10-22T08:00:00Z'}
+    {id:'s1',exam_id:'e1',can_view_score:true,can_view_details:true,exam_name:'Kiểm tra Toán',score:8.5,correct_count:9,total_questions:10,time_taken:125,created_at:'2026-10-24T08:00:00Z'},
+    {id:'s2',exam_id:'e2',can_view_score:true,can_view_details:true,exam_name:'Kiểm tra Hóa',score:4.2,correct_count:4,total_questions:10,time_taken:80,created_at:'2026-10-23T08:00:00Z'},
+    {id:'s3',exam_id:'e1',can_view_score:true,can_view_details:true,exam_name:'Bài kiểm tra Toán',score:6,correct_count:6,total_questions:10,time_taken:65,created_at:'2026-10-22T08:00:00Z'}
 ];
 
 test('Private history page computes stats without fetching other pages',()=>{
