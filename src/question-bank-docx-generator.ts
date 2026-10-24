@@ -160,11 +160,64 @@ async function makeImageRun(source, description, imageResolver, maxWidth) {
     });
 }
 
-function answerText(answer, type) {
+/**
+ * Decode only letter-based choice keys; do not strip meaningful brackets from
+ * mathematical short answers (e.g. [0;1]) or chemistry ([Cu(NH3)4]).
+ * Supports legacy "[B&D]", JSON '["B","D"]' and real string arrays.
+ */
+function choiceKeyText(raw) {
+    if (Array.isArray(raw)) {
+        if (!raw.length || !raw.every(item => typeof item === 'string')) return null;
+        const keys = raw.map(item => choiceKeyText(item));
+        return keys.every(Boolean) ? keys.join('&') : null;
+    }
+    if (typeof raw !== 'string') return null;
+    const source = raw.trim();
+    if (!source) return null;
+    if (source.startsWith('[') && source.endsWith(']')) {
+        try {
+            const parsed = JSON.parse(source);
+            if (Array.isArray(parsed)) return choiceKeyText(parsed);
+        } catch { /* Legacy unquoted [B&D] format, handled below. */ }
+    }
+    const value = (source.startsWith('[') && source.endsWith(']'))
+        ? source.slice(1, -1) : source;
+    // Quotes are only presentation remnants of an array of letter keys.
+    const compact = value.replace(/["']/g, '').replace(/\s+/g, '');
+    if (!/^[A-D](?:[&,;/|+][A-D]){0,3}$/i.test(compact)) return null;
+    return compact.toUpperCase().replace(/[&,;/|+]/g, '&');
+}
+
+/** Word-only answer presentation; original question and grading data stay intact. */
+export function formatQuestionBankAnswerForWord(answer, type) {
     if (answer === null || answer === undefined) return '';
-    if (typeof answer === 'object') return JSON.stringify(answer);
-    const value = String(answer);
-    return type === '4-1' ? value.trim().toUpperCase() : value.trim();
+    if (type === '4-1' || type === 'TF4') {
+        const key = choiceKeyText(answer);
+        if (key !== null) return key;
+
+        // Some historical true/false questions save a boolean map rather than
+        // the usual canonical "A&C" key. Display true statements explicitly.
+        if (type === 'TF4' && answer && typeof answer === 'object' && !Array.isArray(answer)) {
+            const labels = ['A', 'B', 'C', 'D'];
+            if (Object.keys(answer).length === 4 &&
+                labels.every(label => typeof answer[label] === 'boolean')) {
+                return labels.filter(label => answer[label]).join('&') || 'Không có';
+            }
+        }
+        if (type === 'TF4' && Array.isArray(answer) && answer.length === 4 &&
+            answer.every(item => typeof item === 'boolean')) {
+            return ['A', 'B', 'C', 'D'].filter((_label, i) => answer[i]).join('&') || 'Không có';
+        }
+
+        // Legacy four-character true/false grading sequence inside brackets.
+        if (type === 'TF4' && typeof answer === 'string') {
+            const match = /^\[\s*([ĐDS]{4})\s*\]$/i.exec(answer.trim());
+            if (match) return match[1].toUpperCase();
+        }
+    }
+
+    const text = (typeof answer === 'object' ? JSON.stringify(answer) : String(answer)).trim();
+    return type === '4-1' ? text.toUpperCase() : text;
 }
 
 function questionTag(q) {
@@ -267,7 +320,7 @@ export async function generateQuestionBankDocx(plan, options = {}) {
             }
         }
 
-        const answer = answerText(q.answer, q.type);
+        const answer = formatQuestionBankAnswerForWord(q.answer, q.type);
         const answerRuns = strictRuns(answer, detailLabel + ' / đáp án', warnFormula);
         paragraphs.push(new Paragraph({
             children: [
