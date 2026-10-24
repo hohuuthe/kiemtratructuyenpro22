@@ -371,7 +371,16 @@ export const onRequestDelete: PagesFunction<Env> = async (context) => {
       return new Response(JSON.stringify({ error: "Bạn không có quyền xóa đề thi này" }), { status: 403, headers: corsHeaders });
     }
 
-    await db.prepare("DELETE FROM exam_configs WHERE id = ?").bind(id).run();
+    // Preserve historical result visibility by preventing deletion of exams with submissions.
+    const previous:any=await db.prepare('SELECT COUNT(*) AS total FROM results WHERE exam_id = ?').bind(id).first();
+    if (Number(previous?.total||0)>0) {
+      return new Response(JSON.stringify({
+        error:'Đề thi đã có kết quả học sinh. Không thể xóa vì sẽ ảnh hưởng lịch sử và phân quyền xem kết quả.',
+        code:'EXAM_HAS_RESULTS'
+      }),{status:409,headers:corsHeaders});
+    }
+    const done=await db.prepare('DELETE FROM exam_configs WHERE id = ? AND creator_id = ?').bind(id,exam.creator_id).run();
+    if (done.meta?.changes!==1) return new Response(JSON.stringify({error:'Đề đã thay đổi hoặc không còn tồn tại'}),{status:409,headers:corsHeaders});
     return new Response(JSON.stringify({ success: true, message: "Đã xóa đề thi thành công", error: null }), { status: 200, headers: corsHeaders });
   } catch (e: any) {
     return new Response(JSON.stringify({ error: e.message || "Lỗi xóa đề thi" }), { status: 500, headers: corsHeaders });
