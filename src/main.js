@@ -3892,10 +3892,10 @@ if (e && e.message && e.message.includes('hạn mức')) {
                     count_tf4: parseInt(draft.countTF4) || 0,
                     count_sq: parseInt(draft.countSQ) || 0,
                     count_tl: parseInt(draft.countTL) || 0,
-                    points_41: parseFloat(draft.points41) || 1,
-                    points_tf4: parseFloat(draft.pointsTF4) || 1,
-                    points_sq: parseFloat(draft.pointsSQ) || 1,
-                    points_tl: parseFloat(draft.pointsTL) || 1,
+                    points_41: Number(draft.points41 ?? 1),
+                    points_tf4: Number(draft.pointsTF4 ?? 1),
+                    points_sq: Number(draft.pointsSQ ?? 1),
+                    points_tl: Number(draft.pointsTL ?? 1),
                     counts_detail: JSON.stringify({
                         count41NB: draft.count41NB || 0, count41TH: draft.count41TH || 0, count41VD: draft.count41VD || 0,
                         countTF4NB: draft.countTF4NB || 0, countTF4TH: draft.countTF4TH || 0, countTF4VD: draft.countTF4VD || 0,
@@ -14382,10 +14382,10 @@ if (contentType && contentType.includes("application/json")) {
                 examConfig.countTLVD = getInt('exam-count-tl-vd');
                 examConfig.countTL = examConfig.countTLNB + examConfig.countTLTH + examConfig.countTLVD;
 
-                examConfig.points41 = getFloat('exam-points-41') || 1;
-                examConfig.pointsTF4 = getFloat('exam-points-tf4') || 1;
-                examConfig.pointsSQ = getFloat('exam-points-sq') || 1;
-                examConfig.pointsTL = getFloat('exam-points-tl') || 1;
+                examConfig.points41 = getFloat('exam-points-41');
+                examConfig.pointsTF4 = getFloat('exam-points-tf4');
+                examConfig.pointsSQ = getFloat('exam-points-sq');
+                examConfig.pointsTL = getFloat('exam-points-tl');
                 
                 examConfig.sqCaseSensitive = getChecked('exam-config-sq-case-sensitive');
                 examConfig.sqPunctuationSensitive = getChecked('exam-config-sq-punctuation-sensitive');
@@ -14442,10 +14442,10 @@ if (contentType && contentType.includes("application/json")) {
 
                 if (examConfig.tf4ScoringMode) {
                     examConfig.tf4Points = {
-                        1: getFloat('tf4-points-1') || 0.25,
-                        2: getFloat('tf4-points-2') || 0.5,
-                        3: getFloat('tf4-points-3') || 0.75,
-                        4: getFloat('tf4-points-4') || 1.0
+                        1: getFloat('tf4-points-1'),
+                        2: getFloat('tf4-points-2'),
+                        3: getFloat('tf4-points-3'),
+                        4: getFloat('tf4-points-4')
                     };
                 }
 
