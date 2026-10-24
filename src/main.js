@@ -3210,6 +3210,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             }
         }
 
+        // Student history is isolated from results[] (teacher/admin data).
         // Student results are fetched only through the authenticated, ID-scoped endpoint.
         let myStudentResults = [];
         let myStudentPage = 0;
