@@ -3216,6 +3216,13 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
         let myStudentTotal = 0;
         let myStudentRequestSeq = 0;
         const myStudentPageSize = 30;
+        // This formatter is scoped to the student view; formatTime is local to other screens.
+        function formatMyStudentResultTime(value) {
+            const seconds = Number(value);
+            if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
+            const wholeSeconds = Math.floor(seconds);
+            return `${Math.floor(wholeSeconds / 60)}:${String(wholeSeconds % 60).padStart(2, '0')}`;
+        }
         function resetMyStudentResults() {
             ++myStudentRequestSeq;
             myStudentResults = [];
@@ -3265,7 +3272,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                         description.textContent = 'Điểm: ' + (Number(result.score) || 0).toFixed(1) +
                           ' | Đúng: ' + (Number(result.correct_count) || 0) + '/' +
                           (Number(result.total_questions) || 0) + ' | Thời gian: ' +
-                          formatTime(Number(result.time_taken) || 0) +
+                          formatMyStudentResultTime(result.time_taken) +
                           ' | Nộp: ' + window.formatVNTime(result.created_at);
                         const details = document.createElement('button');
                         details.type = 'button';
