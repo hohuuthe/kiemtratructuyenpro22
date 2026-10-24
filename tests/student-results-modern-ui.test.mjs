@@ -26,7 +26,7 @@ test('Private history page computes stats without fetching other pages',()=>{
 test('Result review escapes user-controlled metadata and never reveals keys or teacher feedback',()=>{
     const result={
         exam_name:'<img src=x onerror=alert(1)>',
-        score:7,correct_count:1,total_questions:2,time_taken:85,created_at:'2026-10-24',
+        score:7,can_view_score:true,can_view_details:true,correct_count:1,total_questions:2,time_taken:85,created_at:'2026-10-24',
         details:[
             {question:{type:'4-1',content:'Tính $x^2$',options:{A:'Đáp án A',B:'Đáp án B'}},userAnswer:'B',correctAnswer:'A',isCorrect:false,score:0,aiFeedback:'SECRET_TEACHER_FEEDBACK'},
             {question:{type:'TL',content:'Viết đoạn văn'},userAnswer:'<script>boom()</script>',correctAnswer:'SECRET_ANSWER_KEY',score:2,aiFeedback:'SECRET_AI_FEEDBACK'}
