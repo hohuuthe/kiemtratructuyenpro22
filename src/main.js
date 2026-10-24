@@ -3646,16 +3646,14 @@ if (contentType && contentType.includes("application/json")) {
                     const ecData = ecResJson.data || [];
                     const ecResult = { data: ecData, allCreatorIds: ecResJson.allCreatorIds, error: null };
 
-                    const resultsQuery = fetch('/api/results?limit=500', { headers: { 'Authorization': 'Bearer ' + token } })
-                        .then(res => res.json())
-                        .catch(() => ({ data: [] }));
+                    // No legacy, cross-user results payload is requested for students.
+                    // Their personal history is loaded only on opening QL Kết quả.
+                    const resultsQuery = Promise.resolve({ data: [] });
                     
                     const qCountPromise = fetch('/api/questions?count=true', { headers: { 'Authorization': 'Bearer ' + token } }).then(res => res.json()).catch(() => ({ count: 0 }));
                     const rCountPromise = fetch('/api/results?count=true', { headers: { 'Authorization': 'Bearer ' + token } }).then(res => res.json()).catch(() => ({ count: 0 }));
                     
-                    const accountsQuery = fetch('/api/accounts', { headers: { 'Authorization': 'Bearer ' + token } })
-                                                .then(res => res.json())
-                                                .catch(() => ({error: 'Lỗi lấy danh sách tài khoản', data: null}));
+                    const accountsQuery = Promise.resolve({ data: [] });
 
                     const [rResult, accResult, sResult, qCountResult, rCountResult] = await Promise.all([
                         resultsQuery,
