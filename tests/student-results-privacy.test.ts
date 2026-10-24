@@ -54,8 +54,8 @@ async function call(account: 'a'|'b'|'t'|null,url:string,legacy=false){
  } as any);
 }
 test('Separate students with same name and same exam never see each other',async()=>{
- const a=await call('a','https://tests.local/api/results/me?limit=30');
- const b=await call('b','https://tests.local/api/results/me?limit=30');
+ const a=await call('a','http://localhost/api/results/me?limit=30');
+ const b=await call('b','http://localhost/api/results/me?limit=30');
  assert.equal(a.status,200);
  assert.equal(b.status,200);
  const ja=await a.json(),jb=await b.json();
@@ -65,23 +65,23 @@ test('Separate students with same name and same exam never see each other',async
  assert.match(a.headers.get('cache-control')||'',/no-store/);
 });
 test('Detail by another student result ID is rejected at SQL level',async()=>{
- const bad=await call('a','https://tests.local/api/results/me?id=b1');
+ const bad=await call('a','http://localhost/api/results/me?id=b1');
  assert.equal(bad.status,404);
  assert.ok(!(JSON.stringify(await bad.json())).includes('userAnswer'));
- const own=await call('a','https://tests.local/api/results/me?id=a1');
+ const own=await call('a','http://localhost/api/results/me?id=a1');
  assert.equal(own.status,200);
  assert.equal((await own.json()).data.details[0].userAnswer,'A');
 });
 test('Caller-supplied identity, unauthenticated, teacher, and oversized queries fail closed',async()=>{
  for(const query of ['userId=student-b','student_id=student-b','studentName=Duplicate%20Name','limit=all','limit=101','limit=-1','offset=-3']){
-  const response=await call('a','https://tests.local/api/results/me?'+query);
+  const response=await call('a','http://localhost/api/results/me?'+query);
   assert.equal(response.status,400,query);
  }
- assert.equal((await call(null,'https://tests.local/api/results/me')).status,401);
- assert.equal((await call('t','https://tests.local/api/results/me')).status,403);
+ assert.equal((await call(null,'http://localhost/api/results/me')).status,401);
+ assert.equal((await call('t','http://localhost/api/results/me')).status,403);
 });
 test('Legacy results endpoint rejects signed-in student shared-exam request',async()=>{
- const response=await call('a','https://tests.local/api/results?examId=shared-exam',true);
+ const response=await call('a','http://localhost/api/results?examId=shared-exam',true);
  assert.equal(response.status,403);
 });
 test('Student view does not fetch bulk results and clears cross-login data',()=>{
