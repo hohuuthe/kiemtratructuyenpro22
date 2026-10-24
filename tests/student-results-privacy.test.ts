@@ -49,7 +49,7 @@ async function call(account: 'a'|'b'|'t'|null,url:string,legacy=false){
  const token=account ? await signAuthSession(accounts[account],{id:accounts[account].id},secret,'fixture-student-results') : '';
  return (legacy?getLegacy:getMine)({
    request:new Request(url,{headers:token?{Authorization:'Bearer '+token}:{}}),
-   env:{JWT_SECRET:secret},data:{},params:{},waitUntil(){},next(){},DB:db,
+   env:{JWT_SECRET:secret,DB:db},data:{},params:{},waitUntil(){},next(){},
    // getDatabase resolves through context.env.DB
  } as any);
 }
