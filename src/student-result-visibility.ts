@@ -124,7 +124,7 @@ function displayStudentAnswer(value: any, type: string): any {
 }
 
 /** Never return raw grading snapshots: they can contain question.answer,
- * correctAnswer, answerImage, answer keys and private AI grading feedback. */
+ * unrelated answer keys, answerImage and private AI grading feedback. */
 export function projectStudentAttemptDetails(raw: any, canViewScore: boolean): any[] {
   const parsed = decode(raw);
   if (!Array.isArray(parsed)) return [];
@@ -132,6 +132,13 @@ export function projectStudentAttemptDetails(raw: any, canViewScore: boolean): a
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return { question: {}, userAnswer: null };
     const question = displayQuestion(entry.question);
     const out: any = { question, userAnswer: displayStudentAnswer(entry.userAnswer, question.type) };
+    // Detail endpoint calls this only after checking show_details=true on the server.
+    if (entry.correctAnswer !== undefined && entry.correctAnswer !== null) {
+      const answer = entry.correctAnswer;
+      if (typeof answer === 'string' || typeof answer === 'number' || typeof answer === 'boolean') {
+        out.correctAnswer = answer;
+      }
+    }
     if (canViewScore) {
       if (entry.isCorrect === true || entry.isCorrect === false) out.isCorrect = entry.isCorrect;
       if (entry.score !== undefined && entry.score !== null && Number.isFinite(Number(entry.score))) {
