@@ -16,6 +16,7 @@ import { generateQuestionBankDocx } from './question-bank-docx-generator.ts';
 import { inspectScientificDocx, WORD_IMPORT_ENGINE_VERSION } from './word-omml-reader.js';
 import { verifyImportedWordQuestions, checkWordImportBeforeSave, correctImportedWordEquation, normalizeWordImportAnswer } from './word-import-verification.js';
 import { splitScientificContent } from './scientific-formula-tokenizer.js';
+import { buildRankingUnitOptions } from './ranking-unit-filter.js';
 import { splitLabeledScientificRecords } from './scientific-formula-records.js';
 import { generateExamAnswerExcel } from './exam-excel-generator.ts';
 import { 
@@ -2158,6 +2159,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             questionsLoaded = false;
             results = [];
             resultsLoaded = false;
+            resetRankingUnitFilterSession();
             accountsLoaded = false;
             examsLoaded = false;
             invalidateExamEditorSession();
@@ -2492,6 +2494,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             if (typeof accounts !== 'undefined') accounts.length = 0;
             questionsLoaded = false;
             resultsLoaded = false;
+            resetRankingUnitFilterSession();
             accountsLoaded = false;
             examsLoaded = false;
             invalidateExamEditorSession();
@@ -4216,54 +4219,45 @@ if (contentType && contentType.includes("application/json")) {
         function populateRankingUnitFilter() {
             const select = document.getElementById('ranking-unit-filter');
             if (!select) return;
-
-            const isAdmin = isAdminLoggedIn;
-            const isTeacher = isTeacherLoggedIn && !isAdmin;
-
-            if (isTeacher && currentUser && currentUser.donvi) {
-                const teacherDonvi = currentUser.donvi.trim();
-                select.innerHTML = `<option value="${teacherDonvi}">${teacherDonvi}</option>`;
-                select.value = teacherDonvi;
-                select.disabled = true;
-                return;
-            }
-
-            select.disabled = false;
-            const currentSelection = select.value;
-
-            const units = new Set();
-            results.forEach(r => {
-                const u = (r.donvi || r.studentClass || '').trim();
-                if (u) units.add(u);
+            const isTeacher = isTeacherLoggedIn && !isAdminLoggedIn;
+            const plan = buildRankingUnitOptions({
+                results, users: window.usersList, isTeacher,
+                teacherUnit: currentUser?.donvi || currentUser?.address || '',
+                resultsReady: resultsLoaded, previousValue: select.value
             });
-            if (window.usersList && Array.isArray(window.usersList)) {
-                window.usersList.forEach(u => {
-                    const val = (u.donvi || u.address || '').trim();
-                    if (val) units.add(val);
+            const same = select.options.length === plan.options.length &&
+                plan.options.every((opt, idx) => select.options[idx].value === opt.value && select.options[idx].textContent === opt.label);
+            if (!same) {
+                select.replaceChildren();
+                plan.options.forEach(entry => {
+                    const option = document.createElement('option');
+                    option.value = entry.value;
+                    option.textContent = entry.label;
+                    select.appendChild(option);
                 });
             }
-
-            const sortedUnits = Array.from(units).filter(Boolean).sort();
-            if (select.options.length === sortedUnits.length + 1) {
-                let same = true;
-                for (let i = 0; i < sortedUnits.length; i++) {
-                    if (select.options[i+1].value !== sortedUnits[i]) {
-                        same = false;
-                        break;
-                    }
-                }
-                if (same) return;
-            }
-
-            select.innerHTML = '<option value="">-- Tất cả đơn vị --</option>';
-            sortedUnits.forEach(u => {
-                const option = document.createElement('option');
-                option.value = u;
-                option.textContent = u;
-                if (u === currentSelection) option.selected = true;
-                select.appendChild(option);
-            });
+            select.value = plan.selectedValue;
+            select.disabled = false;
         }
+
+        function resetRankingUnitFilterSession() {
+            const unit = document.getElementById('ranking-unit-filter');
+            if (unit) {
+                unit.innerHTML = '<option value="">-- Tất cả đơn vị --</option>';
+                unit.disabled = false;
+            }
+            const classroom = document.getElementById('ranking-class-filter');
+            if (classroom) classroom.value = '';
+            selectedRankingResults.clear();
+        }
+
+        window.onRankingUnitChange = function onRankingUnitChange() {
+            const classroom = document.getElementById('ranking-class-filter');
+            if (classroom) classroom.value = '';
+            selectedRankingResults.clear();
+            renderRanking();
+            updateRankingSelection();
+        };
 
         async function populateRankingClassFilter() {
             const select = document.getElementById('ranking-class-filter');
@@ -14942,6 +14936,7 @@ CẤU TRÚC JSON:
                 return;
             }
 
+            if (isAdmin || isTeacher) populateRankingUnitFilter();
             const searchTerm = (document.getElementById('ranking-search')?.value || '').toLowerCase().trim();
             const examFilter = (document.getElementById('ranking-exam-filter')?.value || '').trim();
             const unitFilter = (document.getElementById('ranking-unit-filter')?.value || '').trim();
