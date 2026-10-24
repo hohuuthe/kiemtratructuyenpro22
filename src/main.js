@@ -6689,7 +6689,7 @@ if (contentType && contentType.includes("application/json")) {
                     if (contentType && contentType.includes("application/json")) {
                         resJson = await res.json();
                     } else {
-                        throw new Error("Server returned non-JSON response (likely 502/504 during restart). Status: " + res.status);
+                        throw new Error('Máy chủ trả về HTTP ' + res.status + ' không đúng định dạng JSON.');
                     }
                     
                     if (!res.ok || resJson.error) {

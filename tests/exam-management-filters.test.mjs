@@ -87,5 +87,5 @@ test('Management list, pagination, search and dependent filters use one read-onl
  assert.match(src,/window\.onExamConfigClassFilterChange=function\(\)/);
  assert.match(src,/lastExamManagementFilterKey = ''/);
  const api=readFileSync('functions/api/exams.ts','utf8');
- assert.match(api,/else if \(isTeacher\) \{\s*query \+= " WHERE ec\.creator_id = \?"/);
+ assert.match(api,/else if \(isTeacher\) \{[\s\S]{0,180}query \+= " WHERE ec\.creator_id IN \(\?, \?\)"/);
 });

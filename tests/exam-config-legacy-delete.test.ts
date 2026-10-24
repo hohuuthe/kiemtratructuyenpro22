@@ -45,3 +45,26 @@ test('Both backends use shared guard and never bypass result history',()=>{
  assert.doesNotMatch(ui,/Lỗi khi xóa đề thi! \(Bạn có thể không có quyền xóa đề này\)/);
  assert.match(ui,/showToast\('Không thể xóa đề thi: ' \+ message, 'error'\)/);
 });
+
+test('Cloudflare DELETE rejects bad requests as JSON without a Neon connection',async()=>{
+ const {onRequestDelete}=await import('../functions/api/exams.ts');
+ const cases=[
+  {url:'https://school-a.test/api/exams',status:400,code:'EXAM_ID_REQUIRED'},
+  {url:'https://school-a.test/api/exams?id=legacy-1',status:401,code:'EXAM_AUTH_REQUIRED'}
+ ];
+ for(const item of cases){
+  const response=await onRequestDelete({request:new Request(item.url,{method:'DELETE'}),env:{}} as any);
+  assert.equal(response.status,item.status);
+  assert.match(response.headers.get('Content-Type')||'',/application\\/json/);
+  const body=await response.json();
+  assert.equal(body.code,item.code);
+  assert.equal(typeof body.error,'string');
+ }
+});
+test('DELETE response helper is declared in its own handler, with full JSON error boundary',()=>{
+ const api=readFileSync('functions/api/exams.ts','utf8');
+ const handler=api.slice(api.indexOf('export const onRequestDelete: PagesFunction<Env>'));
+ assert.match(handler,/const respond = \\(obj:any,status=200\\)/);
+ assert.match(handler,/const db=getDatabase\\(context\\)/);
+ assert.match(handler,/catch \\(err:any\\) \\{[\\s\\S]*return respond\\(/);
+});
