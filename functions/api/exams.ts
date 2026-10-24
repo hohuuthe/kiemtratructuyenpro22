@@ -1,5 +1,6 @@
 import { verifyAuthSession, getDynamicSecret, checkIsAdmin, checkIsTeacherOrAdmin, getDatabase } from './exam/utils';
 import { isExamOwner, redactExamForPublic } from './exam/security';
+import { canManageExamConfig, examConfigGuardedDeleteStatement } from '../../src/exam-config-deletion-policy';
 import { normalizeExamConfigInput, ExamConfigInputError } from '../../src/exam-config-contract';
 
 interface Env {
@@ -157,8 +158,9 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     } else if (sharedOnly && !isTeacher) {
       query += " WHERE ec.is_shared_results = 1 OR ec.is_shared_results = 'true' OR ec.is_shared_results = true";
     } else if (isTeacher) {
-      query += " WHERE ec.creator_id = ?";
-      params.push(user.id);
+      // Earlier exams may reference the teacher profile ID instead of account ID.
+      query += " WHERE ec.creator_id IN (?, ?)";
+      params.push(user.id, user.user_id || user.id);
     }
 
     query += ` ORDER BY ec.name ASC, ec.id ASC${paginationClause}`;
@@ -278,7 +280,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     let existing:any=null;
     if (id) existing=await db.prepare('SELECT * FROM exam_configs WHERE id = ?').bind(id).first();
     if (id && !existing) return respond({error:'Đề thi cần cập nhật không tồn tại'},404);
-    if (existing && !isAdmin && String(existing.creator_id)!==String(user.id)) return respond({error:'Không có quyền sửa đề thi của người khác'},403);
+    if (existing && !canManageExamConfig(user, existing.creator_id, isAdmin)) return respond({error:'Không có quyền sửa đề thi của người khác'},403);
     const owner=existing ? String(existing.creator_id) :
       (isAdmin && (body.creator_id||body.creatorId) ? String(body.creator_id||body.creatorId):String(user.id));
     if (!owner) return respond({error:'Không xác định được người tạo đề'},403);
@@ -338,61 +340,43 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
   }
 };
 
-// DELETE /api/exams - Xóa cấu hình đề thi theo query ?id=xxx hoặc body { id }
+// DELETE /api/exams - Legacy-safe, scoped physical deletion (only when no submissions)
 export const onRequestDelete: PagesFunction<Env> = async (context) => {
-  const db = getDatabase(context);
-  const { request, env } = context;
-  const url = new URL(request.url);
-  let id = url.searchParams.get('id');
-
-  if (!id) {
-    try {
-      const body: any = await request.json();
-      id = body?.id;
-    } catch {}
-  }
-
-  if (!id) {
-    return new Response(JSON.stringify({ error: "Thiếu ID đề thi cần xóa" }), { status: 400, headers: corsHeaders });
-  }
-
-  const SECRET = await getDynamicSecret(db, env.JWT_SECRET);
-  const authHeader = request.headers.get('Authorization');
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: corsHeaders });
-  }
-  const token = authHeader.substring(7);
-  const user = await verifyAuthSession(token, SECRET, db);
-  if (!user) {
-    return new Response(JSON.stringify({ error: "Phiên đăng nhập không hợp lệ" }), { status: 401, headers: corsHeaders });
-  }
-
-  const isAdmin = user.role === 'admin';
-
+  // Keep the response factory in DELETE scope: POST's local 'respond' is invisible here.
+  const respond = (obj:any,status=200) => new Response(JSON.stringify(obj),{status,headers:corsHeaders});
   try {
-    let checkSql = "SELECT id, creator_id FROM exam_configs WHERE id = ?";
-    const { results } = await db.prepare(checkSql).bind(id).all();
-    if (!results || results.length === 0) {
-      return new Response(JSON.stringify({ error: "Không tìm thấy đề thi" }), { status: 404, headers: corsHeaders });
-    }
+    const {request,env}=context;
+    const url=new URL(request.url);
+    let id=url.searchParams.get('id');
+    if (!id) {try {id=(await request.json() as any)?.id;} catch {}}
+    if(typeof id!=='string'||!id.trim())return respond({error:'Thiếu ID đề thi cần xóa',code:'EXAM_ID_REQUIRED'},400);
+    const authHeader=request.headers.get('Authorization');
+    if(!authHeader?.startsWith('Bearer '))return respond({error:'Phiên đăng nhập không hợp lệ',code:'EXAM_AUTH_REQUIRED'},401);
 
-    const exam: any = results[0];
-    if (!isAdmin && exam.creator_id !== user.id) {
-      return new Response(JSON.stringify({ error: "Bạn không có quyền xóa đề thi này" }), { status: 403, headers: corsHeaders });
-    }
+    // Entire auth, tenant selection and DB operation is inside the JSON error boundary.
+    const db=getDatabase(context);
+    const user=await verifyAuthSession(authHeader.slice(7),await getDynamicSecret(db,env.JWT_SECRET),db);
+    if(!user)return respond({error:'Phiên đăng nhập không hợp lệ',code:'EXAM_AUTH_REQUIRED'},401);
+    const isAdmin=checkIsAdmin(user);
+    if(!checkIsTeacherOrAdmin(user))return respond({error:'Tài khoản không có quyền xóa đề thi',code:'EXAM_DELETE_FORBIDDEN'},403);
 
-    // Preserve historical result visibility by preventing deletion of exams with submissions.
-    const previous:any=await db.prepare('SELECT COUNT(*) AS total FROM results WHERE exam_id = ?').bind(id).first();
-    if (Number(previous?.total||0)>0) {
-      return new Response(JSON.stringify({
-        error:'Đề thi đã có kết quả học sinh. Không thể xóa vì sẽ ảnh hưởng lịch sử và phân quyền xem kết quả.',
-        code:'EXAM_HAS_RESULTS'
-      }),{status:409,headers:corsHeaders});
-    }
-    const done=await db.prepare('DELETE FROM exam_configs WHERE id = ? AND creator_id = ?').bind(id,exam.creator_id).run();
-    if (done.meta?.changes!==1) return new Response(JSON.stringify({error:'Đề đã thay đổi hoặc không còn tồn tại'}),{status:409,headers:corsHeaders});
-    return new Response(JSON.stringify({ success: true, message: "Đã xóa đề thi thành công", error: null }), { status: 200, headers: corsHeaders });
-  } catch (e: any) {
-    return new Response(JSON.stringify({ error: e.message || "Lỗi xóa đề thi" }), { status: 500, headers: corsHeaders });
+    const exam:any=await db.prepare('SELECT id, creator_id FROM exam_configs WHERE id = ?').bind(id).first();
+    if(!exam)return respond({error:'Đề thi không tồn tại hoặc đã bị xóa',code:'EXAM_NOT_FOUND'},404);
+    if(!canManageExamConfig(user,exam.creator_id,isAdmin))
+      return respond({error:'Không có quyền xóa đề thi của người khác',code:'EXAM_DELETE_FORBIDDEN'},403);
+
+    const existingResults:any=await db.prepare('SELECT COUNT(*) AS total FROM results WHERE exam_id = ?').bind(id).first();
+    if(Number(existingResults?.total||0)>0)
+      return respond({error:'Đề thi đã có bài làm của học sinh nên không thể xóa vĩnh viễn. Cần giữ đề để bảo toàn lịch sử và quyền xem kết quả.',code:'EXAM_HAS_RESULTS'},409);
+
+    // The DELETE itself prevents any concurrent newly submitted result from becoming orphaned.
+    const stmt=examConfigGuardedDeleteStatement(id,exam.creator_id);
+    const deleted=await db.prepare(stmt.sql).bind(...stmt.params).run();
+    if(Number(deleted.meta?.changes||0)!==1)
+      return respond({error:'Đề thi đã thay đổi, đã có kết quả mới hoặc đã bị xóa. Vui lòng tải lại danh sách.',code:'EXAM_DELETE_CONFLICT'},409);
+    return respond({success:true,message:'Đã xóa đề thi thành công',error:null},200);
+  } catch (err:any) {
+    console.error('DELETE /api/exams failed:',err?.message||err);
+    return respond({error:'Máy chủ không thể xử lý yêu cầu xóa đề thi. Vui lòng thử lại hoặc liên hệ quản trị viên.',code:'EXAM_DELETE_FAILED'},500);
   }
 };

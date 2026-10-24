@@ -19,6 +19,7 @@ import { generateExamDocx } from "./src/exam-docx-generator";
 import { generateExamAnswerExcel, ExamAnswerDoc } from "./src/exam-excel-generator";
 import JSZip from 'jszip';
 import {requiredQuestionLesson,questionLessonDeleteScope,requireQuestionLessonConfirmation,questionLessonCountQuery,questionLessonDeleteQuery,QuestionLessonDeleteError,canDeleteQuestionsByLesson} from './src/question-lesson-delete-policy';
+import { canManageExamConfig, examConfigGuardedDeleteStatement } from './src/exam-config-deletion-policy';
 
 dotenv.config({ override: true });
 
@@ -1941,8 +1942,9 @@ async function startServer() {
       } else if (sharedOnly) {
         query += " WHERE ec.is_shared_results = 1 OR ec.is_shared_results = 'true' OR ec.is_shared_results = true";
       } else if (isTeacher && !forRanking) {
-        query += " WHERE ec.creator_id = ?";
-        params.push(user.id);
+        // Historical exam_configs may store the linked teacher profile ID.
+        query += " WHERE ec.creator_id IN (?, ?)";
+        params.push(user.id, user.user_id || user.id);
       }
       query += ` ORDER BY ec.name ASC, ec.id ASC${paginationClause}`;
 
@@ -2143,7 +2145,7 @@ async function startServer() {
         if (body.expected_updated_at === undefined || expectedRevision !== String(existingRecord.updated_at ?? '')) {
           return res.status(409).json({ error: 'Phiên bản đề thi đã thay đổi. Vui lòng nạp lại.', code: 'EXAM_VERSION_REQUIRED' });
         }
-        if (!isAdmin && existingRecord.creator_id !== user.id) {
+        if (!canManageExamConfig(user,existingRecord.creator_id,isAdmin)) {
           return res.status(403).json({ error: "Bạn không có quyền chỉnh sửa đề thi của người khác" });
         }
 
@@ -2210,31 +2212,37 @@ async function startServer() {
   app.delete("/api/exams", async (req, res) => {
     try {
       const id = (req.query.id as string) || req.body?.id;
-      if (!id) return res.status(400).json({ error: "Thiếu ID đề thi cần xóa" });
+      if (typeof id !== 'string' || !id.trim())
+        return res.status(400).json({error:'Thiếu ID đề thi cần xóa',code:'EXAM_ID_REQUIRED'});
+      const authHeader=req.headers.authorization;
+      if (!authHeader?.startsWith('Bearer '))
+        return res.status(401).json({error:'Phiên đăng nhập không hợp lệ',code:'EXAM_AUTH_REQUIRED'});
+      const user=verifyJWTSync(authHeader.slice(7),await getServerSecret());
+      if (!user) return res.status(401).json({error:'Phiên đăng nhập không hợp lệ',code:'EXAM_AUTH_REQUIRED'});
+      const isAdmin=checkIsAdmin(user);
+      if (!checkIsTeacherOrAdmin(user) || (!isAdmin &&
+          !['teacher','giáo viên'].includes(String(user.role||'').toLowerCase()) &&
+          String(user.target_audience||'').toLowerCase()!=='giáo viên'))
+        return res.status(403).json({error:'Tài khoản không có quyền xóa đề thi',code:'EXAM_DELETE_FORBIDDEN'});
 
-      const authHeader = req.headers.authorization;
-      if (!authHeader || !authHeader.startsWith("Bearer ")) return res.status(401).json({ error: "Unauthorized" });
-      const user = verifyJWTSync(authHeader.substring(7), await getServerSecret());
-      if (!user) return res.status(401).json({ error: "Phiên đăng nhập không hợp lệ" });
+      const {results}=await executeSqlQuery('SELECT id, creator_id FROM exam_configs WHERE id = ?',[id]);
+      const exam:any=results?.[0];
+      if (!exam) return res.status(404).json({error:'Đề thi không tồn tại hoặc đã bị xóa',code:'EXAM_NOT_FOUND'});
+      if (!canManageExamConfig(user,exam.creator_id,isAdmin))
+        return res.status(403).json({error:'Không có quyền xóa đề thi của người khác',code:'EXAM_DELETE_FORBIDDEN'});
 
-      const isAdmin = checkIsAdmin(user);
-      const { results } = await executeSqlQuery("SELECT id, creator_id FROM exam_configs WHERE id = ?", [id]);
-      if (!results || results.length === 0) return res.status(404).json({ error: "Không tìm thấy đề thi" });
+      const {results:counts}=await executeSqlQuery('SELECT COUNT(*) AS total FROM results WHERE exam_id = ?',[id]);
+      if (Number(counts?.[0]?.total||0)>0)
+        return res.status(409).json({error:'Đề thi đã có bài làm của học sinh nên không thể xóa vĩnh viễn. Cần giữ đề để bảo toàn lịch sử và quyền xem kết quả.',code:'EXAM_HAS_RESULTS'});
 
-      const exam: any = results[0];
-      if (!isAdmin && exam.creator_id !== user.id) {
-        return res.status(403).json({ error: "Bạn không có quyền xóa đề thi này" });
-      }
-
-      await executeSqlQuery("DELETE FROM exam_configs WHERE id = ?", [id]);
-      return res.json({ success: true, message: "Đã xóa đề thi thành công", error: null });
-    } catch (e: any) {
-      if (e && e.message && e.message.includes("hạn mức dữ liệu")) {
-        // quota error logged as 503
-        return res.status(400).json({ error: e.message });
-      }
-      console.error("DELETE /api/exams error::", e);
-      return res.status(500).json({ error: e.message || 'Lỗi server' });
+      const stmt=examConfigGuardedDeleteStatement(id,exam.creator_id);
+      const deleted=await executeSqlQuery(stmt.sql,stmt.params);
+      if(Number(deleted.changes||0)!==1)
+        return res.status(409).json({error:'Đề thi đã thay đổi, đã có kết quả mới hoặc đã bị xóa. Vui lòng tải lại danh sách.',code:'EXAM_DELETE_CONFLICT'});
+      return res.json({success:true,message:'Đã xóa đề thi thành công',error:null});
+    } catch (err:any) {
+      console.error('DELETE /api/exams failed:',err?.message||err);
+      return res.status(500).json({error:'Không thể xóa đề thi do lỗi máy chủ. Dữ liệu hiện tại được giữ nguyên.',code:'EXAM_DELETE_FAILED'});
     }
   });
 
