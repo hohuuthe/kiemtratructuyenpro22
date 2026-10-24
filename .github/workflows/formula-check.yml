@@ -40,7 +40,7 @@ jobs:
       - name: Word OMML heating-arrow roundtrip and both export paths
         run: node --import tsx --test tests/word-import-chemistry-heat-roundtrip.test.mjs
       - name: Exam management and editor tab business contract
-        run: node --test tests/exam-tab-separation.test.mjs tests/question-list-single-actions.test.mjs tests/question-bank-recent-view.test.mjs tests/exam-config-table-layout.test.mjs tests/exam-export-modal-layout.test.mjs tests/ranking-unit-filter.test.mjs
+        run: node --import tsx --test tests/exam-config-integrity.test.ts tests/exam-tab-separation.test.mjs tests/question-list-single-actions.test.mjs tests/question-bank-recent-view.test.mjs tests/exam-config-table-layout.test.mjs tests/exam-export-modal-layout.test.mjs tests/ranking-unit-filter.test.mjs
       - name: Student private results authorization, display and IDOR tests
         run: node --import tsx --test tests/student-results-privacy.test.ts tests/student-results-duration.test.mjs tests/student-results-modern-ui.test.mjs tests/student-result-visibility.test.ts
       - name: Runtime authentication revocation tests
