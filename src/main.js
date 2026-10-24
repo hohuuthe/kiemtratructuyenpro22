@@ -3304,7 +3304,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
         };
         window.showMyStudentResultDetail = async function(id) {
             if (!currentUser || isAdminLoggedIn || isTeacherLoggedIn) return;
-            if (!myStudentResults.some(result => String(result.id) === String(id))) return;
+            if (!myStudentResults.some(result => String(result.id) === String(id) && result.can_view_details === true)) return;
             const expectedAccount = String(currentUser.id || '');
             const seq = myStudentRequestSeq;
             try {
@@ -3313,12 +3313,15 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 const response = await fetch('/api/results/me?id=' + encodeURIComponent(id), {
                     headers: { Authorization: 'Bearer ' + token }, cache: 'no-store'
                 });
-                if (!response.ok) throw new Error('Không có quyền xem bài làm này (' + response.status + ')');
+                if (!response.ok) {
+                    const denied = await response.json().catch(() => ({}));
+                    throw new Error(denied.code === 'EXAM_DETAILS_DISABLED' ? 'Giáo viên đã tắt quyền xem chi tiết của đề thi này.' : 'Không có quyền xem bài làm này (' + response.status + ')');
+                }
                 const payload = await response.json();
                 if (seq !== myStudentRequestSeq || String(currentUser?.id || '') !== expectedAccount ||
                     !currentUser || isAdminLoggedIn || isTeacherLoggedIn) return;
                 const result = payload.data;
-                if (!result || String(result.id) !== String(id)) throw new Error('Dữ liệu chi tiết không hợp lệ');
+                if (!result || String(result.id) !== String(id) || result.can_view_details !== true) throw new Error('Đề thi không cho phép xem chi tiết bài làm.');
                 const modalContent = buildStudentResultDetailMarkup(result, {
                     formatDate: date => window.formatVNTime(date),
                     formatDuration: formatMyStudentResultTime

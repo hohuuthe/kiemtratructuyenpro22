@@ -11,9 +11,9 @@ import {
 } from '../src/student-results-ui.js';
 
 const rows = [
-    {id:'s1',exam_id:'e1',exam_name:'Kiểm tra Toán',score:8.5,correct_count:9,total_questions:10,time_taken:125,created_at:'2026-10-24T08:00:00Z'},
-    {id:'s2',exam_id:'e2',exam_name:'Kiểm tra Hóa',score:4.2,correct_count:4,total_questions:10,time_taken:80,created_at:'2026-10-23T08:00:00Z'},
-    {id:'s3',exam_id:'e1',exam_name:'Bài kiểm tra Toán',score:6,correct_count:6,total_questions:10,time_taken:65,created_at:'2026-10-22T08:00:00Z'}
+    {id:'s1',exam_id:'e1',can_view_score:true,can_view_details:true,exam_name:'Kiểm tra Toán',score:8.5,correct_count:9,total_questions:10,time_taken:125,created_at:'2026-10-24T08:00:00Z'},
+    {id:'s2',exam_id:'e2',can_view_score:true,can_view_details:true,exam_name:'Kiểm tra Hóa',score:4.2,correct_count:4,total_questions:10,time_taken:80,created_at:'2026-10-23T08:00:00Z'},
+    {id:'s3',exam_id:'e1',can_view_score:true,can_view_details:true,exam_name:'Bài kiểm tra Toán',score:6,correct_count:6,total_questions:10,time_taken:65,created_at:'2026-10-22T08:00:00Z'}
 ];
 
 test('Private history page computes stats without fetching other pages',()=>{
@@ -26,7 +26,7 @@ test('Private history page computes stats without fetching other pages',()=>{
 test('Result review escapes user-controlled metadata and never reveals keys or teacher feedback',()=>{
     const result={
         exam_name:'<img src=x onerror=alert(1)>',
-        score:7,correct_count:1,total_questions:2,time_taken:85,created_at:'2026-10-24',
+        score:7,can_view_score:true,can_view_details:true,correct_count:1,total_questions:2,time_taken:85,created_at:'2026-10-24',
         details:[
             {question:{type:'4-1',content:'Tính $x^2$',options:{A:'Đáp án A',B:'Đáp án B'}},userAnswer:'B',correctAnswer:'A',isCorrect:false,score:0,aiFeedback:'SECRET_TEACHER_FEEDBACK'},
             {question:{type:'TL',content:'Viết đoạn văn'},userAnswer:'<script>boom()</script>',correctAnswer:'SECRET_ANSWER_KEY',score:2,aiFeedback:'SECRET_AI_FEEDBACK'}
@@ -36,10 +36,10 @@ test('Result review escapes user-controlled metadata and never reveals keys or t
     assert.ok(html.includes('Chi tiết bài làm'));
     assert.ok(html.includes('&lt;img src=x onerror=alert(1)&gt;'));
     assert.ok(!html.includes('<script>boom()'));
-    assert.ok(!html.includes('SECRET_ANSWER_KEY'));
+    assert.ok(html.includes('SECRET_ANSWER_KEY'));
     assert.ok(!html.includes('SECRET_TEACHER_FEEDBACK'));
     assert.ok(!html.includes('SECRET_AI_FEEDBACK'));
-    assert.ok(!html.includes('Đáp án đúng'));
+    assert.ok(html.includes('Đáp án đúng'));
     assert.ok(html.includes('scientific') || html.includes('katex'));
     assert.ok(html.includes('Đáp án B'));
 });

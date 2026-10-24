@@ -31,7 +31,7 @@ export function studentResultDuration(value) {
 
 export function studentResultPageStats(rows, total) {
     const data = Array.isArray(rows) ? rows : [];
-    const scores = data.map(row => studentResultScore(row.score)).filter(score => score !== null);
+    const scores = data.filter(row => row.can_view_score === true).map(row => studentResultScore(row.score)).filter(score => score !== null);
     const keys = new Set(data.map(row => String(row.exam_id || row.exam_name || '').trim()).filter(Boolean));
     return {
         total: Math.max(0, Number(total) || 0),
@@ -51,7 +51,7 @@ export function filterStudentResultPage(rows, { query = '', scoreBand = 'all', s
     const filtered = (Array.isArray(rows) ? rows : []).filter(row => {
         const name = foldStudentSearch(row.exam_name);
         if (term && !name.includes(term)) return false;
-        const score = studentResultScore(row.score);
+        const score = row.can_view_score === true ? studentResultScore(row.score) : null;
         if (scoreBand === 'high' && (score === null || score < 8)) return false;
         if (scoreBand === 'medium' && (score === null || score < 5 || score >= 8)) return false;
         if (scoreBand === 'low' && (score === null || score >= 5)) return false;
@@ -100,11 +100,13 @@ export function renderStudentResultCards(container, rows, { onOpen, formatDate, 
 
     const fragment = document.createDocumentFragment();
     values.forEach(result => {
-        const score = studentResultScore(result.score);
+        const canScore = result.can_view_score === true;
+        const canDetail = result.can_view_details === true;
+        const score = canScore ? studentResultScore(result.score) : null;
         const date = formatDate ? formatDate(result.created_at) : 'Chưa xác định';
         const time = formatDuration ? formatDuration(result) : studentResultDuration(result.time_taken);
         const total = Math.max(0, Number(result.total_questions) || 0);
-        const correct = Math.max(0, Number(result.correct_count) || 0);
+        const correct = canScore ? Math.max(0, Number(result.correct_count) || 0) : null;
         const progress = percentCorrect(result);
         const card = document.createElement('article');
         card.className = 'student-result-card';
@@ -112,22 +114,22 @@ export function renderStudentResultCards(container, rows, { onOpen, formatDate, 
             '<div class="student-result-card-top">' +
                 '<div class="student-result-card-kind"><span class="student-result-kind-icon" aria-hidden="true">✦</span> BÀI KIỂM TRA</div>' +
                 '<div class="student-result-score" aria-label="Điểm số: ' + escapeStudentText(scoreDisplay(score)) + '">' +
-                    '<strong>' + escapeStudentText(scoreDisplay(score)) + '</strong><small>điểm</small>' +
+                    '<strong>' + (canScore ? escapeStudentText(scoreDisplay(score)) : 'Đã ẩn') + '</strong><small>' + (canScore ? 'điểm' : 'theo cấu hình đề thi') + '</small>' +
                 '</div>' +
             '</div>' +
             '<h3 class="student-result-card-title">' + escapeStudentText(result.exam_name || 'Bài thi chưa có tên') + '</h3>' +
             '<div class="student-result-card-meta"><span>' + calendarIcon + escapeStudentText(date) + '</span>' +
                 '<span>' + clockIcon + escapeStudentText(time) + '</span></div>' +
-            '<div class="student-result-progress">' +
+             (canScore ? '<div class="student-result-progress">' +
                 '<div class="student-result-progress-label"><span>Câu trả lời đúng</span><strong>' +
                 escapeStudentText(correct) + '/' + escapeStudentText(total) + '</strong></div>' +
                 '<div class="student-result-progress-track" role="progressbar" aria-label="Tỉ lệ câu đúng" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + progress + '">' +
                     '<span style="width:' + progress + '%"></span></div>' +
-            '</div>' +
-            '<button type="button" class="student-result-open" aria-label="Xem chi tiết bài làm ' +
-                escapeStudentText(result.exam_name || 'Bài thi') + '"><span>Xem chi tiết bài làm</span>' + arrowIcon + '</button>';
+            '</div>' : '') +
+            (canDetail ? '<button type="button" class="student-result-open" aria-label="Xem chi tiết bài làm ' +
+                escapeStudentText(result.exam_name || 'Bài thi') + '"><span>Xem chi tiết bài làm</span>' + arrowIcon + '</button>' : '<div class="student-result-access-note">Giáo viên chưa cho phép xem chi tiết bài làm.</div>');
         const button = card.querySelector('button');
-        button.addEventListener('click', async () => {
+        if (button) button.addEventListener('click', async () => {
             if (button.disabled || typeof onOpen !== 'function') return;
             button.disabled = true;
             const label = button.querySelector('span');
@@ -217,23 +219,26 @@ function labelForQuestionType(type) {
 
 export function buildStudentResultDetailMarkup(result, { formatDate, formatDuration } = {}) {
     const details = normalizeExamReviewDetails(result && result.details || []);
-    const score = studentResultScore(result && result.score);
+    const canScore = result && result.can_view_score === true;
+    const score = canScore ? studentResultScore(result && result.score) : null;
     const total = Math.max(0, Number(result && result.total_questions) || details.length || 0);
-    const correct = Math.max(0, Number(result && result.correct_count) || 0);
+    const correct = canScore ? Math.max(0, Number(result && result.correct_count) || 0) : null;
     const time = formatDuration ? formatDuration(result && result.time_taken) : studentResultDuration(result && result.time_taken);
     const date = formatDate ? formatDate(result && result.created_at) : 'Chưa xác định';
     const counts = { all: details.length, correct: 0, review: 0, unanswered: 0, recorded: 0 };
     const questionHtml = details.map((detail, index) => {
         const q = detail.question || {};
-        const status = studentAnswerStatus(detail);
+        const status = canScore ? studentAnswerStatus(detail) : (detail.userAnswer == null || detail.userAnswer === '' ? {key:'unanswered',label:'Chưa trả lời'} : {key:'recorded',label:'Đã nộp'});
         counts[status.key]++;
         const questionText = getExamReviewText(q.content);
         const prompt = questionText ?
             renderExamReviewMath(q.content) :
             '<span class="student-detail-unavailable">Bản lưu kết quả không có nội dung câu hỏi.</span>';
         // Only the student's selected option is highlighted; never pass correctAnswer.
-        const options = renderExamDetailOptions(q, detail.userAnswer, undefined, 18);
-        const scoreValue = studentResultScore(detail.score);
+        const options = renderExamDetailOptions(q, detail.userAnswer, detail.correctAnswer, 18);
+        const correctAnswerHtml = detail.correctAnswer !== undefined && detail.correctAnswer !== null && String(detail.correctAnswer).trim() !== ''
+            ? '<div class="student-detail-response"><div class="student-detail-response-label">ĐÁP ÁN ĐÚNG / HƯỚNG DẪN</div><div class="student-detail-richtext">' + renderExamReviewMath(String(detail.correctAnswer)) + '</div></div>' : '';
+        const scoreValue = canScore ? studentResultScore(detail.score) : null;
         const savedScore = scoreValue === null ? '' :
             '<span class="student-detail-earned">' + escapeStudentText(scoreDisplay(scoreValue)) + ' điểm</span>';
         return '<article class="student-detail-question" data-student-status="' + status.key +
@@ -247,7 +252,7 @@ export function buildStudentResultDetailMarkup(result, { formatDate, formatDurat
             '<div class="student-detail-question-body"><div class="student-detail-prompt">' + prompt + '</div>' +
                 studentImageHtml(q.image, 'Hình minh họa câu ' + (index + 1)) + options +
                 '<div class="student-detail-response"><div class="student-detail-response-label">CÂU TRẢ LỜI ĐÃ NỘP</div>' +
-                studentAnswerHtml(detail) + '</div>' +
+                studentAnswerHtml(detail) + '</div>' + correctAnswerHtml +
             '</div></article>';
     }).join('');
     const chips = [
@@ -256,7 +261,7 @@ export function buildStudentResultDetailMarkup(result, { formatDate, formatDurat
         ['review', 'Cần xem lại', counts.review],
         ['unanswered', 'Chưa trả lời', counts.unanswered],
         ['recorded', 'Khác', counts.recorded]
-    ].map(([value, label, count], i) => {
+    ].filter(([value]) => canScore || !['correct','review'].includes(value)).map(([value, label, count], i) => {
         return '<button type="button" class="student-detail-filter' + (i === 0 ? ' is-active' : '') +
             '" data-student-filter="' + value + '" aria-pressed="' + (i === 0 ? 'true' : 'false') +
             '">' + label + '<span>' + count + '</span></button>';
@@ -270,8 +275,8 @@ export function buildStudentResultDetailMarkup(result, { formatDate, formatDurat
         '</header>' +
         '<div class="student-detail-content">' +
             '<section class="student-detail-stat-grid" aria-label="Tổng quan kết quả">' +
-                '<div class="student-detail-stat student-detail-stat-score"><span>ĐIỂM BÀI THI</span><strong>' + escapeStudentText(scoreDisplay(score)) + '</strong><small>Điểm đã ghi nhận</small></div>' +
-                '<div class="student-detail-stat"><span>SỐ CÂU ĐÚNG</span><strong>' + escapeStudentText(correct) + '<em> / ' + escapeStudentText(total) + '</em></strong><small>Câu hỏi</small></div>' +
+                '<div class="student-detail-stat student-detail-stat-score"><span>ĐIỂM BÀI THI</span><strong>' + (canScore ? escapeStudentText(scoreDisplay(score)) : 'Đã ẩn') + '</strong><small>Theo cấu hình đề thi</small></div>' +
+                '<div class="student-detail-stat"><span>SỐ CÂU ĐÚNG</span><strong>' + (canScore ? escapeStudentText(correct) : 'Đã ẩn') + '<em> / ' + escapeStudentText(total) + '</em></strong><small>Câu hỏi</small></div>' +
                 '<div class="student-detail-stat"><span>THỜI GIAN</span><strong>' + escapeStudentText(time) + '</strong><small>Phút : giây</small></div>' +
             '</section>' +
             '<div class="student-detail-section-head"><div><span class="student-detail-subtitle">BÀI LÀM ĐÃ LƯU</span>' +
