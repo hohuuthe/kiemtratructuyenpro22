@@ -10,6 +10,10 @@ const accounts:Record<string,any>={
  b:{id:'account-b',user_id:'student-b',username:'b',password:'pbkdf2:def',role:'user',target_audience:'Học sinh',full_name:'Duplicate Name',is_active:1,profile_active:1},
  t:{id:'teacher-t',user_id:'teacher-profile',username:'t',password:'pbkdf2:ghi',role:'teacher',target_audience:'Giáo viên',is_active:1,profile_active:1}
 };
+const configs:Record<string,any>={
+ 'shared-exam':{show_score:1,show_details:1},
+ 'private-exam':{show_score:1,show_details:1}
+};
 const records=[
  {id:'a1',user_id:'student-a',exam_id:'shared-exam',exam_name:'Đề trùng tên',score:9,correct_count:9,total_questions:10,time_taken:120,created_at:'2026-10-24',details:'[{"userAnswer":"A"}]'},
  {id:'a2',user_id:'account-a',exam_id:'private-exam',exam_name:'Đề riêng',score:7,correct_count:7,total_questions:10,time_taken:180,created_at:'2026-10-23',details:'[]'},
@@ -25,16 +29,17 @@ function database(){
     async first(){
      if(sql.includes('FROM accounts a'))return Object.values(accounts).find(x=>x.id===bound[0])||null;
      if(sql.includes('COUNT(*)'))return {total:records.filter(x=>bound.includes(x.user_id)).length};
-     if(sql.includes('FROM results')){
+     if(sql.includes('FROM results r')){
        const [requested,...ids]=bound;
-       return records.find(x=>x.id===requested&&ids.includes(x.user_id))||null;
+       const row=records.find(x=>x.id===requested&&ids.includes(x.user_id));
+       return row?{...row,exam_show_score:configs[row.exam_id]?.show_score,exam_show_details:configs[row.exam_id]?.show_details}:null;
      }
      throw Error('Unexpected SQL: '+sql);
     },
     async all(){
-     if(sql.includes('SELECT id, exam_id, exam_name') && sql.includes('FROM results WHERE')){
+     if(sql.includes('FROM results r') && sql.includes('LEFT JOIN exam_configs')){
       const ids=bound.slice(0,-2),limit=bound.at(-2),offset=bound.at(-1);
-      return {results:records.filter(x=>ids.includes(x.user_id)).sort((a,b)=>b.created_at.localeCompare(a.created_at)).slice(offset,offset+limit)};
+      return {results:records.filter(x=>ids.includes(x.user_id)).sort((a,b)=>b.created_at.localeCompare(a.created_at)).slice(offset,offset+limit).map(row=>({...row,exam_show_score:configs[row.exam_id]?.show_score,exam_show_details:configs[row.exam_id]?.show_details}))};
      }
      throw Error('Unexpected SQL: '+sql);
     },
