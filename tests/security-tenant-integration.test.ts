@@ -38,7 +38,7 @@ test('Page and Node exam endpoints require atomic conflict protection and no nam
   const node=fs.readFileSync('server.ts','utf8');
   for (const source of [page,node]) {
     assert.match(source,/updated_at IS NOT DISTINCT FROM \?/);
-    assert.match(source,/updateResult/);
+    assert.match(source,/updateResult|result\.meta\?\.changes/);
     assert.match(source,/409/);
     assert.doesNotMatch(source,/r\.exam_id\s*=\s*e\.id\s+OR\s+r\.exam_name\s*=\s*e\.name/);
   }
