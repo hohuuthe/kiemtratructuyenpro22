@@ -1,4 +1,5 @@
-import { verifyAuthSession, getDynamicSecret, getDatabase } from './exam/utils';
+import { verifyAuthSession, getDynamicSecret, getDatabase, checkIsTeacherOrAdmin, checkIsAdmin } from './exam/utils';
+import { requiredQuestionLesson, questionLessonDeleteScope, requireQuestionLessonConfirmation, questionLessonCountQuery, questionLessonDeleteQuery, QuestionLessonDeleteError } from '../../src/question-lesson-delete-policy';
 
 interface Env {
   NEON_DATABASE_URL?: string;
@@ -235,6 +236,38 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     return new Response(JSON.stringify({ success: true, count: questions.length, error: null }), { status: 200, headers: corsHeaders });
   } catch (e: any) {
     return new Response(JSON.stringify({ error: e.message || "Lỗi lưu câu hỏi", success: false }), { status: 500, headers: corsHeaders });
+  }
+};
+
+// Scoped lesson deletion: preview count and final DELETE are separate authenticated requests.
+// Admin deletes all creators in the exact lesson; teachers only delete their own.
+export const onRequestPostDeleteLesson: PagesFunction<Env> = async (context) => {
+  const db=getDatabase(context),{request,env}=context;
+  const respond=(body:any,status=200)=>new Response(JSON.stringify(body),{status,headers:corsHeaders});
+  try {
+    const auth=request.headers.get('Authorization');
+    if (!auth?.startsWith('Bearer ')) return respond({error:'Vui lòng đăng nhập'},401);
+    const user=await verifyAuthSession(auth.slice(7),await getDynamicSecret(db,env.JWT_SECRET),db);
+    if (!user) return respond({error:'Phiên đăng nhập không hợp lệ'},401);
+    if (!checkIsTeacherOrAdmin(user)) return respond({error:'Không có quyền xóa ngân hàng câu hỏi'},403);
+    const body:any=await request.json();
+    const scope=questionLessonDeleteScope(requiredQuestionLesson(body?.lesson),user.id,checkIsAdmin(user));
+    const countQuery=questionLessonCountQuery(scope);
+    const before:any=await db.prepare(countQuery.sql).bind(...countQuery.params).first();
+    const count=Number(before?.total||0);
+    if(body?.action==='preview')return respond({lesson:scope.lesson,count,scope:scope.scope});
+    if(body?.action!=='delete')return respond({error:'Thao tác không hợp lệ'},400);
+    const expected=requireQuestionLessonConfirmation(body?.confirmation,body?.expectedCount);
+    if(count!==expected)return respond({error:'Danh sách câu hỏi đã thay đổi. Vui lòng kiểm tra lại trước khi xóa.',code:'LESSON_CHANGED',count},409);
+    const command=questionLessonDeleteQuery(scope,expected);
+    const deleted=await db.prepare(command.sql).bind(...command.params).run();
+    const changes=Number(deleted?.meta?.changes||0);
+    if(changes!==expected)return respond({error:'Danh sách đã thay đổi, không xóa dữ liệu. Vui lòng thử lại.',code:'LESSON_CHANGED',count:Math.max(0,count-changes)},409);
+    return respond({success:true,lesson:scope.lesson,deletedCount:changes});
+  }catch(err:any){
+    if(err instanceof QuestionLessonDeleteError)return respond({error:err.message,code:err.code},err.status);
+    console.error('Lesson deletion error',err?.message||err);
+    return respond({error:'Không thể xóa câu hỏi theo bài. Dữ liệu chưa được xác nhận đã xóa.'},500);
   }
 };
 
