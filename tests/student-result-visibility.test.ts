@@ -18,12 +18,14 @@ test('Hidden marks do not leak score, correct count, grading key, internal feedb
     userAnswer:'B',correctAnswer:'A',isCorrect:false,score:0,aiFeedback:'PRIVATE_FEEDBACK'
   }]),false);
   const data=JSON.stringify(details);
-  for(const forbidden of ['PRIVATE_KEY','PRIVATE_IMAGE','PRIVATE_FEEDBACK','correctAnswer','isCorrect','"score":','"answer":'])assert.ok(!data.includes(forbidden),forbidden);
+  for(const forbidden of ['PRIVATE_KEY','PRIVATE_IMAGE','PRIVATE_FEEDBACK','isCorrect','"score":','"answer":'])assert.ok(!data.includes(forbidden),forbidden);
   assert.equal(details[0].question.options.A,'First');
   assert.equal(details[0].userAnswer,'B');
+  assert.equal(details[0].correctAnswer,'A');
 });
-test('Score visible still never reveals answer key or grading feedback',()=>{
+test('Score visible returns the authorized answer but no embedded keys or grading feedback',()=>{
   const details=projectStudentAttemptDetails([{question:{type:'SQ',content:'Q',answer:'SECRET'},userAnswer:'test',correctAnswer:'SECRET',score:1,isCorrect:true,aiFeedback:'SECRET_NOTE'}],true);
   assert.equal(details[0].score,1);assert.equal(details[0].isCorrect,true);
-  assert.ok(!JSON.stringify(details).includes('SECRET'));
+  assert.equal(details[0].correctAnswer,'SECRET');
+  assert.ok(!JSON.stringify(details).includes('SECRET_NOTE'));
 });
