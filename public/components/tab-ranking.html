@@ -1,14 +1,29 @@
 <div id="tab-ranking" class="tab-content">
-    <section id="ranking-student-panel" class="hidden mx-auto max-w-5xl rounded-2xl bg-slate-50 p-4 sm:p-6 shadow-sm space-y-4">
-      <div class="flex flex-wrap items-center justify-between gap-3">
-        <div><h2 class="text-xl font-bold text-slate-900">Kết quả bài thi của tôi</h2>
-          <p id="ranking-student-summary" class="text-sm text-slate-600" aria-live="polite">Chỉ hiển thị bài làm thuộc tài khoản đã đăng nhập.</p></div>
-        <button type="button" onclick="loadMyStudentResults(0)" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">Tải lại kết quả</button>
+    <section id="ranking-student-panel" class="student-results-panel hidden" aria-label="Kết quả bài thi của tôi">
+      <div class="student-results-hero">
+        <div class="student-results-hero-copy"><span class="student-results-eyebrow">KHÔNG GIAN HỌC TẬP CỦA BẠN</span><h2>Kết quả bài thi của tôi</h2>
+          <p>Nhìn lại hành trình học tập, theo dõi tiến bộ và xem từng bài làm đã nộp.</p>
+          <span class="student-results-privacy">♢ Dữ liệu riêng tư · Chỉ dành cho tài khoản của bạn</span></div>
+        <button type="button" onclick="loadMyStudentResults(0)" class="student-results-refresh" title="Tải lại kết quả mới nhất">↻ <span>Tải lại kết quả</span></button>
       </div>
-      <div id="ranking-student-list" class="grid gap-3 sm:grid-cols-2" aria-live="polite"></div>
-      <div class="flex justify-center gap-3">
-        <button id="ranking-student-prev" type="button" onclick="myStudentResultsPage(-1)" class="rounded-lg border px-4 py-2 disabled:opacity-40" disabled>Trang trước</button>
-        <button id="ranking-student-next" type="button" onclick="myStudentResultsPage(1)" class="rounded-lg border px-4 py-2 disabled:opacity-40" disabled>Trang sau</button>
+      <div class="student-results-content">
+        <div class="student-results-metrics">
+          <div class="student-results-metric"><div class="student-results-metric-icon">▣</div><span>TỔNG LƯỢT LÀM BÀI</span><strong id="ranking-student-total">—</strong><small>Toàn bộ bài thi đã nộp</small></div>
+          <div class="student-results-metric"><div class="student-results-metric-icon student-results-metric-indigo">★</div><span>ĐIỂM CAO NHẤT</span><strong id="ranking-student-best">—</strong><small>Trong trang kết quả đang xem</small></div>
+          <div class="student-results-metric"><div class="student-results-metric-icon student-results-metric-amber">☷</div><span>ĐỀ THI ĐÃ THAM GIA</span><strong id="ranking-student-exams">—</strong><small>Số đề khác nhau trong trang</small></div>
+        </div>
+        <div class="student-results-toolbar">
+          <div class="student-results-toolbar-heading"><h3>Danh sách bài thi</h3><p id="ranking-student-summary" aria-live="polite">Chỉ hiển thị kết quả của bạn.</p></div>
+          <div class="student-results-controls"><label class="student-results-search"><span aria-hidden="true">⌕</span><input id="ranking-student-search" type="search" placeholder="Tìm tên đề thi..." aria-label="Tìm theo tên đề thi" oninput="renderMyStudentResultsPage()"></label>
+            <select id="ranking-student-score-filter" aria-label="Lọc theo điểm" onchange="renderMyStudentResultsPage()"><option value="all">Tất cả điểm</option><option value="high">Từ 8 điểm</option><option value="medium">5 đến dưới 8</option><option value="low">Dưới 5 điểm</option></select>
+            <select id="ranking-student-sort" aria-label="Sắp xếp kết quả" onchange="renderMyStudentResultsPage()"><option value="recent">Mới nhất</option><option value="oldest">Cũ nhất</option><option value="score-desc">Điểm cao nhất</option><option value="score-asc">Điểm thấp nhất</option></select>
+          </div>
+        </div>
+        <div id="ranking-student-list" class="student-results-grid" aria-live="polite" aria-busy="false"></div>
+        <div class="student-results-footer">
+          <p id="ranking-student-page-info">Kết quả chỉ được tải theo từng trang.</p>
+          <div class="student-results-pagination"><button id="ranking-student-prev" type="button" onclick="myStudentResultsPage(-1)" disabled>← Trang trước</button><span id="ranking-student-page-number" aria-live="polite">Trang 1</span><button id="ranking-student-next" type="button" onclick="myStudentResultsPage(1)" disabled>Trang sau →</button></div>
+        </div>
       </div>
     </section>
     <div id="ranking-admin-panel" class="bg-white rounded-2xl shadow-xl p-3 md:p-5 mb-4">
