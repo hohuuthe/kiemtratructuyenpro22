@@ -235,7 +235,9 @@ export function buildStudentResultDetailMarkup(result, { formatDate, formatDurat
             renderExamReviewMath(q.content) :
             '<span class="student-detail-unavailable">Bản lưu kết quả không có nội dung câu hỏi.</span>';
         // Only the student's selected option is highlighted; never pass correctAnswer.
-        const options = renderExamDetailOptions(q, detail.userAnswer, undefined, 18);
+        const options = renderExamDetailOptions(q, detail.userAnswer, detail.correctAnswer, 18);
+        const correctAnswerHtml = detail.correctAnswer !== undefined && detail.correctAnswer !== null && String(detail.correctAnswer).trim() !== ''
+            ? '<div class="student-detail-response"><div class="student-detail-response-label">ĐÁP ÁN ĐÚNG / HƯỚNG DẪN</div><div class="student-detail-richtext">' + renderExamReviewMath(String(detail.correctAnswer)) + '</div></div>' : '';
         const scoreValue = canScore ? studentResultScore(detail.score) : null;
         const savedScore = scoreValue === null ? '' :
             '<span class="student-detail-earned">' + escapeStudentText(scoreDisplay(scoreValue)) + ' điểm</span>';
@@ -250,7 +252,7 @@ export function buildStudentResultDetailMarkup(result, { formatDate, formatDurat
             '<div class="student-detail-question-body"><div class="student-detail-prompt">' + prompt + '</div>' +
                 studentImageHtml(q.image, 'Hình minh họa câu ' + (index + 1)) + options +
                 '<div class="student-detail-response"><div class="student-detail-response-label">CÂU TRẢ LỜI ĐÃ NỘP</div>' +
-                studentAnswerHtml(detail) + '</div>' +
+                studentAnswerHtml(detail) + '</div>' + correctAnswerHtml +
             '</div></article>';
     }).join('');
     const chips = [
