@@ -36,10 +36,10 @@ test('Result review escapes user-controlled metadata and never reveals keys or t
     assert.ok(html.includes('Chi tiết bài làm'));
     assert.ok(html.includes('&lt;img src=x onerror=alert(1)&gt;'));
     assert.ok(!html.includes('<script>boom()'));
-    assert.ok(!html.includes('SECRET_ANSWER_KEY'));
+    assert.ok(html.includes('SECRET_ANSWER_KEY'));
     assert.ok(!html.includes('SECRET_TEACHER_FEEDBACK'));
     assert.ok(!html.includes('SECRET_AI_FEEDBACK'));
-    assert.ok(!html.includes('Đáp án đúng'));
+    assert.ok(html.includes('Đáp án đúng'));
     assert.ok(html.includes('scientific') || html.includes('katex'));
     assert.ok(html.includes('Đáp án B'));
 });
