@@ -161,6 +161,14 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
       await db.prepare("ALTER TABLE users ADD COLUMN lop TEXT").run();
     } catch (e) {}
 
+    // Student requests are confined to the private, authenticated endpoint.
+    // Never serve shared-exam rosters or legacy lists to logged-in students.
+    if (isStudent) {
+      return new Response(JSON.stringify({ error: 'Sử dụng API kết quả cá nhân.' }), {
+        status: 403, headers: { ...corsHeaders, 'Cache-Control': 'no-store' }
+      });
+    }
+
     // 1. Lấy chi tiết một bài nộp theo ID (cho modal xem chi tiết / chấm điểm)
     if (idParam) {
       let results: any[] = [];

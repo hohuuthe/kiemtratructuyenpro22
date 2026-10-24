@@ -41,6 +41,8 @@ jobs:
         run: node --import tsx --test tests/word-import-chemistry-heat-roundtrip.test.mjs
       - name: Exam management and editor tab business contract
         run: node --test tests/exam-tab-separation.test.mjs tests/question-list-single-actions.test.mjs tests/question-bank-recent-view.test.mjs tests/exam-config-table-layout.test.mjs tests/exam-export-modal-layout.test.mjs tests/ranking-unit-filter.test.mjs
+      - name: Student private results authorization and IDOR tests
+        run: node --import tsx --test tests/student-results-privacy.test.ts
       - name: Runtime authentication revocation tests
         run: node --import tsx --test tests/security-session-runtime.test.ts
       - name: Tenant / revocation / CAS integration contracts

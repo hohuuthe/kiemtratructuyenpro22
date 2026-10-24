@@ -1,5 +1,17 @@
 <div id="tab-ranking" class="tab-content">
-    <div class="bg-white rounded-2xl shadow-xl p-3 md:p-5 mb-4">
+    <section id="ranking-student-panel" class="hidden mx-auto max-w-5xl rounded-2xl bg-slate-50 p-4 sm:p-6 shadow-sm space-y-4">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div><h2 class="text-xl font-bold text-slate-900">Kết quả bài thi của tôi</h2>
+          <p id="ranking-student-summary" class="text-sm text-slate-600" aria-live="polite">Chỉ hiển thị bài làm thuộc tài khoản đã đăng nhập.</p></div>
+        <button type="button" onclick="loadMyStudentResults(0)" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">Tải lại kết quả</button>
+      </div>
+      <div id="ranking-student-list" class="grid gap-3 sm:grid-cols-2" aria-live="polite"></div>
+      <div class="flex justify-center gap-3">
+        <button id="ranking-student-prev" type="button" onclick="myStudentResultsPage(-1)" class="rounded-lg border px-4 py-2 disabled:opacity-40" disabled>Trang trước</button>
+        <button id="ranking-student-next" type="button" onclick="myStudentResultsPage(1)" class="rounded-lg border px-4 py-2 disabled:opacity-40" disabled>Trang sau</button>
+      </div>
+    </section>
+    <div id="ranking-admin-panel" class="bg-white rounded-2xl shadow-xl p-3 md:p-5 mb-4">
       <!-- Header & Hàng nút: Tải lại kết quả + Báo cáo + Export Excel -->
       <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 mb-4 pb-3 border-b border-gray-100">
         <h2 class="text-lg sm:text-xl font-bold text-gray-800 flex items-center gap-2">

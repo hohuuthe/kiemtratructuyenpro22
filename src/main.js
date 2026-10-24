@@ -1705,7 +1705,7 @@ Trả về kết quả dưới dạng JSON Array, mỗi phần tử tương ứn
             // Đồng bộ ẩn tab dựa trên vai trò thực tế (Học sinh) - CHỈ ẩn nếu không phải Admin/GV
             const isActualStudent = currentUser && currentUser.target_audience === 'Học sinh' && !isAdminLoggedIn && !isTeacherLoggedIn;
             if (isActualStudent) {
-                const tabsToHide = ['ranking'];
+                const tabsToHide = [];
                 tabsToHide.forEach(tab => {
                     const btn = document.querySelector(`.tab-btn[data-tab="${tab}"]`);
                     if (btn) btn.classList.add('hidden');
@@ -2195,6 +2195,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             applyDoiTuongConfig();
             updateSidebarVisibility();
 
+            resetMyStudentResults();
             // Nạp lại dữ liệu theo quyền hạn tài khoản đăng nhập đồng thời (Song song, không tuần tự)
             const loadTasks = [loadData()];
             if (isAdminLoggedIn || isTeacherLoggedIn) {
@@ -2303,7 +2304,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 if (!isTeacherLoggedIn) {
                     document.querySelector('[data-tab="questions"]')?.classList.add('hidden');
                     document.querySelector('[data-tab="exams"]')?.classList.add('hidden');
-                    document.querySelector('[data-tab="ranking"]')?.classList.add('hidden');
+                    document.querySelector('[data-tab="ranking"]')?.classList.toggle('hidden', !currentUser);
                 }
             }
             
@@ -2379,7 +2380,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                     visible = true;
                 } else if (tab === 'ranking') {
                     // QL Kết quả: Hiển thị cho Giáo viên và Admin (ẩn đối với Học sinh)
-                    visible = isTeacher || isAdmin;
+                    visible = isTeacher || isAdmin || Boolean(currentUser);
                 } else if (tab === 'questions' || tab === 'exams' || tab === 'exam-editor') {
                     // QL Câu hỏi, QL Đề thi: Dành cho Giáo viên và Admin
                     visible = isTeacher || isAdmin;
@@ -2487,6 +2488,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             window.isTeacherLoggedIn = false;
             window.currentUser = null;
             
+            resetMyStudentResults();
             // Xóa sạch dữ liệu trong bộ nhớ để bảo mật tuyệt đối
             if (typeof questions !== 'undefined') questions.length = 0;
             if (typeof exams !== 'undefined') exams.length = 0;
@@ -3207,6 +3209,131 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             }
         }
 
+        // Student history is isolated from results[] (teacher/admin data).
+        // Only /api/results/me is called; no IDs are supplied for list access.
+        let myStudentResults = [];
+        let myStudentPage = 0;
+        let myStudentTotal = 0;
+        let myStudentRequestSeq = 0;
+        const myStudentPageSize = 30;
+        function resetMyStudentResults() {
+            ++myStudentRequestSeq;
+            myStudentResults = [];
+            myStudentPage = 0;
+            myStudentTotal = 0;
+            const list = document.getElementById('ranking-student-list');
+            if (list) list.textContent = '';
+            const meta = document.getElementById('ranking-student-summary');
+            if (meta) meta.textContent = '';
+        }
+        window.loadMyStudentResults = loadMyStudentResults;
+        async function loadMyStudentResults(page = 0) {
+            if (!currentUser || isAdminLoggedIn || isTeacherLoggedIn) return;
+            const expectedAccount = String(currentUser.id || '');
+            const seq = ++myStudentRequestSeq;
+            const list = document.getElementById('ranking-student-list');
+            const summary = document.getElementById('ranking-student-summary');
+            if (list) list.textContent = 'Đang tải kết quả cá nhân...';
+            try {
+                const token = localStorage.getItem('auth_token') || '';
+                if (!token) throw new Error('Phiên đăng nhập không hợp lệ');
+                const offset = Math.max(0, Number(page) || 0) * myStudentPageSize;
+                const response = await fetch('/api/results/me?limit=30&offset=' + offset, {
+                    headers: { Authorization: 'Bearer ' + token },
+                    cache: 'no-store'
+                });
+                if (!response.ok) throw new Error('Không thể tải kết quả cá nhân (' + response.status + ')');
+                const payload = await response.json();
+                if (seq !== myStudentRequestSeq || !currentUser ||
+                    String(currentUser.id || '') !== expectedAccount || isTeacherLoggedIn || isAdminLoggedIn) return;
+                if (!Array.isArray(payload.data)) throw new Error('Phản hồi dữ liệu không hợp lệ');
+                myStudentResults = payload.data;
+                myStudentTotal = Number(payload.total) || 0;
+                myStudentPage = Number(page) || 0;
+                if (summary) summary.textContent = 'Tổng số lượt làm bài: ' + myStudentTotal;
+                if (list) {
+                    list.replaceChildren();
+                    if (!myStudentResults.length) list.textContent = 'Bạn chưa có bài thi nào được ghi nhận.';
+                    for (const result of myStudentResults) {
+                        const card = document.createElement('div');
+                        card.className = 'rounded-xl border border-blue-100 bg-white p-4 shadow-sm space-y-2';
+                        const title = document.createElement('h3');
+                        title.className = 'font-bold text-gray-900';
+                        title.textContent = String(result.exam_name || 'Bài thi');
+                        const description = document.createElement('p');
+                        description.className = 'text-sm text-gray-600';
+                        description.textContent = 'Điểm: ' + (Number(result.score) || 0).toFixed(1) +
+                          ' | Đúng: ' + (Number(result.correct_count) || 0) + '/' +
+                          (Number(result.total_questions) || 0) + ' | Thời gian: ' +
+                          formatTime(Number(result.time_taken) || 0) +
+                          ' | Nộp: ' + window.formatVNTime(result.created_at);
+                        const details = document.createElement('button');
+                        details.type = 'button';
+                        details.className = 'rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-700';
+                        details.textContent = 'Xem chi tiết bài làm';
+                        details.addEventListener('click', () => window.showMyStudentResultDetail(String(result.id)));
+                        card.append(title, description, details);
+                        list.appendChild(card);
+                    }
+                }
+                const previous = document.getElementById('ranking-student-prev');
+                const next = document.getElementById('ranking-student-next');
+                if (previous) previous.disabled = myStudentPage <= 0;
+                if (next) next.disabled = (myStudentPage + 1) * myStudentPageSize >= myStudentTotal;
+            } catch (error) {
+                if (seq === myStudentRequestSeq && list) list.textContent = error.message || 'Không thể tải kết quả.';
+            }
+        }
+        window.myStudentResultsPage = function(delta) {
+            loadMyStudentResults(Math.max(0, myStudentPage + delta));
+        };
+        window.showMyStudentResultDetail = async function(id) {
+            if (!currentUser || isAdminLoggedIn || isTeacherLoggedIn) return;
+            const expectedAccount = String(currentUser.id || '');
+            const seq = myStudentRequestSeq;
+            try {
+                const token = localStorage.getItem('auth_token') || '';
+                const response = await fetch('/api/results/me?id=' + encodeURIComponent(id), {
+                    headers: { Authorization: 'Bearer ' + token }, cache: 'no-store'
+                });
+                if (!response.ok) throw new Error('Không có quyền xem bài làm này (' + response.status + ')');
+                const payload = await response.json();
+                if (seq !== myStudentRequestSeq || String(currentUser?.id || '') !== expectedAccount ||
+                    !currentUser || isAdminLoggedIn || isTeacherLoggedIn) return;
+                const result = payload.data;
+                if (!result || String(result.id) !== id) throw new Error('Dữ liệu chi tiết không hợp lệ');
+                const details = normalizeExamReviewDetails(result.details || []);
+                // Show only the student's own submitted responses and grading;
+                // no exam configuration or other users' data is fetched.
+                const content = document.createElement('div');
+                content.className = 'p-5 max-h-[75vh] overflow-y-auto';
+                const heading = document.createElement('h3');
+                heading.className = 'text-lg font-bold mb-3';
+                heading.textContent = String(result.exam_name || 'Chi tiết bài thi');
+                content.appendChild(heading);
+                const stats = document.createElement('p');
+                stats.className = 'mb-4 text-sm font-semibold text-gray-700';
+                stats.textContent = 'Điểm: ' + (Number(result.score) || 0).toFixed(1) +
+                  ' | Số câu đúng: ' + (Number(result.correct_count) || 0) + '/' + (Number(result.total_questions) || 0);
+                content.appendChild(stats);
+                for (let i = 0; i < details.length; i++) {
+                    const row = document.createElement('section');
+                    row.className = 'border-b border-gray-200 py-3 text-sm';
+                    const prompt = document.createElement('p');
+                    prompt.className = 'font-semibold';
+                    prompt.textContent = 'Câu ' + (i + 1) + ': ' + String(details[i]?.question?.content || '').replace(/<[^>]*>/g, ' ');
+                    const answer = document.createElement('p');
+                    answer.className = 'text-gray-700 mt-1';
+                    answer.textContent = 'Bài làm: ' + (typeof details[i]?.userAnswer === 'object'
+                        ? JSON.stringify(details[i].userAnswer) : String(details[i]?.userAnswer ?? 'Chưa trả lời'));
+                    row.append(prompt, answer);
+                    content.appendChild(row);
+                }
+                const safeHtml = content.outerHTML;
+                showModal(safeHtml, true);
+            } catch (error) { showToast(error.message || 'Không thể mở bài làm.', 'error'); }
+        };
+
         window.refreshRankingResults = async function() {
             try {
                 await loadAllResults(true);
@@ -3519,16 +3646,14 @@ if (contentType && contentType.includes("application/json")) {
                     const ecData = ecResJson.data || [];
                     const ecResult = { data: ecData, allCreatorIds: ecResJson.allCreatorIds, error: null };
 
-                    const resultsQuery = fetch('/api/results?limit=500', { headers: { 'Authorization': 'Bearer ' + token } })
-                        .then(res => res.json())
-                        .catch(() => ({ data: [] }));
+                    // No legacy, cross-user results payload is requested for students.
+                    // Their personal history is loaded only on opening QL Kết quả.
+                    const resultsQuery = Promise.resolve({ data: [] });
                     
                     const qCountPromise = fetch('/api/questions?count=true', { headers: { 'Authorization': 'Bearer ' + token } }).then(res => res.json()).catch(() => ({ count: 0 }));
                     const rCountPromise = fetch('/api/results?count=true', { headers: { 'Authorization': 'Bearer ' + token } }).then(res => res.json()).catch(() => ({ count: 0 }));
                     
-                    const accountsQuery = fetch('/api/accounts', { headers: { 'Authorization': 'Bearer ' + token } })
-                                                .then(res => res.json())
-                                                .catch(() => ({error: 'Lỗi lấy danh sách tài khoản', data: null}));
+                    const accountsQuery = Promise.resolve({ data: [] });
 
                     const [rResult, accResult, sResult, qCountResult, rCountResult] = await Promise.all([
                         resultsQuery,
@@ -3983,7 +4108,7 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
             if (protectedTabs.includes(tabName)) {
                 // Các tab chỉ dành riêng cho Admin: accounts, settings, teacher-assignment
                 const adminOnlyTabs = ['accounts', 'settings', 'teacher-assignment'];
-                const isAuthorized = isAdminLoggedIn || (isTeacherLoggedIn && !adminOnlyTabs.includes(tabName));
+                const isAuthorized = isAdminLoggedIn || (isTeacherLoggedIn && !adminOnlyTabs.includes(tabName)) || (tabName === 'ranking' && Boolean(currentUser));
                 
                 if (!isAuthorized) {
                     requireAdminAuth(tabName);
@@ -4045,7 +4170,15 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
                 }
             }
 
+            if (tabName === 'ranking' && currentUser && !isAdminLoggedIn && !isTeacherLoggedIn) {
+                document.getElementById('ranking-student-panel')?.classList.remove('hidden');
+                document.getElementById('ranking-admin-panel')?.classList.add('hidden');
+                loadMyStudentResults();
+                return;
+            }
             if (tabName === 'ranking') {
+                document.getElementById('ranking-student-panel')?.classList.add('hidden');
+                document.getElementById('ranking-admin-panel')?.classList.remove('hidden');
                 let loadPromise = null;
                 if (isAdminLoggedIn && Object.keys(examToCreatorMap).length === 0) {
                     // Tải danh sách đề thi để định vị người tạo & phục vụ bộ lọc
