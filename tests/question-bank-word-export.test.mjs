@@ -3,7 +3,7 @@ import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import JSZip from 'jszip';
 import { buildQuestionBankExportInventory, buildQuestionBankExportPlan } from '../src/question-bank-word-selection.js';
-import { generateQuestionBankDocx } from '../src/question-bank-docx-generator.ts';
+import { generateQuestionBankDocx, formatQuestionBankAnswerForWord } from '../src/question-bank-docx-generator.ts';
 
 const png = Uint8Array.from(Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg==', 'base64'
@@ -148,4 +148,19 @@ test('Main menu opens the verified modal, updates its selected totals and export
   const exporter=code.slice(code.indexOf('window.executeExportWord = async'),code.indexOf('window.exportStatsToExcel = async'));
   assert.ok(!exporter.includes('matched.slice(0, filter.count)'), 'Old unverified truncation must be removed');
   assert.ok(!exporter.includes('Packer.toBlob(doc).then'), 'Do not announce success without awaiting the DOCX');
+});
+
+test('Word answer keys show without surrounding square brackets, without changing source', async()=>{
+ const cases=[['[B&D]','B&D'],['["B","D"]','B&D'],[['B','D'],'B&D'],['[A]','A'],['A&C','A&C']];
+ for(const [input,expected] of cases) assert.equal(formatQuestionBankAnswerForWord(input,'TF4'),expected);
+ assert.equal(formatQuestionBankAnswerForWord('[0;1]','SQ'),'[0;1]');
+ assert.equal(formatQuestionBankAnswerForWord('[Cu(NH3)4]','SQ'),'[Cu(NH3)4]');
+ const source={id:'ANS-01',creatorId:owner,lesson:'Bài 1',type:'TF4',content:'Đáp án nào đúng?',answer:'[B&D]'};
+ const inventory=buildQuestionBankExportInventory([source],owner);
+ const plan=buildQuestionBankExportPlan(inventory,[{lesson:'Bài 1',type:'TF4',count:1}]);
+ const {xml}=await docxXml(await generateQuestionBankDocx(plan));
+ assert.match(xml,/Đáp án: /);
+ assert.match(xml,/B&amp;D/);
+ assert.ok(!xml.includes('[B&amp;D]'));
+ assert.equal(source.answer,'[B&D]');
 });
