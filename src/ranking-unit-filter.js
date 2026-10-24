@@ -8,7 +8,8 @@ export function buildRankingUnitOptions({
     isTeacher = false,
     teacherUnit = '',
     resultsReady = true,
-    previousValue = ''
+    previousValue = '',
+    selectionInitialized = false
 } = {}) {
     const units = new Set();
     for (const row of Array.isArray(results) ? results : []) {
@@ -29,14 +30,15 @@ export function buildRankingUnitOptions({
         }
     }
     const ordered = [...units].sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base', numeric: true }));
-    const options = isTeacher
-        ? (ordered.length
-            ? ordered.map(value => ({ value, label: value }))
-            : [{ value: '', label: '-- Chưa có đơn vị --' }])
-        : [{ value: '', label: '-- Tất cả đơn vị --' }, ...ordered.map(value => ({ value, label: value }))];
+    // An explicit empty choice means "all units", not "choose the first again".
+    // Keep the previous default (first real school) until the teacher changes it.
+    const allOption = { value: '', label: '-- Tất cả đơn vị --' };
+    const options = [allOption, ...ordered.map(value => ({ value, label: value }))];
     const previous = String(previousValue || '');
     const selectedValue = isTeacher
-        ? (ordered.includes(previous) ? previous : (ordered[0] || ''))
+        ? (selectionInitialized && (previous === '' || ordered.includes(previous))
+            ? previous
+            : (ordered[0] || ''))
         : (ordered.includes(previous) ? previous : '');
     return { options, selectedValue };
 }
