@@ -37,6 +37,24 @@ test('Admin has explicit cross-owner scope, not implicit teacher scope',()=>{
  assert.deepEqual(scope.params,['BÀI 3']);
  assert.deepEqual(questionLessonDeleteQuery(scope,3).params,['BÀI 3','BÀI 3',3]);
 });
+test('Lesson-delete confirmation dialog fits its content on desktop and mobile',()=>{
+ const ui=readFileSync('src/main.js','utf8');
+ const start=ui.indexOf('const modalContent=\'<div class="p-4 space-y-3 text-sm">\'+');
+ const end=ui.indexOf("document.getElementById('delete-lesson-name').textContent=lesson;",start);
+ assert.ok(start>=0 && end>start,'Compact lesson dialog markup exists');
+ const dialog=ui.slice(start,end);
+ assert.match(dialog,/showModal\(modalContent,'compact'\)/);
+ assert.match(dialog,/style\.width = 'min\(340px, calc\(100vw - 24px\)\)'/);
+ assert.match(dialog,/id="delete-lesson-name"/);
+ assert.match(dialog,/overflow-wrap:anywhere/,'Long lesson names must wrap');
+ assert.match(dialog,/id="delete-lesson-count"/);
+ assert.match(dialog,/id="delete-lesson-confirmation"/);
+ assert.match(dialog,/id="delete-lesson-cancel"/);
+ assert.match(dialog,/id="delete-lesson-submit"/);
+ assert.match(dialog,/preview\.scope==='all'/,'Explicit admin scope remains visible');
+ assert.match(dialog,/Không thể hoàn tác/);
+ assert.doesNotMatch(dialog,/sm:p-6 space-y-4|w-full px-3 py-2 border rounded-lg/,'No unnecessarily wide input or generous padding');
+});
 test('Cloudflare, Node and UI enforce a consistent contract',()=>{
  const cf=readFileSync('functions/api/questions.ts','utf8');
  const node=readFileSync('server.ts','utf8');

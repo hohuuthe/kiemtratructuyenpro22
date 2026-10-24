@@ -9837,16 +9837,23 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 const preview=await call({action:'preview',lesson});
                 if(generation!==authDataGeneration||account!==String(currentUser?.id||''))return;
                 if(preview.count===0)return showToast('Không có câu hỏi nào được phép xóa trong bài này.', 'warning');
-                const modalContent='<div class="p-5 sm:p-6 space-y-4">'+
-                    '<h3 class="font-bold text-lg text-red-700">🗑️ Xóa câu hỏi theo bài</h3>'+
-                    '<p class="text-sm text-gray-700">Bài được chọn: <strong id="delete-lesson-name"></strong></p>'+
-                    '<p class="text-sm">Số câu dự kiến xóa: <strong id="delete-lesson-count"></strong></p>'+
-                    '<p class="text-xs text-red-700">Thao tác không thể hoàn tác. '+(preview.scope==='all'?'Quản trị viên: xóa câu hỏi của TẤT CẢ người tạo thuộc bài này. ':'Giáo viên: chỉ xóa câu hỏi do tài khoản của mình tạo. ')+'Không phụ thuộc bộ lọc loại câu hoặc tìm kiếm.</p>'+
-                    '<label class="block text-sm font-semibold" for="delete-lesson-confirmation">Nhập mã xác nhận 123</label>'+
-                    '<input id="delete-lesson-confirmation" type="text" inputmode="numeric" autocomplete="off" maxlength="3" class="w-full px-3 py-2 border rounded-lg" placeholder="123">'+
-                    '<p id="delete-lesson-error" class="text-red-600 text-xs" role="alert"></p>'+
-                    '<div class="flex gap-2 justify-end"><button id="delete-lesson-cancel" type="button" class="px-4 py-2 rounded-lg border">Hủy</button><button id="delete-lesson-submit" type="button" class="px-4 py-2 rounded-lg bg-red-600 text-white font-bold">Xác nhận xóa</button></div></div>';
+                // Compact, dedicated layout: no changes to other modal widths.
+                const modalContent='<div class="p-4 space-y-3 text-sm">'+
+                    '<h3 class="pr-9 text-base leading-6 font-bold text-red-700">🗑️ Xóa câu hỏi theo bài</h3>'+
+                    '<div class="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 space-y-1.5">'+
+                        '<div class="flex items-start justify-between gap-2"><span class="shrink-0 text-gray-600">Bài chọn:</span><strong id="delete-lesson-name" class="min-w-0 flex-1 text-right text-gray-900" style="overflow-wrap:anywhere"></strong></div>'+
+                        '<div class="flex items-center justify-between gap-2"><span class="text-gray-600">Số câu sẽ xóa:</span><strong id="delete-lesson-count" class="text-red-700"></strong></div>'+
+                    '</div>'+
+                    '<p class="text-xs leading-5 text-red-700">Không thể hoàn tác. '+(preview.scope==='all'?'Quản trị viên: xóa câu hỏi của tất cả người tạo trong bài này. ':'Giáo viên: chỉ xóa câu hỏi của mình trong bài này. ')+'Áp dụng cho mọi loại câu hỏi, không phụ thuộc bộ lọc.</p>'+
+                    '<div class="flex items-center gap-3">'+
+                        '<label class="min-w-0 flex-1 text-xs font-semibold text-gray-700" for="delete-lesson-confirmation">Nhập mã xác nhận <strong class="text-red-700">123</strong></label>'+
+                        '<input id="delete-lesson-confirmation" type="text" inputmode="numeric" autocomplete="off" maxlength="3" aria-describedby="delete-lesson-error" class="w-24 shrink-0 px-3 py-2 text-center text-sm font-semibold tracking-widest border border-gray-300 rounded-lg focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-100" placeholder="123">'+
+                    '</div>'+
+                    '<p id="delete-lesson-error" class="empty:hidden text-red-600 text-xs" role="alert"></p>'+
+                    '<div class="flex items-center justify-end gap-2 pt-1"><button id="delete-lesson-cancel" type="button" class="px-3 py-2 text-sm font-medium rounded-lg border border-gray-300 hover:bg-gray-50">Hủy</button><button id="delete-lesson-submit" type="button" class="px-3 py-2 text-sm font-semibold rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50">Xác nhận xóa</button></div></div>';
                 showModal(modalContent,'compact');
+                const deleteLessonModal = document.getElementById('modal-content');
+                if (deleteLessonModal) deleteLessonModal.style.width = 'min(340px, calc(100vw - 24px))';
                 document.getElementById('delete-lesson-name').textContent=lesson;
                 document.getElementById('delete-lesson-count').textContent=String(preview.count);
                 document.getElementById('delete-lesson-cancel').onclick=closeModal;
