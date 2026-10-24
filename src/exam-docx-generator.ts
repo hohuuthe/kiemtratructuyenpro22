@@ -5,6 +5,7 @@ import {
 } from 'docx';
 import { Math as WordMath, latexToMath } from 'docx/math';
 import { splitScientificContent } from './scientific-formula-tokenizer.js';
+import { chooseWordOptionColumnCount } from './word-option-layout.js';
 import { splitLabeledScientificRecords } from './scientific-formula-records.js';
 import { standaloneMhchemCommand, makeEditableChemistryEquation, makeEditableUnitEquation, expandMhchemForWordMath } from './word-editable-chemistry.js';
 import { repairLegacyScientificLatexForWord } from './word-legacy-latex-repair.js';
@@ -407,51 +408,8 @@ export function extractOptionsABCD(opts: any, q?: any): {
  * It never changes the option text or editable Office Math that is exported.
  * TeX command names and HTML tags are markup, not visible characters.
  */
-function estimateOptionPrintedWidth(source: string): { width: number; longToken: number; multiline: boolean } {
-    const raw = String(source || '');
-    const multiline = /<br\s*\/?>|<\/p>|<\/div>|[\r\n]|\\begin\s*\{(?:matrix|pmatrix|bmatrix|vmatrix|Vmatrix|array|aligned|align|cases|gathered)\}|\\\\/i.test(raw);
-    const printed = raw
-        .replace(/<br\s*\/?>/gi, '\n')
-        .replace(/<[^>]*>/g, '')
-        .replace(/&(nbsp|lt|gt|amp|quot|apos);/gi, (_match, name) => ({ nbsp: ' ', lt: '<', gt: '>', amp: '&', quot: '"', apos: "'" } as Record<string,string>)[String(name).toLowerCase()] || ' ')
-        .replace(/\\(?:left|right|text|mathrm|mathbf|mathit|mathsf|mathtt|ce|pu)\b/g, '')
-        .replace(/\\(?:dfrac|tfrac|frac)\b/g, '/')
-        .replace(/\\(?:sqrt|overline|underline|overrightarrow|vec)\b/g, '')
-        .replace(/\\(?:quad|qquad)\b/g, ' ')
-        .replace(/\\(?:,|;|!|:|\s)/g, ' ')
-        .replace(/\\[a-zA-Z]+/g, 'x')
-        .replace(/\\[()[\]]/g, '')
-        .replace(/[{}^_$]/g, '')
-        .replace(/\s+/g, ' ')
-        .trim();
-    const width = [...printed].reduce((n, ch) =>
-        n + (/[\t ]/.test(ch) ? 0.45 : /[MW@#%]/.test(ch) ? 1.35 : /[il.,;:!|']/i.test(ch) ? 0.55 : 1), 0);
-    const tokens = printed.split(/\s+/);
-    const longToken = Math.max(0, ...tokens.map(token => [...token].length));
-    return { width, longToken, multiline };
-}
-
-/**
- * Word A4 usable width: 17 cm (2 cm margins on both sides).
- * Four compact answers share one row, medium answers use a 2x2 grid,
- * and prose / matrices get four full-width rows. Longer raw TeX source
- * does not falsely force a one-column layout.
- */
-export function chooseWordOptionColumnCount(texts: readonly string[]): 1 | 2 | 4 {
-    if (!texts.some(text => String(text || '').trim())) return 1;
-    const sizes = texts.map(estimateOptionPrintedWidth);
-    if (sizes.some(item => item.multiline)) return 1;
-    const widths = sizes.map(item => item.width);
-    const maxWidth = Math.max(...widths);
-    const sumWidth = widths.reduce((sum, width) => sum + width, 0);
-    const maxToken = Math.max(...sizes.map(item => item.longToken));
-
-    // 4 x 4.25 cm; keep fractions/chemical expressions native and editable.
-    if (maxWidth <= 16 && sumWidth <= 62 && maxToken <= 15) return 4;
-    // 2 x 8.5 cm: allow wrapped answers when this saves meaningful height.
-    if (maxWidth <= 92 && sumWidth <= 260 && maxToken <= 42) return 2;
-    return 1;
-}
+/** Choose one, two or four answer columns by displayed formula dimensions. */
+export { chooseWordOptionColumnCount } from './word-option-layout.js';
 
 /**
  * Borderless Word table in every layout, including full-width long answers.
@@ -490,7 +448,7 @@ export function buildOptionsTable(
                 ]
             });
         });
-        rows.push(new TableRow({ cantSplit: columns > 1 || texts[rowStart].length < 180, children: cells }));
+        rows.push(new TableRow({ cantSplit: true, children: cells }));
     }
     return new Table({
         width: { size: printableWidth, type: WidthType.DXA },
