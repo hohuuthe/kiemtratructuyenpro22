@@ -7,6 +7,7 @@
  * one-at-a-time only when the owner opens a specific attempt.
  */
 import { verifyAuthSession, getDynamicSecret, getDatabase, checkIsTeacherOrAdmin } from '../exam/utils';
+import { projectStudentAttemptDetails, projectStudentResultRow, studentExamVisibility } from '../../../src/student-result-visibility';
 
 interface Env {
   NEON_DATABASE_URL?: string;
@@ -39,21 +40,24 @@ export async function queryOwnResultHistory(db: any, user: any, url: URL) {
     const id = url.searchParams.get('id');
     if (id !== null) {
       if (!id.trim()) return reply({ error: 'Thiếu mã bài làm.' }, 400);
-      const sql = 'SELECT id, exam_id, exam_name, score, correct_count, total_questions, time_taken, created_at, details ' +
-        'FROM results WHERE id = ? AND ' + scope + ' LIMIT 1';
+      // Read visibility from the live exam config by exact ID, never by a duplicated name.
+      const sql = 'SELECT r.id, r.exam_id, r.exam_name, r.score, r.correct_count, r.total_questions, ' +
+        'r.time_taken, r.created_at, r.details, ec.show_score AS exam_show_score, ' +
+        'ec.show_details AS exam_show_details FROM results r ' +
+        'LEFT JOIN exam_configs ec ON ec.id = r.exam_id ' +
+        'WHERE r.id = ? AND r.' + scope + ' LIMIT 1';
       const row: any = await db.prepare(sql).bind(id, ...ids).first();
       if (!row) return reply({ error: 'Không tìm thấy bài làm của tài khoản này.' }, 404);
-      let details: any[] = [];
-      try {
-        const parsed = typeof row.details === 'string' ? JSON.parse(row.details) : row.details;
-        details = Array.isArray(parsed) ? parsed : [];
-      } catch { details = []; }
-      return reply({ data: {
-        id: row.id, exam_id: row.exam_id, exam_name: row.exam_name,
-        score: row.score, correct_count: row.correct_count,
-        total_questions: row.total_questions, time_taken: row.time_taken,
-        created_at: row.created_at, details
-      }, error: null });
+      const permission = studentExamVisibility(row);
+      if (!permission.can_view_details) {
+        return reply({ error: 'Đề thi không cho phép học sinh xem chi tiết bài làm.', code: 'EXAM_DETAILS_DISABLED' }, 403);
+      }
+      return reply({
+        data: {
+          ...projectStudentResultRow(row),
+          details: projectStudentAttemptDetails(row.details, permission.can_view_score)
+        }, error: null
+      });
     }
 
     // Small, bounded pages prevent large database dumps to student browsers.
@@ -67,18 +71,16 @@ export async function queryOwnResultHistory(db: any, user: any, url: URL) {
       'SELECT COUNT(*) AS total FROM results WHERE ' + scope
     ).bind(...ids).first();
     const response: any = await db.prepare(
-      'SELECT id, exam_id, exam_name, score, correct_count, total_questions, time_taken, created_at ' +
-      'FROM results WHERE ' + scope + ' ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?'
+      'SELECT r.id, r.exam_id, r.exam_name, r.score, r.correct_count, r.total_questions, ' +
+      'r.time_taken, r.created_at, ec.show_score AS exam_show_score, ' +
+      'ec.show_details AS exam_show_details FROM results r ' +
+      'LEFT JOIN exam_configs ec ON ec.id = r.exam_id WHERE r.' + scope +
+      ' ORDER BY r.created_at DESC, r.id DESC LIMIT ? OFFSET ?'
     ).bind(...ids, limitRaw, offsetRaw).all();
     const rows = Array.isArray(response?.results) ? response.results : [];
     const total = Number(totalRow?.total) || 0;
     return reply({
-      data: rows.map((row: any) => ({
-        id: row.id, exam_id: row.exam_id, exam_name: row.exam_name,
-        score: row.score, correct_count: row.correct_count,
-        total_questions: row.total_questions, time_taken: row.time_taken,
-        created_at: row.created_at
-      })),
+      data: rows.map(projectStudentResultRow),
       total, limit: limitRaw, offset: offsetRaw,
       has_more: offsetRaw + rows.length < total, error: null
     });
