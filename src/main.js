@@ -7,6 +7,7 @@ import './pwa-manager.js';
 import './teacher-assignment.js';
 import { typesetScientificMath } from './scientific-formula-typeset.js';
 import { renderExamDetailQuestion, renderExamDetailOptions, renderExamReviewMath, normalizeExamReviewDetails } from './exam-detail-formula-renderer.js';
+import { renderStudentResultCards, filterStudentResultPage, studentResultPageStats, buildStudentResultDetailMarkup, bindStudentResultDetail } from './student-results-ui.js';
 import { attachScientificEditorPreviews } from './scientific-formula-editor-preview.js';
 import JSZip from 'jszip';
 import * as docx from 'docx';
@@ -3209,19 +3210,17 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             }
         }
 
-        // Student history is isolated from results[] (teacher/admin data).
-        // Only /api/results/me is called; no IDs are supplied for list access.
+        // Student results are fetched only through the authenticated, ID-scoped endpoint.
         let myStudentResults = [];
         let myStudentPage = 0;
         let myStudentTotal = 0;
         let myStudentRequestSeq = 0;
         const myStudentPageSize = 30;
-        // This formatter is scoped to the student view; formatTime is local to other screens.
         function formatMyStudentResultTime(value) {
             const seconds = Number(value);
             if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
             const wholeSeconds = Math.floor(seconds);
-            return `${Math.floor(wholeSeconds / 60)}:${String(wholeSeconds % 60).padStart(2, '0')}`;
+            return String(Math.floor(wholeSeconds / 60)) + ':' + String(wholeSeconds % 60).padStart(2, '0');
         }
         function resetMyStudentResults() {
             ++myStudentRequestSeq;
@@ -3229,18 +3228,51 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             myStudentPage = 0;
             myStudentTotal = 0;
             const list = document.getElementById('ranking-student-list');
-            if (list) list.textContent = '';
-            const meta = document.getElementById('ranking-student-summary');
-            if (meta) meta.textContent = '';
+            if (list) { list.replaceChildren(); list.setAttribute('aria-busy', 'false'); }
+            for (const id of ['ranking-student-summary','ranking-student-total','ranking-student-best','ranking-student-exams','ranking-student-page-info']) {
+                const element = document.getElementById(id);
+                if (element) element.textContent = '';
+            }
+            const search = document.getElementById('ranking-student-search');
+            if (search) search.value = '';
+            for (const id of ['ranking-student-score-filter','ranking-student-sort']) {
+                const select = document.getElementById(id);
+                if (select) select.selectedIndex = 0;
+            }
         }
+        window.renderMyStudentResultsPage = function() {
+            const list = document.getElementById('ranking-student-list');
+            if (!list) return;
+            const query = document.getElementById('ranking-student-search')?.value || '';
+            const scoreBand = document.getElementById('ranking-student-score-filter')?.value || 'all';
+            const sort = document.getElementById('ranking-student-sort')?.value || 'recent';
+            const filtered = filterStudentResultPage(myStudentResults, { query, scoreBand, sort });
+            const stats = studentResultPageStats(myStudentResults, myStudentTotal);
+            const text = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = String(value); };
+            text('ranking-student-total', stats.total.toLocaleString('vi-VN'));
+            text('ranking-student-best', stats.best === null ? '—' : stats.best.toLocaleString('vi-VN', { maximumFractionDigits: 1 }));
+            text('ranking-student-exams', stats.distinctExams);
+            text('ranking-student-summary', 'Hiển thị ' + filtered.length + '/' + myStudentResults.length + ' lượt làm bài trong trang này.');
+            text('ranking-student-page-info', myStudentTotal ? 'Đang xem lượt ' + (myStudentPage * myStudentPageSize + 1) + '–' + Math.min(myStudentTotal, (myStudentPage + 1) * myStudentPageSize) + ' trên tổng ' + myStudentTotal + ' lượt.' : 'Chưa có kết quả bài thi.');
+            text('ranking-student-page-number', 'Trang ' + (myStudentPage + 1));
+            renderStudentResultCards(list, filtered, {
+                onOpen: id => window.showMyStudentResultDetail(id),
+                formatDate: date => window.formatVNTime(date),
+                formatDuration: result => formatMyStudentResultTime(result.time_taken)
+            });
+            const previous = document.getElementById('ranking-student-prev');
+            const next = document.getElementById('ranking-student-next');
+            if (previous) previous.disabled = myStudentPage <= 0;
+            if (next) next.disabled = (myStudentPage + 1) * myStudentPageSize >= myStudentTotal;
+            list.setAttribute('aria-busy', 'false');
+        };
         window.loadMyStudentResults = loadMyStudentResults;
         async function loadMyStudentResults(page = 0) {
             if (!currentUser || isAdminLoggedIn || isTeacherLoggedIn) return;
             const expectedAccount = String(currentUser.id || '');
             const seq = ++myStudentRequestSeq;
             const list = document.getElementById('ranking-student-list');
-            const summary = document.getElementById('ranking-student-summary');
-            if (list) list.textContent = 'Đang tải kết quả cá nhân...';
+            if (list) { list.textContent = 'Đang tải kết quả cá nhân...'; list.setAttribute('aria-busy', 'true'); }
             try {
                 const token = localStorage.getItem('auth_token') || '';
                 if (!token) throw new Error('Phiên đăng nhập không hợp lệ');
@@ -3257,49 +3289,26 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 myStudentResults = payload.data;
                 myStudentTotal = Number(payload.total) || 0;
                 myStudentPage = Number(page) || 0;
-                if (summary) summary.textContent = 'Tổng số lượt làm bài: ' + myStudentTotal;
-                if (list) {
-                    list.replaceChildren();
-                    if (!myStudentResults.length) list.textContent = 'Bạn chưa có bài thi nào được ghi nhận.';
-                    for (const result of myStudentResults) {
-                        const card = document.createElement('div');
-                        card.className = 'rounded-xl border border-blue-100 bg-white p-4 shadow-sm space-y-2';
-                        const title = document.createElement('h3');
-                        title.className = 'font-bold text-gray-900';
-                        title.textContent = String(result.exam_name || 'Bài thi');
-                        const description = document.createElement('p');
-                        description.className = 'text-sm text-gray-600';
-                        description.textContent = 'Điểm: ' + (Number(result.score) || 0).toFixed(1) +
-                          ' | Đúng: ' + (Number(result.correct_count) || 0) + '/' +
-                          (Number(result.total_questions) || 0) + ' | Thời gian: ' +
-                          formatMyStudentResultTime(result.time_taken) +
-                          ' | Nộp: ' + window.formatVNTime(result.created_at);
-                        const details = document.createElement('button');
-                        details.type = 'button';
-                        details.className = 'rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-700';
-                        details.textContent = 'Xem chi tiết bài làm';
-                        details.addEventListener('click', () => window.showMyStudentResultDetail(String(result.id)));
-                        card.append(title, description, details);
-                        list.appendChild(card);
-                    }
-                }
-                const previous = document.getElementById('ranking-student-prev');
-                const next = document.getElementById('ranking-student-next');
-                if (previous) previous.disabled = myStudentPage <= 0;
-                if (next) next.disabled = (myStudentPage + 1) * myStudentPageSize >= myStudentTotal;
+                window.renderMyStudentResultsPage();
             } catch (error) {
-                if (seq === myStudentRequestSeq && list) list.textContent = error.message || 'Không thể tải kết quả.';
+                if (seq === myStudentRequestSeq && list) {
+                    list.textContent = error.message || 'Không thể tải kết quả.';
+                    list.setAttribute('aria-busy', 'false');
+                }
             }
         }
         window.myStudentResultsPage = function(delta) {
+            if (delta > 0 && (myStudentPage + 1) * myStudentPageSize >= myStudentTotal) return;
             loadMyStudentResults(Math.max(0, myStudentPage + delta));
         };
         window.showMyStudentResultDetail = async function(id) {
             if (!currentUser || isAdminLoggedIn || isTeacherLoggedIn) return;
+            if (!myStudentResults.some(result => String(result.id) === String(id))) return;
             const expectedAccount = String(currentUser.id || '');
             const seq = myStudentRequestSeq;
             try {
                 const token = localStorage.getItem('auth_token') || '';
+                if (!token) throw new Error('Phiên đăng nhập không hợp lệ');
                 const response = await fetch('/api/results/me?id=' + encodeURIComponent(id), {
                     headers: { Authorization: 'Bearer ' + token }, cache: 'no-store'
                 });
@@ -3308,36 +3317,18 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 if (seq !== myStudentRequestSeq || String(currentUser?.id || '') !== expectedAccount ||
                     !currentUser || isAdminLoggedIn || isTeacherLoggedIn) return;
                 const result = payload.data;
-                if (!result || String(result.id) !== id) throw new Error('Dữ liệu chi tiết không hợp lệ');
-                const details = normalizeExamReviewDetails(result.details || []);
-                // Show only the student's own submitted responses and grading;
-                // no exam configuration or other users' data is fetched.
-                const content = document.createElement('div');
-                content.className = 'p-5 max-h-[75vh] overflow-y-auto';
-                const heading = document.createElement('h3');
-                heading.className = 'text-lg font-bold mb-3';
-                heading.textContent = String(result.exam_name || 'Chi tiết bài thi');
-                content.appendChild(heading);
-                const stats = document.createElement('p');
-                stats.className = 'mb-4 text-sm font-semibold text-gray-700';
-                stats.textContent = 'Điểm: ' + (Number(result.score) || 0).toFixed(1) +
-                  ' | Số câu đúng: ' + (Number(result.correct_count) || 0) + '/' + (Number(result.total_questions) || 0);
-                content.appendChild(stats);
-                for (let i = 0; i < details.length; i++) {
-                    const row = document.createElement('section');
-                    row.className = 'border-b border-gray-200 py-3 text-sm';
-                    const prompt = document.createElement('p');
-                    prompt.className = 'font-semibold';
-                    prompt.textContent = 'Câu ' + (i + 1) + ': ' + String(details[i]?.question?.content || '').replace(/<[^>]*>/g, ' ');
-                    const answer = document.createElement('p');
-                    answer.className = 'text-gray-700 mt-1';
-                    answer.textContent = 'Bài làm: ' + (typeof details[i]?.userAnswer === 'object'
-                        ? JSON.stringify(details[i].userAnswer) : String(details[i]?.userAnswer ?? 'Chưa trả lời'));
-                    row.append(prompt, answer);
-                    content.appendChild(row);
-                }
-                const safeHtml = content.outerHTML;
-                showModal(safeHtml, true);
+                if (!result || String(result.id) !== String(id)) throw new Error('Dữ liệu chi tiết không hợp lệ');
+                const modalContent = buildStudentResultDetailMarkup(result, {
+                    formatDate: date => window.formatVNTime(date),
+                    formatDuration: formatMyStudentResultTime
+                });
+                showModal(modalContent, true);
+                const modal = document.getElementById('modal-content');
+                if (!modal) return;
+                modal.classList.add('student-results-detail-modal');
+                const root = modal.querySelector('.student-result-detail');
+                bindStudentResultDetail(root, closeModal, image => window.zoomImage(image));
+                queueMathJax(modal);
             } catch (error) { showToast(error.message || 'Không thể mở bài làm.', 'error'); }
         };
 
@@ -4842,7 +4833,7 @@ if (contentType && contentType.includes("application/json")) {
             // Reset custom style overrides if any
             el.style.width = '';
             el.style.backgroundColor = '';
-            el.classList.remove('always-scrollbar-y', 'question-authoring-modal', 'exam-export-modal');
+            el.classList.remove('always-scrollbar-y', 'question-authoring-modal', 'exam-export-modal', 'student-results-detail-modal');
             
             el.innerHTML = content;
             
@@ -4910,7 +4901,7 @@ if (contentType && contentType.includes("application/json")) {
                 const el = document.getElementById('modal-content');
                 if (el) {
                     el.innerHTML = '';
-                    el.classList.remove('always-scrollbar-y', 'question-authoring-modal', 'exam-export-modal');
+                    el.classList.remove('always-scrollbar-y', 'question-authoring-modal', 'exam-export-modal', 'student-results-detail-modal');
                 }
             }, 300);
         }
