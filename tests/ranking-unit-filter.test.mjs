@@ -2,19 +2,19 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {readFileSync} from 'node:fs';
 import {buildRankingUnitOptions} from '../src/ranking-unit-filter.js';
-test('Teacher can change among authorized results units; first is default',()=>{
+test('Teacher can change among authorized results units; all units is default',()=>{
  const inputs={results:[{donvi:'Trường B'},{donvi:'Trường A'},{donvi:'Trường B'}],users:[{donvi:'Trường bí mật'}],isTeacher:true,teacherUnit:'Trường B'};
  const first=buildRankingUnitOptions(inputs);
  assert.deepEqual(first.options.map(o=>o.value),['','Trường A','Trường B']);
- assert.equal(first.selectedValue,'Trường A');
+ assert.equal(first.selectedValue,'');
  assert.equal(buildRankingUnitOptions({...inputs,previousValue:'Trường B',selectionInitialized:true}).selectedValue,'Trường B');
- assert.equal(buildRankingUnitOptions({...inputs,previousValue:'Trường cũ',selectionInitialized:true}).selectedValue,'Trường A');
+ assert.equal(buildRankingUnitOptions({...inputs,previousValue:'Trường cũ',selectionInitialized:true}).selectedValue,'');
 });
 test('Admin still has all units; teacher empty state is safe',()=>{
  const admin=buildRankingUnitOptions({results:[{donvi:'A'}],users:[{donvi:'B'}]});
  assert.deepEqual(admin.options.map(o=>o.value),['','A','B']);
  const empty=buildRankingUnitOptions({isTeacher:true,teacherUnit:'Trường nhà',resultsReady:true});
- assert.equal(empty.selectedValue,'Trường nhà');
+ assert.equal(empty.selectedValue,'');
 });
 test('Unit change resets class and checkboxes and filter is applied before reading',()=>{
  const src=readFileSync('src/main.js','utf8');
@@ -29,12 +29,19 @@ test('Unit change resets class and checkboxes and filter is applied before readi
 test('Teacher explicitly selects all units and retains it through rerenders',()=>{
  const inputs={results:[{donvi:'Trường B'},{donvi:'Trường A'}],isTeacher:true,resultsReady:true};
  const first=buildRankingUnitOptions(inputs);
- assert.equal(first.selectedValue,'Trường A');
+ assert.equal(first.selectedValue,'');
  assert.equal(first.options[0].label,'-- Tất cả đơn vị --');
  const all=buildRankingUnitOptions({...inputs,previousValue:'',selectionInitialized:true});
  assert.equal(all.selectedValue,'');
  assert.equal(buildRankingUnitOptions({...inputs,previousValue:'',selectionInitialized:true}).selectedValue,'');
  assert.equal(buildRankingUnitOptions({...inputs,previousValue:'Trường B',selectionInitialized:true}).selectedValue,'Trường B');
  const reset=buildRankingUnitOptions({...inputs,previousValue:'',selectionInitialized:false});
- assert.equal(reset.selectedValue,'Trường A');
+ assert.equal(reset.selectedValue,'');
+});
+
+test('Fresh page load and login always default to all units even with result rows', () => {
+ const rows=[{donvi:'Trường A'},{donvi:'Trường B'}];
+ assert.equal(buildRankingUnitOptions({results:rows,isTeacher:true,selectionInitialized:false,previousValue:'Trường B'}).selectedValue,'');
+ assert.equal(buildRankingUnitOptions({results:rows,isTeacher:true,selectionInitialized:true,previousValue:'Trường A'}).selectedValue,'Trường A');
+ assert.equal(buildRankingUnitOptions({results:rows,isTeacher:true,selectionInitialized:true,previousValue:''}).selectedValue,'');
 });
