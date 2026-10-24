@@ -1,5 +1,6 @@
 import { verifyAuthSession, getDynamicSecret, checkIsAdmin, checkIsTeacherOrAdmin, getDatabase } from './exam/utils';
 import { isExamOwner, redactExamForPublic } from './exam/security';
+import { normalizeExamConfigInput, ExamConfigInputError } from '../../src/exam-config-contract';
 
 interface Env {
   NEON_DATABASE_URL?: string;
@@ -248,152 +249,82 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
   }
 };
 
-// POST /api/exams - Tạo mới hoặc Cập nhật cấu hình đề thi
+// POST /api/exams - Create or update, with server-side authorization and validation.
+// Every update is compare-and-swap by the exact ID and loaded revision.
 export const onRequestPost: PagesFunction<Env> = async (context) => {
   const db = getDatabase(context);
-  const { request, env } = context;
-  const SECRET = await getDynamicSecret(db, env.JWT_SECRET);
-  const authHeader = request.headers.get('Authorization');
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: corsHeaders });
-  }
-  const token = authHeader.substring(7);
-  const user = await verifyAuthSession(token, SECRET, db);
-  if (!user) {
-    return new Response(JSON.stringify({ error: "Phiên đăng nhập không hợp lệ" }), { status: 401, headers: corsHeaders });
-  }
-
-  const isAdmin = checkIsAdmin(user);
-  const isTeacher = checkIsTeacherOrAdmin(user);
-  if (!isTeacher) {
-    return new Response(JSON.stringify({ error: "Chỉ giáo viên hoặc admin mới có quyền lưu cấu hình đề thi" }), { status: 403, headers: corsHeaders });
-  }
-
+  const {request,env} = context;
+  const respond = (obj:any,status=200) => new Response(JSON.stringify(obj),{status,headers:corsHeaders});
   try {
-    const body: any = await request.json();
-    const {
-      id,
-      name,
-      creator_id,
-      creatorId
-    } = body;
-
-    if (!name || !name.trim()) {
-      return new Response(JSON.stringify({ error: "Tên đề thi không được để trống" }), { status: 400, headers: corsHeaders });
+    const header=request.headers.get('Authorization');
+    if (!header?.startsWith('Bearer ')) return respond({error:'Unauthorized'},401);
+    const user=await verifyAuthSession(header.slice(7),await getDynamicSecret(db,env.JWT_SECRET),db);
+    if (!user) return respond({error:'Phiên đăng nhập không hợp lệ'},401);
+    if (!checkIsTeacherOrAdmin(user)) return respond({error:'Chỉ giáo viên hoặc quản trị viên được lưu đề thi'},403);
+    const isAdmin=checkIsAdmin(user);
+    const body:any=await request.json();
+    if (!body || typeof body!=='object' || Array.isArray(body)) return respond({error:'Cấu hình không hợp lệ'},400);
+    const id=body.id == null ? '' : String(body.id).trim();
+    let existing:any=null;
+    if (id) existing=await db.prepare('SELECT * FROM exam_configs WHERE id = ?').bind(id).first();
+    if (id && !existing) return respond({error:'Đề thi cần cập nhật không tồn tại'},404);
+    if (existing && !isAdmin && String(existing.creator_id)!==String(user.id)) return respond({error:'Không có quyền sửa đề thi của người khác'},403);
+    const owner=existing ? String(existing.creator_id) :
+      (isAdmin && (body.creator_id||body.creatorId) ? String(body.creator_id||body.creatorId):String(user.id));
+    if (!owner) return respond({error:'Không xác định được người tạo đề'},403);
+    const fields=normalizeExamConfigInput(body,existing);
+    if (!isAdmin && (fields.chedodethi==='Đề cho đơn vị'||fields.chedodethi==='Đề thi cho đơn vị')) {
+      const identity:any=await db.prepare(
+        'SELECT donvi FROM users WHERE id = ? OR id = ? LIMIT 1'
+      ).bind(user.user_id||user.id,user.id).first();
+      const school=String(identity?.donvi||'').trim();
+      if (!school) return respond({error:'Tài khoản giáo viên chưa có đơn vị hợp lệ'},403);
+      fields.target_donvi=school;
+      fields.donvi=school;
     }
-
-    const assignedCreatorId = (isAdmin && (creator_id || creatorId)) ? (creator_id || creatorId) : user.id;
-    // The server, not the client, controls ownership of new records.
-    if (!assignedCreatorId) return new Response(JSON.stringify({error:'Không xác định được tài khoản tạo đề'}), {status:403,headers:corsHeaders});
-    const timeLimitVal = Number(body.time_limit ?? body.timeLimit ?? body.time ?? 45) || 45;
-    const count41Val = Number(body.count_41 ?? body.count41 ?? body.num_trac_nghiem ?? 0) || 0;
-    const countTF4Val = Number(body.count_tf4 ?? body.countTF4 ?? body.num_dung_sai ?? 0) || 0;
-    const countSQVal = Number(body.count_sq ?? body.countSQ ?? body.num_tra_loi_ngan ?? 0) || 0;
-    const countTLVal = Number(body.count_tl ?? body.countTL ?? body.num_tuluan ?? 0) || 0;
-    const points41Val = Number(body.points_41 ?? body.points41 ?? 1) || 1;
-    const pointsTF4Val = Number(body.points_tf4 ?? body.pointsTF4 ?? 1) || 1;
-    const pointsSQVal = Number(body.points_sq ?? body.pointsSQ ?? 1) || 1;
-    const pointsTLVal = Number(body.points_tl ?? body.pointsTL ?? 1) || 1;
-
-    const safeSelectedLessons = typeof body.selected_lessons === 'object' ? JSON.stringify(body.selected_lessons) : (typeof body.selectedLessons === 'object' ? JSON.stringify(body.selectedLessons) : (body.selected_lessons || body.selectedLessons || '[]'));
-    const safeAccessControl = typeof body.access_control === 'object' ? JSON.stringify(body.access_control) : (typeof body.accessControl === 'object' ? JSON.stringify(body.accessControl) : (body.access_control || body.accessControl || null));
-    const safeTf4Points = typeof body.tf4_points === 'object' ? JSON.stringify(body.tf4_points) : (typeof body.tf4Points === 'object' ? JSON.stringify(body.tf4Points) : (body.tf4_points || body.tf4Points || null));
-    const safeCountsDetail = typeof body.counts_detail === 'object' ? JSON.stringify(body.counts_detail) : (typeof body.countsDetail === 'object' ? JSON.stringify(body.countsDetail) : (body.counts_detail || body.countsDetail || null));
-    const safeIsShared = (body.is_shared_results || body.isSharedResults) ? 1 : 0;
-    const safeImmediateFeedback = (body.immediate_feedback || body.immediateFeedback) ? 1 : 0;
-    const safeShowScore = (body.show_score ?? body.showScore ?? 1) ? 1 : 0;
-    const safeShowDetails = (body.show_details ?? body.showDetails ?? 1) ? 1 : 0;
-    const safeSqCaseSensitive = (body.sq_case_sensitive || body.sqCaseSensitive) ? 1 : 0;
-    const safeSqPunctuationSensitive = (body.sq_punctuation_sensitive || body.sqPunctuationSensitive) ? 1 : 0;
-    const safeAutoGradeEssay = (body.auto_grade_essay ?? body.autoGradeEssay ?? 1) ? 1 : 0;
-    const safeTf4ScoringMode = (body.tf4_scoring_mode ?? body.tf4ScoringMode ?? 0) ? 1 : 0;
-    const maxAttemptsVal = Math.max(0, Number(body.max_attempts ?? body.maxAttempts ?? 0) || 0);
-    const chedodethiVal = body.chedodethi || 'Đề công khai';
-    const mabaomatdethiVal = body.mabaomatdethi || '';
-    const targetLopVal = (body.target_lop ?? body.targetLop ?? body.lop ?? '').trim();
-    const tgBdVal = body.tg_bd || null;
-    const tgKtVal = body.tg_kt || null;
-    const aiPromptVal = body.ai_prompt ?? body.aiPrompt ?? '';
-    const aiGradingKeyVal = body.ai_grading_key ?? body.aiGradingKey ?? null;
-    const tieuDeBaiThiVal = (body.tieu_de_bai_thi ?? body.tieuDeBaiThi ?? '').trim();
-    const safeKeepRawScore = (body.keep_raw_score || body.keepRawScore) ? 1 : 0;
-    const now = new Date().toISOString();
-
-    // Kiểm tra xem đề đã tồn tại chưa (theo id hoặc theo name + creator_id)
-    let existingRecord: any = null;
-    if (id) {
-      const { results } = await db.prepare("SELECT id, creator_id, updated_at FROM exam_configs WHERE id = ?").bind(id).all();
-      if (results && results.length > 0) existingRecord = results[0];
-    } else {
-      const { results } = await db.prepare("SELECT id, creator_id FROM exam_configs WHERE name = ? AND creator_id = ?").bind(name.trim(), assignedCreatorId).all();
-      if (results && results.length > 0) existingRecord = results[0];
+    // The exact teacher's assigned class set must be enforced at the API, not only in UI.
+    if (!isAdmin && fields.chedodethi==='Đề cho đơn vị' && fields.target_lop) {
+      const {results: assignments}=await db.prepare('SELECT class_name,donvi FROM teacher_classes WHERE teacher_id = ? OR teacher_id = ?')
+        .bind(user.user_id||user.id,user.id).all();
+      const normalize=(x:any)=>String(x||'').trim().toLowerCase().replace(/\s+/g,'');
+      const allowed=new Set((assignments||[]).filter((a:any)=>normalize(a.donvi)===normalize(fields.target_donvi)).map((a:any)=>normalize(a.class_name)));
+      const requested=fields.target_lop.split(/[,;\n]+/).map(normalize).filter(Boolean);
+      if (requested.some((c:string)=>!allowed.has(c))) return respond({error:'Có lớp chưa được phân công cho giáo viên tại đơn vị này'},403);
     }
-
-    if (id && !existingRecord) return new Response(JSON.stringify({error:'Đề thi cần cập nhật không tồn tại'}), {status:404,headers:corsHeaders});
-    if (existingRecord) {
-      if (!id) return new Response(JSON.stringify({error:'Tên đề đã tồn tại. Không tự ghi đè đề cũ.',code:'DUPLICATE_EXAM_NAME'}), {status:409,headers:corsHeaders});
-      if (body.expected_updated_at === undefined || body.expected_updated_at === null ||
-          String(body.expected_updated_at) !== String(existingRecord.updated_at ?? '')) {
-        return new Response(JSON.stringify({error:'Đề đã thay đổi ở thiết bị khác. Hãy nạp lại trước khi lưu.',code:'EXAM_VERSION_CONFLICT'}), {status:409,headers:corsHeaders});
+    const now=new Date().toISOString();
+    const columns=Object.keys(fields);
+    if (existing) {
+      if (body.expected_updated_at===undefined || body.expected_updated_at===null ||
+        String(body.expected_updated_at)!==String(existing.updated_at??'')) {
+        return respond({error:'Đề thi đã được cập nhật trên thiết bị khác. Vui lòng nạp lại.',code:'EXAM_VERSION_CONFLICT'},409);
       }
-      // Kiểm tra quyền sửa
-      if (!isAdmin && existingRecord.creator_id !== user.id) {
-        return new Response(JSON.stringify({ error: "Bạn không có quyền chỉnh sửa đề thi của người khác" }), { status: 403, headers: corsHeaders });
-      }
-
-      const updateSql = `
-        UPDATE exam_configs SET
-          name = ?, time_limit = ?, count_41 = ?, count_tf4 = ?, count_sq = ?, count_tl = ?,
-          points_41 = ?, points_tf4 = ?, points_sq = ?, points_tl = ?,
-          selected_lessons = ?, tf4_scoring_mode = ?, tf4_points = ?, access_control = ?,
-          immediate_feedback = ?, show_score = ?, show_details = ?,
-          sq_case_sensitive = ?, sq_punctuation_sensitive = ?, auto_grade_essay = ?,
-          counts_detail = ?, chedodethi = ?, mabaomatdethi = ?, target_lop = ?, lop = ?, tg_bd = ?, tg_kt = ?,
-          ai_prompt = ?, ai_grading_key = ?, tieu_de_bai_thi = ?, is_shared_results = ?, max_attempts = ?, keep_raw_score = ?, updated_at = ?
-        WHERE id = ? AND updated_at IS NOT DISTINCT FROM ?
-      `;
-
-      const updateResult = await db.prepare(updateSql).bind(
-        name.trim(), timeLimitVal, count41Val, countTF4Val, countSQVal, countTLVal,
-        points41Val, pointsTF4Val, pointsSQVal, pointsTLVal,
-        safeSelectedLessons, safeTf4ScoringMode, safeTf4Points, safeAccessControl,
-        safeImmediateFeedback, safeShowScore, safeShowDetails,
-        safeSqCaseSensitive, safeSqPunctuationSensitive, safeAutoGradeEssay,
-        safeCountsDetail, chedodethiVal, mabaomatdethiVal, targetLopVal, targetLopVal, tgBdVal, tgKtVal,
-        aiPromptVal, aiGradingKeyVal, tieuDeBaiThiVal, safeIsShared, maxAttemptsVal, safeKeepRawScore, now, existingRecord.id, existingRecord.updated_at ?? null
-      ).run();
-      if (updateResult.meta?.changes !== 1) return new Response(JSON.stringify({error:'Đề đã thay đổi đồng thời, hãy nạp lại.',code:'EXAM_VERSION_CONFLICT'}), {status:409,headers:corsHeaders});
-
-      return new Response(JSON.stringify({ success: true, type: 'updated', id: existingRecord.id, updated_at: now, error: null }), { status: 200, headers: corsHeaders });
-    } else {
-      // Tạo mới
-      const newId = crypto.randomUUID();
-      const insertSql = `
-        INSERT INTO exam_configs (
-          id, name, creator_id, time_limit, count_41, count_tf4, count_sq, count_tl,
-          points_41, points_tf4, points_sq, points_tl,
-          selected_lessons, tf4_scoring_mode, tf4_points, access_control,
-          immediate_feedback, show_score, show_details,
-          sq_case_sensitive, sq_punctuation_sensitive, auto_grade_essay,
-          counts_detail, chedodethi, mabaomatdethi, target_lop, lop, tg_bd, tg_kt,
-          ai_prompt, is_shared_results, ai_grading_key, max_attempts, keep_raw_score, tieu_de_bai_thi, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `;
-
-      await db.prepare(insertSql).bind(
-        newId, name.trim(), assignedCreatorId, timeLimitVal, count41Val, countTF4Val, countSQVal, countTLVal,
-        points41Val, pointsTF4Val, pointsSQVal, pointsTLVal,
-        safeSelectedLessons, safeTf4ScoringMode, safeTf4Points, safeAccessControl,
-        safeImmediateFeedback, safeShowScore, safeShowDetails,
-        safeSqCaseSensitive, safeSqPunctuationSensitive, safeAutoGradeEssay,
-        safeCountsDetail, chedodethiVal, mabaomatdethiVal, targetLopVal, targetLopVal, tgBdVal, tgKtVal,
-        aiPromptVal, safeIsShared, aiGradingKeyVal, maxAttemptsVal, safeKeepRawScore, tieuDeBaiThiVal, now, now
-      ).run();
-
-      return new Response(JSON.stringify({ success: true, type: 'inserted', id: newId, updated_at: now, error: null }), { status: 200, headers: corsHeaders });
+      // UUID ensures a new revision even for two writes within a millisecond.
+      const revision=now+'#'+crypto.randomUUID();
+      const sql='UPDATE exam_configs SET '+columns.map(k=>k+' = ?').join(', ')+
+        ', updated_at = ? WHERE id = ? AND updated_at IS NOT DISTINCT FROM ? AND creator_id = ?';
+      const result=await db.prepare(sql).bind(...columns.map(k=>(fields as any)[k]),revision,id,existing.updated_at??null,owner).run();
+      if (result.meta?.changes!==1) return respond({error:'Đề đã thay đổi đồng thời. Hãy nạp lại.',code:'EXAM_VERSION_CONFLICT'},409);
+      return respond({success:true,type:'updated',id,updated_at:revision,error:null});
     }
-  } catch (e: any) {
-    return new Response(JSON.stringify({ error: e.message || "Lỗi lưu đề thi", success: false }), { status: 500, headers: corsHeaders });
+    const dupe:any=await db.prepare('SELECT id FROM exam_configs WHERE creator_id = ? AND LOWER(TRIM(name)) = LOWER(TRIM(?)) LIMIT 1')
+      .bind(owner,fields.name).first();
+    if (dupe) return respond({error:'Tên đề đã tồn tại. Không ghi đè đề cũ.',code:'DUPLICATE_EXAM_NAME'},409);
+    const newId=crypto.randomUUID();
+    const sql='INSERT INTO exam_configs (id, creator_id, '+columns.join(', ')+', created_at, updated_at) VALUES ('+
+      Array(columns.length+4).fill('?').join(', ')+')';
+    try {
+      await db.prepare(sql).bind(newId,owner,...columns.map(k=>(fields as any)[k]),now,now+'#'+crypto.randomUUID()).run();
+    } catch(err:any) {
+      if (String(err?.message||'').includes('unique')||String(err?.code||'')==='23505')
+        return respond({error:'Tên đề thi đã tồn tại.',code:'DUPLICATE_EXAM_NAME'},409);
+      throw err;
+    }
+    const stored:any=await db.prepare('SELECT updated_at FROM exam_configs WHERE id = ?').bind(newId).first();
+    return respond({success:true,type:'inserted',id:newId,updated_at:stored?.updated_at,error:null});
+  } catch (err:any) {
+    if (err instanceof ExamConfigInputError) return respond({error:err.message,code:err.code},400);
+    console.error('Exam config save rejected:',err?.message||err);
+    return respond({error:'Không thể lưu cấu hình đề thi. Dữ liệu hiện tại được giữ nguyên.'},500);
   }
 };
 
