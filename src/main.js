@@ -3327,6 +3327,10 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 const modal = document.getElementById('modal-content');
                 if (!modal) return;
                 modal.classList.add('student-results-detail-modal');
+                // Keep the shared system close button reachable at the top while scrolling.
+                const modalCloseButton = Array.from(modal.children).find(el => el.tagName === 'BUTTON');
+                if (modalCloseButton) modal.prepend(modalCloseButton);
+                modal.scrollTop = 0;
                 const root = modal.querySelector('.student-result-detail');
                 bindStudentResultDetail(root, closeModal, image => window.zoomImage(image));
                 queueMathJax(modal);
