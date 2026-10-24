@@ -5555,8 +5555,8 @@ if (contentType && contentType.includes("application/json")) {
                 return `
                     <tr class="transition-colors border-b border-slate-100">
                         <td class="py-3 px-3 text-center text-xs font-medium text-gray-500">${globalIdx}</td>
-                        <td class="py-3 px-3 text-center text-xs font-mono text-gray-600 whitespace-nowrap">
-                            <span class="bg-gray-100 px-2 py-1 rounded text-xs font-bold text-gray-700 select-all">${item.id}</span>
+                        <td class="exam-config-id-cell text-center text-xs font-mono text-gray-600">
+                            <span class="exam-config-id-value bg-gray-100 px-2 py-1 rounded text-xs font-bold text-gray-700 select-all" title="${escapeHTML(String(item.id || ''))}">${escapeHTML(String(item.id || ''))}</span>
                         </td>
                         <td class="exam-config-title-cell font-semibold text-slate-800" title="${escapedName}">
                             ${escapedName}
