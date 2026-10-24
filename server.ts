@@ -18,6 +18,7 @@ import { getNeonSql, convertSqliteToPostgres } from "./src/neon-adapter";
 import { generateExamDocx } from "./src/exam-docx-generator";
 import { generateExamAnswerExcel, ExamAnswerDoc } from "./src/exam-excel-generator";
 import JSZip from 'jszip';
+import {requiredQuestionLesson,questionLessonDeleteScope,requireQuestionLessonConfirmation,questionLessonCountQuery,questionLessonDeleteQuery,QuestionLessonDeleteError} from './src/question-lesson-delete-policy';
 
 dotenv.config({ override: true });
 
@@ -2418,6 +2419,32 @@ async function startServer() {
       }
       console.error("POST /api/questions error::", e);
       return res.status(500).json({ error: e.message || 'Lỗi server', success: false });
+    }
+  });
+
+  app.post("/api/questions/delete-by-lesson", async(req,res)=>{
+    try{
+      const auth=req.headers.authorization;
+      if(!auth?.startsWith('Bearer '))return res.status(401).json({error:'Vui lòng đăng nhập'});
+      const user=verifyJWTSync(auth.slice(7),await getServerSecret());
+      if(!user)return res.status(401).json({error:'Phiên đăng nhập không hợp lệ'});
+      if(!checkIsTeacherOrAdmin(user))return res.status(403).json({error:'Không có quyền xóa câu hỏi'});
+      const scope=questionLessonDeleteScope(requiredQuestionLesson(req.body?.lesson),user.id,checkIsAdmin(user));
+      const query=questionLessonCountQuery(scope);
+      const initial=await executeSqlQuery(query.sql,query.params);
+      const count=Number(initial.results?.[0]?.total||0);
+      if(req.body?.action==='preview')return res.json({lesson:scope.lesson,count,scope:scope.scope});
+      if(req.body?.action!=='delete')return res.status(400).json({error:'Thao tác không hợp lệ'});
+      const expected=requireQuestionLessonConfirmation(req.body?.confirmation,req.body?.expectedCount);
+      if(expected!==count)return res.status(409).json({error:'Danh sách câu hỏi đã thay đổi. Vui lòng kiểm tra lại.',code:'LESSON_CHANGED',count});
+      const command=questionLessonDeleteQuery(scope,expected);
+      const result=await executeSqlQuery(command.sql,command.params);
+      if(result.changes!==expected)return res.status(409).json({error:'Danh sách đã thay đổi, vui lòng tải lại.',code:'LESSON_CHANGED'});
+      return res.json({success:true,lesson:scope.lesson,deletedCount:result.changes});
+    }catch(error:any){
+      if(error instanceof QuestionLessonDeleteError)return res.status(error.status).json({error:error.message,code:error.code});
+      console.error('Delete by lesson failed',error);
+      return res.status(500).json({error:'Không thể xóa câu hỏi theo bài.'});
     }
   });
 
