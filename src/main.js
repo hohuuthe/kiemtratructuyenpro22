@@ -3,6 +3,9 @@ import 'katex/dist/katex.min.css';
 import { createEmptyExamDraft, mapStoredExamToDraft, resolveExamSaveIdentity } from './exam-editor-safety.js';
 import './style.css';
 import { planRecentQuestionView, resolveWordImportedQuestionIds } from './question-bank-recent-view.js';
+import { questionCreatorId, matchesQuestionTeacher, questionTeacherOptions } from './question-teacher-filter.js';
+import { matchesRankingTeacher, rankingTeacherOptions } from './ranking-teacher-filter.js';
+import { examManagementCreatorId, examManagementSchool, examManagementClassTokens, matchesExamManagement, examManagementFilterChoices } from './exam-management-filters.js';
 import './pwa-manager.js';
 import './teacher-assignment.js';
 import { typesetScientificMath } from './scientific-formula-typeset.js';
@@ -2186,6 +2189,13 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             if (examSelect) examSelect.innerHTML = '<option value="">Chọn Bộ Câu hỏi/Đề thi</option>';
             const examTeacherFilter = document.getElementById('exam-teacher-filter');
             if (examTeacherFilter) examTeacherFilter.value = '';
+            const qTeacherFilter = document.getElementById('question-teacher-filter');
+            if (qTeacherFilter) {
+                qTeacherFilter.replaceChildren(new Option('Tất cả giáo viên', ''));
+                qTeacherFilter.disabled = true;
+            }
+            selectedQuestionIds.clear();
+            accountsMap = {};
             const qLessonFilter = document.getElementById('question-lesson-filter');
             if (qLessonFilter) qLessonFilter.value = '';
             const qSearch = document.getElementById('question-search');
@@ -2205,9 +2215,10 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             await Promise.all(loadTasks);
 
             if (isAdminLoggedIn || isTeacherLoggedIn) {
-                if (typeof updateQuestionStats === 'function') updateQuestionStats();
-                if (typeof renderQuestionsList === 'function') renderQuestionsList();
-                if (typeof updateLessonFilter === 'function') updateLessonFilter();
+                updateQuestionTeacherFilter();
+                updateLessonFilter();
+                updateQuestionStats();
+                renderQuestionsList();
             }
 
             // Tự động điền thông tin học sinh nếu là học sinh đăng nhập
@@ -2524,6 +2535,13 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             if (examSelect) examSelect.innerHTML = '<option value="">Chọn Bộ Câu hỏi/Đề thi</option>';
             const examTeacherFilter = document.getElementById('exam-teacher-filter');
             if (examTeacherFilter) examTeacherFilter.value = '';
+            const qTeacherFilter = document.getElementById('question-teacher-filter');
+            if (qTeacherFilter) {
+                qTeacherFilter.replaceChildren(new Option('Tất cả giáo viên', ''));
+                qTeacherFilter.disabled = true;
+            }
+            selectedQuestionIds.clear();
+            accountsMap = {};
             const qLessonFilter = document.getElementById('question-lesson-filter');
             if (qLessonFilter) qLessonFilter.value = '';
             const qSearch = document.getElementById('question-search');
@@ -2639,9 +2657,10 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             if (panelEl) panelEl.classList.remove('hidden');
 
             if (tabName === 'questions') {
+                updateQuestionTeacherFilter();
+                updateLessonFilter();
                 updateQuestionStats();
                 renderQuestionsList();
-                updateLessonFilter();
             } else if (tabName === 'exams') {
                 if (!examsLoaded) await updateExamNamesList(true);
                 renderExamConfigsTable();
@@ -3061,10 +3080,11 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                         id: q.id, type: q.type, level: q.level, lesson: q.lesson, content: q.content, options: q.options || {}, answer: q.answer, image: q.image || '', created_at: q.created_at || null, creatorId: q.creatorId || q.creator_id
                     }));
                     questionsLoaded = true;
+                    if (typeof updateQuestionTeacherFilter === 'function') updateQuestionTeacherFilter();
+                    if (typeof updateLessonFilter === 'function') updateLessonFilter();
                     updateStats();
                     if (typeof updateQuestionStats === 'function') updateQuestionStats();
                     if (typeof renderQuestionsList === 'function') renderQuestionsList();
-                    if (typeof updateLessonFilter === 'function') updateLessonFilter();
                     if (typeof updateCurrentExamInfo === 'function') {
                         updateCurrentExamInfo();
                     }
@@ -3149,6 +3169,8 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
 
         async function loadAllResults(force = false, retryCount = 0, silent = false, onProgress = null) {
             if (resultsLoaded && !force) return;
+            const generation = authDataGeneration;
+            const account = String(currentUser?.id || '');
             try {
                 if (force && !silent) {
                     console.log('🔄 Đang tải lại danh sách kết quả (phân đoạn)...');
@@ -3157,6 +3179,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 }
                 
                 const data = await fetchAllResultsChunked(onProgress);
+                if (generation !== authDataGeneration || account !== String(currentUser?.id || '') || (!isAdminLoggedIn && !isTeacherLoggedIn)) return;
 
                 if (Array.isArray(data)) {
                     const uniqueMap = new Map();
@@ -3186,7 +3209,8 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                             totalQuestions: r.total_questions, 
                             timeTaken: r.time_taken, 
                             examName: r.exam_name, 
-                            examId: r.exam_id, 
+                            examId: r.exam_id,
+                            examCreatorId: r.exam_creator_id == null ? '' : String(r.exam_creator_id), 
                             details: r.details || [], 
                             timestamp: r.created_at, 
                             loaiThiSinh: r.loai_thi_sinh, 
@@ -4165,9 +4189,10 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
                     showLoadingProgress('Đang tải Ngân hàng Câu hỏi', async () => {
                         await loadQuestions();
                         if (tabName === 'questions') {
+                            updateQuestionTeacherFilter();
+                            updateLessonFilter();
                             updateQuestionStats();
                             renderQuestionsList();
-                            updateLessonFilter();
                         } else if (tabName === 'exam-editor') {
                             await initExamPanel();
                             checkExamConfigSufficiency();
@@ -4287,7 +4312,46 @@ if (contentType && contentType.includes("application/json")) {
             }
         }
 
+        function syncAdminTeacherFilterVisibility() {
+            const admin = !!(isAdminLoggedIn && currentUser);
+            for (const [wrapId, selectId] of [
+                ['question-teacher-filter-wrap','question-teacher-filter'],
+                ['ranking-teacher-filter-wrap','ranking-teacher-filter'],
+                ['exam-config-creator-filter-wrap','exam-config-creator-filter'],
+                ['exam-config-school-filter-wrap','exam-config-school-filter']
+            ]) {
+                const wrap = document.getElementById(wrapId);
+                const select = document.getElementById(selectId);
+                if (wrap) {wrap.hidden = !admin; wrap.classList.toggle('hidden',!admin);}
+                if (select) {select.disabled = !admin; if (!admin) select.value = '';}
+            }
+        }
+        function populateRankingTeacherFilter() {
+            syncAdminTeacherFilterVisibility();
+            const select = document.getElementById('ranking-teacher-filter');
+            if (!select) return;
+            const current = isAdminLoggedIn ? select.value : '';
+            const entries = isAdminLoggedIn && currentUser ? rankingTeacherOptions(results,accounts,currentUser,true) : [];
+            const choices = [{id:'',label:'-- Tất cả giáo viên --'}, ...entries];
+            if (select.options.length !== choices.length ||
+                choices.some((x,i)=>select.options[i].value!==x.id || select.options[i].textContent!==x.label))
+                select.replaceChildren(...choices.map(x=>new Option(x.label,x.id)));
+            select.value = choices.some(x=>x.id===current) ? current : '';
+            select.disabled = !isAdminLoggedIn;
+        }
+        window.onRankingTeacherChange = function() {
+            if (!isAdminLoggedIn) {syncAdminTeacherFilterVisibility(); return;}
+            const exam = document.getElementById('ranking-exam-filter');
+            if (exam) exam.value = '';
+            const cls = document.getElementById('ranking-class-filter');
+            if (cls) cls.value = '';
+            selectedRankingResults.clear();
+            window.rankingCurrentPage = 1;
+            renderRanking();
+            updateRankingSelection();
+        };
         function populateRankingFilters() {
+            populateRankingTeacherFilter();
             populateRankingExamFilter();
             populateRankingUnitFilter();
             populateRankingClassFilter();
@@ -4304,9 +4368,9 @@ if (contentType && contentType.includes("application/json")) {
             const isTeacher = isTeacherLoggedIn && !isAdmin;
 
             let examNames = [];
-            
+            const selectedTeacher = isAdmin ? (document.getElementById('ranking-teacher-filter')?.value || '') : '';
             if (isAdmin) {
-                examNames = Object.keys(examToCreatorMap);
+                examNames = selectedTeacher ? [] : Object.keys(examToCreatorMap);
             } else if (isTeacher && currentUser) {
                 // Lọc theo creator_id hoặc status is_unlocked
                 examNames = Object.keys(examToCreatorMap).filter(name => {
@@ -4321,6 +4385,7 @@ if (contentType && contentType.includes("application/json")) {
             
             // Bổ sung đề thi từ kết quả hiện có (vẫn tuân thủ quy tắc sống còn)
             let availableResults = [...results];
+            if (isAdmin && selectedTeacher) availableResults = availableResults.filter(r=>matchesRankingTeacher(r,selectedTeacher));
             if (isTeacher && currentUser) {
                 availableResults = availableResults.filter(r => {
                     const isCreator = String(examToCreatorMap[r.examName]) === String(currentUser.id);
@@ -4384,6 +4449,10 @@ if (contentType && contentType.includes("application/json")) {
 
         function resetRankingUnitFilterSession() {
             rankingUnitSelectionInitialized = false;
+            lastRankingTeacherFilter = '';
+            const teacher = document.getElementById('ranking-teacher-filter');
+            if (teacher) teacher.replaceChildren(new Option('-- Tất cả giáo viên --',''));
+            syncAdminTeacherFilterVisibility();
             const unit = document.getElementById('ranking-unit-filter');
             if (unit) {
                 unit.innerHTML = '<option value="">-- Tất cả đơn vị --</option>';
@@ -5453,26 +5522,92 @@ if (contentType && contentType.includes("application/json")) {
         window.allExamConfigsList = [];
         window.examConfigPageSize = 30;
         window.examConfigCurrentPage = 1;
+        let lastExamManagementFilterKey = '';
+
+        function examManagementSelection() {
+            const isAdmin=!!(isAdminLoggedIn && currentUser);
+            return {
+                creatorId: isAdmin ? (document.getElementById('exam-config-creator-filter')?.value || '') : '',
+                school: isAdmin ? (document.getElementById('exam-config-school-filter')?.value || '') : '',
+                className: (isAdmin || isTeacherLoggedIn) ? (document.getElementById('exam-config-class-filter')?.value || '') : ''
+            };
+        }
+
+        function updateExamManagementFilters() {
+            syncAdminTeacherFilterVisibility();
+            const creator=document.getElementById('exam-config-creator-filter');
+            const school=document.getElementById('exam-config-school-filter');
+            const classroom=document.getElementById('exam-config-class-filter');
+            if(!creator || !school || !classroom)return;
+            const isAdmin=!!(currentUser && isAdminLoggedIn);
+            const canView=!!(currentUser && (isAdminLoggedIn || isTeacherLoggedIn));
+            const prev=examManagementSelection();
+            const rows=canView ? (window.allExamConfigsList || []) : [];
+            const makeOptions=(control,options,previous)=>{
+                const expected=options.map(item=>({value:String(item.value),label:String(item.label)}));
+                const changed=control.options.length!==expected.length ||
+                    expected.some((x,i)=>control.options[i].value!==x.value||control.options[i].textContent!==x.label);
+                if(changed)control.replaceChildren(...expected.map(x=>new Option(x.label,x.value)));
+                control.value=expected.some(x=>x.value===previous)?previous:'';
+                return control.value;
+            };
+            const base=examManagementFilterChoices(rows,accounts,{isAdmin});
+            const creatorId=makeOptions(creator,[{value:'',label:'Tất cả giáo viên / người tạo'},...base.creators],prev.creatorId);
+            const byTeacher=examManagementFilterChoices(rows,accounts,{isAdmin,creatorId});
+            const unit=makeOptions(school,[{value:'',label:'Tất cả trường / đơn vị'},...byTeacher.schools],prev.school);
+            const bySchool=examManagementFilterChoices(rows,accounts,{isAdmin,creatorId,school:unit});
+            makeOptions(classroom,[{value:'',label:'Tất cả lớp'},...bySchool.classes],prev.className);
+            creator.disabled=!isAdmin;
+            school.disabled=!isAdmin;
+            classroom.disabled=!canView;
+        }
+
+        window.onExamConfigCreatorFilterChange=function(){
+            if(!isAdminLoggedIn){syncAdminTeacherFilterVisibility();return;}
+            const unit=document.getElementById('exam-config-school-filter');
+            const classroom=document.getElementById('exam-config-class-filter');
+            if(unit)unit.value='';
+            if(classroom)classroom.value='';
+            window.examConfigCurrentPage=1;
+            renderExamConfigsTable();
+        };
+        window.onExamConfigSchoolFilterChange=function(){
+            if(!isAdminLoggedIn){syncAdminTeacherFilterVisibility();return;}
+            const classroom=document.getElementById('exam-config-class-filter');
+            if(classroom)classroom.value='';
+            window.examConfigCurrentPage=1;
+            renderExamConfigsTable();
+        };
+        window.onExamConfigClassFilterChange=function(){
+            if(!isAdminLoggedIn&&!isTeacherLoggedIn)return;
+            window.examConfigCurrentPage=1;
+            renderExamConfigsTable();
+        };
 
         window.renderExamConfigsTable = function renderExamConfigsTable() {
             const tbody = document.getElementById('exam-configs-table-body');
             if (!tbody) return;
-
-            const searchKw = (document.getElementById('search-exam-config-table')?.value || '').trim().toLowerCase();
-            const list = (window.allExamConfigsList || []).filter(ex => {
-                if (!searchKw) return true;
-                const name = String(ex.name || '').toLowerCase();
-                const mode = String(ex.chedodethi || '').toLowerCase();
-                const lop = String(ex.target_lop || ex.lop || '').toLowerCase();
-                const id = String(ex.id || '').toLowerCase();
-                return name.includes(searchKw) || mode.includes(searchKw) || lop.includes(searchKw) || id.includes(searchKw);
-            });
+            updateExamManagementFilters();
+            const selections=examManagementSelection();
+            const searchKw=(document.getElementById('search-exam-config-table')?.value || '').trim();
+            const filterKey=JSON.stringify([selections.creatorId,selections.school,selections.className,searchKw]);
+            if(filterKey!==lastExamManagementFilterKey){
+                lastExamManagementFilterKey=filterKey;
+                window.examConfigCurrentPage=1;
+            }
+            const list=(window.allExamConfigsList || []).filter(ex=>matchesExamManagement(ex,{
+                creatorId:selections.creatorId,
+                school:selections.school,
+                className:selections.className,
+                schoolAccounts:accounts,
+                query:searchKw
+            }));
 
             if (list.length === 0) {
                 tbody.innerHTML = `
                     <tr>
                         <td colspan="10" class="text-center py-8 text-gray-400 italic">
-                            ${searchKw ? 'Không tìm thấy đề thi nào phù hợp với từ khóa!' : 'Chưa có cấu hình đề thi nào trong danh sách.'}
+                            ${(searchKw || selections.creatorId || selections.school || selections.className) ? 'Không tìm thấy đề thi phù hợp với bộ lọc.' : 'Chưa có cấu hình đề thi nào trong danh sách.'}
                         </td>
                     </tr>
                 `;
@@ -9727,9 +9862,10 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             if (password === ADMIN_PASSWORD) {
                 document.getElementById('questions-login')?.classList.add('hidden');
                 document.getElementById('questions-panel')?.classList.remove('hidden');
+                updateQuestionTeacherFilter();
+                updateLessonFilter();
                 updateQuestionStats();
                 renderQuestionsList();
-                updateLessonFilter();
             } else {
                 showToast('Mật khẩu không đúng!', 'error');
             }
@@ -9766,10 +9902,16 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             return t === active;
         }
 
+        function getSelectedQuestionTeacherId() {
+            // The server only returns a teacher's own questions; a client-side selection
+            // is available solely to administrators who already hold bank-read rights.
+            return isAdminLoggedIn ? (document.getElementById('question-teacher-filter')?.value || '') : '';
+        }
+
         function updateQuestionStats() {
             const selectedLesson = document.getElementById('question-lesson-filter')?.value || '';
-            
-            let filteredQs = questions.filter(isUserQuestionCreator);
+            const selectedTeacher = getSelectedQuestionTeacherId();
+            let filteredQs = questions.filter(q => isUserQuestionCreator(q) && matchesQuestionTeacher(q, selectedTeacher));
             if (selectedLesson) {
                 filteredQs = filteredQs.filter(q => q.lesson === selectedLesson);
             }
@@ -9790,13 +9932,17 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             const statsSQ = getLevelStats(qSQ);
             const statsTL = getLevelStats(qTL);
 
-            const lessonDisplay = selectedLesson ? `<span class="text-purple-600 font-bold">${selectedLesson}</span>` : 'Tất cả bài';
+            const lessonDisplay = selectedLesson ? `<span class="text-purple-600 font-bold">${escapeHTML(selectedLesson)}</span>` : 'Tất cả bài';
+            const teacherSelect = document.getElementById('question-teacher-filter');
+            const teacherDisplay = selectedTeacher
+                ? escapeHTML(teacherSelect?.selectedOptions?.[0]?.textContent || 'Giáo viên đã chọn')
+                : (isAdminLoggedIn ? 'Tất cả giáo viên' : 'Câu hỏi của tôi');
 
             const statsEl = document.getElementById('question-type-stats');
             if (statsEl) {
                 statsEl.innerHTML = `
                     <div class="col-span-4 text-base text-gray-600 mb-2 pb-1 border-b border-gray-200 flex items-center gap-2">
-                        <span class="text-lg">📚</span> <span class="font-semibold">Thống kê cho:</span> ${lessonDisplay}
+                        <span class="text-lg">📚</span> <span class="font-semibold">Giáo viên:</span> <span class="text-purple-700 font-bold">${teacherDisplay}</span> <span class="font-semibold">· Bài:</span> ${lessonDisplay}
                     </div>
                     <div class="text-center p-2 bg-blue-50/50 rounded-lg border border-blue-100">
                         <p class="font-bold text-blue-700 text-base">[4-1]: ${q41.length}</p>
@@ -9822,6 +9968,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             if (!isTeacherLoggedIn && !isAdminLoggedIn) return showToast('Không có quyền xóa câu hỏi.', 'error');
             const lesson = document.getElementById('question-lesson-filter')?.value || '';
             if (!lesson) return showToast('Hãy chọn một bài cụ thể, không chọn Tất cả bài.', 'warning');
+            if (isAdminLoggedIn && getSelectedQuestionTeacherId()) return showToast('Hãy chọn Tất cả giáo viên trước khi xóa theo bài để tránh xóa nhầm dữ liệu.', 'warning');
             const token=localStorage.getItem('auth_token') || '';
             const generation=authDataGeneration;
             const account=String(currentUser?.id||'');
@@ -9866,6 +10013,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                     try{
                         if(generation!==authDataGeneration||account!==String(currentUser?.id||''))throw new Error('Phiên đăng nhập đã thay đổi.');
                         if(document.getElementById('question-lesson-filter')?.value!==lesson)throw new Error('Bài học đang chọn đã thay đổi. Hãy xem lại số lượng trước khi xóa.');
+                        if(isAdminLoggedIn && getSelectedQuestionTeacherId())throw new Error('Bộ lọc giáo viên đã thay đổi. Hãy kiểm tra lại trước khi xóa.');
                         const result=await call({action:'delete',lesson,confirmation:code,expectedCount:preview.count});
                         if(generation!==authDataGeneration||account!==String(currentUser?.id||''))return;
                         closeModal();
@@ -9885,19 +10033,62 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             }catch(e){showToast(e.message||'Không thể kiểm tra câu hỏi trong bài.', 'error');}
             finally{if(button)button.disabled=!document.getElementById('question-lesson-filter')?.value;}
         };
-        function updateDeleteQuestionLessonButton(){
-            const btn=document.getElementById('btn-delete-question-lesson');
-            if(btn)btn.disabled=!(document.getElementById('question-lesson-filter')?.value)||(!isTeacherLoggedIn&&!isAdminLoggedIn);
+        function updateDeleteQuestionLessonButton() {
+            const btn = document.getElementById('btn-delete-question-lesson');
+            if (!btn) return;
+            const teacherFiltered = isAdminLoggedIn && !!getSelectedQuestionTeacherId();
+            btn.disabled = !(document.getElementById('question-lesson-filter')?.value) ||
+                (!isTeacherLoggedIn && !isAdminLoggedIn) || teacherFiltered;
+            btn.title = teacherFiltered
+                ? 'Bỏ lọc giáo viên để xóa theo bài; chức năng hiện tại xóa tất cả người tạo trong bài'
+                : 'Chỉ xóa câu hỏi thuộc bài đang chọn theo quyền tài khoản';
         }
 
+        function updateQuestionTeacherFilter() {
+            syncAdminTeacherFilterVisibility();
+            const select = document.getElementById('question-teacher-filter');
+            if (!select) return;
+            const previous = isAdminLoggedIn ? select.value : '';
+            select.replaceChildren(new Option(isAdminLoggedIn ? 'Tất cả giáo viên' : 'Câu hỏi của tôi', ''));
+            if (isAdminLoggedIn && currentUser) {
+                const visibleQuestions = questions.filter(isUserQuestionCreator);
+                for (const entry of questionTeacherOptions(visibleQuestions, accounts, currentUser, true)) {
+                    // Option(text,value) escapes display names, even names containing HTML.
+                    select.add(new Option(entry.label, entry.id));
+                }
+            }
+            select.disabled = !isAdminLoggedIn;
+            if (previous && Array.from(select.options).some(option => option.value === previous)) {
+                select.value = previous;
+            } else {
+                select.value = '';
+                if (previous) selectedQuestionIds.clear();
+            }
+            updateDeleteQuestionLessonButton();
+        }
+
+        window.onQuestionTeacherFilterChange = function() {
+            if (!isAdminLoggedIn) {syncAdminTeacherFilterVisibility(); return;}
+            selectedQuestionIds.clear(); // Never carry a cross-teacher bulk selection forward.
+            clearRecentQuestionFocus();
+            window.questionsCurrentPage = 1;
+            updateLessonFilter();
+            updateQuestionStats();
+            renderQuestionsList();
+        };
+
         function updateLessonFilter() {
-            let filteredQuestions = questions.filter(isUserQuestionCreator);
-            const lessons = [...new Set(filteredQuestions.map(q => q.lesson).filter(Boolean))];
+            const selectedTeacher = getSelectedQuestionTeacherId();
+            const filteredQuestions = questions.filter(q => isUserQuestionCreator(q) && matchesQuestionTeacher(q, selectedTeacher));
+            const lessons = [...new Set(filteredQuestions.map(q => q.lesson).filter(Boolean))].sort((a,b) => String(a).localeCompare(String(b), 'vi'));
             const select = document.getElementById('question-lesson-filter');
             if (!select) return;
-            const currentVal = select.value;
-            select.innerHTML = `<option value="">Tất cả bài</option>` +
-                lessons.map(l => `<option value="${escapeHTML(l)}" ${l === currentVal ? 'selected' : ''}>${escapeHTML(l)}</option>`).join('');
+            const previous = select.value;
+            select.replaceChildren(new Option('Tất cả bài', ''));
+            for (const lesson of lessons) {
+                select.add(new Option(String(lesson), String(lesson)));
+            }
+            select.value = lessons.includes(previous) ? previous : '';
             updateDeleteQuestionLessonButton();
         }
 
@@ -9927,6 +10118,8 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             const found = questions.filter(q => ids.has(String(q.id)) && isUserQuestionCreator(q));
             recentlySavedIds = new Set(found.map(q => String(q.id)));
             showOnlyRecentlySaved = false;
+            const teacherEl = document.getElementById('question-teacher-filter');
+            if (teacherEl && isAdminLoggedIn) teacherEl.value = '';
             updateLessonFilter();
             const lessonEl = document.getElementById('question-lesson-filter');
             if (lessonEl) lessonEl.value = '';
@@ -9946,11 +10139,16 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
         }
         window.showAllQuestionBank = function() {
             clearRecentQuestionFocus();
+            selectedQuestionIds.clear();
             questionTypeFilter = 'ALL';
+            const teacher = document.getElementById('question-teacher-filter');
+            if (teacher && isAdminLoggedIn) teacher.value = '';
+            updateLessonFilter();
             const lesson=document.getElementById('question-lesson-filter');
             if(lesson) lesson.value='';
             const search=document.getElementById('question-search');
             if(search) search.value='';
+            updateDeleteQuestionLessonButton();
             renderQuestionsList(); updateQuestionStats();
         };
 
@@ -9965,6 +10163,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
         window.questionsPageSize = 50;
         let lastQuestionsSearchTerm = '';
         let lastQuestionsLessonFilter = '';
+        let lastQuestionsTeacherFilter = '';
         let lastQuestionsTypeFilter = '';
 
         function updateQuestionsSelectionUI() {
@@ -10138,17 +10337,21 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
 
         function renderQuestionsList() {
             const lessonFilter = document.getElementById('question-lesson-filter')?.value || '';
+            const teacherFilter = getSelectedQuestionTeacherId();
             const searchTerm = (document.getElementById('question-search')?.value || '').toLowerCase().trim();
-            
-            // Tự động reset về trang 1 khi thay đổi điều kiện lọc
-            if (lessonFilter !== lastQuestionsLessonFilter || searchTerm !== lastQuestionsSearchTerm || questionTypeFilter !== lastQuestionsTypeFilter) {
+
+            // Đồng bộ phân trang khi đổi giáo viên, bài học, loại câu hoặc tìm kiếm.
+            if (teacherFilter !== lastQuestionsTeacherFilter || lessonFilter !== lastQuestionsLessonFilter ||
+                searchTerm !== lastQuestionsSearchTerm || questionTypeFilter !== lastQuestionsTypeFilter) {
                 window.questionsCurrentPage = 1;
+                lastQuestionsTeacherFilter = teacherFilter;
                 lastQuestionsLessonFilter = lessonFilter;
                 lastQuestionsSearchTerm = searchTerm;
                 lastQuestionsTypeFilter = questionTypeFilter;
             }
 
-            let filteredQuestions = questions.filter(q => (questionTypeFilter === 'ALL' || matchesQuestionType(q,questionTypeFilter)) && isUserQuestionCreator(q));
+            let filteredQuestions = questions.filter(q => (questionTypeFilter === 'ALL' || matchesQuestionType(q,questionTypeFilter)) &&
+                isUserQuestionCreator(q) && matchesQuestionTeacher(q, teacherFilter));
             
             filteredQuestions.sort((a,b) => {
                 const recent = Number(recentlySavedIds.has(String(b.id))) - Number(recentlySavedIds.has(String(a.id)));
@@ -10216,7 +10419,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                                 <span class="px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-xs font-semibold">${q.type}</span>
                                 <span class="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs font-semibold">${q.level || 'NB'}</span>
                                 <span class="px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs font-semibold">${escapeHTML(q.lesson) || 'Chung'}</span>
-                                ${q.creatorId ? `<span class="px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded text-xs font-semibold truncate max-w-[130px] sm:max-w-none">Tác giả: ${accounts.find(a => a.id === q.creatorId)?.full_name || 'Không xác định'}</span>` : ''}
+                                ${questionCreatorId(q) ? `<span class="px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded text-xs font-semibold truncate max-w-[130px] sm:max-w-none">Tác giả: ${escapeHTML(accountsMap[questionCreatorId(q)] || (String(currentUser?.id) === questionCreatorId(q) ? currentUser?.full_name : '') || 'Không xác định')}</span>` : ''}
                             </div>
                             <!-- Nút thao tác Sửa / Xóa luôn hiển thị rõ ràng trên cả mobile và desktop -->
                             <div class="flex items-center gap-1.5 ml-auto shrink-0">
@@ -10272,9 +10475,11 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
 
         window.selectAllQuestions = function selectAllQuestions() {
             const lessonFilter = document.getElementById('question-lesson-filter')?.value || '';
+            const teacherFilter = getSelectedQuestionTeacherId();
             const searchTerm = (document.getElementById('question-search')?.value || '').toLowerCase().trim();
-            
-            let filteredQuestions = questions.filter(q => matchesQuestionType(q, questionTypeFilter) && isUserQuestionCreator(q));
+
+            let filteredQuestions = questions.filter(q => (questionTypeFilter === 'ALL' || matchesQuestionType(q, questionTypeFilter)) &&
+                isUserQuestionCreator(q) && matchesQuestionTeacher(q, teacherFilter));
             
             if (lessonFilter) {
                 filteredQuestions = filteredQuestions.filter(q => q.lesson === lessonFilter);
@@ -13226,6 +13431,16 @@ D. Phát biểu SAI</pre>
             window.allExamConfigsList = [];
             accountsMap = {};
             window.examConfigCurrentPage = 1;
+            lastExamManagementFilterKey = '';
+            for(const [id,label] of [
+                ['exam-config-creator-filter','Tất cả giáo viên / người tạo'],
+                ['exam-config-school-filter','Tất cả trường / đơn vị'],
+                ['exam-config-class-filter','Tất cả lớp']
+            ]){
+                const control=document.getElementById(id);
+                if(control)control.replaceChildren(new Option(label,''));
+            }
+            syncAdminTeacherFilterVisibility();
             const search = document.getElementById('search-exam-config-table');
             if (search) search.value = '';
             const examListSelect = document.getElementById('exam-config-name');
@@ -14937,6 +15152,7 @@ CẤU TRÚC JSON:
         window.rankingPageSize = savedRankingPageSize === 'all' ? 'all' : (parseInt(savedRankingPageSize, 10) || 50);
         let lastRankingSearchTerm = '';
         let lastRankingExamFilter = '';
+        let lastRankingTeacherFilter = '';
         let lastRankingUnitFilter = '';
         let lastRankingClassFilter = '';
 
@@ -15141,6 +15357,7 @@ CẤU TRÚC JSON:
         };
 
         function renderRanking() {
+            syncAdminTeacherFilterVisibility();
             // Kiểm tra quyền truy cập (Học sinh không được xem)
             const isAdmin = isAdminLoggedIn;
             const isTeacher = isTeacherLoggedIn && !isAdmin;
@@ -15154,22 +15371,25 @@ CẤU TRÚC JSON:
                 return;
             }
 
-            if (isAdmin || isTeacher) populateRankingUnitFilter();
+            if (isAdmin || isTeacher) {populateRankingTeacherFilter(); populateRankingUnitFilter();}
+            const teacherFilter = isAdmin ? (document.getElementById('ranking-teacher-filter')?.value || '') : '';
             const searchTerm = (document.getElementById('ranking-search')?.value || '').toLowerCase().trim();
             const examFilter = (document.getElementById('ranking-exam-filter')?.value || '').trim();
             const unitFilter = (document.getElementById('ranking-unit-filter')?.value || '').trim();
             const classFilter = (document.getElementById('ranking-class-filter')?.value || '').trim();
             
             // Tự động reset về trang 1 khi thay đổi bất kỳ điều kiện tìm kiếm hoặc bộ lọc nào
-            if (searchTerm !== lastRankingSearchTerm || examFilter !== lastRankingExamFilter || unitFilter !== lastRankingUnitFilter || classFilter !== lastRankingClassFilter) {
+            if (searchTerm !== lastRankingSearchTerm || examFilter !== lastRankingExamFilter || teacherFilter !== lastRankingTeacherFilter || unitFilter !== lastRankingUnitFilter || classFilter !== lastRankingClassFilter) {
                 window.rankingCurrentPage = 1;
                 lastRankingSearchTerm = searchTerm;
                 lastRankingExamFilter = examFilter;
+                lastRankingTeacherFilter = teacherFilter;
                 lastRankingUnitFilter = unitFilter;
                 lastRankingClassFilter = classFilter;
             }
 
             let filteredResults = [...results];
+            if (teacherFilter) filteredResults = filteredResults.filter(r=>matchesRankingTeacher(r,teacherFilter));
             
             // Giáo viên chỉ xem được kết quả thi của các đề mình tạo HOẶC được chia sẻ kết quả VÀ chỉ xem được kết quả của học sinh thuộc các lớp mình được phân công
             if (isTeacher && currentUser) {
@@ -16183,11 +16403,13 @@ CẤU TRÚC JSON:
             }
 
             const examFilter = (document.getElementById('ranking-exam-filter')?.value || '').trim();
+            const teacherFilter = isAdmin ? (document.getElementById('ranking-teacher-filter')?.value || '') : '';
             const unitFilter = (document.getElementById('ranking-unit-filter')?.value || '').trim();
             const classFilter = (document.getElementById('ranking-class-filter')?.value || '').trim();
             const searchTerm = (document.getElementById('ranking-search')?.value || '').toLowerCase().trim();
 
             let exportResults = [...results];
+            if (teacherFilter) exportResults = exportResults.filter(r=>matchesRankingTeacher(r,teacherFilter));
             
             // Giáo viên chỉ export kết quả của đề mình tạo hoặc đề đã được mở khóa qua mã chia sẻ
             if (isTeacher && currentUser) {

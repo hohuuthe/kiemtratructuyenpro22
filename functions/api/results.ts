@@ -51,6 +51,8 @@ function parseResultRow(row: any, includeDetails = false) {
     time_taken: row.time_taken,
     exam_name: row.exam_name,
     exam_id: row.exam_id,
+    ...(Object.prototype.hasOwnProperty.call(row, 'exam_creator_id')
+      ? { exam_creator_id: row.exam_creator_id || '' } : {}),
     created_at: row.created_at,
     loai_thi_sinh: row.loai_thi_sinh,
     cheat_warning_count: Number(row.cheat_warning_count) || 0,
@@ -296,7 +298,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
       let results: any[] = [];
       try {
         const res = await db.prepare(`
-          SELECT ${columns} 
+          SELECT ${columns}, (SELECT e.creator_id FROM exam_configs e WHERE e.id = r.exam_id LIMIT 1) AS exam_creator_id 
           FROM results r
           LEFT JOIN users u ON r.user_id = u.id
           LEFT JOIN accounts a ON (r.user_id = a.id OR r.user_id = a.user_id)
@@ -306,7 +308,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
         `).all();
         results = res.results || [];
       } catch (err) {
-        const res = await db.prepare(`SELECT * FROM results ORDER BY created_at DESC, id DESC ${paginationClause}`).all();
+        const res = await db.prepare(`SELECT r.*, (SELECT e.creator_id FROM exam_configs e WHERE e.id = r.exam_id LIMIT 1) AS exam_creator_id FROM results r ORDER BY r.created_at DESC, r.id DESC ${paginationClause}`).all();
         results = res.results || [];
       }
 
