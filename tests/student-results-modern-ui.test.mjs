@@ -65,3 +65,22 @@ test('Original student-only private API contract is retained',()=>{
     assert.match(ui,/ranking-student-panel/);
     assert.match(ui,/ranking-admin-panel/);
 });
+
+test('Compact student layout follows existing application forms without viewport clipping',()=>{
+    const html=readFileSync('public/components/tab-ranking.html','utf8');
+    const css=readFileSync('src/style.css','utf8');
+    const source=readFileSync('src/main.js','utf8');
+    assert.match(html,/student-results-panel hidden bg-white rounded-2xl shadow-xl/);
+    assert.match(html,/ranking-student-score-filter/);
+    assert.match(html,/ranking-student-sort/);
+    assert.match(css,/#modal-content\.student-results-detail-modal\{[^}]*width:min\(900px,calc\(100vw - 32px\)\)/);
+    assert.match(css,/height:min\(760px,calc\(100dvh - 32px\)\)/);
+    assert.match(css,/overflow-y:auto!important/);
+    assert.match(css,/overscroll-behavior:contain/);
+    assert.match(css,/#modal-content\.student-results-detail-modal>button\{[^}]*position:sticky!important/);
+    assert.match(css,/@media\(max-width:640px\)/);
+    assert.match(css,/grid-template-columns:minmax\(0,1fr\)/);
+    assert.match(css,/\.student-result-detail \.exam-detail-options\{max-width:100%;min-width:0\}/);
+    assert.match(source,/modal\.prepend\(modalCloseButton\)/);
+    assert.match(source,/modal\.scrollTop = 0/);
+});
