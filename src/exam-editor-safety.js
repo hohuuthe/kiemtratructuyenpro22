@@ -113,11 +113,12 @@ export function mapStoredExamToDraft(row, {currentUser = null, accounts = [], ac
     sqPunctuationSensitive: examFlag(row.sq_punctuation_sensitive ?? row.sqPunctuationSensitive),
     autoGradeEssay: examFlag(row.auto_grade_essay ?? row.autoGradeEssay),
     showScore: examFlag(row.show_score ?? row.showScore, true),
-    showDetails: examFlag(row.show_details ?? row.showDetails, true),
+    showDetails: examFlag(row.show_details ?? row.showDetails, false),
     isSharedResults: examFlag(row.is_shared_results ?? row.isSharedResults),
     sharedTeachers: Array.isArray(sharing) ? sharing.slice() : [],
     maxCheatWarnings: Math.max(1, number(row.max_cheat_warnings ?? row.maxCheatWarnings, 5)),
     maxAttempts: nonNegative(row.max_attempts ?? row.maxAttempts),
+    maxCheatWarnings: Math.max(1, number(row.max_cheat_warnings ?? row.maxCheatWarnings, 5)),
     max_attempts: nonNegative(row.max_attempts ?? row.maxAttempts),
     accessControl: {
       enabled: examFlag(accessObj.enabled) || !!startTime || !!endTime,

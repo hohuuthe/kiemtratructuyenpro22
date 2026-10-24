@@ -38,3 +38,13 @@ test('Existing exam-management functionality is retained', () => {
   assert.doesNotMatch(renderer, /max-w-xs truncate/);
   assert.match(css, /\.exam-configs-table \.exam-config-title-cell\s*\{[^}]*white-space:\s*normal;[^}]*overflow-wrap:\s*anywhere;/s);
 });
+
+test('Long exam IDs wrap safely without covering the following title column', () => {
+  assert.match(renderer, /<td class="exam-config-id-cell[^"]*">/);
+  assert.match(renderer, /<span class="exam-config-id-value[^"]*" title="\$\{escapeHTML\(String\(item\.id \|\| ''\)\)\}">/);
+  assert.doesNotMatch(renderer, /<td class="[^"]*whitespace-nowrap"[^>]*>\s*<span class="[^"]*select-all">\$\{item\.id\}<\/span>/);
+  assert.match(css, /\.exam-configs-table \.exam-config-id-cell\s*\{[^}]*white-space:\s*normal;[^}]*overflow-wrap:\s*anywhere;/s);
+  assert.match(css, /\.exam-configs-table \.exam-config-id-value\s*\{[^}]*display:\s*block;[^}]*max-width:\s*100%;[^}]*overflow-wrap:\s*anywhere;[^}]*word-break:\s*break-all;/s);
+  assert.match(css, /\.exam-configs-table th:nth-child\(2\) \{ width: 11%; \}/);
+  assert.match(css, /\.exam-configs-table th:nth-child\(3\) \{ width: 22%; \}/);
+});
