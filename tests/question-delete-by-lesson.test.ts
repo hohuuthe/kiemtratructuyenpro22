@@ -1,7 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {requiredQuestionLesson,requireQuestionLessonConfirmation,questionLessonDeleteScope,questionLessonCountQuery,questionLessonDeleteQuery} from '../src/question-lesson-delete-policy.ts';
+import {requiredQuestionLesson,requireQuestionLessonConfirmation,questionLessonDeleteScope,questionLessonCountQuery,questionLessonDeleteQuery,canDeleteQuestionsByLesson} from '../src/question-lesson-delete-policy.ts';
+import {PGlite} from '@electric-sql/pglite';
+import {convertSqliteToPostgres} from '../src/neon-adapter.ts';
+test('Only administrators and teachers have scoped bulk-delete privileges',()=>{
+ for(const u of [null,{}, {role:'khác',target_audience:'Khác'}, {role:'student',target_audience:'Học sinh'}, {role:'user',target_audience:'Học sinh'}]){
+  assert.equal(canDeleteQuestionsByLesson(u),false);
+ }
+ for(const u of [{role:'admin'}, {role:'teacher'}, {role:'giáo viên'}, {role:'user',target_audience:'Giáo viên'}]){
+  assert.equal(canDeleteQuestionsByLesson(u),true);
+ }
+});
 test('Require exact selected lesson; never accept empty or all-lessons choice',()=>{
  for(const value of ['',null,undefined,123,'  '])assert.throws(()=>requiredQuestionLesson(value));
  assert.equal(requiredQuestionLesson('BÀI 2'),'BÀI 2');
@@ -35,6 +45,8 @@ test('Cloudflare, Node and UI enforce a consistent contract',()=>{
  const route=readFileSync('functions/api/questions/delete-by-lesson.ts','utf8');
  assert.match(cf,/verifyAuthSession/);
  assert.match(cf,/checkIsTeacherOrAdmin\(user\)/);
+ assert.match(cf,/canDeleteQuestionsByLesson\(user\)/);
+ assert.match(node,/canDeleteQuestionsByLesson\(user\)/);
  assert.match(cf,/questionLessonDeleteQuery\(scope,expected\)/);
  assert.match(node,/app\.post\("\/api\/questions\/delete-by-lesson"/);
  assert.match(node,/questionLessonDeleteQuery\(scope,expected\)/);
@@ -44,4 +56,26 @@ test('Cloudflare, Node and UI enforce a consistent contract',()=>{
  assert.match(ui,/confirmation:code,expectedCount:preview\.count/);
  assert.match(ui,/if\(code!=='123'\)/);
  assert.match(ui,/await loadQuestions\(true\)/);
+});
+
+test('Real PostgreSQL prevents stale-count deletion and enforces teacher owner and exact lesson',async()=>{
+ const db=new PGlite();
+ const execute=(stmt)=>db.query(convertSqliteToPostgres(stmt.sql),stmt.params);
+ try{
+  await db.exec('CREATE TABLE questions (id TEXT PRIMARY KEY, lesson TEXT NOT NULL, creator_id TEXT NOT NULL)');
+  await db.exec("INSERT INTO questions(id,lesson,creator_id) VALUES ('a1','BÀI 1','teacher-a'),('a2','BÀI 1','teacher-a'),('b1','BÀI 1','teacher-b'),('c1','BÀI 2','teacher-a')");
+  const teacher=questionLessonDeleteScope('BÀI 1','teacher-a',false);
+  const before=await execute(questionLessonCountQuery(teacher));
+  assert.equal(Number(before.rows[0].total),2);
+  const stale=await execute(questionLessonDeleteQuery(teacher,1));
+  assert.equal(stale.affectedRows,0,'Mismatched expected count must not delete any rows');
+  assert.equal((await db.query('SELECT COUNT(*)::int AS n FROM questions')).rows[0].n,4);
+  const deleted=await execute(questionLessonDeleteQuery(teacher,2));
+  assert.equal(deleted.affectedRows,2);
+  assert.deepEqual((await db.query('SELECT id FROM questions ORDER BY id')).rows.map(x=>x.id),['b1','c1']);
+  const admin=questionLessonDeleteScope('BÀI 1','admin-1',true);
+  const adminDeleted=await execute(questionLessonDeleteQuery(admin,1));
+  assert.equal(adminDeleted.affectedRows,1);
+  assert.deepEqual((await db.query('SELECT id FROM questions')).rows.map(x=>x.id),['c1']);
+ }finally{await db.close();}
 });

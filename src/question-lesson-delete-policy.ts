@@ -12,6 +12,18 @@ export class QuestionLessonDeleteError extends Error {
     }
 }
 
+/**
+ * Match both runtime's recognized teacher/admin roles. An unrelated role such
+ * as "khác" must never inherit the right to bulk-delete a question bank.
+ */
+export function canDeleteQuestionsByLesson(user: any): boolean {
+    if (!user || typeof user !== 'object') return false;
+    const role = String(user.role ?? '').trim().toLowerCase();
+    const audience = String(user.target_audience ?? '').trim().toLowerCase();
+    return role === 'admin' || audience === 'admin' || audience === 'quản trị viên' ||
+        role === 'teacher' || role === 'giáo viên' || audience === 'giáo viên';
+}
+
 export function requiredQuestionLesson(raw: unknown): string {
     // Exact-match semantics: do NOT trim the lesson used in SQL, otherwise
     // lessons with leading/trailing spaces could be accidentally conflated.

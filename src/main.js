@@ -9841,7 +9841,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                     '<h3 class="font-bold text-lg text-red-700">🗑️ Xóa câu hỏi theo bài</h3>'+
                     '<p class="text-sm text-gray-700">Bài được chọn: <strong id="delete-lesson-name"></strong></p>'+
                     '<p class="text-sm">Số câu dự kiến xóa: <strong id="delete-lesson-count"></strong></p>'+
-                    '<p class="text-xs text-red-700">Thao tác không thể hoàn tác. Chỉ xóa câu hỏi thuộc đúng bài này trong phạm vi quyền tài khoản, không phụ thuộc bộ lọc loại câu hoặc tìm kiếm.</p>'+
+                    '<p class="text-xs text-red-700">Thao tác không thể hoàn tác. '+(preview.scope==='all'?'Quản trị viên: xóa câu hỏi của TẤT CẢ người tạo thuộc bài này. ':'Giáo viên: chỉ xóa câu hỏi do tài khoản của mình tạo. ')+'Không phụ thuộc bộ lọc loại câu hoặc tìm kiếm.</p>'+
                     '<label class="block text-sm font-semibold" for="delete-lesson-confirmation">Nhập mã xác nhận 123</label>'+
                     '<input id="delete-lesson-confirmation" type="text" inputmode="numeric" autocomplete="off" maxlength="3" class="w-full px-3 py-2 border rounded-lg" placeholder="123">'+
                     '<p id="delete-lesson-error" class="text-red-600 text-xs" role="alert"></p>'+
@@ -9858,13 +9858,14 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                     submit.disabled=true;
                     try{
                         if(generation!==authDataGeneration||account!==String(currentUser?.id||''))throw new Error('Phiên đăng nhập đã thay đổi.');
+                        if(document.getElementById('question-lesson-filter')?.value!==lesson)throw new Error('Bài học đang chọn đã thay đổi. Hãy xem lại số lượng trước khi xóa.');
                         const result=await call({action:'delete',lesson,confirmation:code,expectedCount:preview.count});
                         if(generation!==authDataGeneration||account!==String(currentUser?.id||''))return;
                         closeModal();
                         selectedQuestionIds.clear();
                         clearRecentQuestionFocus();
                         const loaded=await loadQuestions(true);
-                        if(!loaded)throw new Error('Đã xóa nhưng chưa tải lại được danh sách câu hỏi.');
+                        if(!loaded){showToast('Đã xóa '+result.deletedCount+' câu hỏi nhưng chưa tải lại được danh sách. Vui lòng bấm Tải lại.', 'warning');return;}
                         updateLessonFilter();
                         updateQuestionStats();
                         updateAvailableCounts();
@@ -9879,7 +9880,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
         };
         function updateDeleteQuestionLessonButton(){
             const btn=document.getElementById('btn-delete-question-lesson');
-            if(btn)btn.disabled=!(document.getElementById('question-lesson-filter')?.value)&&(true);
+            if(btn)btn.disabled=!(document.getElementById('question-lesson-filter')?.value)||(!isTeacherLoggedIn&&!isAdminLoggedIn);
         }
 
         function updateLessonFilter() {

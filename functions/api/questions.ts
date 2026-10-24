@@ -1,5 +1,5 @@
 import { verifyAuthSession, getDynamicSecret, getDatabase, checkIsTeacherOrAdmin, checkIsAdmin } from './exam/utils';
-import { requiredQuestionLesson, questionLessonDeleteScope, requireQuestionLessonConfirmation, questionLessonCountQuery, questionLessonDeleteQuery, QuestionLessonDeleteError } from '../../src/question-lesson-delete-policy';
+import { requiredQuestionLesson, questionLessonDeleteScope, requireQuestionLessonConfirmation, questionLessonCountQuery, questionLessonDeleteQuery, QuestionLessonDeleteError, canDeleteQuestionsByLesson } from '../../src/question-lesson-delete-policy';
 
 interface Env {
   NEON_DATABASE_URL?: string;
@@ -249,7 +249,7 @@ export const onRequestPostDeleteLesson: PagesFunction<Env> = async (context) => 
     if (!auth?.startsWith('Bearer ')) return respond({error:'Vui lòng đăng nhập'},401);
     const user=await verifyAuthSession(auth.slice(7),await getDynamicSecret(db,env.JWT_SECRET),db);
     if (!user) return respond({error:'Phiên đăng nhập không hợp lệ'},401);
-    if (!checkIsTeacherOrAdmin(user)) return respond({error:'Không có quyền xóa ngân hàng câu hỏi'},403);
+    if (!checkIsTeacherOrAdmin(user) || !canDeleteQuestionsByLesson(user)) return respond({error:'Không có quyền xóa ngân hàng câu hỏi'},403);
     const body:any=await request.json();
     const scope=questionLessonDeleteScope(requiredQuestionLesson(body?.lesson),user.id,checkIsAdmin(user));
     const countQuery=questionLessonCountQuery(scope);
@@ -262,7 +262,7 @@ export const onRequestPostDeleteLesson: PagesFunction<Env> = async (context) => 
     const command=questionLessonDeleteQuery(scope,expected);
     const deleted=await db.prepare(command.sql).bind(...command.params).run();
     const changes=Number(deleted?.meta?.changes||0);
-    if(changes!==expected)return respond({error:'Danh sách đã thay đổi, không xóa dữ liệu. Vui lòng thử lại.',code:'LESSON_CHANGED',count:Math.max(0,count-changes)},409);
+    if(changes!==expected)return respond({error:changes>0?'Có thay đổi đồng thời: đã xóa một phần. Hãy tải lại danh sách và kiểm tra ngay.':'Danh sách đã thay đổi, chưa xóa câu hỏi nào. Vui lòng thử lại.',code:changes>0?'PARTIAL_DELETE':'LESSON_CHANGED',deletedCount:changes},409);
     return respond({success:true,lesson:scope.lesson,deletedCount:changes});
   }catch(err:any){
     if(err instanceof QuestionLessonDeleteError)return respond({error:err.message,code:err.code},err.status);
