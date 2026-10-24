@@ -4,6 +4,7 @@ import { createEmptyExamDraft, mapStoredExamToDraft, resolveExamSaveIdentity } f
 import './style.css';
 import { planRecentQuestionView, resolveWordImportedQuestionIds } from './question-bank-recent-view.js';
 import { questionCreatorId, matchesQuestionTeacher, questionTeacherOptions } from './question-teacher-filter.js';
+import { matchesRankingTeacher, rankingTeacherOptions } from './ranking-teacher-filter.js';
 import './pwa-manager.js';
 import './teacher-assignment.js';
 import { typesetScientificMath } from './scientific-formula-typeset.js';
@@ -3167,6 +3168,8 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
 
         async function loadAllResults(force = false, retryCount = 0, silent = false, onProgress = null) {
             if (resultsLoaded && !force) return;
+            const generation = authDataGeneration;
+            const account = String(currentUser?.id || '');
             try {
                 if (force && !silent) {
                     console.log('🔄 Đang tải lại danh sách kết quả (phân đoạn)...');
@@ -3175,6 +3178,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 }
                 
                 const data = await fetchAllResultsChunked(onProgress);
+                if (generation !== authDataGeneration || account !== String(currentUser?.id || '') || (!isAdminLoggedIn && !isTeacherLoggedIn)) return;
 
                 if (Array.isArray(data)) {
                     const uniqueMap = new Map();
@@ -3204,7 +3208,8 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                             totalQuestions: r.total_questions, 
                             timeTaken: r.time_taken, 
                             examName: r.exam_name, 
-                            examId: r.exam_id, 
+                            examId: r.exam_id,
+                            examCreatorId: r.exam_creator_id == null ? '' : String(r.exam_creator_id), 
                             details: r.details || [], 
                             timestamp: r.created_at, 
                             loaiThiSinh: r.loai_thi_sinh, 
@@ -4306,7 +4311,44 @@ if (contentType && contentType.includes("application/json")) {
             }
         }
 
+        function syncAdminTeacherFilterVisibility() {
+            const admin = !!(isAdminLoggedIn && currentUser);
+            for (const [wrapId, selectId] of [
+                ['question-teacher-filter-wrap','question-teacher-filter'],
+                ['ranking-teacher-filter-wrap','ranking-teacher-filter']
+            ]) {
+                const wrap = document.getElementById(wrapId);
+                const select = document.getElementById(selectId);
+                if (wrap) {wrap.hidden = !admin; wrap.classList.toggle('hidden',!admin);}
+                if (select) {select.disabled = !admin; if (!admin) select.value = '';}
+            }
+        }
+        function populateRankingTeacherFilter() {
+            syncAdminTeacherFilterVisibility();
+            const select = document.getElementById('ranking-teacher-filter');
+            if (!select) return;
+            const current = isAdminLoggedIn ? select.value : '';
+            const entries = isAdminLoggedIn && currentUser ? rankingTeacherOptions(results,accounts,currentUser,true) : [];
+            const choices = [{id:'',label:'-- Tất cả giáo viên --'}, ...entries];
+            if (select.options.length !== choices.length ||
+                choices.some((x,i)=>select.options[i].value!==x.id || select.options[i].textContent!==x.label))
+                select.replaceChildren(...choices.map(x=>new Option(x.label,x.id)));
+            select.value = choices.some(x=>x.id===current) ? current : '';
+            select.disabled = !isAdminLoggedIn;
+        }
+        window.onRankingTeacherChange = function() {
+            if (!isAdminLoggedIn) {syncAdminTeacherFilterVisibility(); return;}
+            const exam = document.getElementById('ranking-exam-filter');
+            if (exam) exam.value = '';
+            const cls = document.getElementById('ranking-class-filter');
+            if (cls) cls.value = '';
+            selectedRankingResults.clear();
+            window.rankingCurrentPage = 1;
+            renderRanking();
+            updateRankingSelection();
+        };
         function populateRankingFilters() {
+            populateRankingTeacherFilter();
             populateRankingExamFilter();
             populateRankingUnitFilter();
             populateRankingClassFilter();
@@ -4323,9 +4365,9 @@ if (contentType && contentType.includes("application/json")) {
             const isTeacher = isTeacherLoggedIn && !isAdmin;
 
             let examNames = [];
-            
+            const selectedTeacher = isAdmin ? (document.getElementById('ranking-teacher-filter')?.value || '') : '';
             if (isAdmin) {
-                examNames = Object.keys(examToCreatorMap);
+                examNames = selectedTeacher ? [] : Object.keys(examToCreatorMap);
             } else if (isTeacher && currentUser) {
                 // Lọc theo creator_id hoặc status is_unlocked
                 examNames = Object.keys(examToCreatorMap).filter(name => {
@@ -4340,6 +4382,7 @@ if (contentType && contentType.includes("application/json")) {
             
             // Bổ sung đề thi từ kết quả hiện có (vẫn tuân thủ quy tắc sống còn)
             let availableResults = [...results];
+            if (isAdmin && selectedTeacher) availableResults = availableResults.filter(r=>matchesRankingTeacher(r,selectedTeacher));
             if (isTeacher && currentUser) {
                 availableResults = availableResults.filter(r => {
                     const isCreator = String(examToCreatorMap[r.examName]) === String(currentUser.id);
@@ -4403,6 +4446,10 @@ if (contentType && contentType.includes("application/json")) {
 
         function resetRankingUnitFilterSession() {
             rankingUnitSelectionInitialized = false;
+            lastRankingTeacherFilter = '';
+            const teacher = document.getElementById('ranking-teacher-filter');
+            if (teacher) teacher.replaceChildren(new Option('-- Tất cả giáo viên --',''));
+            syncAdminTeacherFilterVisibility();
             const unit = document.getElementById('ranking-unit-filter');
             if (unit) {
                 unit.innerHTML = '<option value="">-- Tất cả đơn vị --</option>';
@@ -9929,6 +9976,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
         }
 
         function updateQuestionTeacherFilter() {
+            syncAdminTeacherFilterVisibility();
             const select = document.getElementById('question-teacher-filter');
             if (!select) return;
             const previous = isAdminLoggedIn ? select.value : '';
@@ -9951,6 +9999,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
         }
 
         window.onQuestionTeacherFilterChange = function() {
+            if (!isAdminLoggedIn) {syncAdminTeacherFilterVisibility(); return;}
             selectedQuestionIds.clear(); // Never carry a cross-teacher bulk selection forward.
             clearRecentQuestionFocus();
             window.questionsCurrentPage = 1;
@@ -15024,6 +15073,7 @@ CẤU TRÚC JSON:
         window.rankingPageSize = savedRankingPageSize === 'all' ? 'all' : (parseInt(savedRankingPageSize, 10) || 50);
         let lastRankingSearchTerm = '';
         let lastRankingExamFilter = '';
+        let lastRankingTeacherFilter = '';
         let lastRankingUnitFilter = '';
         let lastRankingClassFilter = '';
 
@@ -15228,6 +15278,7 @@ CẤU TRÚC JSON:
         };
 
         function renderRanking() {
+            syncAdminTeacherFilterVisibility();
             // Kiểm tra quyền truy cập (Học sinh không được xem)
             const isAdmin = isAdminLoggedIn;
             const isTeacher = isTeacherLoggedIn && !isAdmin;
@@ -15241,22 +15292,25 @@ CẤU TRÚC JSON:
                 return;
             }
 
-            if (isAdmin || isTeacher) populateRankingUnitFilter();
+            if (isAdmin || isTeacher) {populateRankingTeacherFilter(); populateRankingUnitFilter();}
+            const teacherFilter = isAdmin ? (document.getElementById('ranking-teacher-filter')?.value || '') : '';
             const searchTerm = (document.getElementById('ranking-search')?.value || '').toLowerCase().trim();
             const examFilter = (document.getElementById('ranking-exam-filter')?.value || '').trim();
             const unitFilter = (document.getElementById('ranking-unit-filter')?.value || '').trim();
             const classFilter = (document.getElementById('ranking-class-filter')?.value || '').trim();
             
             // Tự động reset về trang 1 khi thay đổi bất kỳ điều kiện tìm kiếm hoặc bộ lọc nào
-            if (searchTerm !== lastRankingSearchTerm || examFilter !== lastRankingExamFilter || unitFilter !== lastRankingUnitFilter || classFilter !== lastRankingClassFilter) {
+            if (searchTerm !== lastRankingSearchTerm || examFilter !== lastRankingExamFilter || teacherFilter !== lastRankingTeacherFilter || unitFilter !== lastRankingUnitFilter || classFilter !== lastRankingClassFilter) {
                 window.rankingCurrentPage = 1;
                 lastRankingSearchTerm = searchTerm;
                 lastRankingExamFilter = examFilter;
+                lastRankingTeacherFilter = teacherFilter;
                 lastRankingUnitFilter = unitFilter;
                 lastRankingClassFilter = classFilter;
             }
 
             let filteredResults = [...results];
+            if (teacherFilter) filteredResults = filteredResults.filter(r=>matchesRankingTeacher(r,teacherFilter));
             
             // Giáo viên chỉ xem được kết quả thi của các đề mình tạo HOẶC được chia sẻ kết quả VÀ chỉ xem được kết quả của học sinh thuộc các lớp mình được phân công
             if (isTeacher && currentUser) {
@@ -16270,11 +16324,13 @@ CẤU TRÚC JSON:
             }
 
             const examFilter = (document.getElementById('ranking-exam-filter')?.value || '').trim();
+            const teacherFilter = isAdmin ? (document.getElementById('ranking-teacher-filter')?.value || '') : '';
             const unitFilter = (document.getElementById('ranking-unit-filter')?.value || '').trim();
             const classFilter = (document.getElementById('ranking-class-filter')?.value || '').trim();
             const searchTerm = (document.getElementById('ranking-search')?.value || '').toLowerCase().trim();
 
             let exportResults = [...results];
+            if (teacherFilter) exportResults = exportResults.filter(r=>matchesRankingTeacher(r,teacherFilter));
             
             // Giáo viên chỉ export kết quả của đề mình tạo hoặc đề đã được mở khóa qua mã chia sẻ
             if (isTeacher && currentUser) {
