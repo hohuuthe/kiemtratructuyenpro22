@@ -2699,7 +2699,7 @@ async function startServer() {
         let rows: any[] = [];
         try {
           const { results } = await executeSqlQuery(`
-            SELECT ${columns} 
+            SELECT ${columns}, (SELECT e.creator_id FROM exam_configs e WHERE e.id = r.exam_id LIMIT 1) AS exam_creator_id 
             FROM results r
             LEFT JOIN accounts a ON (r.user_id IS NOT NULL AND r.user_id != '' AND (r.user_id = a.id OR r.user_id = a.user_id))
             LEFT JOIN users u ON (r.user_id IS NOT NULL AND r.user_id != '' AND r.user_id = u.id)
@@ -2710,7 +2710,7 @@ async function startServer() {
           `, []);
           rows = results || [];
         } catch (err) {
-          const { results } = await executeSqlQuery(`SELECT ${fallbackColumns} FROM results ORDER BY created_at DESC, id DESC ${paginationClause}`, []);
+          const { results } = await executeSqlQuery(`SELECT ${fallbackColumns}, (SELECT e.creator_id FROM exam_configs e WHERE e.id = r.exam_id LIMIT 1) AS exam_creator_id FROM results r ORDER BY r.created_at DESC, r.id DESC ${paginationClause}`, []);
           rows = results || [];
         }
         return sendPaginatedResults(rows, includeDetails);
