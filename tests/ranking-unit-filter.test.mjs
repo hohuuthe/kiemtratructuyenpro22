@@ -5,10 +5,10 @@ import {buildRankingUnitOptions} from '../src/ranking-unit-filter.js';
 test('Teacher can change among authorized results units; first is default',()=>{
  const inputs={results:[{donvi:'Trường B'},{donvi:'Trường A'},{donvi:'Trường B'}],users:[{donvi:'Trường bí mật'}],isTeacher:true,teacherUnit:'Trường B'};
  const first=buildRankingUnitOptions(inputs);
- assert.deepEqual(first.options.map(o=>o.value),['Trường A','Trường B']);
+ assert.deepEqual(first.options.map(o=>o.value),['','Trường A','Trường B']);
  assert.equal(first.selectedValue,'Trường A');
- assert.equal(buildRankingUnitOptions({...inputs,previousValue:'Trường B'}).selectedValue,'Trường B');
- assert.equal(buildRankingUnitOptions({...inputs,previousValue:'Trường cũ'}).selectedValue,'Trường A');
+ assert.equal(buildRankingUnitOptions({...inputs,previousValue:'Trường B',selectionInitialized:true}).selectedValue,'Trường B');
+ assert.equal(buildRankingUnitOptions({...inputs,previousValue:'Trường cũ',selectionInitialized:true}).selectedValue,'Trường A');
 });
 test('Admin still has all units; teacher empty state is safe',()=>{
  const admin=buildRankingUnitOptions({results:[{donvi:'A'}],users:[{donvi:'B'}]});
@@ -24,4 +24,17 @@ test('Unit change resets class and checkboxes and filter is applied before readi
  const ranking=src.slice(src.indexOf('function renderRanking() {'));
  assert.ok(ranking.indexOf('populateRankingUnitFilter();') < ranking.indexOf("const unitFilter ="));
  assert.ok(src.includes('resetRankingUnitFilterSession();'));
+});
+
+test('Teacher explicitly selects all units and retains it through rerenders',()=>{
+ const inputs={results:[{donvi:'Trường B'},{donvi:'Trường A'}],isTeacher:true,resultsReady:true};
+ const first=buildRankingUnitOptions(inputs);
+ assert.equal(first.selectedValue,'Trường A');
+ assert.equal(first.options[0].label,'-- Tất cả đơn vị --');
+ const all=buildRankingUnitOptions({...inputs,previousValue:'',selectionInitialized:true});
+ assert.equal(all.selectedValue,'');
+ assert.equal(buildRankingUnitOptions({...inputs,previousValue:'',selectionInitialized:true}).selectedValue,'');
+ assert.equal(buildRankingUnitOptions({...inputs,previousValue:'Trường B',selectionInitialized:true}).selectedValue,'Trường B');
+ const reset=buildRankingUnitOptions({...inputs,previousValue:'',selectionInitialized:false});
+ assert.equal(reset.selectedValue,'Trường A');
 });

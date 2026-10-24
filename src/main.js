@@ -4216,6 +4216,7 @@ if (contentType && contentType.includes("application/json")) {
             });
         }
 
+        let rankingUnitSelectionInitialized = false;
         function populateRankingUnitFilter() {
             const select = document.getElementById('ranking-unit-filter');
             if (!select) return;
@@ -4223,7 +4224,8 @@ if (contentType && contentType.includes("application/json")) {
             const plan = buildRankingUnitOptions({
                 results, users: window.usersList, isTeacher,
                 teacherUnit: currentUser?.donvi || currentUser?.address || '',
-                resultsReady: resultsLoaded, previousValue: select.value
+                resultsReady: resultsLoaded, previousValue: select.value,
+                selectionInitialized: rankingUnitSelectionInitialized
             });
             const same = select.options.length === plan.options.length &&
                 plan.options.every((opt, idx) => select.options[idx].value === opt.value && select.options[idx].textContent === opt.label);
@@ -4238,9 +4240,11 @@ if (contentType && contentType.includes("application/json")) {
             }
             select.value = plan.selectedValue;
             select.disabled = false;
+            if (resultsLoaded) rankingUnitSelectionInitialized = true;
         }
 
         function resetRankingUnitFilterSession() {
+            rankingUnitSelectionInitialized = false;
             const unit = document.getElementById('ranking-unit-filter');
             if (unit) {
                 unit.innerHTML = '<option value="">-- Tất cả đơn vị --</option>';
@@ -4252,6 +4256,7 @@ if (contentType && contentType.includes("application/json")) {
         }
 
         window.onRankingUnitChange = function onRankingUnitChange() {
+            rankingUnitSelectionInitialized = true;
             const classroom = document.getElementById('ranking-class-filter');
             if (classroom) classroom.value = '';
             selectedRankingResults.clear();
