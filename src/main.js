@@ -5733,7 +5733,7 @@ if (contentType && contentType.includes("application/json")) {
                                     <span>📄</span> Xuất
                                 </button>
                                 ${(isAdminLoggedIn || isCreator) ? `
-                                <button type="button" onclick="deleteExamResultsByExamId('${escapeHTML(String(item.id || ''))}')" class="exam-config-delete-results-btn rounded bg-rose-600 text-white hover:bg-rose-700 font-bold" title="Xóa toàn bộ kết quả bài làm đã lưu cho đề thi này, không xóa đề thi">🗑️ Xóa KQ</button>` : ''}
+                                <button type="button" onclick="deleteExamResultsByExamId('${encodeURIComponent(String(item.id || ''))}')" class="exam-config-delete-results-btn rounded bg-rose-600 text-white hover:bg-rose-700 font-bold" title="Xóa toàn bộ kết quả bài làm đã lưu cho đề thi này, không xóa đề thi">🗑️ Xóa KQ</button>` : ''}
                                 ${isCreator ? `
                                 <button onclick="deleteExamConfig('${item.id}', '${escapedName.replace(/'/g, "\\'")}')" class="px-2.5 py-1 bg-red-100 text-red-600 hover:bg-red-200 rounded text-xs font-medium transition" title="Xóa đề thi này">
                                     🗑️
@@ -6692,7 +6692,9 @@ if (contentType && contentType.includes("application/json")) {
                 showToast('Bạn không có quyền xóa kết quả đề thi.', 'error');
                 return;
             }
-            const examId = String(rawExamId ?? '');
+            let examId;
+            try { examId = decodeURIComponent(String(rawExamId ?? '')); }
+            catch { showToast('Mã đề thi không hợp lệ.', 'error'); return; }
             const exam = (window.allExamConfigsList || []).find(item => String(item.id) === examId);
             if (!exam || !examId) {
                 showToast('Không tìm thấy đề thi đã chọn. Vui lòng tải lại danh sách.', 'warning');
