@@ -1,4 +1,6 @@
 import { verifyAuthSession, getDynamicSecret, getDatabase } from './exam/utils';
+import { processExamResultsDeletion } from '../../src/exam-results-delete-service';
+import { ExamResultsDeletionError } from '../../src/exam-results-delete-policy';
 
 interface Env {
   NEON_DATABASE_URL?: string;
@@ -498,5 +500,47 @@ export const onRequestDelete: PagesFunction<Env> = async (context) => {
   } catch (e: any) {
     console.error("DELETE /api/results error:", e);
     return new Response(JSON.stringify({ error: e.message || 'Lỗi server' }), { status: 500, headers: corsHeaders });
+  }
+};
+
+/**
+ * POST /api/results/delete-by-exam
+ * {action:'preview',examId} OR
+ * {action:'delete',examId,confirmation:'1234',expectedCount}.
+ *
+ * Unlike general result deletion, this route never accepts clearAll or a
+ * result-name selector; every statement is scoped to one verified exam ID.
+ */
+export const onRequestPostDeleteByExam: PagesFunction<Env> = async (context) => {
+  const headers = { ...corsHeaders, 'Cache-Control': 'no-store' };
+  const reply = (body: any, status = 200) =>
+    new Response(JSON.stringify(body), { status, headers });
+
+  try {
+    const { request, env } = context;
+    const bearer = request.headers.get('Authorization') || '';
+    if (!bearer.startsWith('Bearer ') || !bearer.slice(7).trim()) {
+      return reply({ error: 'Vui lòng đăng nhập trước khi xóa kết quả.', code: 'AUTH_REQUIRED' }, 401);
+    }
+    const body = await request.json().catch(() => null);
+    const db = getDatabase(context);
+    const secret = await getDynamicSecret(db, env.JWT_SECRET);
+    const user = await verifyAuthSession(bearer.slice(7), secret, db);
+    if (!user) return reply({ error: 'Phiên đăng nhập không hợp lệ hoặc đã bị thu hồi.', code: 'AUTH_REQUIRED' }, 401);
+
+    const adapter = {
+      first: async (sql: string, params: unknown[]) => db.prepare(sql).bind(...params).first(),
+      run: async (sql: string, params: unknown[]) => {
+        const result = await db.prepare(sql).bind(...params).run();
+        return { changes: Number(result?.meta?.changes) };
+      }
+    };
+    return reply(await processExamResultsDeletion(adapter, user, body));
+  } catch (err: any) {
+    if (err instanceof ExamResultsDeletionError) {
+      return reply({ error: err.message, code: err.code }, err.status);
+    }
+    console.error('POST /api/results/delete-by-exam failed:', err);
+    return reply({ error: 'Không thể xử lý xóa kết quả đề thi. Dữ liệu cần được kiểm tra lại.', code: 'DELETE_FAILED' }, 500);
   }
 };

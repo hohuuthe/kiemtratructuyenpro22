@@ -1,0 +1,36 @@
+name: Per-exam result deletion checks
+on:
+  push:
+    branches:
+      - feat/exam-results-bulk-delete-20261025
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/exam-results-delete-*.ts'
+      - 'src/main.js'
+      - 'server.ts'
+      - 'functions/api/results.ts'
+      - 'functions/api/results/delete-by-exam.ts'
+      - 'tests/exam-results-delete-by-exam.test.ts'
+      - '.github/workflows/exam-results-delete-checks.yml'
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Scoped deletion on isolated PostgreSQL engines
+        run: npx tsx --test tests/exam-results-delete-by-exam.test.ts tests/exam-config-legacy-delete.test.ts tests/question-delete-by-lesson.test.ts
+      - name: Exam-management UI and security regressions
+        run: node --test tests/exam-attempt-counts.test.mjs tests/exam-config-table-layout.test.mjs tests/exam-management-filters.test.mjs
+      - name: TypeScript check
+        run: npm run lint
+      - name: Production build
+        run: npm run build

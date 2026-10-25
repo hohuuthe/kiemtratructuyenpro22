@@ -7,6 +7,7 @@ import { questionCreatorId, matchesQuestionTeacher, questionTeacherOptions } fro
 import { matchesRankingTeacher, rankingTeacherOptions } from './ranking-teacher-filter.js';
 import { examManagementCreatorId, examManagementSchool, examManagementClassTokens, matchesExamManagement, examManagementFilterChoices } from './exam-management-filters.js';
 import { parseExamAttemptCount } from './exam-attempt-counts-ui.js';
+import { formatExamCreatedAtVN } from './exam-created-at-vn.js';
 import './pwa-manager.js';
 import './teacher-assignment.js';
 import { typesetScientificMath } from './scientific-formula-typeset.js';
@@ -5607,7 +5608,7 @@ if (contentType && contentType.includes("application/json")) {
             if (list.length === 0) {
                 tbody.innerHTML = `
                     <tr>
-                        <td colspan="11" class="text-center py-8 text-gray-400 italic">
+                        <td colspan="12" class="text-center py-8 text-gray-400 italic">
                             ${(searchKw || selections.creatorId || selections.school || selections.className) ? 'Không tìm thấy đề thi phù hợp với bộ lọc.' : 'Chưa có cấu hình đề thi nào trong danh sách.'}
                         </td>
                     </tr>
@@ -5686,7 +5687,12 @@ if (contentType && contentType.includes("application/json")) {
 
                 const escapedName = escapeHTML(item.name || 'Không tên');
                 const creator = item.creatorName || item.creator_name || accountsMap[item.creator_id || item.creatorId] || 'Hệ thống';
-                const isCreator = currentUser && (String(item.creator_id || item.creatorId) === String(currentUser.id) || isAdminLoggedIn);
+                const isCreator = currentUser && (isAdminLoggedIn || (isTeacherLoggedIn && [currentUser.id, currentUser.user_id].filter(Boolean).some(ownerId => String(item.creator_id || item.creatorId) === String(ownerId))));
+                // created_at is the immutable creation instant, NOT updated_at or the exam code.
+                const creation = formatExamCreatedAtVN(item.created_at ?? item.createdAt);
+                const creationHtml = creation
+                    ? `<time class="exam-config-created-time" datetime="${creation.iso}" title="Giờ Việt Nam: ${creation.hour} – ${creation.date}"><span class="exam-config-created-hour">${creation.hour}</span><span class="exam-config-created-date">${creation.date}</span></time>`
+                    : '<span class="exam-config-created-missing" title="Không có thời gian tạo hợp lệ trong dữ liệu đề thi">—</span>';
                 // Read-only count from /api/exams; never derive it from exam names or client-side result lists.
                 const attemptCount = parseExamAttemptCount(item.attempt_count);
                 const attemptCountText = attemptCount === null ? '—' : attemptCount.toLocaleString('vi-VN');
@@ -5706,6 +5712,7 @@ if (contentType && contentType.includes("application/json")) {
                         <td class="text-slate-600 break-words">
                             <span class="text-xs font-semibold">${escapeHTML(creator)}</span>
                         </td>
+                        <td class="exam-config-created-cell text-center">${creationHtml}</td>
                         <td class="break-words">${modeBadge}</td>
                         <td class="exam-config-scope-column align-middle">${lopBadge}</td>
                         <td class="py-3 px-3 text-center text-xs text-gray-700 whitespace-nowrap font-medium">${time} phút</td>
@@ -5725,6 +5732,8 @@ if (contentType && contentType.includes("application/json")) {
                                 <button onclick="openExportDocxModal('${item.id}')" class="px-2.5 py-1 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded text-xs font-medium hover:from-blue-700 hover:to-indigo-700 transition flex items-center gap-1 shadow-2xs" title="Xuất đề thi ra file Word (.docx)">
                                     <span>📄</span> Xuất
                                 </button>
+                                ${(isAdminLoggedIn || isCreator) ? `
+                                <button type="button" onclick="deleteExamResultsByExamId('${encodeURIComponent(String(item.id || ''))}')" class="exam-config-delete-results-btn rounded bg-rose-600 text-white hover:bg-rose-700 font-bold" title="Xóa toàn bộ kết quả bài làm đã lưu cho đề thi này, không xóa đề thi">🗑️ Xóa KQ</button>` : ''}
                                 ${isCreator ? `
                                 <button onclick="deleteExamConfig('${item.id}', '${escapedName.replace(/'/g, "\\'")}')" class="px-2.5 py-1 bg-red-100 text-red-600 hover:bg-red-200 rounded text-xs font-medium transition" title="Xóa đề thi này">
                                     🗑️
@@ -6675,6 +6684,125 @@ if (contentType && contentType.includes("application/json")) {
                 console.warn('⚠️ Error updating exam names list:', e); 
             }
         }
+
+        // Result deletion is separate from deleting the exam configuration itself.
+        // Preview only returns a count: no student answers or roster is downloaded.
+        window.deleteExamResultsByExamId = async function deleteExamResultsByExamId(rawExamId) {
+            if (!(isAdminLoggedIn || isTeacherLoggedIn) || !currentUser) {
+                showToast('Bạn không có quyền xóa kết quả đề thi.', 'error');
+                return;
+            }
+            let examId;
+            try { examId = decodeURIComponent(String(rawExamId ?? '')); }
+            catch { showToast('Mã đề thi không hợp lệ.', 'error'); return; }
+            const exam = (window.allExamConfigsList || []).find(item => String(item.id) === examId);
+            if (!exam || !examId) {
+                showToast('Không tìm thấy đề thi đã chọn. Vui lòng tải lại danh sách.', 'warning');
+                return;
+            }
+            const generation = authDataGeneration;
+            const accountId = String(currentUser.id);
+            const token = localStorage.getItem('auth_token') || '';
+            const sameSession = () => generation === authDataGeneration &&
+                accountId === String(currentUser?.id || '') &&
+                (isAdminLoggedIn || isTeacherLoggedIn);
+            const call = async (body) => {
+                const response = await fetch('/api/results/delete-by-exam', {
+                    method: 'POST', cache: 'no-store',
+                    headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token},
+                    body: JSON.stringify(body)
+                });
+                const result = await response.json().catch(() => ({}));
+                if (!response.ok || result.error) {
+                    const error = new Error(result.error || 'Máy chủ từ chối thao tác xóa kết quả.');
+                    error.code = result.code || '';
+                    throw error;
+                }
+                return result;
+            };
+            try {
+                const preview = await call({action: 'preview', examId});
+                if (!sameSession()) return;
+                if (preview.examId !== examId) throw new Error('Mã đề thi xác nhận không khớp.');
+                const count = Number(preview.count);
+                if (!Number.isSafeInteger(count) || count < 0) throw new Error('Không xác nhận được số kết quả cần xóa.');
+                const displayName = String(preview.examName || exam.name || 'Đề thi');
+                const modalContent = `
+                    <div class="p-4 sm:p-5 space-y-3 text-sm">
+                        <h3 class="pr-10 text-lg font-bold text-red-700">🗑️ Xóa toàn bộ kết quả đề thi</h3>
+                        <div class="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
+                            <div><span class="text-slate-600">Tên đề thi:</span><strong id="delete-exam-results-name" class="block break-words text-slate-900"></strong></div>
+                            <div><span class="text-slate-600">Mã đề:</span><strong id="delete-exam-results-id" class="block font-mono text-xs break-all text-slate-900"></strong></div>
+                            <div class="flex items-center justify-between gap-3">
+                                <span class="text-slate-700">Tổng lượt làm sẽ xóa:</span>
+                                <strong id="delete-exam-results-count" class="text-lg text-red-700"></strong>
+                            </div>
+                        </div>
+                        <p class="text-xs text-red-700 leading-5 font-medium">Thao tác này xóa vĩnh viễn tất cả kết quả học sinh đã nộp cho đúng mã đề trên, bao gồm lượt làm lại. Không thể hoàn tác. Cấu hình đề thi và ngân hàng câu hỏi được giữ nguyên.</p>
+                        <div class="flex flex-wrap items-center gap-3">
+                            <label for="delete-exam-results-confirmation" class="text-sm font-medium text-slate-800 flex-1">Nhập mã xác nhận <strong>1234</strong>:</label>
+                            <input type="text" id="delete-exam-results-confirmation" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="1234" class="w-24 rounded-lg border border-slate-300 p-2 text-center font-bold tracking-widest focus:outline-none focus:ring-2 focus:ring-red-200" />
+                        </div>
+                        <p id="delete-exam-results-error" class="text-xs text-red-700 empty:hidden" role="alert"></p>
+                        <div class="flex justify-end gap-2 pt-2">
+                            <button id="delete-exam-results-cancel" type="button" class="rounded-lg border border-slate-300 bg-white px-3 py-2 font-semibold hover:bg-slate-50">Hủy</button>
+                            <button id="delete-exam-results-submit" type="button" class="rounded-lg bg-red-600 px-3 py-2 font-bold text-white hover:bg-red-700 disabled:opacity-50">Xác nhận xóa KQ</button>
+                        </div>
+                    </div>`;
+                showModal(modalContent, 'compact');
+                const content = document.getElementById('modal-content');
+                if (content) content.style.width = 'min(450px, calc(100vw - 24px))';
+                document.getElementById('delete-exam-results-name').textContent = displayName;
+                document.getElementById('delete-exam-results-id').textContent = examId;
+                document.getElementById('delete-exam-results-count').textContent = count.toLocaleString('vi-VN');
+                document.getElementById('delete-exam-results-cancel').onclick = closeModal;
+                const confirmInput = document.getElementById('delete-exam-results-confirmation');
+                const submit = document.getElementById('delete-exam-results-submit');
+                const errorText = document.getElementById('delete-exam-results-error');
+                if (count === 0) {
+                    submit.disabled = true;
+                    errorText.textContent = 'Đề thi này hiện chưa có kết quả để xóa.';
+                }
+                submit.onclick = async () => {
+                    if (submit.disabled) return;
+                    const confirmation = confirmInput.value;
+                    if (confirmation !== '1234') {
+                        errorText.textContent = 'Mã xác nhận không đúng. Vui lòng nhập chính xác 1234.';
+                        return;
+                    }
+                    if (!sameSession()) {
+                        errorText.textContent = 'Phiên đăng nhập đã thay đổi. Không thể tiếp tục.';
+                        return;
+                    }
+                    submit.disabled = true;
+                    confirmInput.disabled = true;
+                    try {
+                        const result = await call({action: 'delete', examId, confirmation, expectedCount: count});
+                        if (!sameSession()) return;
+                        closeModal();
+                        // Results/rankings may contain the now-deleted attempts. Invalidate
+                        // their caches; refresh the table's authoritative server count.
+                        resultsLoaded = false;
+                        window.allExamConfigsList = (window.allExamConfigsList || []).map(row =>
+                            String(row.id) === examId ? {...row, attempt_count: result.remainingCount} : row);
+                        renderExamConfigsTable();
+                        await updateExamNamesList(true);
+                        showToast('Đã xóa ' + result.deletedCount + ' kết quả của đề thi. Còn lại: ' + result.remainingCount + '.', 'success');
+                    } catch (error) {
+                        errorText.textContent = error?.message || 'Không thể xóa kết quả.';
+                        if (error?.code === 'RESULT_COUNT_CHANGED') {
+                            errorText.textContent += ' Đóng hộp thoại và mở lại để cập nhật số liệu.';
+                        }
+                        showToast(errorText.textContent, 'error');
+                    } finally {
+                        submit.disabled = false;
+                        confirmInput.disabled = false;
+                    }
+                };
+            } catch (error) {
+                showToast(error?.message || 'Không tải được thông tin xóa kết quả.', 'error');
+            }
+        };
 
         window.deleteExamConfig = async function deleteExamConfig(explicitId = null, explicitName = null) {
             const selectEl = document.getElementById('exam-config-name');
