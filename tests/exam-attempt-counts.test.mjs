@@ -4,6 +4,7 @@ import {readFileSync} from 'node:fs';
 import {runInNewContext} from 'node:vm';
 import {getExamAttemptCount, parseExamAttemptCount} from '../src/exam-attempt-counts-ui.js';
 import {formatExamCreatedAtVN} from '../src/exam-created-at-vn.js';
+import {sortExamConfigs,DEFAULT_EXAM_CONFIG_SORT} from '../src/exam-config-sorting.js';
 
 test('Counts use immutable exam ID, not duplicated names or student identity', () => {
   const rows = [{id:'exam-A',name:'Kiểm tra',attempt_count:3},
@@ -56,6 +57,8 @@ test('Main table renderer creates twelve cells including creation date and attem
     isTeacherLoggedIn:true,
     parseExamAttemptCount,
     formatExamCreatedAtVN,
+    sortExamConfigs,
+    DEFAULT_EXAM_CONFIG_SORT,
     escapeHTML(value){return String(value).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('"','&quot;');}
   };
   runInNewContext(renderer,context);
