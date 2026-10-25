@@ -1,9 +1,445 @@
 /**
  * Hướng dẫn theo vai trò, đối chiếu với giao diện và API KTTT (10/2026).
- * Chỉ tài liệu của vai trò đang đăng nhập mới được dựng vào DOM.
+ * Chỉ hướng dẫn đúng vai trò (bao gồm khách chưa đăng nhập) được dựng vào DOM.
  * Không thêm mật khẩu, khóa API hay dữ liệu cá nhân vào tài liệu này.
  */
 export const HELP_GUIDES = {
+  "guest": {
+    "label": "Khách chưa đăng nhập",
+    "intro": "Chào mừng bạn đến với HỆ THỐNG KIỂM TRA TRỰC TUYẾN. Đây là hệ thống hỗ trợ nhà trường, giáo viên tổ chức đề kiểm tra và đánh giá trên trình duyệt; người dự thi làm bài với nhiều dạng câu hỏi, còn giáo viên quản lý nội dung, thời gian, kết quả theo quyền được cấp. Bạn có thể khám phá phần trợ giúp và tham gia các đề cho phép khách mà chưa cần tài khoản.",
+    "highlight": "Chưa đăng nhập không đồng nghĩa không được thi: đề công khai và đề có mã bảo mật có thể tham gia khi đủ điều kiện. Đề theo đơn vị có thể có thêm ràng buộc; đề giới hạn lớp yêu cầu đăng nhập. Không có tài khoản thì bạn không có trang lịch sử bài làm cá nhân.",
+    "links": [
+      [
+        "exam",
+        "Vào màn hình Làm bài",
+        "📝"
+      ]
+    ],
+    "features": [
+      [
+        "📚",
+        "Ngân hàng câu hỏi và đề thi",
+        "Giáo viên xây dựng ngân hàng câu hỏi, tổ chức đề theo bài, lớp, đơn vị và thời gian."
+      ],
+      [
+        "✍️",
+        "Nhiều hình thức trả lời",
+        "Trắc nghiệm một đáp án, Đúng/Sai nhiều ý, trả lời ngắn và tự luận."
+      ],
+      [
+        "⏱️",
+        "Làm bài có quy định rõ",
+        "Đề có thể giới hạn thời gian, lượt làm, điều kiện truy cập và cảnh báo rời màn hình."
+      ],
+      [
+        "📊",
+        "Chấm và theo dõi kết quả",
+        "Kết quả nộp bài được hệ thống ghi nhận; quyền xem điểm, đáp án và chi tiết tùy thiết lập đề."
+      ]
+    ],
+    "eligibility": [
+      {
+        "mode": "Đề công khai",
+        "status": "Có thể tham gia",
+        "condition": "Không yêu cầu tài khoản hoặc mã đề riêng; vẫn phải chọn đúng giáo viên, đề, nhập thông tin và đáp ứng thời gian, số lượt, các điều kiện khác.",
+        "access": "yes"
+      },
+      {
+        "mode": "Đề có mã bảo mật",
+        "status": "Có thể tham gia khi có mã đúng",
+        "condition": "Giáo viên/người tổ chức cung cấp mã truy cập đề; nhập đúng mã khi hệ thống yêu cầu. Mã này không phải mật khẩu đăng nhập.",
+        "access": "conditional"
+      },
+      {
+        "mode": "Đề cho đơn vị, không chỉ định lớp",
+        "status": "Có điều kiện",
+        "condition": "Một số đề có thể cho khách làm nếu đề hiển thị và thông tin trường/đơn vị khai báo được hệ thống chấp nhận. Không có nghĩa mọi đề theo đơn vị đều mở cho khách.",
+        "access": "conditional"
+      },
+      {
+        "mode": "Đề cho đơn vị, chỉ định lớp cụ thể",
+        "status": "Không khi chưa đăng nhập",
+        "condition": "Phải dùng tài khoản học sinh hợp lệ có thông tin trường/lớp phù hợp. Chỉ tự nhập tên lớp trong biểu mẫu không thay thế việc đăng nhập.",
+        "access": "no"
+      }
+    ],
+    "comparison": [
+      [
+        "Xem giới thiệu và hướng dẫn",
+        "Có: hướng dẫn khách",
+        "Có: hướng dẫn theo vai trò"
+      ],
+      [
+        "Làm đề công khai",
+        "Có, khi đủ điều kiện",
+        "Có, khi đủ điều kiện"
+      ],
+      [
+        "Làm đề có mã bảo mật",
+        "Có, nếu có mã đúng",
+        "Có, nếu có mã đúng"
+      ],
+      [
+        "Làm đề cho đơn vị có lớp cụ thể",
+        "Không",
+        "Có, nếu đúng đơn vị/lớp"
+      ],
+      [
+        "Nhập họ tên, lớp, đơn vị",
+        "Tự nhập trước khi thi",
+        "Có thể tự điền/khóa theo hồ sơ"
+      ],
+      [
+        "Ghi nhận bài đã nộp",
+        "Theo thông tin khai báo; không gắn ID tài khoản",
+        "Gắn với định danh tài khoản"
+      ],
+      [
+        "Xem lịch sử bài làm cá nhân",
+        "Không có màn hình lịch sử riêng",
+        "Có trong QL Kết quả của tôi"
+      ],
+      [
+        "Xem điểm, đáp án, chi tiết sau nộp",
+        "Tùy cài đặt của đề",
+        "Tùy cài đặt của đề"
+      ]
+    ],
+    "sections": [
+      {
+        "id": "guest-overview",
+        "title": "01. Giới thiệu HỆ THỐNG KIỂM TRA TRỰC TUYẾN",
+        "summary": "Hệ thống phục vụ ai, làm được gì và quy trình kiểm tra diễn ra như thế nào?",
+        "steps": [
+          [
+            "Hệ thống dành cho ai?",
+            "Nhà trường và quản trị viên quản lý tài khoản, phân công và cấu hình; giáo viên biên soạn câu hỏi, đề thi và theo dõi kết quả; học sinh hoặc khách tham gia các bài kiểm tra được phép."
+          ],
+          [
+            "Đề thi được tạo như thế nào?",
+            "Giáo viên xây dựng ngân hàng câu hỏi theo bài và dạng [4-1], [TF4], [SQ], [TL], sau đó cấu hình đề, thời gian, chế độ truy cập và cách hiển thị kết quả."
+          ],
+          [
+            "Người dự thi làm gì?",
+            "Trên máy tính hoặc điện thoại, người dự thi chọn giáo viên và đề, đọc điều kiện, trả lời câu hỏi, nộp bài khi hoàn thành hoặc theo quy định thời gian."
+          ],
+          [
+            "Kết quả được xử lý ra sao?",
+            "Hệ thống có chức năng chấm điểm, lưu bài nộp và thống kê cho người có quyền. Một số câu tự luận có thể dùng AI hỗ trợ; việc công bố điểm và chi tiết phụ thuộc cấu hình đề."
+          ],
+          [
+            "Bắt đầu ở đâu?",
+            "Trên menu, chọn Làm bài để tham gia đề có quyền truy cập, hoặc Trợ giúp để đọc tài liệu. Nút Đăng nhập giúp truy cập các chức năng của tài khoản được cấp."
+          ]
+        ]
+      },
+      {
+        "id": "guest-rights",
+        "title": "02. Quyền và giới hạn khi chưa đăng nhập",
+        "summary": "Phân biệt rõ chức năng khách được dùng với chức năng cần tài khoản.",
+        "steps": [
+          [
+            "Những gì khách được làm",
+            "Xem Trung tâm trợ giúp, mở trang Làm bài, nhập thông tin dự thi, chọn giáo viên và các đề phù hợp, làm bài và nộp bài khi hệ thống cho phép."
+          ],
+          [
+            "Những gì khách chưa có",
+            "Không được mở ngân hàng câu hỏi quản trị, tạo/sửa/xóa đề, quản lý người dùng/tài khoản, phân công lớp, thay đổi cấu hình hay quản lý bảng điểm của giáo viên."
+          ],
+          [
+            "Lịch sử kết quả riêng",
+            "Khách không có mục Kết quả bài thi của tôi để tra cứu toàn bộ bài đã làm. Tài khoản học sinh đăng nhập mới có lịch sử được khóa theo định danh cá nhân."
+          ],
+          [
+            "Xem điểm ngay sau thi",
+            "Nếu đề cho phép, kết quả hoặc đáp án có thể xuất hiện sau nộp. Nếu không, hãy chờ giáo viên công bố; không có tài khoản thì không được mặc nhiên xem lại lịch sử."
+          ],
+          [
+            "Quyền không tự tăng",
+            "Việc biết tên đề, mã đề hoặc mã truy cập chỉ giúp kiểm tra điều kiện của đề; không cấp quyền quản trị hoặc xem dữ liệu học sinh khác."
+          ]
+        ],
+        "note": "Nếu bạn cần thi theo danh sách lớp hoặc muốn lưu lịch sử cá nhân, hãy dùng tài khoản học sinh được cấp trước khi làm bài."
+      },
+      {
+        "id": "guest-modes",
+        "title": "03. Chưa đăng nhập được làm những loại đề nào?",
+        "summary": "Đề công khai, đề có mã bảo mật và các trường hợp đề cho đơn vị.",
+        "steps": [
+          [
+            "Đề công khai",
+            "Có thể chọn và làm trực tiếp khi đề đang mở, còn lượt làm và đáp ứng điều kiện của hệ thống. Không cần mật khẩu đăng nhập hay mã đề riêng."
+          ],
+          [
+            "Đề có mã bảo mật",
+            "Khách vẫn có thể tham gia nếu giáo viên cung cấp đúng mã bảo vệ đề; nhập mã vào cửa sổ yêu cầu, không chia sẻ mã cho người không được phép."
+          ],
+          [
+            "Đề cho đơn vị không gắn lớp",
+            "Trường hợp này có thể khả dụng với khách khi hệ thống hiển thị đề và xác minh đơn vị/trường đã khai. Nếu không thấy đề hoặc bị chặn, liên hệ giáo viên; không tự cho rằng mọi đề theo đơn vị đều mở."
+          ],
+          [
+            "Đề cho đơn vị có lớp cụ thể",
+            "Khách chưa đăng nhập không được tham gia. Phải đăng nhập tài khoản học sinh có hồ sơ đáp ứng đúng lớp và đơn vị được chọn."
+          ],
+          [
+            "Các giới hạn áp dụng với mọi loại đề",
+            "Ngay cả đề công khai hoặc có mã vẫn có thể bị khóa vì chưa đến giờ, quá hạn, hết lượt làm, mã sai hoặc dữ liệu không hợp lệ. Danh sách đề nhìn thấy chưa bảo đảm bắt đầu được."
+          ]
+        ],
+        "note": "Quyền được quyết định khi máy chủ kiểm tra điều kiện bắt đầu bài thi; không có thao tác chọn bộ lọc hoặc tự khai thông tin nào vượt qua được đề giới hạn lớp."
+      },
+      {
+        "id": "guest-prepare",
+        "title": "04. Chuẩn bị trước khi làm bài với tư cách khách",
+        "summary": "Điền thông tin chính xác và chuẩn bị môi trường thi ổn định.",
+        "steps": [
+          [
+            "Kiểm tra thiết bị",
+            "Dùng trình duyệt hiện đại, kết nối Internet ổn định, đủ pin và hạn chế các thông báo có thể làm gián đoạn bài."
+          ],
+          [
+            "Nhập đúng họ và tên",
+            "Trên màn hình Thông tin học sinh, điền đầy đủ họ tên thật. Đây là thông tin quan trọng để giáo viên đối chiếu lượt nộp của khách."
+          ],
+          [
+            "Nhập lớp hoặc đơn vị",
+            "Điền lớp, trường/đơn vị theo thực tế. Hệ thống yêu cầu tối thiểu có lớp hoặc đơn vị; nên khai đúng cả hai nếu có để tránh nhầm kết quả."
+          ],
+          [
+            "Xác định giáo viên/đề",
+            "Biết trước tên giáo viên, tên bài kiểm tra, mã bảo mật nếu được cấp và thời gian tổ chức. Nếu đề dành cho lớp, đăng nhập trước khi tiếp tục."
+          ],
+          [
+            "Giữ một phiên làm bài ổn định",
+            "Không dùng tên của người khác, không mở nhiều tab thi song song hoặc tải lại tùy tiện khi đang làm; tuân thủ quy định giám sát của giáo viên."
+          ]
+        ]
+      },
+      {
+        "id": "guest-enter",
+        "title": "05. Cách chọn giáo viên, chọn đề và bắt đầu",
+        "summary": "Từng thao tác tại tab Làm bài dành cho người chưa có tài khoản.",
+        "steps": [
+          [
+            "Mở tab Làm bài",
+            "Chọn Làm bài ở menu bên trái (trên điện thoại mở menu rồi chọn). Màn hình có biểu mẫu thông tin học sinh."
+          ],
+          [
+            "Điền thông tin",
+            "Nhập họ tên và lớp/trường/đơn vị đúng thực tế. Khi bấm bắt đầu, hệ thống sẽ báo nếu thiếu họ tên hoặc cả lớp và đơn vị đều trống."
+          ],
+          [
+            "Chọn tên giáo viên",
+            "Mở danh sách Chọn tên giáo viên, chọn đúng người tổ chức kiểm tra. Danh sách đề thi được nạp theo giáo viên đã chọn."
+          ],
+          [
+            "Chọn bộ câu hỏi hoặc đề thi",
+            "Chọn đúng tên đề. Quan sát thời lượng, số câu, giới hạn lượt thi và các điều kiện được hiển thị trên màn hình."
+          ],
+          [
+            "Nhập mã nếu đề yêu cầu",
+            "Đối với Đề có mã bảo mật, nhập đúng mã do giáo viên cung cấp trong cửa sổ yêu cầu. Nếu bị từ chối, kiểm tra lại mã và đề đã chọn."
+          ],
+          [
+            "Nhấn Bắt đầu làm bài",
+            "Chỉ bắt đầu khi sẵn sàng. Có thể xuất hiện yêu cầu toàn màn hình; làm theo hướng dẫn và tránh chuyển tab trong lúc thi."
+          ]
+        ]
+      },
+      {
+        "id": "guest-answer",
+        "title": "06. Cách làm bài và theo dõi thời gian",
+        "summary": "Bốn dạng câu hỏi, bảng điều hướng và các cảnh báo trong phòng thi.",
+        "steps": [
+          [
+            "Trắc nghiệm [4-1]",
+            "Đọc kỹ câu hỏi và chọn một phương án trả lời phù hợp; xem lại lựa chọn trước khi nộp."
+          ],
+          [
+            "Đúng/Sai [TF4]",
+            "Đánh dấu Đúng hoặc Sai cho từng ý; kiểm tra không bỏ sót nhận định nào."
+          ],
+          [
+            "Trả lời ngắn [SQ]",
+            "Điền kết quả theo yêu cầu câu hỏi; chú ý dấu, cách viết số, đơn vị hoặc ký hiệu nếu có."
+          ],
+          [
+            "Tự luận [TL]",
+            "Trình bày nội dung đầy đủ trong vùng trả lời. Nếu có bài yêu cầu công thức hoặc hình, hãy kiểm tra hiển thị kỹ trước khi nộp."
+          ],
+          [
+            "Di chuyển và kiểm tra tiến độ",
+            "Dùng bảng câu hỏi/nút điều hướng để xem câu tiếp theo, đối chiếu số câu đã trả lời và những câu còn trống."
+          ],
+          [
+            "Thời gian và giám sát",
+            "Theo dõi đồng hồ đếm giờ. Hạn chế đổi ứng dụng, rời trang hoặc thoát toàn màn hình khi đề có quy định giám sát."
+          ]
+        ]
+      },
+      {
+        "id": "guest-submit",
+        "title": "07. Nộp bài, điểm số và việc tra cứu lại",
+        "summary": "Hiểu cách ghi nhận bài của khách và khác biệt với kết quả tài khoản.",
+        "steps": [
+          [
+            "Rà soát trước khi nộp",
+            "Đọc lại câu trả lời và theo dõi thời gian. Khi sẵn sàng, nhấn Nộp bài và xác nhận theo hướng dẫn trên màn hình."
+          ],
+          [
+            "Chờ thông báo hệ thống",
+            "Đợi xử lý và xác nhận hoàn thành trước khi đóng trang. Không bấm nộp nhiều lần hoặc đổi trang nếu mạng đang chập chờn."
+          ],
+          [
+            "Kết quả sau nộp",
+            "Điểm, đáp án đúng/sai và chi tiết bài làm chỉ hiển thị theo cấu hình đề. Không thấy điểm ngay có thể là do giáo viên chưa bật công bố."
+          ],
+          [
+            "Bài làm khách có được lưu không?",
+            "Hệ thống có thể ghi nhận lượt nộp theo họ tên và thông tin bạn khai. Tuy nhiên, không gắn bài của khách với ID của tài khoản học sinh."
+          ],
+          [
+            "Có xem lại lịch sử không?",
+            "Khách không có trang tra cứu lịch sử bài thi cá nhân. Nếu cần lịch sử lâu dài, nên đăng nhập tài khoản học sinh trước khi tham gia; việc tạo tài khoản sau khi thi không tự bảo đảm gắn lại các bài khách đã nộp."
+          ]
+        ],
+        "note": "Khi nộp bài bị gián đoạn, ghi lại tên đề, giáo viên, thời điểm và thông báo lỗi để giáo viên kiểm tra; không tự thi lại khi chưa biết bài trước đã được ghi nhận hay chưa."
+      },
+      {
+        "id": "guest-login",
+        "title": "08. Đăng nhập vào hệ thống như thế nào?",
+        "summary": "Các bước đăng nhập, nhận tài khoản và xử lý trường hợp không có mật khẩu.",
+        "steps": [
+          [
+            "Tìm nút Đăng nhập",
+            "Ở phần trên thanh menu, bấm Đăng nhập. Hộp thoại đăng nhập của hệ thống sẽ mở ra."
+          ],
+          [
+            "Điền thông tin được cấp",
+            "Nhập Tên đăng nhập và Mật khẩu đúng như thông tin đã nhận từ nhà trường hoặc quản trị viên; kiểm tra chữ hoa, dấu cách và bàn phím."
+          ],
+          [
+            "Sử dụng máy tính chung",
+            "Không bật lưu tài khoản/mật khẩu trên thiết bị công cộng; nếu có tùy chọn ghi nhớ, hãy cân nhắc trước khi chọn."
+          ],
+          [
+            "Nhấn Đăng nhập",
+            "Chờ hệ thống kiểm tra. Khi thành công, tên và vai trò được hiển thị ở menu; nội dung Trợ giúp đổi sang đúng hướng dẫn cho Admin, giáo viên hoặc học sinh."
+          ],
+          [
+            "Nếu chưa có tài khoản",
+            "Liên hệ giáo viên, nhà trường hoặc quản trị viên để được cấp. Hệ thống hiện không hỗ trợ người dùng tự đăng ký tài khoản từ màn hình công khai."
+          ],
+          [
+            "Nếu quên mật khẩu hoặc bị khóa",
+            "Nhờ quản trị viên hỗ trợ. Không dùng tài khoản của bạn bè, không thử các mật khẩu không được cấp nhiều lần."
+          ]
+        ]
+      },
+      {
+        "id": "guest-benefits",
+        "title": "09. Quyền lợi và tiện ích khi đăng nhập",
+        "summary": "Tài khoản học sinh, giáo viên và quản trị viên có quyền khác nhau.",
+        "steps": [
+          [
+            "Đối với học sinh",
+            "Hồ sơ hợp lệ giúp điền thông tin dự thi chính xác, có thể mở những đề theo đơn vị/lớp phù hợp và xem lịch sử bài đã nộp của chính mình trong QL Kết quả."
+          ],
+          [
+            "Tra cứu và quản lý kết quả học sinh",
+            "Khi đã đăng nhập, học sinh có thể tìm theo tên đề, lọc/sắp xếp kết quả, xem tổng lượt và mở chi tiết nếu giáo viên cho phép; không xem kết quả học sinh khác."
+          ],
+          [
+            "Đối với giáo viên",
+            "Tài khoản giáo viên được truy cập ngân hàng câu hỏi, tạo/sửa và xuất đề, xem kết quả những đề thuộc quyền và thực hiện các thao tác được phân quyền."
+          ],
+          [
+            "Đối với Admin",
+            "Tài khoản quản trị có các chức năng quản lý hồ sơ, tài khoản, phân công lớp, cấu hình và quản lý dữ liệu theo phạm vi hệ thống; quyền này không tự có khi đăng nhập bằng tài khoản thường."
+          ],
+          [
+            "Đăng nhập không bỏ qua quy định đề",
+            "Dù đã đăng nhập, bạn vẫn phải đúng đối tượng, đúng mã bảo mật, đúng thời gian, còn lượt làm và tuân thủ giám sát. Việc công bố điểm/đáp án vẫn do cấu hình đề quyết định."
+          ]
+        ],
+        "note": "Chọn vai trò không phải thao tác tự đổi quyền; mỗi tài khoản được Admin cấp quyền phù hợp."
+      },
+      {
+        "id": "guest-troubleshoot",
+        "title": "10. Giải đáp sự cố thường gặp khi chưa đăng nhập",
+        "summary": "Không thấy đề, bị từ chối truy cập, quên mã hoặc nộp bài chưa rõ kết quả.",
+        "steps": [
+          [
+            "Không thấy tên giáo viên",
+            "Kiểm tra kết nối và thử tải lại danh sách; giáo viên có thể chưa tạo hoặc chưa công bố đề phù hợp. Hỏi giáo viên tổ chức để xác minh."
+          ],
+          [
+            "Không thấy đề thi cần làm",
+            "Chọn đúng giáo viên; kiểm tra đề có giới hạn đơn vị/lớp hay thời gian không. Đề theo lớp yêu cầu tài khoản học sinh phù hợp."
+          ],
+          [
+            "Báo mã bảo mật không đúng",
+            "Kiểm tra mã được giáo viên cấp cho chính đề đó, tránh nhầm mã bảo mật đề với mật khẩu tài khoản."
+          ],
+          [
+            "Báo sai trường hoặc lớp",
+            "Đối chiếu thông tin được khai và quy định đề. Với đề giới hạn lớp, chỉ nhập đúng lớp không đủ; phải đăng nhập tài khoản được cấp đúng lớp."
+          ],
+          [
+            "Báo hết lượt hoặc hết thời gian",
+            "Không thể tự mở khóa bằng việc đổi tên hoặc tải lại trang. Liên hệ giáo viên nếu cần xử lý theo quy chế."
+          ],
+          [
+            "Mạng mất hoặc đã nộp mà chưa rõ kết quả",
+            "Ghi lại tên đề, thời điểm và màn hình lỗi, liên hệ giáo viên để kiểm tra bài có lưu hay không."
+          ],
+          [
+            "Muốn xem lại tất cả các bài đã làm",
+            "Hãy dùng tài khoản học sinh khi tham gia các lần thi tiếp theo. Các bài làm khi còn là khách không mặc nhiên xuất hiện trong lịch sử sau khi đăng nhập."
+          ]
+        ]
+      }
+    ],
+    "faqs": [
+      [
+        "Không có tài khoản thì có làm bài thi được không?",
+        "Có. Đề công khai và đề có mã bảo mật có thể dành cho khách khi đáp ứng điều kiện. Đề cho đơn vị phải xét thêm trường và lớp; đề chỉ định lớp bắt buộc đăng nhập."
+      ],
+      [
+        "Làm đề có mã bảo mật có cần đăng nhập không?",
+        "Không nhất thiết. Bạn cần mã truy cập đúng của đề và phải đáp ứng thời gian, lượt làm, các điều kiện khác."
+      ],
+      [
+        "Tại sao tôi không nhìn thấy đề của lớp mình?",
+        "Đề cho đơn vị có chỉ định lớp yêu cầu tài khoản học sinh phù hợp; khi chưa đăng nhập đề có thể không hiện trong danh sách."
+      ],
+      [
+        "Đi thi bằng tên khách có được chấm điểm không?",
+        "Hệ thống có thể chấm và lưu lượt nộp của khách; quyền xem điểm hoặc chi tiết phụ thuộc cấu hình đề."
+      ],
+      [
+        "Tại sao sau khi nộp không có mục Kết quả bài thi của tôi?",
+        "Lịch sử cá nhân chỉ mở cho học sinh đăng nhập; khách không có trang lịch sử được liên kết với ID tài khoản."
+      ],
+      [
+        "Sau khi tạo tài khoản, bài đã thi lúc chưa đăng nhập có tự chuyển vào tài khoản không?",
+        "Không có bảo đảm tự chuyển. Nên sử dụng tài khoản được cấp ngay từ đầu nếu cần tra cứu các lần thi sau."
+      ],
+      [
+        "Tôi tự đăng ký tài khoản được không?",
+        "Không. Chức năng đăng ký công khai đã khóa; tài khoản do quản trị viên cấp hoặc xử lý theo quy trình của nhà trường."
+      ],
+      [
+        "Đăng nhập có giúp xem đáp án ngay không?",
+        "Không tự động. Quyền xem điểm, đáp án và chi tiết tùy cài đặt của giáo viên cho từng đề."
+      ],
+      [
+        "Mã bảo mật đề và mật khẩu tài khoản có giống nhau không?",
+        "Không. Mã bảo mật dùng để mở một đề thi; mật khẩu đăng nhập dùng để xác thực tài khoản và xem quyền được cấp."
+      ]
+    ]
+  },
   "admin": {
     "label": "Quản trị viên",
     "intro": "Tài liệu thao tác dành riêng cho tài khoản Admin: từ quản lý người dùng, ngân hàng câu hỏi, đề thi đến kết quả và cấu hình hệ thống. Các thao tác quản trị được áp dụng theo phạm vi dữ liệu của hệ thống đang đăng nhập.",
