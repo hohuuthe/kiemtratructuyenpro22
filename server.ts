@@ -20,6 +20,8 @@ import { generateExamAnswerExcel, ExamAnswerDoc } from "./src/exam-excel-generat
 import JSZip from 'jszip';
 import {requiredQuestionLesson,questionLessonDeleteScope,requireQuestionLessonConfirmation,questionLessonCountQuery,questionLessonDeleteQuery,QuestionLessonDeleteError,canDeleteQuestionsByLesson} from './src/question-lesson-delete-policy';
 import { canManageExamConfig, examConfigGuardedDeleteStatement } from './src/exam-config-deletion-policy';
+import { processExamResultsDeletion } from './src/exam-results-delete-service';
+import { ExamResultsDeletionError } from './src/exam-results-delete-policy';
 
 dotenv.config({ override: true });
 
@@ -2872,6 +2874,42 @@ async function startServer() {
       }
       console.error("PUT /api/results error::", e);
       return res.status(500).json({ error: e.message || 'Lỗi server' });
+    }
+  });
+
+
+  // Dedicated, strictly scoped deletion for a single exam's saved submissions.
+  app.post("/api/results/delete-by-exam", async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      const bearer = req.headers.authorization || '';
+      if (!bearer.startsWith('Bearer ') || !bearer.slice(7).trim()) {
+        return res.status(401).json({ error: 'Vui lòng đăng nhập trước khi xóa kết quả.', code: 'AUTH_REQUIRED' });
+      }
+      // The global /api auth middleware above also verifies the live account
+      // status, password and role on every request.
+      const user = verifyJWTSync(bearer.slice(7), await getServerSecret());
+      if (!user) return res.status(401).json({ error: 'Phiên đăng nhập không hợp lệ.', code: 'AUTH_REQUIRED' });
+      const adapter = {
+        first: async (sql: string, params: unknown[]) => {
+          const result = await executeSqlQuery(sql, params);
+          return result.results?.[0] || null;
+        },
+        run: async (sql: string, params: unknown[]) => {
+          const result = await executeSqlQuery(sql, params);
+          return { changes: Number(result.changes) };
+        }
+      };
+      return res.json(await processExamResultsDeletion(adapter, user, req.body));
+    } catch (err: any) {
+      if (err instanceof ExamResultsDeletionError) {
+        return res.status(err.status).json({ error: err.message, code: err.code });
+      }
+      console.error('POST /api/results/delete-by-exam failed:', err);
+      return res.status(500).json({
+        error: 'Không thể xử lý xóa kết quả đề thi. Dữ liệu cần được kiểm tra lại.',
+        code: 'DELETE_FAILED'
+      });
     }
   });
 
