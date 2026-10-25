@@ -636,7 +636,7 @@ button { touch-action: manipulation; }
 #exam-configs-table-scroll { max-width: 100%; }
 .exam-configs-table {
   table-layout: fixed;
-  min-width: 1020px;
+  min-width: 1180px;
   width: 100%;
   font-size: 12px;
   line-height: 1.45;
@@ -648,15 +648,23 @@ button { touch-action: manipulation; }
 }
 .exam-configs-table th { white-space: normal; overflow-wrap: break-word; }
 .exam-configs-table th:nth-child(1) { width: 3%; }
-.exam-configs-table th:nth-child(2) { width: 11%; }
-.exam-configs-table th:nth-child(3) { width: 22%; }
+.exam-configs-table th:nth-child(2) { width: 10%; }
+.exam-configs-table th:nth-child(3) { width: 19%; }
 .exam-configs-table th:nth-child(4) { width: 8%; }
-.exam-configs-table th:nth-child(5) { width: 9%; }
-.exam-configs-table th:nth-child(6) { width: 18%; }
+.exam-configs-table th:nth-child(5) { width: 8%; }
+.exam-configs-table th:nth-child(6) { width: 16%; }
 .exam-configs-table th:nth-child(7) { width: 6%; }
 .exam-configs-table th:nth-child(8) { width: 9%; }
 .exam-configs-table th:nth-child(9) { width: 7%; }
 .exam-configs-table th:nth-child(10) { width: 7%; }
+.exam-configs-table th:nth-child(11) { width: 7%; }
+.exam-configs-table .exam-attempt-count-cell {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  font-weight: 700;
+  color: #047857;
+}
 .exam-configs-table thead th { background: #f8fafc; }
 .exam-configs-table tbody tr:nth-child(even) { background-color: #fafbff; }
 .exam-configs-table tbody tr:hover { background-color: #f5f3ff; }
