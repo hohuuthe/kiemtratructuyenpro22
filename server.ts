@@ -21,6 +21,7 @@ import JSZip from 'jszip';
 import {requiredQuestionLesson,questionLessonDeleteScope,requireQuestionLessonConfirmation,questionLessonCountQuery,questionLessonDeleteQuery,QuestionLessonDeleteError,canDeleteQuestionsByLesson} from './src/question-lesson-delete-policy';
 import { canManageExamConfig, examConfigGuardedDeleteStatement } from './src/exam-config-deletion-policy';
 import { processExamResultsDeletion } from './src/exam-results-delete-service';
+import { listExamResultsDeletionTargets } from './src/exam-results-targets-service';
 import { ExamResultsDeletionError } from './src/exam-results-delete-policy';
 import { resolveLiveExamResultsActor } from './src/exam-results-delete-actor';
 
@@ -2880,6 +2881,32 @@ async function startServer() {
 
 
   // Dedicated, strictly scoped deletion for a single exam's saved submissions.
+  app.post("/api/results/deletion-targets", async (req, res) => {
+    res.set('Cache-Control','no-store');
+    try {
+      const bearer = req.headers.authorization || '';
+      if (!bearer.startsWith('Bearer ') || !bearer.slice(7).trim())
+        return res.status(401).json({error:'Vui lòng đăng nhập.',code:'AUTH_REQUIRED'});
+      const claims = verifyJWTSync(bearer.slice(7), await getServerSecret());
+      if (!claims) return res.status(401).json({error:'Phiên đăng nhập không hợp lệ.',code:'AUTH_REQUIRED'});
+      const live = await executeSqlQuery(
+        'SELECT a.id, a.user_id, a.password, a.role, a.is_active, a.expiry_date, u.target_audience, u.is_active AS profile_active, u.expiry_date AS profile_expiry_date FROM accounts a LEFT JOIN users u ON u.id = COALESCE(a.user_id, a.id) WHERE a.id = ? LIMIT 1',
+        [claims.id]
+      );
+      const user = resolveLiveExamResultsActor(claims,live.results?.[0]);
+      const adapter = {
+        all: async (sql:string, params:unknown[]) => (await executeSqlQuery(sql,params)).results || [],
+        first: async (sql:string, params:unknown[]) => (await executeSqlQuery(sql,params)).results?.[0] || null
+      };
+      return res.json(await listExamResultsDeletionTargets(adapter,user,req.body?.examName));
+    } catch(err:any) {
+      if (err instanceof ExamResultsDeletionError)
+        return res.status(err.status).json({error:err.message,code:err.code});
+      console.error('POST /api/results/deletion-targets failed:',err);
+      return res.status(503).json({error:'Không thể xác minh danh sách mã đề.',code:'TARGET_LOOKUP_FAILED'});
+    }
+  });
+
   app.post("/api/results/delete-by-exam", async (req, res) => {
     res.set('Cache-Control', 'no-store');
     try {
