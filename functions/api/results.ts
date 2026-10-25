@@ -1,5 +1,6 @@
 import { verifyAuthSession, getDynamicSecret, getDatabase } from './exam/utils';
 import { processExamResultsDeletion } from '../../src/exam-results-delete-service';
+import { listExamResultsDeletionTargets } from '../../src/exam-results-targets-service';
 import { ExamResultsDeletionError } from '../../src/exam-results-delete-policy';
 
 interface Env {
@@ -542,5 +543,29 @@ export const onRequestPostDeleteByExam: PagesFunction<Env> = async (context) => 
     }
     console.error('POST /api/results/delete-by-exam failed:', err);
     return reply({ error: 'Không thể xử lý xóa kết quả đề thi. Dữ liệu cần được kiểm tra lại.', code: 'DELETE_FAILED' }, 500);
+  }
+};
+
+export const onRequestPostExamDeletionTargets: PagesFunction<Env> = async context => {
+  const headers = { ...corsHeaders, 'Cache-Control': 'no-store' };
+  const reply = (body: any, status = 200) => new Response(JSON.stringify(body), {status,headers});
+  try {
+    const bearer = context.request.headers.get('Authorization') || '';
+    if (!bearer.startsWith('Bearer ') || !bearer.slice(7).trim())
+      return reply({error:'Vui lòng đăng nhập.',code:'AUTH_REQUIRED'},401);
+    const body = await context.request.json().catch(() => null) as any;
+    const db = getDatabase(context);
+    const secret = await getDynamicSecret(db, context.env.JWT_SECRET);
+    const user = await verifyAuthSession(bearer.slice(7),secret,db);
+    if (!user) return reply({error:'Phiên đăng nhập không hợp lệ.',code:'AUTH_REQUIRED'},401);
+    const adapter = {
+      all: async (sql:string,params:unknown[]) => (await db.prepare(sql).bind(...params).all()).results || [],
+      first: async (sql:string,params:unknown[]) => db.prepare(sql).bind(...params).first()
+    };
+    return reply(await listExamResultsDeletionTargets(adapter,user,body?.examName));
+  } catch(err:any) {
+    if (err instanceof ExamResultsDeletionError) return reply({error:err.message,code:err.code},err.status);
+    console.error('exam deletion targets failed',err);
+    return reply({error:'Không thể xác minh các mã đề.',code:'TARGET_LOOKUP_FAILED'},503);
   }
 };
