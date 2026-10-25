@@ -6,6 +6,7 @@ import { planRecentQuestionView, resolveWordImportedQuestionIds } from './questi
 import { questionCreatorId, matchesQuestionTeacher, questionTeacherOptions } from './question-teacher-filter.js';
 import { matchesRankingTeacher, rankingTeacherOptions } from './ranking-teacher-filter.js';
 import { examManagementCreatorId, examManagementSchool, examManagementClassTokens, matchesExamManagement, examManagementFilterChoices } from './exam-management-filters.js';
+import { parseExamAttemptCount } from './exam-attempt-counts-ui.js';
 import './pwa-manager.js';
 import './teacher-assignment.js';
 import { typesetScientificMath } from './scientific-formula-typeset.js';
@@ -4178,10 +4179,10 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
                 window.updateBackendStatusUI();
             }
             
-            // Cập nhật danh sách đề thi khi chuyển sang tab exams
+            // Tải lại thống kê mỗi lần mở QL Đề thi; số lượt làm có thể thay đổi khi học sinh nộp bài.
             if (tabName === 'exams') {
-                if (!examsLoaded) updateExamNamesList();
-                else renderExamConfigsTable();
+                if (examsLoaded) renderExamConfigsTable(); // Draw cached list while waiting for fresh counts.
+                updateExamNamesList(true);
             }
 
             if (tabName === 'questions' || tabName === 'exam-editor') {
@@ -5606,7 +5607,7 @@ if (contentType && contentType.includes("application/json")) {
             if (list.length === 0) {
                 tbody.innerHTML = `
                     <tr>
-                        <td colspan="10" class="text-center py-8 text-gray-400 italic">
+                        <td colspan="11" class="text-center py-8 text-gray-400 italic">
                             ${(searchKw || selections.creatorId || selections.school || selections.className) ? 'Không tìm thấy đề thi phù hợp với bộ lọc.' : 'Chưa có cấu hình đề thi nào trong danh sách.'}
                         </td>
                     </tr>
@@ -5686,6 +5687,12 @@ if (contentType && contentType.includes("application/json")) {
                 const escapedName = escapeHTML(item.name || 'Không tên');
                 const creator = item.creatorName || item.creator_name || accountsMap[item.creator_id || item.creatorId] || 'Hệ thống';
                 const isCreator = currentUser && (String(item.creator_id || item.creatorId) === String(currentUser.id) || isAdminLoggedIn);
+                // Read-only count from /api/exams; never derive it from exam names or client-side result lists.
+                const attemptCount = parseExamAttemptCount(item.attempt_count);
+                const attemptCountText = attemptCount === null ? '—' : attemptCount.toLocaleString('vi-VN');
+                const attemptCountTitle = attemptCount === null
+                    ? 'Chưa có số liệu thống kê hoặc tài khoản không có quyền xem.'
+                    : 'Số lượt nộp bài đã lưu kết quả, bao gồm các lượt làm lại.';
 
                 return `
                     <tr class="transition-colors border-b border-slate-100">
@@ -5709,6 +5716,7 @@ if (contentType && contentType.includes("application/json")) {
                         <td class="text-center text-xs">
                             ${featuresHtml}
                         </td>
+                        <td class="exam-attempt-count-cell text-center" data-exam-id="${escapeHTML(String(item.id || ''))}" title="${attemptCountTitle}">${attemptCountText}</td>
                         <td class="text-center">
                             <div class="exam-config-row-actions">
                                 <button onclick="loadExamConfigById('${item.id}')" class="px-2.5 py-1 bg-purple-600 text-white rounded text-xs font-medium hover:bg-purple-700 transition flex items-center gap-1" title="Nạp cấu hình vào khung soạn thảo">
@@ -6581,7 +6589,8 @@ if (contentType && contentType.includes("application/json")) {
                 }
                 const url = `/api/exams?limit=${chunkSize}&offset=${offset}`;
                 const res = await fetch(url, {
-                    headers: token ? { 'Authorization': 'Bearer ' + token } : {}
+                    headers: token ? { 'Authorization': 'Bearer ' + token } : {},
+                    cache: 'no-store'
                 });
                 if (!res.ok) {
                     throw new Error(`Lỗi máy chủ (${res.status}) khi tải danh sách đề thi tại đợt ${pageNum}`);
