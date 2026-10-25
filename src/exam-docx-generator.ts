@@ -1,3 +1,4 @@
+import { tokenizeEducationalInlineMarkup } from './educational-inline-markup.js';
 import {
     Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
     WidthType, TableLayoutType, AlignmentType, PageNumber, BorderStyle, UnderlineType,
@@ -248,19 +249,7 @@ function parseFormattedTextLegacy(textInput: any, defaultBold = false): TextRun[
              .replace(/\$\$(.*?)\$\$/gs, '$1')
              .replace(/\$(.*?)\$/gs, '$1');
 
-    // In prose about HTML, tag-looking text is itself an answer/question,
-    // not formatting. Only treat an explicit matching formatting pair as
-    // legacy markup when the surrounding text is not discussing HTML tags.
-    // All other tags must remain visible in the exported Word document.
-    const htmlTeachingContext = /(?:\bHTML\b|\bCSS\b|\bJavaScript\b|thẻ\s*<|\btag\s*<|\belement\s*<|mã\s*<|\bcode\s*<)/iu.test(str);
-    const formatTags = ['b','strong','i','em','sup','sub'];
-    const activePairs = new Set<string>();
-    if (!htmlTeachingContext) {
-        for (const tag of formatTags) {
-            if (new RegExp('<'+tag+'>(?:(?!<\\/'+tag+'>)[\\s\\S])*<\\/'+tag+'>','i').test(str)) activePairs.add(tag);
-        }
-    }
-    const tokens = str.split(/(<[^>]+>)/g);
+    const tokens = tokenizeEducationalInlineMarkup(str);
     const runs: TextRun[] = [];
 
     let isBold = defaultBold;
@@ -269,53 +258,27 @@ function parseFormattedTextLegacy(textInput: any, defaultBold = false): TextRun[
     let isSub = false;
 
     for (const token of tokens) {
-        if (!token) continue;
-        const lower = token.toLowerCase();
-
-        if ((lower === '<b>' || lower === '<strong>') && activePairs.has(lower.slice(1,-1))) {
-            isBold = true;
-        } else if ((lower === '</b>' || lower === '</strong>') && activePairs.has(lower.slice(2,-1))) {
-            isBold = defaultBold;
-        } else if ((lower === '<i>' || lower === '<em>') && activePairs.has(lower.slice(1,-1))) {
-            isItalic = true;
-        } else if ((lower === '</i>' || lower === '</em>') && activePairs.has(lower.slice(2,-1))) {
-            isItalic = false;
-        } else if (lower === '<sup>' && activePairs.has('sup')) {
-            isSuper = true;
-        } else if (lower === '</sup>' && activePairs.has('sup')) {
-            isSuper = false;
-        } else if (lower === '<sub>' && activePairs.has('sub')) {
-            isSub = true;
-        } else if (lower === '</sub>' && activePairs.has('sub')) {
-            isSub = false;
-        } else if (!htmlTeachingContext && (lower === '<br>' || lower === '<br/>' || lower === '<br />')) {
-            runs.push(new TextRun({
-                text: "\n",
-                font: "Times New Roman",
-                size: 26
-            }));
-        } else {
-            // Normal text content
-            let clean = token
-                .replace(/&lt;/g, '<')
-                .replace(/&gt;/g, '>')
-                .replace(/&amp;/g, '&')
-                .replace(/&quot;/g, '"')
-                .replace(/&#039;/g, "'")
-                .replace(/&nbsp;/g, ' ');
-
-            if (clean.length > 0) {
-                runs.push(new TextRun({
-                    text: clean,
-                    font: "Times New Roman",
-                    size: 26, // 13pt
-                    bold: isBold,
-                    italics: isItalic,
-                    superScript: isSuper,
-                    subScript: isSub
-                }));
+        const name = token.name;
+        if (token.type === 'open' || token.type === 'close') {
+            const active = token.type === 'open';
+            if (name === 'b' || name === 'strong') isBold = active || defaultBold;
+            if (name === 'i' || name === 'em') isItalic = active;
+            if (name === 'sup') isSuper = active;
+            if (name === 'sub') isSub = active;
+            if (name === 'u' || name === 'mark') {
+                // Rich underline/highlight support belongs to native DOCX formatting.
+                // No source tags are silently consumed by the tokenizer.
             }
+            continue;
         }
+        const value = token.type === 'break' ? '\n' : token.value;
+        if (!value) continue;
+        const clean = value.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
+            .replace(/&quot;/g, '"').replace(/&#039;|&#39;/g, "'").replace(/&nbsp;/g, ' ');
+        runs.push(new TextRun({
+            text: clean, font: "Times New Roman", size: 26, bold: isBold,
+            italics: isItalic, superScript: isSuper, subScript: isSub
+        }));
     }
 
     if (runs.length === 0) {
