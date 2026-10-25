@@ -252,7 +252,7 @@ function parseFormattedTextLegacy(textInput: any, defaultBold = false): TextRun[
     // not formatting. Only treat an explicit matching formatting pair as
     // legacy markup when the surrounding text is not discussing HTML tags.
     // All other tags must remain visible in the exported Word document.
-    const htmlTeachingContext = /(?:\\bHTML\\b|\\bCSS\\b|\\bJavaScript\\b|\\bthẻ\\s*<|\\btag\\s*<|\\belement\\s*<|\\bmã\\s*<|\\bcode\\s*<)/iu.test(str);
+    const htmlTeachingContext = /(?:\bHTML\b|\bCSS\b|\bJavaScript\b|thẻ\s*<|\btag\s*<|\belement\s*<|mã\s*<|\bcode\s*<)/iu.test(str);
     const formatTags = ['b','strong','i','em','sup','sub'];
     const activePairs = new Set<string>();
     if (!htmlTeachingContext) {
