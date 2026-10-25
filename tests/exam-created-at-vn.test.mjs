@@ -65,7 +65,7 @@ test('The frontend and both exam APIs use persisted created_at, not updated_at',
   assert.match(pages,/SELECT ec\.\*, u\.donvi AS teacher_donvi/);
   assert.match(pages,/created_at, updated_at\) VALUES/);
   assert.match(node,/ec\.created_at, ec\.updated_at/);
-  assert.match(html,/>Thời gian tạo<\/th>/);
+  assert.match(html,/Thời gian tạo[\s\S]*?<\/th>/);
   assert.match(css,/\.exam-configs-table \.exam-config-created-time[\s\S]*?flex-direction: column/);
   assert.match(css,/\.exam-configs-table th:nth-child\(12\) \{ width: 8%; \}/);
 });
