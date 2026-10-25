@@ -248,7 +248,18 @@ function parseFormattedTextLegacy(textInput: any, defaultBold = false): TextRun[
              .replace(/\$\$(.*?)\$\$/gs, '$1')
              .replace(/\$(.*?)\$/gs, '$1');
 
-    // Tokenize tags: <b>, </b>, <i>, </i>, <sup>, </sup>, <sub>, </sub>, <br>, <br/>, &lt;, &gt;, &amp;
+    // In prose about HTML, tag-looking text is itself an answer/question,
+    // not formatting. Only treat an explicit matching formatting pair as
+    // legacy markup when the surrounding text is not discussing HTML tags.
+    // All other tags must remain visible in the exported Word document.
+    const htmlTeachingContext = /(?:\\bHTML\\b|\\bCSS\\b|\\bJavaScript\\b|\\bthẻ\\s*<|\\btag\\s*<|\\belement\\s*<|\\bmã\\s*<|\\bcode\\s*<)/iu.test(str);
+    const formatTags = ['b','strong','i','em','sup','sub'];
+    const activePairs = new Set<string>();
+    if (!htmlTeachingContext) {
+        for (const tag of formatTags) {
+            if (new RegExp('<'+tag+'>(?:(?!<\\/'+tag+'>)[\\s\\S])*<\\/'+tag+'>','i').test(str)) activePairs.add(tag);
+        }
+    }
     const tokens = str.split(/(<[^>]+>)/g);
     const runs: TextRun[] = [];
 
@@ -261,30 +272,28 @@ function parseFormattedTextLegacy(textInput: any, defaultBold = false): TextRun[
         if (!token) continue;
         const lower = token.toLowerCase();
 
-        if (lower === '<b>' || lower === '<strong>') {
+        if ((lower === '<b>' || lower === '<strong>') && activePairs.has(lower.slice(1,-1))) {
             isBold = true;
-        } else if (lower === '</b>' || lower === '</strong>') {
+        } else if ((lower === '</b>' || lower === '</strong>') && activePairs.has(lower.slice(2,-1))) {
             isBold = defaultBold;
-        } else if (lower === '<i>' || lower === '<em>') {
+        } else if ((lower === '<i>' || lower === '<em>') && activePairs.has(lower.slice(1,-1))) {
             isItalic = true;
-        } else if (lower === '</i>' || lower === '</em>') {
+        } else if ((lower === '</i>' || lower === '</em>') && activePairs.has(lower.slice(2,-1))) {
             isItalic = false;
-        } else if (lower === '<sup>') {
+        } else if (lower === '<sup>' && activePairs.has('sup')) {
             isSuper = true;
-        } else if (lower === '</sup>') {
+        } else if (lower === '</sup>' && activePairs.has('sup')) {
             isSuper = false;
-        } else if (lower === '<sub>') {
+        } else if (lower === '<sub>' && activePairs.has('sub')) {
             isSub = true;
-        } else if (lower === '</sub>') {
+        } else if (lower === '</sub>' && activePairs.has('sub')) {
             isSub = false;
-        } else if (lower === '<br>' || lower === '<br/>' || lower === '<br />') {
+        } else if (!htmlTeachingContext && (lower === '<br>' || lower === '<br/>' || lower === '<br />')) {
             runs.push(new TextRun({
                 text: "\n",
                 font: "Times New Roman",
                 size: 26
             }));
-        } else if (token.startsWith('<') && token.endsWith('>')) {
-            // Other HTML tag, ignore
         } else {
             // Normal text content
             let clean = token
