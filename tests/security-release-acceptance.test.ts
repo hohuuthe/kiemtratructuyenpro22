@@ -62,6 +62,42 @@ test('Security release: real API handlers on two isolated PostgreSQL engines (of
       for(const [id,owner] of [['exam-a','teacher'],['exam-b','other']])await sql("INSERT INTO exam_configs(id,name,creator_id,time_limit,count_41,points_41,selected_lessons,show_score,show_details,is_shared_results,updated_at) VALUES($1,'SAME EXAM NAME',$2,30,1,1,'[\"LESSON\"]',1,0,0,'2026-01-01T00:00:00.000Z')",[id,owner],which);
       for(const [id,exam,student] of [['result-a','exam-a','u-student'],['result-b','exam-b','u-same-name'],['legacy','exam-b',null]])await sql("INSERT INTO results(id,exam_id,exam_name,user_id,student_name,score,correct_count,total_questions,details) VALUES($1,$2,'SAME EXAM NAME',$3,'SAME DISPLAY NAME',0,0,1,'[]')",[id,exam,student],which);
     }
+    await t.test('exam attempt counts use exact IDs, count retakes and isolate tenants/roles',async()=>{
+      const adminToken=await login('admin');
+      const teacherToken=await login('teacher');
+      const studentToken=await login('student');
+      const list=async(which:'a'|'b',token:string)=>{
+        const r=await request(which,'/api/exams',{token});
+        assert.equal(r.status,200,JSON.stringify(r.body));
+        return r.body.data as any[];
+      };
+      const count=(rows:any[],id:string)=>Number(rows.find((row:any)=>row.id===id)?.attempt_count);
+      const all=await list('a',adminToken);
+      assert.equal(count(all,'exam-a'),1);
+      assert.equal(count(all,'exam-b'),2,'anonymous legacy record counts if exam_id exists');
+      const mine=await list('a',teacherToken);
+      assert.deepEqual(mine.map(row=>row.id),['exam-a']);
+      assert.equal(count(mine,'exam-a'),1);
+      assert.ok((await list('a',studentToken)).every(row=>!Object.hasOwn(row,'attempt_count')),
+        'student must never receive private count field');
+      const attemptRows=await request('a','/api/exams?teacherId=other',{token:teacherToken});
+      assert.equal(attemptRows.status,200);
+      assert.deepEqual(attemptRows.body.data.map((row:any)=>row.id),['exam-a'],
+        'teacher may not change ownership via teacherId query');
+      await sql("INSERT INTO results(id,exam_id,exam_name,user_id) VALUES('retry-a','exam-a','SAME EXAM NAME','u-student')");
+      await sql("INSERT INTO results(id,exam_id,exam_name,user_id) VALUES('name-only',NULL,'SAME EXAM NAME','u-student')");
+      await sql("INSERT INTO results(id,exam_id,exam_name,user_id) VALUES('tenant-b-retry','exam-a','SAME EXAM NAME','u-student')",[],'b');
+      try {
+        assert.equal(count(await list('a',adminToken),'exam-a'),2,'same student can submit again');
+        assert.equal(count(await list('a',adminToken),'exam-b'),2,'same-name exam remains isolated');
+        assert.equal(count(await list('a',teacherToken),'exam-a'),2);
+        assert.equal(count(await list('b',await login('admin','b')),'exam-a'),2,'tenant b counts independently');
+      } finally {
+        await sql("DELETE FROM results WHERE id IN ('retry-a','name-only')");
+        await sql("DELETE FROM results WHERE id='tenant-b-retry'",[],'b');
+      }
+      assert.equal(count(await list('a',adminToken),'exam-a'),1,'count decreases after deleting a result');
+    });
     await t.test('login works with NULL profile audience and never returns a password hash',async()=>{
       const r=await request('a','/api/auth/login',{method:'POST',body:{username:'teacher',password:'Fixture-password-2026'}});assert.equal(r.status,200);assert.equal(r.body.data.password,undefined);assert.equal((await request('a','/api/questions',{token:r.body.token})).status,200);assert.equal(r.headers.get('Cache-Control'),'no-store');
     });
