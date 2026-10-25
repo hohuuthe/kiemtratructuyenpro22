@@ -30,8 +30,8 @@ test('QL Ket qua UI uses the existing ID-scoped server preview + 1234 confirmati
   assert.match(markup,/id="btn-delete-exam-ranking-results"/);
   assert.match(markup,/onclick="openRankingDeleteResultsByExam\(\)"/);
   assert.match(markup,/id="ranking-exam-filter"/);
-  assert.match(code,/resolveRankingDeleteExamTargets\(selected, configs, currentUser, isAdminLoggedIn\)/);
-  assert.match(code,/fetchAllExamsChunked\(\)/);
+  assert.match(code,/\/api\/results\/deletion-targets/);
+  assert.match(code,/JSON\.stringify\(\{examName: selected\}\)/);
   assert.match(code,/targets\.length === 1/);
   assert.match(code,/ranking-delete-exam-id/);
   assert.match(code,/window\.deleteExamResultsByExamId\(encodeURIComponent\(id\)\)/);
@@ -39,4 +39,18 @@ test('QL Ket qua UI uses the existing ID-scoped server preview + 1234 confirmati
   assert.match(code,/expectedCount: count/);
   assert.match(code,/confirmation !== '1234'/);
   assert.match(code,/\/api\/results\/delete-by-exam/);
+});
+
+test('Server lookup routes exist and require authorization',()=>{
+  const pages=readFileSync('functions/api/results.ts','utf8');
+  const node=readFileSync('server.ts','utf8');
+  const router=readFileSync('functions/api/results/deletion-targets.ts','utf8');
+  const service=readFileSync('src/exam-results-targets-service.ts','utf8');
+  assert.match(pages,/listExamResultsDeletionTargets\(/);
+  assert.match(node,/app\.post\("\/api\/results\/deletion-targets"/);
+  assert.match(router,/onRequestPostExamDeletionTargets as onRequestPost/);
+  assert.match(service,/canManageExamConfig\(user, row\.creator_id, isAdmin\)/);
+  assert.match(service,/if \(isAdmin\)/);
+  assert.match(service,/NOT EXISTS \(SELECT 1 FROM exam_configs/);
+  assert.match(service,/AND ec\.creator_id IN \(\?, \?\)/);
 });
