@@ -53,3 +53,12 @@ test('Word keeps legacy paired bold and subscript outside HTML-teaching question
  assert.match(xml,/<w:b/);
  assert.match(xml,/<w:vertAlign w:val="subscript"/);
 });
+
+test('legacy paired inline formatting stays available outside HTML lessons',()=>{
+  const formatted=renderScientificContent('H<sub>2</sub>O và <b>quan trọng</b>');
+  assert.match(formatted,/<sub>2<\\/sub>/);
+  assert.match(formatted,/<b>quan trọng<\\/b>/);
+  const instructional=renderScientificContent('Trong HTML, cú pháp <b>quan trọng</b> có tác dụng gì?');
+  assert.match(instructional,/&lt;b&gt;quan trọng&amp;lt;\\/b&amp;gt;|&lt;b&gt;quan trọng&lt;\\/b&gt;/);
+  assert.ok(!instructional.includes('<b>'));
+});
