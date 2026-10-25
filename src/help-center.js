@@ -19,17 +19,39 @@ export function helpVisibleSectionIds(role) {
   return (HELP_GUIDES[role]?.sections || []).map(section => section.id);
 }
 const palettes = {
+  guest: {accent:'emerald', emoji:'🌐'},
   admin: {accent:'purple', emoji:'🛡️'},
   teacher: {accent:'blue', emoji:'👩‍🏫'},
   student: {accent:'emerald', emoji:'🎓'}
 };
 function guestView() {
-  return '<div class="max-w-2xl mx-auto text-center py-12 sm:py-16">'
-    + '<div class="text-5xl mb-4" aria-hidden="true">🔐</div>'
-    + '<h2 class="text-2xl sm:text-3xl font-black text-slate-900">Trung tâm trợ giúp và hướng dẫn</h2>'
-    + '<p class="mt-4 text-slate-600 leading-7">Đăng nhập bằng tài khoản được cấp để xem hướng dẫn chi tiết dành riêng cho vai trò của bạn. '
-    + 'Nội dung hướng dẫn quản trị, giáo viên và học sinh không hiển thị khi chưa đăng nhập.</p>'
-    + '<button type="button" data-help-login class="mt-7 rounded-xl bg-emerald-700 text-white font-bold px-5 py-3 hover:bg-emerald-800">Đăng nhập để xem hướng dẫn</button></div>';
+  return guideView('guest');
+}
+function guestExtra(guide) {
+  const yes = guide.eligibility.map(item => {
+    const statusColor = item.access === 'yes' ? 'text-emerald-800 bg-emerald-50 border-emerald-200' :
+      item.access === 'no' ? 'text-rose-800 bg-rose-50 border-rose-200' : 'text-amber-900 bg-amber-50 border-amber-200';
+    return '<article class="rounded-xl border border-slate-200 p-4 bg-white">'
+      + '<h4 class="font-black text-slate-900 text-sm sm:text-base">' + safe(item.mode) + '</h4>'
+      + '<span class="inline-block mt-2 rounded-full border px-2.5 py-1 text-xs font-bold ' + statusColor + '">' + safe(item.status) + '</span>'
+      + '<p class="mt-2 text-sm leading-6 text-slate-600">' + safe(item.condition) + '</p></article>';
+  }).join('');
+  return '<section class="mb-7 rounded-2xl bg-emerald-50 border border-emerald-200 p-4 sm:p-5" aria-label="Giới thiệu nhanh">'
+    + '<h3 class="font-black text-emerald-950 text-lg">🌐 Chào mừng bạn đến với hệ thống</h3>'
+    + '<p class="mt-2 text-sm text-emerald-900 leading-6">Bạn chưa đăng nhập nhưng vẫn có thể xem hướng dẫn và tham gia các đề thi được phép. Đọc thông tin bên dưới để chọn đúng loại đề, bảo vệ kết quả và quyết định khi nào cần tài khoản.</p>'
+    + '<div class="mt-4 flex flex-wrap gap-2">'
+    + '<button type="button" data-help-login class="px-4 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-sm font-bold">🔐 Đăng nhập</button>'
+    + '<button type="button" data-help-tab="exam" class="px-4 py-2.5 rounded-xl bg-white border border-emerald-300 text-emerald-900 text-sm font-bold hover:bg-emerald-100">📝 Vào làm bài</button>'
+    + '</div></section>'
+    + '<section class="mb-8"><h3 class="text-lg font-black text-slate-900 mb-3">✨ Tổng quan các tính năng</h3>'
+    + '<div class="grid sm:grid-cols-2 gap-3">' + guide.features.map(([emoji,name,detail]) => '<div class="rounded-xl border border-slate-200 p-4 bg-slate-50"><h4 class="font-bold text-slate-900">' + safe(emoji) + ' ' + safe(name) + '</h4><p class="text-sm leading-6 text-slate-600 mt-2">' + safe(detail) + '</p></div>').join('') + '</div></section>'
+    + '<section class="mb-8"><h3 class="text-lg font-black text-slate-900 mb-3">📋 Khi chưa đăng nhập, bạn có thể thi đề nào?</h3>'
+    + '<div class="grid md:grid-cols-2 gap-3">' + yes + '</div></section>'
+    + '<section class="mb-8"><h3 class="text-lg font-black text-slate-900 mb-3">🔎 Quyền lợi trước và sau khi đăng nhập</h3>'
+    + '<div class="overflow-x-auto rounded-xl border border-slate-200"><table class="min-w-[620px] w-full text-left text-sm">'
+    + '<thead class="bg-slate-100 text-slate-900"><tr><th class="p-3">Chức năng</th><th class="p-3">Chưa đăng nhập</th><th class="p-3">Đăng nhập tài khoản học sinh</th></tr></thead>'
+    + '<tbody>' + guide.comparison.map(([name,guest,student]) => '<tr class="border-t border-slate-200"><th scope="row" class="p-3 font-semibold text-slate-900">' + safe(name) + '</th><td class="p-3 text-slate-700">' + safe(guest) + '</td><td class="p-3 text-slate-700">' + safe(student) + '</td></tr>').join('') + '</tbody></table></div>'
+    + '<p class="mt-2 text-xs text-slate-500">Trên điện thoại, vuốt ngang bảng để xem hết các cột.</p></section>';
 }
 function sectionHtml(section, index, open = false) {
   const steps = section.steps.map(([title, description], i) =>
@@ -59,6 +81,7 @@ function guideView(role, filter = '') {
     + '<h2 class="text-2xl sm:text-3xl font-black tracking-tight text-slate-900">Trung tâm trợ giúp và hướng dẫn</h2>'
     + '<p class="mt-3 text-sm sm:text-base text-slate-600 leading-7 max-w-4xl">' + safe(guide.intro) + '</p>'
     + '<p class="mt-4 bg-amber-50 border-l-4 border-amber-400 rounded-r-xl px-4 py-3 text-sm leading-6 text-amber-950">' + safe(guide.highlight) + '</p></header>'
+    + (role === 'guest' ? guestExtra(guide) : '')
     + '<div class="mb-6"><label for="help-search" class="block text-sm font-bold text-slate-700 mb-2">🔎 Tìm nhanh trong hướng dẫn</label>'
     + '<input id="help-search" type="search" autocomplete="off" placeholder="Nhập chức năng, bước thực hiện hoặc lỗi cần tìm..." value="' + safe(filter) + '"'
     + ' class="w-full rounded-xl border-2 border-slate-200 px-4 py-3 text-sm text-slate-800 focus:outline-none focus:border-blue-500" /></div>'
@@ -84,9 +107,6 @@ export function renderRoleHelp(root, auth = {}, {force = false} = {}) {
   root.dataset.helpRole = role;
   root.replaceChildren();
   root.innerHTML = role === 'guest' ? guestView() : guideView(role);
-  const login = root.querySelector('[data-help-login]');
-  login?.addEventListener('click',()=>window.showAdminLoginModal?.());
-  if (role === 'guest') return role;
   return role;
 }
 export function attachRoleHelpInteractions(root) {
@@ -105,6 +125,10 @@ export function attachRoleHelpInteractions(root) {
     try { next?.setSelectionRange(start, start); } catch {}
   });
   root.addEventListener('click', event => {
+    if (event.target.closest('[data-help-login]')) {
+      window.showAdminLoginModal?.();
+      return;
+    }
     const tab = event.target.closest('[data-help-tab]')?.getAttribute('data-help-tab');
     if (tab && HELP_GUIDES[root.dataset.helpRole]?.links.some(item=>item[0]===tab)) {
       window.switchTab?.(tab);
