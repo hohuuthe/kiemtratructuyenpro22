@@ -55,3 +55,28 @@ test('Both API implementations count via exam_id and guard unauthorized counts',
   const index=readFileSync('index.html','utf8');
   assert.ok(index.indexOf('/src/exam-attempt-counts-ui.js') < index.indexOf('/src/main.js'));
 });
+
+test('PostgreSQL attempts: retakes, duplicate titles, missing IDs, deletion and isolated tenant',async()=>{
+  const {PGlite}=await import('@electric-sql/pglite');
+  const a=new PGlite(),b=new PGlite();
+  const setup=async db=>{
+    await db.exec('CREATE TABLE exam_configs(id TEXT PRIMARY KEY,name TEXT,creator_id TEXT); CREATE TABLE results(id TEXT PRIMARY KEY,exam_id TEXT,exam_name TEXT,user_id TEXT);');
+    await db.query("INSERT INTO exam_configs(id,name,creator_id) VALUES ('A','Trùng tên','owner'),('B','Trùng tên','other'),('C','Chưa làm','owner')");
+  };
+  try {
+    await setup(a); await setup(b);
+    await a.query("INSERT INTO results(id,exam_id,exam_name,user_id) VALUES ('r1','A','Trùng tên','student'),('r2','A','Trùng tên','student'),('r3','B','Trùng tên','student'),('r4',NULL,'Trùng tên','student')");
+    await b.query("INSERT INTO results(id,exam_id,exam_name,user_id) VALUES ('r5','A','Trùng tên','student')");
+    const adminSql="SELECT ec.id,(SELECT COUNT(*) FROM results r WHERE r.exam_id = ec.id) AS attempt_count FROM exam_configs ec ORDER BY ec.id";
+    const teacherSql="SELECT ec.id,CASE WHEN ec.creator_id IN ($1, $2) THEN (SELECT COUNT(*) FROM results r WHERE r.exam_id = ec.id) ELSE NULL END AS attempt_count FROM exam_configs ec ORDER BY ec.id";
+    const rows=(await a.query(adminSql)).rows;
+    assert.deepEqual(rows.map(row=>[row.id,Number(row.attempt_count)]),[['A',2],['B',1],['C',0]]);
+    assert.deepEqual((await a.query(teacherSql,['owner','owner-profile'])).rows.map(row=>[row.id,row.attempt_count===null?null:Number(row.attempt_count)]),
+      [['A',2],['B',null],['C',0]]);
+    assert.equal(Number((await b.query(adminSql)).rows[0].attempt_count),1);
+    await a.query("DELETE FROM results WHERE id='r2'");
+    assert.equal(Number((await a.query(adminSql)).rows[0].attempt_count),1);
+  } finally {
+    await a.close();await b.close();
+  }
+});
