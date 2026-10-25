@@ -4,6 +4,7 @@ import {readFileSync} from 'node:fs';
 import {PGlite} from '@electric-sql/pglite';
 import {convertSqliteToPostgres} from '../src/neon-adapter.ts';
 import {processExamResultsDeletion} from '../src/exam-results-delete-service.ts';
+import {resolveLiveExamResultsActor} from '../src/exam-results-delete-actor.ts';
 import {
   ExamResultsDeletionError, requiredExamResultsId, requireExamResultsConfirmation,
   isExamResultsAdministrator, mayDeleteExamResults
@@ -146,4 +147,18 @@ test('Cloudflare endpoint requires auth header before initializing DB',async()=>
  assert.equal(response.status,401);
  const json=await response.json();
  assert.equal(json.code,'AUTH_REQUIRED');
+});
+
+test('Node deletion actor rechecks live profile and never trusts stale JWT audience',()=>{
+ const claims={id:'account-A',role:'teacher',target_audience:'Giáo viên'};
+ const live={id:'account-A',user_id:'profile-A',password:'hash',role:'user',is_active:1,target_audience:'Học sinh',profile_active:1};
+ const actor=resolveLiveExamResultsActor(claims,live);
+ assert.equal(actor.role,'user');
+ assert.equal(mayDeleteExamResults(actor),false);
+ assert.equal(actor.target_audience,'Học sinh');
+ assert.equal(mayDeleteExamResults(resolveLiveExamResultsActor(claims,{...live,role:'teacher',target_audience:'Giáo viên'})),true);
+ for (const patch of [{profile_active:0},{is_active:0},{profile_expiry_date:'2020-01-01'},{expiry_date:'2020-01-01'}]) {
+   assert.throws(()=>resolveLiveExamResultsActor(claims,{...live,...patch}));
+ }
+ assert.throws(()=>resolveLiveExamResultsActor(claims,{...live,id:'another-account'}));
 });
