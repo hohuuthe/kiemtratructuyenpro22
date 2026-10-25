@@ -62,3 +62,25 @@ test('legacy paired inline formatting stays available outside HTML lessons',()=>
   assert.ok(instructional.includes('&lt;b&gt;quan trọng&lt;/b&gt;'));
   assert.ok(!instructional.includes('<b>'));
 });
+
+test('mixed HTML teaching text preserves chemical and math indices',()=>{
+ const source='Trong HTML, thẻ <p> là gì? Chất H<sub>2</sub>O và x<sup>2</sup>.';
+ const html=renderScientificContent(source);
+ assert.ok(html.includes('&lt;p&gt;'),html);
+ assert.ok(html.includes('H<sub>2</sub>O'),html);
+ assert.ok(html.includes('x<sup>2</sup>'),html);
+});
+test('inline code span protects even matched formatting pairs',()=>{
+ const html=renderScientificContent('Ví dụ \`<b>chữ đậm</b>\` và <p>');
+ assert.ok(html.includes('&lt;b&gt;chữ đậm&lt;/b&gt;'),html);
+ assert.ok(html.includes('&lt;p&gt;'),html);
+});
+test('encoded HTML teaching tags remain legible',()=>{
+ const html=renderScientificContent('Thẻ &lt;p&gt; trong HTML?');
+ assert.ok(html.includes('&lt;p&gt;'),html);
+});
+test('Word export mixed HTML and scientific subscripts preserves each', async()=>{
+ const xml=await docxXml('Trong HTML, thẻ <p> là gì? Chất H<sub>2</sub>O');
+ assert.ok(xml.includes('&lt;p&gt;'),xml);
+ assert.match(xml,/<w:vertAlign w:val="subscript"/);
+});
