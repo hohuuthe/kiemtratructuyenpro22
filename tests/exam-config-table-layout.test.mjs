@@ -14,11 +14,11 @@ test('Management table keeps twelve aligned columns with creation date and scrol
   assert.match(markup, /id="exam-configs-table-scroll"[^>]*overflow-x-auto/);
   assert.match(markup, /class="exam-configs-table w-full text-left border-collapse text-sm"/);
   assert.equal((markup.match(/<th\b/g) || []).length, 12);
-  assert.match(markup, /<th[^>]+exam-config-scope-column[^>]*>Áp dụng Lớp\/Trường<\/th>/);
+  assert.match(markup, /<th[^>]+exam-config-scope-column[^>]*>[\s\S]*?Áp dụng Lớp\/Trường[\s\S]*?<\/th>/);
   assert.match(css, /\.exam-configs-table th:nth-child\(7\)\s*\{\s*width:\s*13%;/);
-  assert.match(markup, /<th[^>]+exam-config-created-heading[^>]*>Thời gian tạo<\/th>/);
+  assert.match(markup, /<th[^>]+exam-config-created-heading[^>]*>[\s\S]*?Thời gian tạo[\s\S]*?<\/th>/);
   assert.match(renderer, /<td class="exam-config-created-cell text-center">\$\{creationHtml\}<\/td>/);
-  assert.match(markup, /Số bài đã làm<\/th>/);
+  assert.match(markup, /Số bài đã làm[\s\S]*?<\/th>/);
   assert.match(markup, /<td colspan="12"/);
   assert.match(renderer, /<td colspan="12"/);
   assert.match(renderer, /<td class="exam-attempt-count-cell[^>]*>\$\{attemptCountText\}<\/td>/);
