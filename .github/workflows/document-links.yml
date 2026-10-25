@@ -1,0 +1,26 @@
+name: Document link management checks
+on:
+  push:
+    paths:
+      - 'src/document-link-policy.js'
+      - 'src/document-links-schema.js'
+      - 'src/document-links-ui.js'
+      - 'functions/api/documents.ts'
+      - 'tests/document-links.test.mjs'
+      - '.github/workflows/document-links.yml'
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  document-links:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: node --test tests/document-links.test.mjs
+      - run: npm run lint
+      - run: npm run build
