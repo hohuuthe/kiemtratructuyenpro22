@@ -9,6 +9,7 @@ import { matchesRankingTeacher, rankingTeacherOptions } from './ranking-teacher-
 import { examManagementCreatorId, examManagementSchool, examManagementClassTokens, matchesExamManagement, examManagementFilterChoices } from './exam-management-filters.js';
 import { parseExamAttemptCount } from './exam-attempt-counts-ui.js';
 import { formatExamCreatedAtVN } from './exam-created-at-vn.js';
+import { DEFAULT_EXAM_CONFIG_SORT, nextExamConfigSort, sortExamConfigs } from './exam-config-sorting.js';
 import { resolveRankingDeleteExamTargets } from './ranking-delete-exam-targets.js';
 import './pwa-manager.js';
 import './teacher-assignment.js';
@@ -5544,6 +5545,12 @@ if (contentType && contentType.includes("application/json")) {
         window.examConfigPageSize = 30;
         window.examConfigCurrentPage = 1;
         let lastExamManagementFilterKey = '';
+        window.examConfigSort = {...DEFAULT_EXAM_CONFIG_SORT};
+        window.sortExamConfigsTableBy = function(key) {
+            window.examConfigSort = nextExamConfigSort(window.examConfigSort,key);
+            window.examConfigCurrentPage = 1;
+            renderExamConfigsTable();
+        };
 
         function examManagementSelection() {
             const isAdmin=!!(isAdminLoggedIn && currentUser);
@@ -5616,13 +5623,22 @@ if (contentType && contentType.includes("application/json")) {
                 lastExamManagementFilterKey=filterKey;
                 window.examConfigCurrentPage=1;
             }
-            const list=(window.allExamConfigsList || []).filter(ex=>matchesExamManagement(ex,{
+            const list=sortExamConfigs((window.allExamConfigsList || []).filter(ex=>matchesExamManagement(ex,{
                 creatorId:selections.creatorId,
                 school:selections.school,
                 className:selections.className,
                 schoolAccounts:accounts,
                 query:searchKw
-            }));
+            })), window.examConfigSort || DEFAULT_EXAM_CONFIG_SORT, accountsMap);
+            document.querySelectorAll('[data-exam-sort]').forEach(button => {
+                const active=button.dataset.examSort === (window.examConfigSort || DEFAULT_EXAM_CONFIG_SORT).key;
+                const direction=(window.examConfigSort || DEFAULT_EXAM_CONFIG_SORT).direction;
+                const th=button.closest('th');
+                if (th) th.setAttribute('aria-sort',active ? (direction==='asc'?'ascending':'descending') : 'none');
+                const indicator=button.querySelector('.exam-config-sort-indicator');
+                if(indicator)indicator.textContent=active ? (direction==='asc'?'▲':'▼') : '↕';
+                button.classList.toggle('exam-config-sort-active',active);
+            });
 
             if (list.length === 0) {
                 tbody.innerHTML = `
@@ -13594,6 +13610,7 @@ D. Phát biểu SAI</pre>
             accountsMap = {};
             window.examConfigCurrentPage = 1;
             lastExamManagementFilterKey = '';
+            window.examConfigSort = {...DEFAULT_EXAM_CONFIG_SORT};
             for(const [id,label] of [
                 ['exam-config-creator-filter','Tất cả giáo viên / người tạo'],
                 ['exam-config-school-filter','Tất cả trường / đơn vị'],
