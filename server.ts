@@ -1934,8 +1934,15 @@ async function startServer() {
 
       const paginationClause = limit > 0 ? ` LIMIT ${limit} OFFSET ${offset}` : '';
 
-      let query = "SELECT ec.id, ec.name, ec.creator_id, ec.chedodethi, ec.mabaomatdethi, ec.target_lop, ec.lop, ec.target_donvi, ec.donvi, ec.time_limit, ec.count_41, ec.count_tf4, ec.count_sq, ec.count_tl, ec.points_41, ec.points_tf4, ec.points_sq, ec.points_tl, ec.selected_lessons, ec.counts_detail, ec.access_control, ec.tf4_scoring_mode, ec.tf4_points, ec.is_shared_results, ec.max_cheat_warnings, ec.tg_bd, ec.tg_kt, ec.ai_prompt, ec.immediate_feedback, ec.show_score, ec.show_details, ec.sq_case_sensitive, ec.sq_punctuation_sensitive, ec.auto_grade_essay, ec.tieu_de_bai_thi, ec.created_at, ec.updated_at, u.donvi AS teacher_donvi, u.full_name AS creator_name FROM exam_configs ec LEFT JOIN users u ON ec.creator_id = u.id";
-      const params: any[] = [];
+      // Count saved submissions by immutable exam ID, never by title or student name.
+      // An ordinary teacher can only receive counts for exams owned by their account/profile.
+      const attemptCountProjection = isAdmin
+        ? ", (SELECT COUNT(*) FROM results r WHERE r.exam_id = ec.id) AS attempt_count"
+        : isTeacher
+          ? ", CASE WHEN ec.creator_id IN (?, ?) THEN (SELECT COUNT(*) FROM results r WHERE r.exam_id = ec.id) ELSE NULL END AS attempt_count"
+          : "";
+      let query = "SELECT ec.id, ec.name, ec.creator_id, ec.chedodethi, ec.mabaomatdethi, ec.target_lop, ec.lop, ec.target_donvi, ec.donvi, ec.time_limit, ec.count_41, ec.count_tf4, ec.count_sq, ec.count_tl, ec.points_41, ec.points_tf4, ec.points_sq, ec.points_tl, ec.selected_lessons, ec.counts_detail, ec.access_control, ec.tf4_scoring_mode, ec.tf4_points, ec.is_shared_results, ec.max_cheat_warnings, ec.tg_bd, ec.tg_kt, ec.ai_prompt, ec.immediate_feedback, ec.show_score, ec.show_details, ec.sq_case_sensitive, ec.sq_punctuation_sensitive, ec.auto_grade_essay, ec.tieu_de_bai_thi, ec.created_at, ec.updated_at, u.donvi AS teacher_donvi, u.full_name AS creator_name" + attemptCountProjection + " FROM exam_configs ec LEFT JOIN users u ON ec.creator_id = u.id";
+      const params: any[] = isTeacher ? [user.id, user.user_id || user.id] : [];
       if (teacherIdParam) {
         query += " WHERE (ec.creator_id = ? OR ec.creator_id IN (SELECT user_id FROM accounts WHERE id = ?) OR ec.creator_id IN (SELECT id FROM accounts WHERE user_id = ?))";
         params.push(teacherIdParam, teacherIdParam, teacherIdParam);

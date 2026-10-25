@@ -1,0 +1,31 @@
+name: Exam attempt count checks
+on:
+  push:
+    branches:
+      - feat/exam-attempts-20261024
+  pull_request:
+    paths:
+      - 'functions/api/exams.ts'
+      - 'server.ts'
+      - 'src/exam-attempt-counts-ui.js'
+      - 'src/style.css'
+      - 'index.html'
+      - 'public/components/tab-exams.html'
+      - 'tests/exam-attempt-counts.test.mjs'
+      - 'tests/exam-config-table-layout.test.mjs'
+      - '.github/workflows/exam-attempt-counts.yml'
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Targeted regression tests
+        run: node --test tests/exam-attempt-counts.test.mjs tests/exam-config-table-layout.test.mjs
+      - name: TypeScript check
+        run: npm run lint

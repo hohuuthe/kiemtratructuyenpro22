@@ -14,7 +14,8 @@ const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-  'Content-Type': 'application/json'
+  'Content-Type': 'application/json',
+  'Cache-Control': 'no-store'
 };
 
 export const onRequestOptions: PagesFunction<Env> = async () => {
@@ -149,8 +150,16 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     const paginationClause = limit > 0 ? ` LIMIT ${limit} OFFSET ${offset}` : '';
 
     // 3. Lấy danh sách đề thi theo quyền hạn (Lấy đầy đủ các cột bao gồm counts_detail, access_control)
-    let query = "SELECT ec.*, u.donvi AS teacher_donvi FROM exam_configs ec LEFT JOIN users u ON ec.creator_id = u.id";
-    const params: any[] = [];
+    // Count persisted submissions by exact exam ID, never by a repeated title.
+    // The teacher projection remains NULL for exams outside that teacher's ownership.
+    const attemptCountProjection = isAdmin
+      ? ", (SELECT COUNT(*) FROM results r WHERE r.exam_id = ec.id) AS attempt_count"
+      : isTeacher
+        ? ", CASE WHEN ec.creator_id IN (?, ?) THEN (SELECT COUNT(*) FROM results r WHERE r.exam_id = ec.id) ELSE NULL END AS attempt_count"
+        : "";
+    let query = "SELECT ec.*, u.donvi AS teacher_donvi" + attemptCountProjection +
+      " FROM exam_configs ec LEFT JOIN users u ON ec.creator_id = u.id";
+    const params: any[] = isTeacher ? [user.id, user.user_id || user.id] : [];
 
     if (teacherIdParam && (isAdmin || !isTeacher)) {
       query += " WHERE ec.creator_id = ?";
