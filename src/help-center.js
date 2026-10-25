@@ -87,20 +87,23 @@ export function renderRoleHelp(root, auth = {}, {force = false} = {}) {
   const login = root.querySelector('[data-help-login]');
   login?.addEventListener('click',()=>window.showAdminLoginModal?.());
   if (role === 'guest') return role;
-  root.querySelector('#help-search')?.addEventListener('input',event => {
-    const input = event.currentTarget;
-    const query = input.value;
-    const start = input.selectionStart;
-    root.innerHTML = guideView(role,query);
-    const next = root.querySelector('#help-search');
-    next?.focus({preventScroll:true});
-    try {next?.setSelectionRange(start,start);}catch {}
-  });
   return role;
 }
 export function attachRoleHelpInteractions(root) {
   if (!root || root.dataset.helpBound === 'yes') return;
   root.dataset.helpBound = 'yes';
+  root.addEventListener('input', event => {
+    if (event.target?.id !== 'help-search') return;
+    const role = root.dataset.helpRole;
+    if (!HELP_GUIDES[role]) return;
+    const input = event.target;
+    const query = input.value;
+    const start = input.selectionStart;
+    root.innerHTML = guideView(role, query);
+    const next = root.querySelector('#help-search');
+    next?.focus({ preventScroll: true });
+    try { next?.setSelectionRange(start, start); } catch {}
+  });
   root.addEventListener('click', event => {
     const tab = event.target.closest('[data-help-tab]')?.getAttribute('data-help-tab');
     if (tab && HELP_GUIDES[root.dataset.helpRole]?.links.some(item=>item[0]===tab)) {
