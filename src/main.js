@@ -6788,6 +6788,11 @@ if (contentType && contentType.includes("application/json")) {
                             String(row.id) === examId ? {...row, attempt_count: result.remainingCount} : row);
                         renderExamConfigsTable();
                         await updateExamNamesList(true);
+                        if (document.getElementById('tab-ranking')?.classList.contains('active') && sameSession()) {
+                            selectedRankingResults.clear();
+                            await loadAllResults(true, 0, true);
+                            updateRankingSelection();
+                        }
                         showToast('Đã xóa ' + result.deletedCount + ' kết quả của đề thi. Còn lại: ' + result.remainingCount + '.', 'success');
                     } catch (error) {
                         errorText.textContent = error?.message || 'Không thể xóa kết quả.';
@@ -15516,11 +15521,27 @@ CẤU TRÚC JSON:
             const button = document.getElementById('btn-delete-exam-ranking-results');
             if (button) button.disabled = true;
             try {
-                const configs = await fetchAllExamsChunked();
+                const token = localStorage.getItem('auth_token') || '';
+                const response = await fetch('/api/results/deletion-targets', {
+                    method: 'POST', cache: 'no-store',
+                    headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token},
+                    body: JSON.stringify({examName: selected})
+                });
+                const data = await response.json().catch(() => ({}));
                 if (!sameSession()) return;
-                const targets = resolveRankingDeleteExamTargets(selected, configs, currentUser, isAdminLoggedIn);
-                if (!targets.length) return showToast('Không tìm thấy đề thi thuộc quyền xóa của bạn. Không thể xóa kết quả của đề được chia sẻ.', 'error');
-                window.allExamConfigsList = configs;
+                if (!response.ok || data.error || !Array.isArray(data.targets))
+                    throw new Error(data.error || 'Không thể xác minh các mã đề thi từ máy chủ.');
+                const targets = data.targets;
+                if (!targets.length) {
+                    const hint = data.unlinkedCount > 0
+                        ? ' Có ' + data.unlinkedCount + ' bài cũ thiếu mã đề, không thể xóa theo tên để tránh xóa nhầm.'
+                        : '';
+                    return showToast('Không tìm thấy mã đề hợp lệ để xóa.' + hint, 'warning');
+                }
+                window.allExamConfigsList = [
+                    ...(window.allExamConfigsList || []).filter(item => !targets.some(t => t.id === item.id)),
+                    ...targets.map(t => ({id:t.id, name:t.name, attempt_count:t.attemptCount}))
+                ];
                 const proceed = async id => {
                     if (!sameSession()) return showToast('Lựa chọn hoặc tài khoản đã thay đổi.', 'warning');
                     // Existing handler performs server-side count preview and requires code 1234.
