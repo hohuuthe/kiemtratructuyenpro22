@@ -7,6 +7,7 @@ import { questionCreatorId, matchesQuestionTeacher, questionTeacherOptions } fro
 import { matchesRankingTeacher, rankingTeacherOptions } from './ranking-teacher-filter.js';
 import { examManagementCreatorId, examManagementSchool, examManagementClassTokens, matchesExamManagement, examManagementFilterChoices } from './exam-management-filters.js';
 import { parseExamAttemptCount } from './exam-attempt-counts-ui.js';
+import { formatExamCreatedAtVN } from './exam-created-at-vn.js';
 import './pwa-manager.js';
 import './teacher-assignment.js';
 import { typesetScientificMath } from './scientific-formula-typeset.js';
@@ -5607,7 +5608,7 @@ if (contentType && contentType.includes("application/json")) {
             if (list.length === 0) {
                 tbody.innerHTML = `
                     <tr>
-                        <td colspan="11" class="text-center py-8 text-gray-400 italic">
+                        <td colspan="12" class="text-center py-8 text-gray-400 italic">
                             ${(searchKw || selections.creatorId || selections.school || selections.className) ? 'Không tìm thấy đề thi phù hợp với bộ lọc.' : 'Chưa có cấu hình đề thi nào trong danh sách.'}
                         </td>
                     </tr>
@@ -5687,6 +5688,11 @@ if (contentType && contentType.includes("application/json")) {
                 const escapedName = escapeHTML(item.name || 'Không tên');
                 const creator = item.creatorName || item.creator_name || accountsMap[item.creator_id || item.creatorId] || 'Hệ thống';
                 const isCreator = currentUser && (String(item.creator_id || item.creatorId) === String(currentUser.id) || isAdminLoggedIn);
+                // created_at is the immutable creation instant, NOT updated_at or the exam code.
+                const creation = formatExamCreatedAtVN(item.created_at ?? item.createdAt);
+                const creationHtml = creation
+                    ? `<time class="exam-config-created-time" datetime="${creation.iso}" title="Giờ Việt Nam: ${creation.hour} – ${creation.date}"><span class="exam-config-created-hour">${creation.hour}</span><span class="exam-config-created-date">${creation.date}</span></time>`
+                    : '<span class="exam-config-created-missing" title="Không có thời gian tạo hợp lệ trong dữ liệu đề thi">—</span>';
                 // Read-only count from /api/exams; never derive it from exam names or client-side result lists.
                 const attemptCount = parseExamAttemptCount(item.attempt_count);
                 const attemptCountText = attemptCount === null ? '—' : attemptCount.toLocaleString('vi-VN');
@@ -5706,6 +5712,7 @@ if (contentType && contentType.includes("application/json")) {
                         <td class="text-slate-600 break-words">
                             <span class="text-xs font-semibold">${escapeHTML(creator)}</span>
                         </td>
+                        <td class="exam-config-created-cell text-center">${creationHtml}</td>
                         <td class="break-words">${modeBadge}</td>
                         <td class="exam-config-scope-column align-middle">${lopBadge}</td>
                         <td class="py-3 px-3 text-center text-xs text-gray-700 whitespace-nowrap font-medium">${time} phút</td>

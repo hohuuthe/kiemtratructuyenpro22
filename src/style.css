@@ -636,7 +636,7 @@ button { touch-action: manipulation; }
 #exam-configs-table-scroll { max-width: 100%; }
 .exam-configs-table {
   table-layout: fixed;
-  min-width: 1180px;
+  min-width: 1380px;
   width: 100%;
   font-size: 12px;
   line-height: 1.45;
@@ -647,17 +647,44 @@ button { touch-action: manipulation; }
   min-width: 0;
 }
 .exam-configs-table th { white-space: normal; overflow-wrap: break-word; }
+/* Twelve columns: a dedicated time-of-creation column is after teacher. */
 .exam-configs-table th:nth-child(1) { width: 3%; }
-.exam-configs-table th:nth-child(2) { width: 10%; }
-.exam-configs-table th:nth-child(3) { width: 19%; }
+.exam-configs-table th:nth-child(2) { width: 9%; }
+.exam-configs-table th:nth-child(3) { width: 17%; }
 .exam-configs-table th:nth-child(4) { width: 8%; }
 .exam-configs-table th:nth-child(5) { width: 8%; }
-.exam-configs-table th:nth-child(6) { width: 16%; }
-.exam-configs-table th:nth-child(7) { width: 6%; }
-.exam-configs-table th:nth-child(8) { width: 9%; }
-.exam-configs-table th:nth-child(9) { width: 7%; }
+.exam-configs-table th:nth-child(6) { width: 7%; }
+.exam-configs-table th:nth-child(7) { width: 13%; }
+.exam-configs-table th:nth-child(8) { width: 6%; }
+.exam-configs-table th:nth-child(9) { width: 8%; }
 .exam-configs-table th:nth-child(10) { width: 7%; }
-.exam-configs-table th:nth-child(11) { width: 7%; }
+.exam-configs-table th:nth-child(11) { width: 6%; }
+.exam-configs-table th:nth-child(12) { width: 8%; }
+.exam-configs-table .exam-config-created-cell {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.exam-configs-table .exam-config-created-time {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+  max-width: 100%;
+  line-height: 1.35;
+}
+.exam-configs-table .exam-config-created-hour,
+.exam-configs-table .exam-config-created-date {
+  display: block;
+  max-width: 100%;
+  white-space: nowrap;
+}
+.exam-configs-table .exam-config-created-hour { color: #334155; font-weight: 700; }
+.exam-configs-table .exam-config-created-date { color: #64748b; font-size: 11px; }
+.exam-configs-table .exam-config-created-missing { color: #94a3b8; }
 .exam-configs-table .exam-attempt-count-cell {
   text-align: center;
   font-variant-numeric: tabular-nums;
