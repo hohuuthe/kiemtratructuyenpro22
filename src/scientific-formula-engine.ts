@@ -54,7 +54,15 @@ export function sanitizeHtml(str: string): string {
  * modifying the layout of an exam question or answer.
  */
 export function restoreSafeHtmlTags(html: string): string {
-    return html || '';
+    if (!html) return '';
+    // Preserve instructional HTML fragments, including complete tag pairs.
+    // A lone HTML tag always remains escaped and therefore visible.
+    if (/(?:HTML|CSS|JavaScript|thẻ|tag|cú pháp|mã nguồn|phần tử|đoạn mã|code)/iu.test(html)) return html;
+    // Only balanced, attribute-free inline presentation pairs used in legacy
+    // formatted content can be treated as markup. Block/structural tags are
+    // never restored, since they can affect the exam layout.
+    return html.replace(/&lt;(sup|sub|b|strong|i|em|u|mark)&gt;([\s\S]*?)&lt;\/\1&gt;/gi,
+      (_whole, name, body) => '<' + name.toLowerCase() + '>' + body + '</' + name.toLowerCase() + '>');
 }
 
 export function unescapeHtmlInsideMath(mathStr: string): string {
