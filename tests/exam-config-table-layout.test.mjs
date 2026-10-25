@@ -18,6 +18,9 @@ test('Management table keeps eleven columns with scroll container and a scope co
   assert.match(css, /\.exam-configs-table th:nth-child\(6\)\s*\{\s*width:\s*16%;/);
   assert.match(markup, /Số bài đã làm<\/th>/);
   assert.match(markup, /<td colspan="11"/);
+  assert.match(renderer, /<td colspan="11"/);
+  assert.match(renderer, /<td class="exam-attempt-count-cell[^>]*>\$\{attemptCountText\}<\/td>/);
+  assert.match(renderer, /class="exam-config-row-actions"/);
 });
 test('Scope cells and badges wrap long class/school values without truncation', () => {
   assert.match(renderer, /<td class="exam-config-scope-column[^"]*">\$\{lopBadge\}<\/td>/);

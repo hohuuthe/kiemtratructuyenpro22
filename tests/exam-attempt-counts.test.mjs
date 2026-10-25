@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {readFileSync} from 'node:fs';
-import {getExamAttemptCount, syncExamAttemptCountCells} from '../src/exam-attempt-counts-ui.js';
+import {runInNewContext} from 'node:vm';
+import {getExamAttemptCount, parseExamAttemptCount} from '../src/exam-attempt-counts-ui.js';
 
 test('Counts use immutable exam ID, not duplicated names or student identity', () => {
   const rows = [{id:'exam-A',name:'Kiểm tra',attempt_count:3},
@@ -20,29 +21,72 @@ test('Unavailable or malformed counts are never presented as zero', () => {
   assert.equal(getExamAttemptCount([{id:'e',attempt_count:'0'}],'e'),0);
   assert.equal(getExamAttemptCount([{id:'e',attempt_count:'15'}],'e'),15);
 });
-test('Decorator preserves actions and empty-state colspan, updates without duplicate columns',()=>{
-  const makeCell=()=>({textContent:'',title:'',className:'',attrs:{},
-    setAttribute(k,v){this.attrs[k]=v;},getAttribute(k){return this.attrs[k];}});
-  const idMarker={textContent:'exam-A',getAttribute:()=>null};
-  const actionCell=makeCell();
-  const row={lastElementChild:actionCell,ownerDocument:{createElement:()=>makeCell()},cells:[],
-    querySelector(q){if(q==='.exam-config-id-value')return idMarker;
-      if(q==='td.exam-attempt-count-cell')return this.cells[0]||null;return null;},
-    insertBefore(cell,before){assert.equal(before,actionCell);this.cells.push(cell);}};
-  const placeholder=makeCell();placeholder.setAttribute('colspan','10');
-  const emptyRow={querySelector:q=>q==='td[colspan]'?placeholder:null};
-  const root={querySelector:()=>({querySelectorAll:()=>[row,emptyRow]})};
-  syncExamAttemptCountCells(root,[{id:'exam-A',attempt_count:3}]);
-  assert.equal(row.cells.length,1);
-  assert.equal(row.cells[0].textContent,'3');
-  assert.equal(row.cells[0].attrs['data-exam-id'],'exam-A');
-  assert.equal(placeholder.getAttribute('colspan'),'11');
-  syncExamAttemptCountCells(root,[{id:'exam-A',attempt_count:4}]);
-  assert.equal(row.cells.length,1);
-  assert.equal(row.cells[0].textContent,'4');
-  syncExamAttemptCountCells(root,[]);
-  assert.equal(row.cells[0].textContent,'—');
+test('Main table renderer creates eleven cells per row with count before actions', () => {
+  const code=readFileSync('src/main.js','utf8');
+  const start=code.indexOf('window.renderExamConfigsTable = function renderExamConfigsTable()');
+  const end=code.indexOf('function renderExamConfigsPaginationControls(',start);
+  assert.ok(start>=0 && end>start);
+  const renderer=code.slice(start,end);
+  const tbody={innerHTML:''};
+  const context={
+    window:{
+      allExamConfigsList:[
+        {id:'exam-A',name:'Duplicate title',creator_id:'teacher',count_41:12,time_limit:30,attempt_count:'3'},
+        {id:'exam-B',name:'Duplicate title',creator_id:'teacher',count_41:5,time_limit:20,attempt_count:0},
+        {id:'exam-C',name:'Orphan count',creator_id:'teacher',count_41:1,time_limit:20}
+      ],
+      examConfigPageSize:30,
+      examConfigCurrentPage:1
+    },
+    document:{getElementById(id){
+      if(id==='exam-configs-table-body')return tbody;
+      if(id==='search-exam-config-table')return {value:''};
+      return null;
+    }},
+    updateExamManagementFilters(){},
+    examManagementSelection(){return {creatorId:'',school:'',className:''};},
+    matchesExamManagement(){return true;},
+    renderExamConfigsPaginationControls(){},
+    lastExamManagementFilterKey:'',
+    accounts:[],
+    accountsMap:{teacher:'Teacher'},
+    currentUser:{id:'teacher'},
+    isAdminLoggedIn:false,
+    parseExamAttemptCount,
+    escapeHTML(value){return String(value).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('"','&quot;');}
+  };
+  runInNewContext(renderer,context);
+  context.window.renderExamConfigsTable();
+  const rows=[...tbody.innerHTML.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/g)].map(m=>m[1]);
+  assert.equal(rows.length,3);
+  for(const [i,row] of rows.entries()){
+    const cells=[...row.matchAll(/<td\b[^>]*>[\s\S]*?<\/td>/g)].map(m=>m[0]);
+    assert.equal(cells.length,11,'data row '+(i+1)+' must align with 11 headers');
+    assert.match(cells[9],/class="exam-attempt-count-cell/);
+    assert.match(cells[10],/class="exam-config-row-actions"/);
+    assert.match(cells[9],/data-exam-id="exam-/);
+  }
+  const countCell=row=>[...row.matchAll(/<td\b[^>]*>[\s\S]*?<\/td>/g)][9][0];
+  assert.match(countCell(rows[0]),/>\s*3\s*<\/td>/);
+  assert.match(countCell(rows[1]),/>\s*0\s*<\/td>/,'a real zero must be visible');
+  assert.match(countCell(rows[2]),/>\s*—\s*<\/td>/,'missing count is unknown, not 0');
+  context.window.allExamConfigsList=[];
+  context.window.renderExamConfigsTable();
+  assert.match(tbody.innerHTML,/colspan="11"/);
+  assert.doesNotMatch(tbody.innerHTML,/colspan="10"/);
 });
+
+test('The count helper must never inject cells asynchronously',()=>{
+  const helper=readFileSync('src/exam-attempt-counts-ui.js','utf8');
+  const index=readFileSync('index.html','utf8');
+  const main=readFileSync('src/main.js','utf8');
+  assert.doesNotMatch(helper,/MutationObserver|insertBefore|requestAnimationFrame/);
+  assert.doesNotMatch(index,/src="\/src\/exam-attempt-counts-ui\.js"/);
+  assert.match(main,/import \{ parseExamAttemptCount \} from '\.\/exam-attempt-counts-ui\.js';/);
+  assert.match(main,/const attemptCount = parseExamAttemptCount\(item\.attempt_count\);/);
+  assert.match(main,/cache: 'no-store'/);
+});
+
 test('Both API implementations count via exam_id and guard unauthorized counts',()=>{
   for(const path of ['functions/api/exams.ts','server.ts']){
     const code=readFileSync(path,'utf8');
@@ -53,7 +97,8 @@ test('Both API implementations count via exam_id and guard unauthorized counts',
   }
   assert.match(readFileSync('create_all_indexes.sql','utf8'),/idx_results_exam_id ON results\(exam_id\)/);
   const index=readFileSync('index.html','utf8');
-  assert.ok(index.indexOf('/src/exam-attempt-counts-ui.js') < index.indexOf('/src/main.js'));
+  assert.ok(index.includes('src="/src/main.js"'));
+  assert.ok(!index.includes('src="/src/exam-attempt-counts-ui.js"'));
 });
 
 test('PostgreSQL attempts: retakes, duplicate titles, missing IDs, deletion and isolated tenant',async()=>{
