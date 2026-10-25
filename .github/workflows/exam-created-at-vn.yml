@@ -1,0 +1,35 @@
+name: Exam creation time Vietnam checks
+on:
+  push:
+    branches:
+      - feat/exam-created-at-vn-20261025
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/exam-created-at-vn.js'
+      - 'src/main.js'
+      - 'src/style.css'
+      - 'public/components/tab-exams.html'
+      - 'tests/exam-created-at-vn.test.mjs'
+      - 'tests/exam-config-table-layout.test.mjs'
+      - 'tests/exam-attempt-counts.test.mjs'
+      - '.github/workflows/exam-created-at-vn.yml'
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Creation time and management table unit tests
+        run: node --test tests/exam-created-at-vn.test.mjs tests/exam-config-table-layout.test.mjs tests/exam-attempt-counts.test.mjs tests/exam-management-filters.test.mjs
+      - name: TypeScript validation
+        run: npm run lint
+      - name: Production build
+        run: npm run build
