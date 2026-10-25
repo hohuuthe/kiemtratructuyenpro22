@@ -52,6 +52,7 @@ test('Main table renderer creates eleven cells per row with count before actions
     accountsMap:{teacher:'Teacher'},
     currentUser:{id:'teacher'},
     isAdminLoggedIn:false,
+    isTeacherLoggedIn:true,
     parseExamAttemptCount,
     escapeHTML(value){return String(value).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('"','&quot;');}
   };
