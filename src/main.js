@@ -1,5 +1,6 @@
 
 import 'katex/dist/katex.min.css';
+import { renderRoleHelp, attachRoleHelpInteractions, resetRoleHelpCache } from './help-center.js';
 import { createEmptyExamDraft, mapStoredExamToDraft, resolveExamSaveIdentity } from './exam-editor-safety.js';
 import './style.css';
 import { planRecentQuestionView, resolveWordImportedQuestionIds } from './question-bank-recent-view.js';
@@ -2208,6 +2209,12 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             updateThemeForRole();
             applyDoiTuongConfig();
             updateSidebarVisibility();
+            resetRoleHelpCache();
+            {
+                const helpRoot = document.getElementById('help-center-root');
+                attachRoleHelpInteractions(helpRoot);
+                renderRoleHelp(helpRoot, { user: currentUser, isAdmin: isAdminLoggedIn, isTeacher: isTeacherLoggedIn }, { force: true });
+            }
 
             resetMyStudentResults();
             // Nạp lại dữ liệu theo quyền hạn tài khoản đăng nhập đồng thời (Song song, không tuần tự)
@@ -2502,7 +2509,13 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             window.isAdminLoggedIn = false;
             window.isTeacherLoggedIn = false;
             window.currentUser = null;
-            
+            resetRoleHelpCache();
+            {
+                const helpRoot = document.getElementById('help-center-root');
+                attachRoleHelpInteractions(helpRoot);
+                renderRoleHelp(helpRoot, { user: null }, { force: true });
+            }
+
             resetMyStudentResults();
             // Xóa sạch dữ liệu trong bộ nhớ để bảo mật tuyệt đối
             if (typeof questions !== 'undefined') questions.length = 0;
@@ -4175,6 +4188,11 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
 
             const tabEl = document.getElementById(`tab-${tabName}`);
             if (tabEl) tabEl.classList.add('active');
+            if (tabName === 'help') {
+                const helpRoot = document.getElementById('help-center-root');
+                attachRoleHelpInteractions(helpRoot);
+                renderRoleHelp(helpRoot, { user: currentUser, isAdmin: isAdminLoggedIn, isTeacher: isTeacherLoggedIn }, { force: true });
+            }
             
             // Cập nhật trạng thái backend khi vào tab cài đặt
             if (tabName === 'settings' && typeof window.updateBackendStatusUI === 'function') {
@@ -22040,6 +22058,12 @@ CẤU TRÚC JSON:
                 }
             }
             
+            {
+                const helpRoot = document.getElementById('help-center-root');
+                attachRoleHelpInteractions(helpRoot);
+                renderRoleHelp(helpRoot, { user: currentUser, isAdmin: isAdminLoggedIn, isTeacher: isTeacherLoggedIn }, { force: true });
+            }
+
             // Execute the connection handler after DOM injects
             checkDatabaseConnection();
             try { updateStudentTeacherFilter(); } catch(e) {}
