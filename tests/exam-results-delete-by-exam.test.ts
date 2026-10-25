@@ -130,6 +130,8 @@ test('Integration: both backends call shared service; frontend has compact modal
  assert.match(server,/app\.post\("\/api\/results\/delete-by-exam"/);
  assert.match(main,/window\.deleteExamResultsByExamId = async function/);
  assert.match(main,/onclick="deleteExamResultsByExamId\('/);
+ assert.match(main,/encodeURIComponent\(String\(item\.id/);
+ assert.match(main,/decodeURIComponent\(String\(rawExamId/);
  assert.match(main,/confirmation !== '1234'/);
  assert.match(main,/expectedCount: count/);
  assert.match(main,/delete-exam-results-name/);
