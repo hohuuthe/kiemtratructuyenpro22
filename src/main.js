@@ -5686,7 +5686,7 @@ if (contentType && contentType.includes("application/json")) {
 
                 const escapedName = escapeHTML(item.name || 'Không tên');
                 const creator = item.creatorName || item.creator_name || accountsMap[item.creator_id || item.creatorId] || 'Hệ thống';
-                const isCreator = currentUser && (String(item.creator_id || item.creatorId) === String(currentUser.id) || isAdminLoggedIn);
+                const isCreator = currentUser && (isAdminLoggedIn || (isTeacherLoggedIn && [currentUser.id, currentUser.user_id].filter(Boolean).some(ownerId => String(item.creator_id || item.creatorId) === String(ownerId))));
                 // Read-only count from /api/exams; never derive it from exam names or client-side result lists.
                 const attemptCount = parseExamAttemptCount(item.attempt_count);
                 const attemptCountText = attemptCount === null ? '—' : attemptCount.toLocaleString('vi-VN');
