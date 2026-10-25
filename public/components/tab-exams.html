@@ -22,7 +22,7 @@
             <h4 class="text-lg font-bold text-gray-800 flex items-center gap-2">
              <span>📋</span> Bảng cấu hình quản lý đề thi
             </h4>
-            <p class="text-xs text-gray-500">Danh sách các đề thi, cấu hình chế độ và cột lớp áp dụng</p>
+            <p class="text-xs text-gray-500">Nhấn tiêu đề cột để sắp xếp; mặc định đề mới nhất ở đầu danh sách</p>
            </div>
            <div class="flex items-center gap-2">
             <input type="text" id="search-exam-config-table" placeholder="Tìm kiếm đề thi, lớp..." oninput="renderExamConfigsTable()" class="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:border-purple-500 focus:outline-none bg-white w-full sm:w-60">
@@ -61,16 +61,16 @@
              <thead class="bg-slate-50 text-slate-700 text-xs uppercase tracking-wide font-semibold border-b border-slate-200">
              <tr>
               <th scope="col" class="text-center">STT</th>
-              <th scope="col" class="text-center">Mã đề</th>
-              <th scope="col" class="exam-config-title-column">Tên đề thi</th>
-              <th scope="col">Người tạo</th>
-              <th scope="col" class="exam-config-created-heading text-center" title="Giờ và ngày tạo đề thi theo giờ Việt Nam (UTC+7)">Thời gian tạo</th>
-              <th scope="col">Chế độ</th>
-              <th scope="col" class="exam-config-scope-column leading-4">Áp dụng Lớp/Trường</th>
-              <th scope="col" class="text-center">Thời gian</th>
-              <th scope="col" class="text-center">Cấu trúc câu hỏi</th>
-              <th scope="col" class="text-center">Tính năng khác</th>
-              <th scope="col" class="exam-attempt-count-heading text-center" title="Tổng lượt nộp bài đã lưu của đề thi">Số bài đã làm</th>
+              <th scope="col" class="text-center"><button type="button" class="exam-config-sort-trigger" data-exam-sort="id" onclick="sortExamConfigsTableBy('id')" title="Sắp xếp theo Mã đề" aria-label="Sắp xếp theo Mã đề"><span>Mã đề</span><span class="exam-config-sort-indicator" aria-hidden="true">↕</span></button></th>
+              <th scope="col" class="exam-config-title-column"><button type="button" class="exam-config-sort-trigger" data-exam-sort="name" onclick="sortExamConfigsTableBy('name')" title="Sắp xếp theo Tên đề thi" aria-label="Sắp xếp theo Tên đề thi"><span>Tên đề thi</span><span class="exam-config-sort-indicator" aria-hidden="true">↕</span></button></th>
+              <th scope="col"><button type="button" class="exam-config-sort-trigger" data-exam-sort="creator" onclick="sortExamConfigsTableBy('creator')" title="Sắp xếp theo Người tạo" aria-label="Sắp xếp theo Người tạo"><span>Người tạo</span><span class="exam-config-sort-indicator" aria-hidden="true">↕</span></button></th>
+              <th scope="col" class="exam-config-created-heading text-center" title="Giờ và ngày tạo đề thi theo giờ Việt Nam (UTC+7)"><button type="button" class="exam-config-sort-trigger" data-exam-sort="createdAt" onclick="sortExamConfigsTableBy('createdAt')" title="Sắp xếp theo Thời gian tạo" aria-label="Sắp xếp theo Thời gian tạo"><span>Thời gian tạo</span><span class="exam-config-sort-indicator" aria-hidden="true">↕</span></button></th>
+              <th scope="col"><button type="button" class="exam-config-sort-trigger" data-exam-sort="mode" onclick="sortExamConfigsTableBy('mode')" title="Sắp xếp theo Chế độ" aria-label="Sắp xếp theo Chế độ"><span>Chế độ</span><span class="exam-config-sort-indicator" aria-hidden="true">↕</span></button></th>
+              <th scope="col" class="exam-config-scope-column leading-4"><button type="button" class="exam-config-sort-trigger" data-exam-sort="scope" onclick="sortExamConfigsTableBy('scope')" title="Sắp xếp theo Áp dụng Lớp/Trường" aria-label="Sắp xếp theo Áp dụng Lớp/Trường"><span>Áp dụng Lớp/Trường</span><span class="exam-config-sort-indicator" aria-hidden="true">↕</span></button></th>
+              <th scope="col" class="text-center"><button type="button" class="exam-config-sort-trigger" data-exam-sort="duration" onclick="sortExamConfigsTableBy('duration')" title="Sắp xếp theo Thời gian" aria-label="Sắp xếp theo Thời gian"><span>Thời gian</span><span class="exam-config-sort-indicator" aria-hidden="true">↕</span></button></th>
+              <th scope="col" class="text-center"><button type="button" class="exam-config-sort-trigger" data-exam-sort="questions" onclick="sortExamConfigsTableBy('questions')" title="Sắp xếp theo Cấu trúc câu hỏi" aria-label="Sắp xếp theo Cấu trúc câu hỏi"><span>Cấu trúc câu hỏi</span><span class="exam-config-sort-indicator" aria-hidden="true">↕</span></button></th>
+              <th scope="col" class="text-center"><button type="button" class="exam-config-sort-trigger" data-exam-sort="features" onclick="sortExamConfigsTableBy('features')" title="Sắp xếp theo Tính năng khác" aria-label="Sắp xếp theo Tính năng khác"><span>Tính năng khác</span><span class="exam-config-sort-indicator" aria-hidden="true">↕</span></button></th>
+              <th scope="col" class="exam-attempt-count-heading text-center" title="Tổng lượt nộp bài đã lưu của đề thi"><button type="button" class="exam-config-sort-trigger" data-exam-sort="attempts" onclick="sortExamConfigsTableBy('attempts')" title="Sắp xếp theo Số bài đã làm" aria-label="Sắp xếp theo Số bài đã làm"><span>Số bài đã làm</span><span class="exam-config-sort-indicator" aria-hidden="true">↕</span></button></th>
               <th scope="col" class="text-center">Thao tác</th>
              </tr>
             </thead>

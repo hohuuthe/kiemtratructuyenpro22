@@ -940,3 +940,11 @@ button { touch-action: manipulation; }
  .student-detail-close{width:100%}
 }
 @media(prefers-reduced-motion:reduce){.student-result-card{transition:none}}
+
+/* Accessible, width-neutral sortable exam-management column headings. */
+.exam-configs-table .exam-config-sort-trigger { display:inline-flex; align-items:center; justify-content:inherit; flex-wrap:wrap; gap:4px; width:100%; min-height:32px; padding:4px 2px; font:inherit; color:inherit; text-align:inherit; cursor:pointer; border-radius:6px; }
+.exam-configs-table .exam-config-sort-trigger:hover { background:#ede9fe; color:#6d28d9; }
+.exam-configs-table .exam-config-sort-trigger:focus-visible { outline:2px solid #7c3aed; outline-offset:2px; }
+.exam-configs-table .exam-config-sort-active { color:#6d28d9; font-weight:800; }
+.exam-configs-table .exam-config-sort-indicator { display:inline-block; flex-shrink:0; font-size:12px; opacity:.8; }
+.exam-configs-table th[aria-sort] { vertical-align:middle; }

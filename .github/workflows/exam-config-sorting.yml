@@ -1,0 +1,33 @@
+name: Exam management sorting checks
+on:
+  push:
+    paths:
+      - 'src/exam-config-sorting.js'
+      - 'src/main.js'
+      - 'src/style.css'
+      - 'public/components/tab-exams.html'
+      - 'tests/exam-config-sorting.test.mjs'
+      - '.github/workflows/exam-config-sorting.yml'
+  pull_request:
+    paths:
+      - 'src/exam-config-sorting.js'
+      - 'src/main.js'
+      - 'src/style.css'
+      - 'public/components/tab-exams.html'
+      - 'tests/exam-config-sorting.test.mjs'
+      - '.github/workflows/exam-config-sorting.yml'
+permissions:
+  contents: read
+jobs:
+  sort-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: node --test tests/exam-config-sorting.test.mjs tests/exam-config-table-layout.test.mjs tests/exam-management-filters.test.mjs tests/exam-created-at-vn.test.mjs
+      - run: npm run lint
+      - run: npm run build
