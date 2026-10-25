@@ -7,10 +7,16 @@ on:
     branches: [main]
     paths:
       - 'src/exam-results-delete-*.ts'
+      - 'src/exam-results-targets-service.ts'
+      - 'src/ranking-delete-exam-targets.js'
       - 'src/main.js'
       - 'server.ts'
       - 'functions/api/results.ts'
       - 'functions/api/results/delete-by-exam.ts'
+      - 'functions/api/results/deletion-targets.ts'
+      - 'public/components/tab-ranking.html'
+      - 'tests/ranking-delete-exam-results.test.mjs'
+      - 'tests/exam-results-targets.test.ts'
       - 'tests/exam-results-delete-by-exam.test.ts'
       - '.github/workflows/exam-results-delete-checks.yml'
 permissions:
@@ -27,9 +33,9 @@ jobs:
           cache: npm
       - run: npm ci --no-audit --no-fund
       - name: Scoped deletion on isolated PostgreSQL engines
-        run: npx tsx --test tests/exam-results-delete-by-exam.test.ts tests/exam-config-legacy-delete.test.ts tests/question-delete-by-lesson.test.ts
+        run: npx tsx --test tests/exam-results-delete-by-exam.test.ts tests/exam-results-targets.test.ts tests/exam-config-legacy-delete.test.ts tests/question-delete-by-lesson.test.ts
       - name: Exam-management UI and security regressions
-        run: node --test tests/exam-attempt-counts.test.mjs tests/exam-config-table-layout.test.mjs tests/exam-management-filters.test.mjs
+        run: node --test tests/exam-attempt-counts.test.mjs tests/exam-config-table-layout.test.mjs tests/exam-management-filters.test.mjs tests/ranking-delete-exam-results.test.mjs
       - name: TypeScript check
         run: npm run lint
       - name: Production build

@@ -8,6 +8,7 @@ import { matchesRankingTeacher, rankingTeacherOptions } from './ranking-teacher-
 import { examManagementCreatorId, examManagementSchool, examManagementClassTokens, matchesExamManagement, examManagementFilterChoices } from './exam-management-filters.js';
 import { parseExamAttemptCount } from './exam-attempt-counts-ui.js';
 import { formatExamCreatedAtVN } from './exam-created-at-vn.js';
+import { resolveRankingDeleteExamTargets } from './ranking-delete-exam-targets.js';
 import './pwa-manager.js';
 import './teacher-assignment.js';
 import { typesetScientificMath } from './scientific-formula-typeset.js';
@@ -6787,6 +6788,11 @@ if (contentType && contentType.includes("application/json")) {
                             String(row.id) === examId ? {...row, attempt_count: result.remainingCount} : row);
                         renderExamConfigsTable();
                         await updateExamNamesList(true);
+                        if (document.getElementById('tab-ranking')?.classList.contains('active') && sameSession()) {
+                            selectedRankingResults.clear();
+                            await loadAllResults(true, 0, true);
+                            updateRankingSelection();
+                        }
                         showToast('Đã xóa ' + result.deletedCount + ' kết quả của đề thi. Còn lại: ' + result.remainingCount + '.', 'success');
                     } catch (error) {
                         errorText.textContent = error?.message || 'Không thể xóa kết quả.';
@@ -15494,6 +15500,89 @@ CẤU TRÚC JSON:
             window.changeRankingPage(page);
         };
 
+        function updateRankingDeleteExamButton() {
+            const button = document.getElementById('btn-delete-exam-ranking-results');
+            const selected = document.getElementById('ranking-exam-filter')?.value || '';
+            if (!button) return;
+            const permitted = !!currentUser && (isAdminLoggedIn || isTeacherLoggedIn);
+            button.classList.toggle('hidden', !permitted);
+            button.classList.toggle('inline-flex', permitted);
+            button.disabled = !permitted || !selected.trim();
+        }
+        window.openRankingDeleteResultsByExam = async function() {
+            const selected = document.getElementById('ranking-exam-filter')?.value || '';
+            if (!selected.trim()) return showToast('Vui lòng chọn một đề thi để xóa bài làm.', 'warning');
+            if (!currentUser || !(isAdminLoggedIn || isTeacherLoggedIn)) return showToast('Không có quyền xóa kết quả.', 'error');
+            const generation = authDataGeneration;
+            const accountId = String(currentUser.id);
+            const sameSession = () => generation === authDataGeneration && accountId === String(currentUser?.id || '') &&
+                selected === (document.getElementById('ranking-exam-filter')?.value || '') &&
+                (isAdminLoggedIn || isTeacherLoggedIn);
+            const button = document.getElementById('btn-delete-exam-ranking-results');
+            if (button) button.disabled = true;
+            try {
+                const token = localStorage.getItem('auth_token') || '';
+                const response = await fetch('/api/results/deletion-targets', {
+                    method: 'POST', cache: 'no-store',
+                    headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token},
+                    body: JSON.stringify({examName: selected})
+                });
+                const data = await response.json().catch(() => ({}));
+                if (!sameSession()) return;
+                if (!response.ok || data.error || !Array.isArray(data.targets))
+                    throw new Error(data.error || 'Không thể xác minh các mã đề thi từ máy chủ.');
+                const targets = data.targets;
+                if (!targets.length) {
+                    const hint = data.unlinkedCount > 0
+                        ? ' Có ' + data.unlinkedCount + ' bài cũ thiếu mã đề, không thể xóa theo tên để tránh xóa nhầm.'
+                        : '';
+                    return showToast('Không tìm thấy mã đề hợp lệ để xóa.' + hint, 'warning');
+                }
+                window.allExamConfigsList = [
+                    ...(window.allExamConfigsList || []).filter(item => !targets.some(t => t.id === item.id)),
+                    ...targets.map(t => ({id:t.id, name:t.name, attempt_count:t.attemptCount}))
+                ];
+                const proceed = async id => {
+                    if (!sameSession()) return showToast('Lựa chọn hoặc tài khoản đã thay đổi.', 'warning');
+                    // Existing handler performs server-side count preview and requires code 1234.
+                    await window.deleteExamResultsByExamId(encodeURIComponent(id));
+                };
+                if (targets.length === 1) return await proceed(targets[0].id);
+                const html = `<div class="p-4 sm:p-5 space-y-3 text-sm">
+                    <h3 class="pr-10 text-lg font-bold text-red-700">Chọn đúng mã đề thi để xóa kết quả</h3>
+                    <p>Có nhiều mã đề trùng tên. Hãy chọn chính xác mã đề để tiếp tục.</p>
+                    <p id="ranking-delete-exam-label" class="font-semibold break-words"></p>
+                    <label for="ranking-delete-exam-id" class="block font-semibold">Mã đề thi</label>
+                    <select id="ranking-delete-exam-id" class="w-full rounded-lg border p-2 font-mono text-xs"></select>
+                    <p class="text-xs text-red-700">Sau khi chọn mã đề, hệ thống sẽ báo tổng số bài làm cần xóa và yêu cầu nhập 1234. Xóa toàn bộ bài làm của mã đề, không phụ thuộc bộ lọc lớp hoặc trường.</p>
+                    <p id="ranking-delete-exam-error" role="alert" class="text-red-700 text-xs"></p>
+                    <div class="flex justify-end gap-2"><button id="ranking-delete-exam-cancel" class="rounded-lg border p-2">Hủy</button>
+                    <button id="ranking-delete-exam-next" class="rounded-lg bg-red-600 text-white font-bold p-2">Tiếp tục</button></div>
+                </div>`;
+                showModal(html, 'compact');
+                document.getElementById('ranking-delete-exam-label').textContent = selected;
+                const select = document.getElementById('ranking-delete-exam-id');
+                for (const target of targets) {
+                    const opt = document.createElement('option');
+                    opt.value = target.id;
+                    opt.textContent = target.id;
+                    select.appendChild(opt);
+                }
+                document.getElementById('ranking-delete-exam-cancel').onclick = closeModal;
+                document.getElementById('ranking-delete-exam-next').onclick = async () => {
+                    const id = select.value;
+                    if (!sameSession() || !targets.some(t => t.id === id)) {
+                        document.getElementById('ranking-delete-exam-error').textContent = 'Phiên đăng nhập hoặc mã đề không hợp lệ.';
+                        return;
+                    }
+                    closeModal();
+                    await proceed(id);
+                };
+            } catch (err) {
+                if (sameSession()) showToast(err?.message || 'Không thể tải đề thi để xóa kết quả.', 'error');
+            } finally { updateRankingDeleteExamButton(); }
+        };
+
         function renderRanking() {
             syncAdminTeacherFilterVisibility();
             // Kiểm tra quyền truy cập (Học sinh không được xem)
@@ -15513,6 +15602,7 @@ CẤU TRÚC JSON:
             const teacherFilter = isAdmin ? (document.getElementById('ranking-teacher-filter')?.value || '') : '';
             const searchTerm = (document.getElementById('ranking-search')?.value || '').toLowerCase().trim();
             const examFilter = (document.getElementById('ranking-exam-filter')?.value || '').trim();
+            updateRankingDeleteExamButton();
             const unitFilter = (document.getElementById('ranking-unit-filter')?.value || '').trim();
             const classFilter = (document.getElementById('ranking-class-filter')?.value || '').trim();
             

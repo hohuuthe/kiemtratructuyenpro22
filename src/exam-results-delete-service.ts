@@ -42,11 +42,11 @@ export async function processExamResultsDeletion(db: CleanupDb, user: any, body:
   const exam: any = await db.first(
     'SELECT id, name, creator_id FROM exam_configs WHERE id = ?', [examId]
   );
-  if (!exam) {
+  const isAdmin = isExamResultsAdministrator(user);
+  if (!exam && !isAdmin) {
     throw new ExamResultsDeletionError('Đề thi không còn tồn tại.', 404, 'EXAM_NOT_FOUND');
   }
-  const isAdmin = isExamResultsAdministrator(user);
-  if (!canManageExamConfig(user, exam.creator_id, isAdmin)) {
+  if (exam && !canManageExamConfig(user, exam.creator_id, isAdmin)) {
     throw new ExamResultsDeletionError('Bạn không có quyền xóa kết quả của đề thi này.', 403, 'EXAM_RESULTS_FORBIDDEN');
   }
 
@@ -56,7 +56,7 @@ export async function processExamResultsDeletion(db: CleanupDb, user: any, body:
 
   if (body.action === 'preview') {
     return {
-      success: true, action: 'preview', examId, examName: String(exam.name || 'Đề thi không tên'),
+      success: true, action: 'preview', examId, examName: String(exam?.name || 'Đề thi cũ không còn cấu hình'),
       count: currentCount, scope: isAdmin ? 'admin' : 'owner'
     };
   }
@@ -69,7 +69,12 @@ export async function processExamResultsDeletion(db: CleanupDb, user: any, body:
     );
   }
 
-  const statement = examResultsGuardedDeleteStatement(examId, exam.creator_id, expectedCount);
+  const statement = exam
+    ? examResultsGuardedDeleteStatement(examId, exam.creator_id, expectedCount)
+    : {
+      sql: 'DELETE FROM results WHERE exam_id = ? AND NOT EXISTS (SELECT 1 FROM exam_configs WHERE id = ?) AND (SELECT COUNT(*) FROM results WHERE exam_id = ?) = ?',
+      params: [examId, examId, examId, expectedCount]
+    };
   const deletion = await db.run(statement.sql, statement.params);
   const deletedCount = Number(deletion?.changes);
   if (!Number.isSafeInteger(deletedCount) || deletedCount < 0) {
