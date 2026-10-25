@@ -116,7 +116,7 @@ test('Unavailable count must fail closed rather than deleting a presumed zero',a
   await rejects(()=>processExamResultsDeletion(dbWrapper,teacher,json),503,'INVALID_RESULT_COUNT');
  }finally{await db.close();}
 });
-test('Integration: both backends call shared service; frontend has compact modal and keeps 11 columns',()=>{
+test('Integration: both backends call shared service; frontend has compact modal and keeps 12 columns',()=>{
  const pages=readFileSync('functions/api/results.ts','utf8');
  const route=readFileSync('functions/api/results/delete-by-exam.ts','utf8');
  const server=readFileSync('server.ts','utf8');
@@ -135,7 +135,8 @@ test('Integration: both backends call shared service; frontend has compact modal
  assert.match(main,/delete-exam-results-count/);
  assert.match(main,/updateExamNamesList\(true\)/);
  const renderer=main.slice(main.indexOf('window.renderExamConfigsTable = function'),main.indexOf('function renderExamConfigsPaginationControls('));
- assert.equal((renderer.match(/<td class=/g)||[]).length,11);
+ assert.equal((renderer.match(/<td class=/g)||[]).length,12);
+ assert.match(renderer,/exam-config-created-cell/);
  assert.match(renderer,/deleteExamConfig\('/);
  assert.match(renderer,/deleteExamResultsByExamId\('/);
 });
