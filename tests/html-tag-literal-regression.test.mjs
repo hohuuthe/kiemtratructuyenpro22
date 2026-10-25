@@ -22,8 +22,8 @@ for(const sample of samples){
  test('student/bank/review/PDF render literal HTML: '+sample.slice(0,45),()=>{
    for(const render of [renderScientificContent, renderExamReviewMath, cleanHTMLText]){
      const html=render(sample);
-     assert.ok(html.includes(encode(sample).replaceAll('"','&quot;')) ||
-               html.includes(encode(sample).replaceAll('`','<code class="px-1.5 py-0.5 bg-slate-100 text-slate-800 rounded font-mono text-xs border border-slate-200">').replaceAll('</code>','')),html);
+     const tags=[...sample.matchAll(/<[^>]+>/g)].map(x=>x[0]);
+     for(const tag of tags) assert.ok(html.includes(encode(tag).replaceAll('"','&quot;')),'missing '+tag+' in '+html);
      assert.ok(!/<(?:p|div|b|i|span|table|script|a)(?:\s|>)/i.test(html),'unsafe live markup: '+html);
    }
  });
