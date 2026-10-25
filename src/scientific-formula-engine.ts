@@ -46,16 +46,15 @@ export function sanitizeHtml(str: string): string {
  * Restore only attribute-free formatting tags. Legacy HTML with attributes
  * stays escaped: never revive arbitrary event handlers or external images.
  */
+/**
+ * Question text is educational content, not trusted HTML markup.
+ * Escaping happens in sanitizeHtml; never turn escaped HTML tags back into
+ * live DOM elements. LaTeX/Markdown are handled separately by the renderer.
+ * This prevents a literal <p>, <b>, <div> etc. from disappearing or
+ * modifying the layout of an exam question or answer.
+ */
 export function restoreSafeHtmlTags(html: string): string {
-    if (!html) return '';
-    const allowed = ['sup','sub','b','strong','i','em','u','mark','p','span','div','table','thead','tbody','tr','th','td'];
-    let value=html;
-    for (const tag of allowed) {
-        const open = new RegExp('&lt;'+tag+'&gt;', 'gi');
-        const close = new RegExp('&lt;\\/'+tag+'&gt;', 'gi');
-        value=value.replace(open,'<'+tag+'>').replace(close,'</'+tag+'>');
-    }
-    return value.replaceAll('&lt;br&gt;', '<br/>').replaceAll('&lt;br/&gt;', '<br/>');
+    return html || '';
 }
 
 export function unescapeHtmlInsideMath(mathStr: string): string {
