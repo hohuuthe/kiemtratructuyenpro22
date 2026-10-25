@@ -5630,7 +5630,7 @@ if (contentType && contentType.includes("application/json")) {
                 schoolAccounts:accounts,
                 query:searchKw
             })), window.examConfigSort || DEFAULT_EXAM_CONFIG_SORT, accountsMap);
-            document.querySelectorAll?.('[data-exam-sort]').forEach(button => {
+            document.querySelectorAll?.('[data-exam-sort]')?.forEach(button => {
                 const active=button.dataset.examSort === (window.examConfigSort || DEFAULT_EXAM_CONFIG_SORT).key;
                 const direction=(window.examConfigSort || DEFAULT_EXAM_CONFIG_SORT).direction;
                 const th=button.closest('th');
