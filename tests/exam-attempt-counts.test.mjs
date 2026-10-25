@@ -3,6 +3,7 @@ import test from 'node:test';
 import {readFileSync} from 'node:fs';
 import {runInNewContext} from 'node:vm';
 import {getExamAttemptCount, parseExamAttemptCount} from '../src/exam-attempt-counts-ui.js';
+import {formatExamCreatedAtVN} from '../src/exam-created-at-vn.js';
 
 test('Counts use immutable exam ID, not duplicated names or student identity', () => {
   const rows = [{id:'exam-A',name:'Kiểm tra',attempt_count:3},
@@ -21,7 +22,7 @@ test('Unavailable or malformed counts are never presented as zero', () => {
   assert.equal(getExamAttemptCount([{id:'e',attempt_count:'0'}],'e'),0);
   assert.equal(getExamAttemptCount([{id:'e',attempt_count:'15'}],'e'),15);
 });
-test('Main table renderer creates eleven cells per row with count before actions', () => {
+test('Main table renderer creates twelve cells including creation date and attempt count before actions', () => {
   const code=readFileSync('src/main.js','utf8');
   const start=code.indexOf('window.renderExamConfigsTable = function renderExamConfigsTable()');
   const end=code.indexOf('function renderExamConfigsPaginationControls(',start);
@@ -31,9 +32,9 @@ test('Main table renderer creates eleven cells per row with count before actions
   const context={
     window:{
       allExamConfigsList:[
-        {id:'exam-A',name:'Duplicate title',creator_id:'teacher',count_41:12,time_limit:30,attempt_count:'3'},
-        {id:'exam-B',name:'Duplicate title',creator_id:'teacher',count_41:5,time_limit:20,attempt_count:0},
-        {id:'exam-C',name:'Orphan count',creator_id:'teacher',count_41:1,time_limit:20}
+        {id:'exam-A',name:'Duplicate title',creator_id:'teacher',count_41:12,time_limit:30,attempt_count:'3',created_at:'2026-10-24T17:30:05.000Z'},
+        {id:'exam-B',name:'Duplicate title',creator_id:'teacher',count_41:5,time_limit:20,attempt_count:0,created_at:'2026-10-24 16:59:59'},
+        {id:'exam-C',name:'Orphan count',creator_id:'teacher',count_41:1,time_limit:20,updated_at:'2026-10-25T05:00:00Z'}
       ],
       examConfigPageSize:30,
       examConfigCurrentPage:1
@@ -53,6 +54,7 @@ test('Main table renderer creates eleven cells per row with count before actions
     currentUser:{id:'teacher'},
     isAdminLoggedIn:false,
     parseExamAttemptCount,
+    formatExamCreatedAtVN,
     escapeHTML(value){return String(value).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('"','&quot;');}
   };
   runInNewContext(renderer,context);
@@ -61,19 +63,28 @@ test('Main table renderer creates eleven cells per row with count before actions
   assert.equal(rows.length,3);
   for(const [i,row] of rows.entries()){
     const cells=[...row.matchAll(/<td\b[^>]*>[\s\S]*?<\/td>/g)].map(m=>m[0]);
-    assert.equal(cells.length,11,'data row '+(i+1)+' must align with 11 headers');
-    assert.match(cells[9],/class="exam-attempt-count-cell/);
-    assert.match(cells[10],/class="exam-config-row-actions"/);
-    assert.match(cells[9],/data-exam-id="exam-/);
+    assert.equal(cells.length,12,'data row '+(i+1)+' must align with 12 headers');
+    assert.match(cells[4],/class="exam-config-created-cell text-center"/);
+    assert.match(cells[10],/class="exam-attempt-count-cell/);
+    assert.match(cells[11],/class="exam-config-row-actions"/);
+    assert.match(cells[10],/data-exam-id="exam-/);
   }
-  const countCell=row=>[...row.matchAll(/<td\b[^>]*>[\s\S]*?<\/td>/g)][9][0];
+  const createdCell=row=>[...row.matchAll(/<td\b[^>]*>[\s\S]*?<\/td>/g)][4][0];
+  assert.match(createdCell(rows[0]),/datetime="2026-10-24T17:30:05\.000Z"/);
+  assert.match(createdCell(rows[0]),/exam-config-created-hour">00:30:05<\/span>/);
+  assert.match(createdCell(rows[0]),/exam-config-created-date">25\/10\/2026<\/span>/);
+  assert.match(createdCell(rows[1]),/exam-config-created-hour">23:59:59<\/span>/);
+  assert.match(createdCell(rows[1]),/exam-config-created-date">24\/10\/2026<\/span>/);
+  assert.match(createdCell(rows[2]),/class="exam-config-created-missing"/);
+  assert.doesNotMatch(createdCell(rows[2]),/<time\b/,'never substitute an update timestamp for creation');
+  const countCell=row=>[...row.matchAll(/<td\b[^>]*>[\s\S]*?<\/td>/g)][10][0];
   assert.match(countCell(rows[0]),/>\s*3\s*<\/td>/);
   assert.match(countCell(rows[1]),/>\s*0\s*<\/td>/,'a real zero must be visible');
   assert.match(countCell(rows[2]),/>\s*—\s*<\/td>/,'missing count is unknown, not 0');
   context.window.allExamConfigsList=[];
   context.window.renderExamConfigsTable();
-  assert.match(tbody.innerHTML,/colspan="11"/);
-  assert.doesNotMatch(tbody.innerHTML,/colspan="10"/);
+  assert.match(tbody.innerHTML,/colspan="12"/);
+  assert.doesNotMatch(tbody.innerHTML,/colspan="11"/);
 });
 
 test('The count helper must never inject cells asynchronously',()=>{

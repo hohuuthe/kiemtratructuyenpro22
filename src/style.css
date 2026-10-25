@@ -697,7 +697,7 @@ button { touch-action: manipulation; }
 .exam-configs-table tbody tr:hover { background-color: #f5f3ff; }
 /* A long UUID stays inside its column; the adjacent exam title remains readable. */
 .exam-configs-table .exam-config-id-cell {
-  width: 11%;
+  width: 9%;
   max-width: 0;
   white-space: normal;
   overflow-wrap: anywhere;
