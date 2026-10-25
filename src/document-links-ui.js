@@ -72,7 +72,7 @@ export function connectDocumentLinks(){
   e.preventDefault();if(!manage)return;
   const f=e.currentTarget;
   const raw=f.elements.namedItem('thoi_gian_het_han').value;
-  const expiration=raw?new Date(raw).toISOString():null;
+  const expiration=raw?new Date(raw+':00+07:00').toISOString():null;
   const value={id:f.elements.namedItem('id').value,tieu_de:f.elements.namedItem('tieu_de').value,duong_link:f.elements.namedItem('duong_link').value,doi_tuong_duoc_truy_cap:f.elements.namedItem('doi_tuong_duoc_truy_cap').value,thoi_gian_het_han:expiration,hoat_dong:f.elements.namedItem('hoat_dong').checked};
   const button=f.querySelector('[type=submit]');button.disabled=true;
   try{await request(value.id?'PUT':'POST','/api/documents',value);close();status('Đã lưu tài liệu thành công.');await load();}
