@@ -22,6 +22,7 @@ import {requiredQuestionLesson,questionLessonDeleteScope,requireQuestionLessonCo
 import { canManageExamConfig, examConfigGuardedDeleteStatement } from './src/exam-config-deletion-policy';
 import { processExamResultsDeletion } from './src/exam-results-delete-service';
 import { ExamResultsDeletionError } from './src/exam-results-delete-policy';
+import { resolveLiveExamResultsActor } from './src/exam-results-delete-actor';
 
 dotenv.config({ override: true });
 
@@ -2888,8 +2889,13 @@ async function startServer() {
       }
       // The global /api auth middleware above also verifies the live account
       // status, password and role on every request.
-      const user = verifyJWTSync(bearer.slice(7), await getServerSecret());
-      if (!user) return res.status(401).json({ error: 'Phiên đăng nhập không hợp lệ.', code: 'AUTH_REQUIRED' });
+      const claims = verifyJWTSync(bearer.slice(7), await getServerSecret());
+      if (!claims) return res.status(401).json({ error: 'Phiên đăng nhập không hợp lệ.', code: 'AUTH_REQUIRED' });
+      const live = await executeSqlQuery(
+        'SELECT a.id, a.user_id, a.password, a.role, a.is_active, a.expiry_date, u.target_audience, u.is_active AS profile_active, u.expiry_date AS profile_expiry_date FROM accounts a LEFT JOIN users u ON u.id = COALESCE(a.user_id, a.id) WHERE a.id = ? LIMIT 1',
+        [claims.id]
+      );
+      const user = resolveLiveExamResultsActor(claims, live.results?.[0]);
       const adapter = {
         first: async (sql: string, params: unknown[]) => {
           const result = await executeSqlQuery(sql, params);
