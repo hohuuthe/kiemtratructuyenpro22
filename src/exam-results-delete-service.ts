@@ -13,7 +13,7 @@ type CleanupDb = {
 function safeCount(raw: any): number {
   // PostgreSQL COUNT(*) is an int8 string through Neon.
   const count = Number(raw);
-  if (!Number.isSafeInteger(count) || count < 0) {
+  if (raw === null || raw === undefined || raw === '' || !Number.isSafeInteger(count) || count < 0) {
     throw new ExamResultsDeletionError('Không thể xác nhận chính xác số bài làm trong cơ sở dữ liệu.', 503, 'INVALID_RESULT_COUNT');
   }
   return count;
