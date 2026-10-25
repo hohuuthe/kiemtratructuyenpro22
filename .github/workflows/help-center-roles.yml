@@ -1,0 +1,32 @@
+name: Role-specific Help Center
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/help-center*.js'
+      - 'src/main.js'
+      - 'public/components/tab-help.html'
+      - 'tests/help-center-roles.test.mjs'
+      - '.github/workflows/help-center-roles.yml'
+  pull_request:
+    paths:
+      - 'src/help-center*.js'
+      - 'src/main.js'
+      - 'public/components/tab-help.html'
+      - 'tests/help-center-roles.test.mjs'
+      - '.github/workflows/help-center-roles.yml'
+permissions:
+  contents: read
+jobs:
+  help-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: node --test tests/help-center-roles.test.mjs
+      - run: npm run lint
+      - run: npm run build
