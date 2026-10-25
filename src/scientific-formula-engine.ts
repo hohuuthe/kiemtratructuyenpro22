@@ -7,6 +7,7 @@
 
 import katex from 'katex';
 import { splitScientificContent } from './scientific-formula-tokenizer.js';
+import { tokenizeEducationalInlineMarkup } from './educational-inline-markup.js';
 import { splitLabeledScientificRecords } from './scientific-formula-records.js';
 import 'katex/dist/contrib/mhchem.js';
 // CSS is loaded only by the browser entrypoint; Node/Cloudflare can import this parser.
@@ -46,16 +47,15 @@ export function sanitizeHtml(str: string): string {
  * Restore only attribute-free formatting tags. Legacy HTML with attributes
  * stays escaped: never revive arbitrary event handlers or external images.
  */
+/**
+ * Question text is educational content, not trusted HTML markup.
+ * Escaping happens in sanitizeHtml; never turn escaped HTML tags back into
+ * live DOM elements. LaTeX/Markdown are handled separately by the renderer.
+ * This prevents a literal <p>, <b>, <div> etc. from disappearing or
+ * modifying the layout of an exam question or answer.
+ */
 export function restoreSafeHtmlTags(html: string): string {
-    if (!html) return '';
-    const allowed = ['sup','sub','b','strong','i','em','u','mark','p','span','div','table','thead','tbody','tr','th','td'];
-    let value=html;
-    for (const tag of allowed) {
-        const open = new RegExp('&lt;'+tag+'&gt;', 'gi');
-        const close = new RegExp('&lt;\\/'+tag+'&gt;', 'gi');
-        value=value.replace(open,'<'+tag+'>').replace(close,'</'+tag+'>');
-    }
-    return value.replaceAll('&lt;br&gt;', '<br/>').replaceAll('&lt;br/&gt;', '<br/>');
+    return html || '';
 }
 
 export function unescapeHtmlInsideMath(mathStr: string): string {
@@ -324,24 +324,20 @@ export function renderScientificContent(content: string): string {
 
 function formatMarkdownText(str: string): string {
     if (!str) return '';
-    let out = sanitizeHtml(str);
-
-    // In đậm **text**
-    out = out.replace(/\*\*([^*]+)\*\*/g, '<strong class="font-bold text-slate-900">$1</strong>');
-    
-    // In nghiêng *text* (chỉ khi có khoảng trắng biên hoặc đầu dòng)
-    out = out.replace(/(^|\s)\*([^*\n]+)\*(\s|$)/g, '$1<em class="italic">$2</em>$3');
-
-    // Code inline `code`
-    out = out.replace(/`([^`]+)`/g, '<code class="px-1.5 py-0.5 bg-slate-100 text-slate-800 rounded font-mono text-xs border border-slate-200">$1</code>');
-
-    // Chuyển dấu xuống dòng \n thành <br/>
-    out = out.replace(/\n/g, '<br/>');
-
-    // Khôi phục thẻ HTML định dạng văn bản an toàn của giáo viên
-    out = restoreSafeHtmlTags(out);
-
-    return out;
+    // Split before escaping: code examples stay opaque, while safe matched
+    // inline formatting and H<sub>2</sub>O preserve their appearance.
+    const tokens = tokenizeEducationalInlineMarkup(str);
+    const renderPlain = (raw: string) => sanitizeHtml(raw)
+        .replace(/\*\*([^*]+)\*\*/g, '<strong class="font-bold text-slate-900">$1</strong>')
+        .replace(/(^|\s)\*([^*\n]+)\*(\s|$)/g, '$1<em class="italic">$2</em>$3')
+        .replace(/\n/g, '<br/>');
+    return tokens.map(token => {
+        if (token.type === 'code') return '<code class="px-1.5 py-0.5 bg-slate-100 text-slate-800 rounded font-mono text-xs border border-slate-200">' + sanitizeHtml(token.value) + '</code>';
+        if (token.type === 'open') return '<' + token.name + '>';
+        if (token.type === 'close') return '</' + token.name + '>';
+        if (token.type === 'break') return '<br/>';
+        return renderPlain(token.value);
+    }).join('');
 }
 
 // =========================================================================

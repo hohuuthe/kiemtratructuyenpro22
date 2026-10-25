@@ -1,3 +1,4 @@
+import { tokenizeEducationalInlineMarkup } from './educational-inline-markup.js';
 import {
     Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
     WidthType, TableLayoutType, AlignmentType, PageNumber, BorderStyle, UnderlineType,
@@ -248,8 +249,7 @@ function parseFormattedTextLegacy(textInput: any, defaultBold = false): TextRun[
              .replace(/\$\$(.*?)\$\$/gs, '$1')
              .replace(/\$(.*?)\$/gs, '$1');
 
-    // Tokenize tags: <b>, </b>, <i>, </i>, <sup>, </sup>, <sub>, </sub>, <br>, <br/>, &lt;, &gt;, &amp;
-    const tokens = str.split(/(<[^>]+>)/g);
+    const tokens = tokenizeEducationalInlineMarkup(str);
     const runs: TextRun[] = [];
 
     let isBold = defaultBold;
@@ -258,55 +258,27 @@ function parseFormattedTextLegacy(textInput: any, defaultBold = false): TextRun[
     let isSub = false;
 
     for (const token of tokens) {
-        if (!token) continue;
-        const lower = token.toLowerCase();
-
-        if (lower === '<b>' || lower === '<strong>') {
-            isBold = true;
-        } else if (lower === '</b>' || lower === '</strong>') {
-            isBold = defaultBold;
-        } else if (lower === '<i>' || lower === '<em>') {
-            isItalic = true;
-        } else if (lower === '</i>' || lower === '</em>') {
-            isItalic = false;
-        } else if (lower === '<sup>') {
-            isSuper = true;
-        } else if (lower === '</sup>') {
-            isSuper = false;
-        } else if (lower === '<sub>') {
-            isSub = true;
-        } else if (lower === '</sub>') {
-            isSub = false;
-        } else if (lower === '<br>' || lower === '<br/>' || lower === '<br />') {
-            runs.push(new TextRun({
-                text: "\n",
-                font: "Times New Roman",
-                size: 26
-            }));
-        } else if (token.startsWith('<') && token.endsWith('>')) {
-            // Other HTML tag, ignore
-        } else {
-            // Normal text content
-            let clean = token
-                .replace(/&lt;/g, '<')
-                .replace(/&gt;/g, '>')
-                .replace(/&amp;/g, '&')
-                .replace(/&quot;/g, '"')
-                .replace(/&#039;/g, "'")
-                .replace(/&nbsp;/g, ' ');
-
-            if (clean.length > 0) {
-                runs.push(new TextRun({
-                    text: clean,
-                    font: "Times New Roman",
-                    size: 26, // 13pt
-                    bold: isBold,
-                    italics: isItalic,
-                    superScript: isSuper,
-                    subScript: isSub
-                }));
+        const name = token.name;
+        if (token.type === 'open' || token.type === 'close') {
+            const active = token.type === 'open';
+            if (name === 'b' || name === 'strong') isBold = active || defaultBold;
+            if (name === 'i' || name === 'em') isItalic = active;
+            if (name === 'sup') isSuper = active;
+            if (name === 'sub') isSub = active;
+            if (name === 'u' || name === 'mark') {
+                // Rich underline/highlight support belongs to native DOCX formatting.
+                // No source tags are silently consumed by the tokenizer.
             }
+            continue;
         }
+        const value = token.type === 'break' ? '\n' : token.value;
+        if (!value) continue;
+        const clean = value.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
+            .replace(/&quot;/g, '"').replace(/&#039;|&#39;/g, "'").replace(/&nbsp;/g, ' ');
+        runs.push(new TextRun({
+            text: clean, font: "Times New Roman", size: 26, bold: isBold,
+            italics: isItalic, superScript: isSuper, subScript: isSub
+        }));
     }
 
     if (runs.length === 0) {
