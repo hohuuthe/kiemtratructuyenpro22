@@ -7,7 +7,8 @@ import { helpRole, helpVisibleSectionIds } from '../src/help-center.js';
 test('guest and unknown users are fail-closed', () => {
   assert.equal(helpRole(), 'guest');
   assert.equal(helpRole({user:{id:'unknown',role:'user'}}), 'guest');
-  assert.deepEqual(helpVisibleSectionIds('guest'), []);
+  assert.equal(helpVisibleSectionIds('guest').length, 10);
+  assert.ok(HELP_GUIDES.guest.eligibility.some(item => item.access === 'no' && item.mode.includes('lớp')));
 });
 test('role resolution follows login audience and role', () => {
   assert.equal(helpRole({user:{id:'1',role:'admin',target_audience:'Giáo viên'},isAdmin:true}), 'admin');
@@ -45,4 +46,19 @@ test('role isolation: template has no cross-role content', () => {
   assert.match(main,/renderRoleHelp\(helpRoot, \{ user: null \}/);
   assert.match(main,/if \(tabName === 'help'\)/);
   assert.match(main,/attachRoleHelpInteractions\(helpRoot\)/);
+});
+
+test('guest guide accurately documents eligible exam modes and account benefits', () => {
+  const g = HELP_GUIDES.guest;
+  assert.equal(g.sections.length, 10);
+  assert.ok(g.faqs.length >= 8);
+  assert.deepEqual(g.links.map(link => link[0]), ['exam']);
+  assert.deepEqual(g.eligibility.map(item => item.access), ['yes','conditional','conditional','no']);
+  assert.ok(g.comparison.some(row => row[0].includes('lịch sử')));
+  assert.ok(g.sections.some(section => section.id === 'guest-login'));
+  assert.ok(g.sections.some(section => section.id === 'guest-benefits'));
+  const rendering = readFileSync(new URL('../src/help-center.js', import.meta.url),'utf8');
+  assert.match(rendering, /guestExtra\(guide\)/);
+  assert.match(rendering, /data-help-login/);
+  assert.match(rendering, /data-help-tab="exam"/);
 });
