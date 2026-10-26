@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {DOCUMENT_AUDIENCES,documentAudienceValues,documentActorRole,canManageDocument,canViewDocument,normalizeDocumentLinkInput,DocumentLinkInputError} from '../src/document-link-policy.js';
+import {DOCUMENT_AUDIENCES,documentAudienceValues,documentActorRole,canManageDocument,canEditDocumentRow,canViewDocument,normalizeDocumentLinkInput,DocumentLinkInputError} from '../src/document-link-policy.js';
 import {DOCUMENT_LINK_SCHEMA_STATEMENTS,ensureDocumentLinkSchema} from '../src/document-links-schema.js';
 const admin={id:'a',role:'admin'};
 const teacher={id:'t',role:'teacher'};
@@ -83,4 +83,17 @@ test('responsive markup includes mobile cards, two metadata columns and multi-ch
  assert.match(html,/name="doi_tuong_truy_cap_nhieu"/);
  assert.match(ui,/documents-mobile-list/);
  assert.match(ui,/documents-audience-error/);
+});
+
+test('server-granted row permissions drive edit buttons, never claimed profile admin',()=>{
+ const profileAdmin={id:'student-profile',role:'user',target_audience:'Quản trị viên'};
+ assert.notEqual(documentActorRole(profileAdmin),'admin');
+ assert.equal(canManageDocument(profileAdmin),false);
+ assert.equal(canEditDocumentRow(true,{co_quyen_quan_ly:true}),true);
+ assert.equal(canEditDocumentRow(true,{co_quyen_quan_ly:false}),false);
+ assert.equal(canEditDocumentRow(true,{}),false);
+ assert.equal(canEditDocumentRow(false,{co_quyen_quan_ly:true}),false);
+ const ui=readFileSync('src/document-links-ui.js','utf8');
+ assert.match(ui,/canEditDocumentRow\(manage,r\)/);
+ assert.match(ui,/if\(id&&!canEditDocumentRow\(manage,found\)\)return/);
 });
