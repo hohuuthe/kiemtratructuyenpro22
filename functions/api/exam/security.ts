@@ -24,9 +24,8 @@ const publicFields = [
 export function isExamOwner(user: any, row: any): boolean {
   if (!user || !row) return false;
   const role = String(user.role || '').trim().toLowerCase();
-  const audience = String(user.target_audience || '').trim().toLowerCase();
-  const admin = role === 'admin' || audience === 'admin' || audience === 'quản trị viên';
-  return canManageExamConfig(user,row.creator_id,admin);
+  // Admin privilege comes only from the verified account role, not a profile label.
+  return canManageExamConfig(user,row.creator_id,role === 'admin');
 }
 export function redactExamForPublic(row: any): any {
   const safe: any = {};
@@ -70,4 +69,36 @@ export function accessCodeMatches(given: unknown, stored: unknown): boolean {
     diff |= (a[i] || 0) ^ (b[i] || 0);
   }
   return diff === 0;
+}
+
+/** Protected exams reveal only their selector entry until the server verifies a code. */
+export function isProtectedExamForUser(user: any, row: any): boolean {
+  return row?.chedodethi === 'Đề có mã bảo mật' && !isExamOwner(user,row);
+}
+export function protectedExamPreview(row: any): any {
+  // Name and creator are necessary for the student to find the exam in the selector.
+  // Never send counts, timing, lesson IDs, answers, access configuration or password.
+  return {
+    id: row.id,
+    name: row.name,
+    creator_id: row.creator_id,
+    chedodethi: row.chedodethi,
+    creator_name: row.creator_name || '',
+    teacher_donvi: row.teacher_donvi || '',
+    is_shared_results: row.is_shared_results === true ||
+      row.is_shared_results === 1 || row.is_shared_results === 'true'
+  };
+}
+export function examAccessChallenge(user: any, row: any, supplied: unknown):
+    {status: number; code: string; error: string} | null {
+  if (!isProtectedExamForUser(user, row)) return null;
+  if (typeof supplied !== 'string' || !supplied.trim()) {
+    return {status: 403, code:'EXAM_ACCESS_CODE_REQUIRED',
+      error:'Vui lòng nhập mật mã truy cập đề thi để tiếp tục.'};
+  }
+  if (!accessCodeMatches(supplied, row.mabaomatdethi)) {
+    return {status: 403, code:'EXAM_ACCESS_CODE_INVALID',
+      error:'Mật mã truy cập đề thi không đúng. Vui lòng kiểm tra và nhập lại.'};
+  }
+  return null;
 }
