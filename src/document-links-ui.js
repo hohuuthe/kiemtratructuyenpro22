@@ -2,6 +2,7 @@ import {DOCUMENT_AUDIENCES,documentActorRole,canManageDocument} from './document
 const $=id=>document.getElementById(id);
 const clean=t=>String(t??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const active=v=>v===1||v===true||v==='1';
+const safeLink=value=>{try{const u=new URL(value);return u.protocol==='https:'&&!u.username&&!u.password?u.href:'';}catch{return '';}};
 let list=[],actor=null,manage=false,generation=0;
 function status(message,error=false){const el=$('documents-feedback');if(!el)return;el.textContent=message;el.classList.remove('hidden');el.className='text-sm rounded-lg p-3 '+(error?'bg-rose-50 text-rose-800':'bg-emerald-50 text-emerald-800');}
 function dateLabel(iso){if(!iso)return 'Không giới hạn';const d=new Date(iso);return Number.isNaN(d.getTime())?'Không hợp lệ':d.toLocaleString('vi-VN',{timeZone:'Asia/Ho_Chi_Minh',hour:'2-digit',minute:'2-digit',day:'2-digit',month:'2-digit',year:'numeric'});}
@@ -16,6 +17,7 @@ function render(){
  const expires=!!r.thoi_gian_het_han&&Date.parse(r.thoi_gian_het_han)<=Date.now();
  const inactive=!active(r.hoat_dong);
  const label=expires?'Hết hạn':inactive?'Đã tắt':'Đang mở';
+ const safeUrl=safeLink(r.duong_link);
  return '<tr class="border-t border-slate-100 hover:bg-emerald-50/40"><td class="p-3">'+(i+1)+'</td><td class="p-3 font-semibold text-slate-800 break-words">'+clean(r.tieu_de)+'</td><td class="p-3 max-w-[250px] break-all"><a class="text-blue-700 underline" href="'+clean(r.duong_link)+'" target="_blank" rel="noopener noreferrer nofollow">Mở tài liệu ↗</a><div class="text-[11px] text-slate-500">'+clean(r.duong_link)+'</div></td><td class="p-3">'+clean(DOCUMENT_AUDIENCES[r.doi_tuong_duoc_truy_cap]||'')+'</td><td class="p-3 text-xs">'+clean(dateLabel(r.thoi_gian_het_han))+'</td><td class="p-3 text-center">'+clean(label)+'</td><td class="p-3"><div class="flex justify-center gap-2">'+(manage?'<button type="button" class="documents-edit rounded bg-blue-50 text-blue-700 px-2 py-1 font-bold" data-id="'+clean(r.id)+'">Sửa</button><button type="button" class="documents-delete rounded bg-rose-50 text-rose-700 px-2 py-1 font-bold" data-id="'+clean(r.id)+'">Xóa</button>':'<span class="text-slate-400">—</span>')+'</div></td></tr>';
  }).join(''):'<tr><td colspan="7" class="text-center p-8 text-slate-500">Chưa có tài liệu phù hợp.</td></tr>';
 }
