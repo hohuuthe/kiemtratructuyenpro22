@@ -10,6 +10,18 @@ export const DOCUMENT_AUDIENCES = Object.freeze({
 });
 export const DOCUMENT_AUDIENCE_KEYS = Object.freeze(Object.keys(DOCUMENT_AUDIENCES));
 
+
+// Return the effective audience list without trusting arbitrary database values.
+// Old rows contain only doi_tuong_duoc_truy_cap; upgraded rows use the array.
+export function documentAudienceValues(rowOrValue) {
+  const source = rowOrValue && typeof rowOrValue === 'object' && !Array.isArray(rowOrValue)
+    ? (Array.isArray(rowOrValue.doi_tuong_truy_cap_nhieu) && rowOrValue.doi_tuong_truy_cap_nhieu.length
+        ? rowOrValue.doi_tuong_truy_cap_nhieu : rowOrValue.doi_tuong_duoc_truy_cap)
+    : rowOrValue;
+  const values = Array.isArray(source) ? source : [source];
+  return [...new Set(values.filter(value => typeof value === 'string' && Object.hasOwn(DOCUMENT_AUDIENCES, value)))];
+}
+
 export class DocumentLinkInputError extends Error {
   constructor(message) { super(message); this.name = 'DocumentLinkInputError'; }
 }
@@ -41,12 +53,11 @@ export function canViewDocument(actor, row, at = Date.now()) {
   if (!row || !documentIsActive(row, at)) return false;
   const role = documentActorRole(actor);
   if (role === 'admin') return true;
-  const access = row.doi_tuong_duoc_truy_cap;
-  return access === 'public' ||
-    (access === 'authenticated' && role !== 'guest') ||
-    (access === 'teacher' && role === 'teacher') ||
-    (access === 'student' && role === 'student') ||
-    (access === 'admin' && role === 'admin');
+  const audiences = documentAudienceValues(row);
+  return audiences.includes('public') ||
+    (audiences.includes('authenticated') && role !== 'guest') ||
+    audiences.includes(role);
+
 }
 export function normalizeDocumentLinkInput(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
@@ -67,9 +78,19 @@ export function normalizeDocumentLinkInput(input) {
   if (url.protocol !== 'https:' || !url.hostname || url.username || url.password) {
     throw new DocumentLinkInputError('Chỉ chấp nhận HTTPS, không chứa thông tin đăng nhập trong địa chỉ.');
   }
-  const audience = input.doi_tuong_duoc_truy_cap;
-  if (typeof audience !== 'string' || !Object.hasOwn(DOCUMENT_AUDIENCES, audience)) {
-    throw new DocumentLinkInputError('Hãy chọn đối tượng được truy cập hợp lệ.');
+  // Accept legacy single-select clients and the new checkbox array.
+  const supplied = input.doi_tuong_truy_cap_nhieu !== undefined
+    ? input.doi_tuong_truy_cap_nhieu : input.doi_tuong_duoc_truy_cap;
+  const selected = typeof supplied === 'string' ? [supplied] : supplied;
+  if (!Array.isArray(selected) || !selected.length || selected.length > DOCUMENT_AUDIENCE_KEYS.length ||
+      selected.some(value => typeof value !== 'string' || !Object.hasOwn(DOCUMENT_AUDIENCES, value))) {
+    throw new DocumentLinkInputError('Hãy chọn ít nhất một đối tượng truy cập hợp lệ.');
+  }
+  const audiences = [...new Set(selected)];
+  if (typeof input.doi_tuong_duoc_truy_cap === 'string' &&
+      input.doi_tuong_truy_cap_nhieu !== undefined &&
+      input.doi_tuong_duoc_truy_cap !== audiences[0]) {
+    throw new DocumentLinkInputError('Đối tượng truy cập không nhất quán.');
   }
   let expires = null;
   if (input.thoi_gian_het_han !== null && input.thoi_gian_het_han !== undefined && input.thoi_gian_het_han !== '') {
@@ -89,7 +110,7 @@ export function normalizeDocumentLinkInput(input) {
     mo_ta: String(input.mo_ta ?? '').trim().slice(0,4000),
     danh_muc: String(input.danh_muc ?? 'Chung').trim().slice(0,100) || 'Chung',
     tieu_de:title, duong_link:url.href,
-    doi_tuong_duoc_truy_cap:audience, thoi_gian_het_han:expires,
+    doi_tuong_duoc_truy_cap:audiences[0], doi_tuong_truy_cap_nhieu:audiences, thoi_gian_het_han:expires,
     hoat_dong:active === true || active === 1 ? 1 : 0
   };
 }
