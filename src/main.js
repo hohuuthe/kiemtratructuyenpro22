@@ -614,7 +614,7 @@ if (contentTypeConfig && contentTypeConfig.includes("application/json")) {
                 container.id = 'secondary-modal-container';
                 container.className = 'fixed inset-0 z-[9999999] hidden flex items-center justify-center bg-black/40 backdrop-blur-[2px] p-2 sm:p-4';
                 container.innerHTML = `
-                    <div class="absolute inset-0" onclick="closeSecondaryModal()"></div>
+                    <div class="absolute inset-0" data-modal-backdrop></div>
                     <div id="secondary-modal-content" class="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto relative animate-modal-enter z-10"></div>
                 `;
                 properParent.appendChild(container);
@@ -4913,7 +4913,7 @@ if (contentType && contentType.includes("application/json")) {
                 container.id = 'modal-container';
                 container.className = 'fixed inset-0 z-[999999] hidden flex items-center justify-center bg-black/60 backdrop-blur-sm p-2 sm:p-4';
                 container.innerHTML = `
-                    <div class="modal-overlay absolute inset-0" onclick="closeModal()"></div>
+                    <div class="modal-overlay absolute inset-0"></div>
                     <div id="modal-content" class="bg-white rounded-2xl sm:rounded-3xl shadow-2xl w-full max-w-2xl max-h-[92vh] sm:max-h-[90vh] overflow-y-auto relative animate-modal-enter z-10"></div>
                 `;
                 properParent.appendChild(container);
@@ -5037,7 +5037,7 @@ if (contentType && contentType.includes("application/json")) {
             
             zoomModal.innerHTML = `
                 <!-- Background Click to Close Overlay -->
-                <div class="absolute inset-0 z-0 bg-transparent" id="zoom-overlay-bg"></div>
+                <div class="absolute inset-0 z-0 bg-transparent" id="zoom-overlay-bg" data-modal-backdrop></div>
 
                 <!-- Modal Window / Card -->
                 <div class="relative z-10 w-full max-w-5xl max-h-[96vh] flex flex-col bg-slate-900/95 border border-slate-700/80 rounded-2xl shadow-2xl overflow-hidden pointer-events-auto">
@@ -5125,7 +5125,7 @@ if (contentType && contentType.includes("application/json")) {
 
             document.addEventListener('keydown', handleKeyDown);
 
-            if (bgOverlay) bgOverlay.onclick = closeZoomModal;
+            // Clicking outside image preview must not close it.
             if (closeBtn) closeBtn.onclick = closeZoomModal;
 
             if (zoomInBtn) {
@@ -22181,7 +22181,7 @@ CẤU TRÚC JSON:
             const isCustom = Boolean(imgSrc && !imgSrc.includes('/ma-qr.png'));
 
             modal.innerHTML = `
-                <div id="qr-modal-backdrop" onclick="closeQrModal(event)" class="fixed inset-0 z-[250] flex items-center justify-center bg-black/80 backdrop-blur-md p-3 md:p-6 animate-fade-in">
+                <div id="qr-modal-backdrop" class="fixed inset-0 z-[250] flex items-center justify-center bg-black/80 backdrop-blur-md p-3 md:p-6 animate-fade-in">
                     <div onclick="event.stopPropagation()" class="bg-gradient-to-b from-slate-900 via-emerald-950 to-slate-900 border-2 border-amber-400/50 rounded-3xl shadow-2xl p-4 md:p-7 max-w-md md:max-w-lg w-full text-center relative overflow-hidden my-auto animate-modal-enter max-h-[92vh] overflow-y-auto">
                         <!-- Background glow accent -->
                         <div class="absolute -top-24 -left-24 w-48 h-48 bg-amber-500/20 rounded-full blur-3xl pointer-events-none"></div>
@@ -22439,7 +22439,7 @@ CẤU TRÚC JSON:
             const userName = isLoggedIn ? (loggedInUser.full_name || loggedInUser.username) : '';
 
             container.innerHTML = `
-                <div id="mobile-actions-backdrop" onclick="closeMobileActionsModal(event)" class="fixed inset-0 z-[240] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-fade-in">
+                <div id="mobile-actions-backdrop" class="fixed inset-0 z-[240] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-fade-in">
                     <div onclick="event.stopPropagation()" class="bg-gradient-to-b from-slate-900 via-emerald-950 to-slate-900 border-2 border-amber-400/50 rounded-3xl shadow-2xl p-5 max-w-xs sm:max-w-sm w-full text-center relative overflow-hidden my-auto animate-modal-enter">
                         <!-- Background glow accent -->
                         <div class="absolute -top-20 -left-20 w-40 h-40 bg-amber-500/20 rounded-full blur-3xl pointer-events-none"></div>

@@ -85,7 +85,7 @@ export function connectDocumentLinks(){
  $('documents-audience-filter')?.addEventListener('change',render);
  $('documents-cancel')?.addEventListener('click',close);
  $('documents-cancel-top')?.addEventListener('click',close);
- $('documents-modal')?.addEventListener('click',e=>{if(e.target===$('documents-modal'))close();});
+ // Backdrop clicks intentionally do not close the form.
  const handleAction=e=>{
   const edit=e.target.closest('.documents-edit'),del=e.target.closest('.documents-delete');
   if(edit)modal(edit.dataset.id);
