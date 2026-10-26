@@ -7225,6 +7225,8 @@ if (contentType && contentType.includes("application/json")) {
                 examConfig.tg_bd = null;
                 examConfig.tg_kt = null;
             }
+            window._studentExamAccessCode='';
+            window._studentExamVerifiedId='';
             questions = []; // Xóa sạch danh sách câu hỏi trong bộ nhớ
             questionsLoaded = false;
             window.examAvailableCounts = null;
@@ -7576,7 +7578,9 @@ if (contentType && contentType.includes("application/json")) {
             const studentExam = document.getElementById('student-exam-name-filter')?.value;
             
             // Boolean checking if both filters are actually selected in the student UI
-            const hasStudentSelectedExam = !!(studentTeacher && studentExam);
+            const hasStudentSelectedExam = !!(studentTeacher && studentExam && examConfig?.id === studentExam &&
+                (examConfig.chedodethi !== 'Đề có mã bảo mật' || isAdminLoggedIn || isTeacherLoggedIn ||
+                 window._studentExamVerifiedId === studentExam));
 
             // 1. Áp dụng hiển thị text cơ bản nếu chưa chọn đề
             if (!hasStudentSelectedExam) {
