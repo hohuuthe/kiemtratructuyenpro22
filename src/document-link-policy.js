@@ -29,14 +29,25 @@ export function documentActorRole(user) {
   if (!user) return 'guest';
   const role = String(user.role || '').trim().toLowerCase();
   const audience = String(user.target_audience || '').trim().toLowerCase();
-  if (role === 'admin' || audience === 'quản trị viên' || audience === 'admin') return 'admin';
-  if (role === 'teacher' || role === 'giáo viên' || audience === 'giáo viên') return 'teacher';
-  if (role === 'student' || role === 'học sinh' || audience === 'học sinh') return 'student';
+  // Admin must be granted by the verified account role, never a profile audience.
+  if (role === 'admin') return 'admin';
+  if (role === 'teacher' || role === 'giáo viên') return 'teacher';
+  if (role === 'student' || role === 'học sinh') return 'student';
+  // Legacy accounts can have role=user with teacher/student classification in the profile.
+  if (role === 'user' || role === '') {
+    if (audience === 'giáo viên') return 'teacher';
+    if (audience === 'học sinh') return 'student';
+  }
   return 'guest';
 }
 export function documentOwnerId(user) {
   return user?.id ? String(user.id) : '';
 }
+// The server determines this flag for each document. Client-side buttons never grant rights.
+export function canEditDocumentRow(manage, row) {
+  return Boolean(manage && row && row.co_quyen_quan_ly === true);
+}
+
 export function canManageDocument(actor, document = null) {
   const role = documentActorRole(actor);
   if (role === 'admin') return true;
