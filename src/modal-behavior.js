@@ -45,6 +45,7 @@ export function isModalSurface(element) {
 function isDisplayed(element) {
   if (!isModalSurface(element) || !element.isConnected || element.hidden ||
       element.classList.contains('hidden') || element.getAttribute('aria-hidden') === 'true') return false;
+  if (element.closest('.hidden') && element.closest('.hidden') !== element) return false;
   const style = window.getComputedStyle(element);
   return style.display !== 'none' && style.visibility !== 'hidden' &&
     Number(style.opacity) !== 0 && element.getClientRects().length > 0;
@@ -89,7 +90,6 @@ export function installModalBehavior() {
     document.documentElement.classList.toggle('kttt-modal-open', locked);
     document.body.classList.toggle('kttt-modal-open', locked);
     if (next && next !== lastTop) {
-      if (next.getAttribute('aria-modal') !== 'true') next.setAttribute('aria-modal','true');
       focusInside(next);
     }
     lastTop = next;
@@ -160,7 +160,6 @@ export function installModalBehavior() {
   const observer = new MutationObserver(mutations => {
     if (mutations.some(m => {
       if (m.type === 'attributes') return m.target?.matches?.(MODAL_ROOTS);
-      if (matchesModal(m.target)) return true;
       return [...m.addedNodes, ...m.removedNodes].some(matchesModal);
     })) scheduleSync();
   });
