@@ -57,3 +57,15 @@ test('tab loads asynchronously and exposes same API on Express and Cloudflare Pa
  assert.match(cf,/listDocumentLinks/);
  assert.match(ui,/safeLink/);
 });
+
+test('student and teacher audience query uses SQL array overlap',async()=>{
+ calls.length=0;
+ await listDocumentLinks(db,{id:'s',role:'student'});
+ assert.match(calls[0].sql,/doi_tuong_truy_cap_nhieu && ARRAY/);
+ assert.deepEqual(calls[0].args,['public','authenticated','student']);
+ calls.length=0;
+ await createDocumentLink(db,actor,{...base,doi_tuong_truy_cap_nhieu:['student','teacher']},()=> 'multi-id');
+ const insert=calls.find(c=>c.sql.startsWith('INSERT'));
+ assert.match(insert.sql,/doi_tuong_truy_cap_nhieu/);
+ assert.equal(insert.args.at(-1),'{student,teacher}');
+});

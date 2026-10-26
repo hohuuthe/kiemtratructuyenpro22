@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {DOCUMENT_AUDIENCES,documentActorRole,canManageDocument,canViewDocument,normalizeDocumentLinkInput,DocumentLinkInputError} from '../src/document-link-policy.js';
+import {DOCUMENT_AUDIENCES,documentAudienceValues,documentActorRole,canManageDocument,canViewDocument,normalizeDocumentLinkInput,DocumentLinkInputError} from '../src/document-link-policy.js';
 import {DOCUMENT_LINK_SCHEMA_STATEMENTS,ensureDocumentLinkSchema} from '../src/document-links-schema.js';
 const admin={id:'a',role:'admin'};
 const teacher={id:'t',role:'teacher'};
@@ -59,4 +59,28 @@ test('Cloudflare API and tab are wired, ownership and time restrictions happen s
  assert.match(main,/resetDocumentLinks\(\)/);
  assert.match(index,/data-sidebar-tab="documents"/);
  assert.match(index,/id="tab-documents"/);
+});
+
+test('multi-audience access is union of selected roles with legacy compatibility',()=>{
+ const rowMulti={...row('teacher'),doi_tuong_truy_cap_nhieu:['teacher','student']};
+ assert.deepEqual(documentAudienceValues(rowMulti),['teacher','student']);
+ assert.equal(canViewDocument(student,rowMulti),true);
+ assert.equal(canViewDocument(teacher,rowMulti),true);
+ assert.equal(canViewDocument(null,rowMulti),false);
+ assert.deepEqual(documentAudienceValues(row('teacher')),['teacher']);
+ const input={tieu_de:'Tin học',duong_link:'https://example.com/file',doi_tuong_duoc_truy_cap:'teacher',doi_tuong_truy_cap_nhieu:['teacher','student'],thoi_gian_het_han:null,hoat_dong:true};
+ assert.deepEqual(normalizeDocumentLinkInput(input).doi_tuong_truy_cap_nhieu,['teacher','student']);
+ assert.throws(()=>normalizeDocumentLinkInput({...input,doi_tuong_truy_cap_nhieu:[]}),DocumentLinkInputError);
+ assert.throws(()=>normalizeDocumentLinkInput({...input,doi_tuong_truy_cap_nhieu:['teacher','evil']}),DocumentLinkInputError);
+ assert.throws(()=>normalizeDocumentLinkInput({...input,doi_tuong_truy_cap_nhieu:['student']}),DocumentLinkInputError);
+});
+test('responsive markup includes mobile cards, two metadata columns and multi-checkbox',()=>{
+ const html=readFileSync('public/components/tab-documents.html','utf8');
+ const ui=readFileSync('src/document-links-ui.js','utf8');
+ assert.match(html,/id="documents-mobile-list"/);
+ assert.match(html,/>Mô tả<\/th>/);
+ assert.match(html,/>Danh mục<\/th>/);
+ assert.match(html,/name="doi_tuong_truy_cap_nhieu"/);
+ assert.match(ui,/documents-mobile-list/);
+ assert.match(ui,/documents-audience-error/);
 });

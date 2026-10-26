@@ -16,14 +16,15 @@ export class DocumentLinkServiceError extends Error {
   }
 }
 const deny=(status,message)=>{throw new DocumentLinkServiceError(status,message);};
-const managementColumns='id,id_nguoi_tao,tieu_de,duong_link,doi_tuong_duoc_truy_cap,thoi_gian_het_han,hoat_dong,mo_ta,danh_muc,id_nguoi_cap_nhat,thoi_gian_tao,thoi_gian_cap_nhat';
-const readerColumns='id,tieu_de,duong_link,doi_tuong_duoc_truy_cap,thoi_gian_het_han,hoat_dong,mo_ta,danh_muc,thoi_gian_tao,thoi_gian_cap_nhat';
+const managementColumns='id,id_nguoi_tao,tieu_de,duong_link,doi_tuong_duoc_truy_cap,thoi_gian_het_han,hoat_dong,mo_ta,danh_muc,doi_tuong_truy_cap_nhieu,id_nguoi_cap_nhat,thoi_gian_tao,thoi_gian_cap_nhat';
+const readerColumns='id,tieu_de,duong_link,doi_tuong_duoc_truy_cap,doi_tuong_truy_cap_nhieu,thoi_gian_het_han,hoat_dong,mo_ta,danh_muc,thoi_gian_tao,thoi_gian_cap_nhat';
 const eligible={
   guest: ['public'],
   student: ['public','authenticated','student'],
   teacher: ['public','authenticated','teacher'],
   admin: ['public','authenticated','student','teacher','admin']
 };
+const postgresArray=values=>'{'+values.join(',')+'}';
 const cleanId=(id)=>{
   if(typeof id!=='string'||!id.trim()||id.length>100)deny(400,'Mã tài liệu không hợp lệ.');
   return id.trim();
@@ -48,7 +49,7 @@ export async function listDocumentLinks(db, actor, {manage=false}={}){
   } else {
     query+=' AND hoat_dong = 1 AND (thoi_gian_het_han IS NULL OR thoi_gian_het_han > CURRENT_TIMESTAMP)';
     const audiences=eligible[role]||eligible.guest;
-    query+=' AND doi_tuong_duoc_truy_cap IN ('+audiences.map(()=>'?').join(',')+')';
+    query+=' AND doi_tuong_truy_cap_nhieu && ARRAY['+audiences.map(()=>'?').join(',')+']::TEXT[]';
     params.push(...audiences);
   }
   query+=' ORDER BY thoi_gian_tao DESC NULLS LAST, id DESC LIMIT 2000';
@@ -61,8 +62,8 @@ export async function createDocumentLink(db,actor,payload,makeId=()=>crypto.rand
   const owner=documentOwnerId(actor);
   if(!owner)deny(401,'Phiên đăng nhập không hợp lệ.');
   const id=makeId();
-  const sql='INSERT INTO quan_ly_tai_lieu (id,id_nguoi_tao,tieu_de,duong_link,doi_tuong_duoc_truy_cap,thoi_gian_het_han,hoat_dong,mo_ta,danh_muc,id_nguoi_cap_nhat) VALUES (?,?,?,?,?,?,?,?,?,?)';
-  await db.run(sql,[id,owner,value.tieu_de,value.duong_link,value.doi_tuong_duoc_truy_cap,value.thoi_gian_het_han,value.hoat_dong,value.mo_ta,value.danh_muc,owner]);
+  const sql='INSERT INTO quan_ly_tai_lieu (id,id_nguoi_tao,tieu_de,duong_link,doi_tuong_duoc_truy_cap,thoi_gian_het_han,hoat_dong,mo_ta,danh_muc,id_nguoi_cap_nhat,doi_tuong_truy_cap_nhieu) VALUES (?,?,?,?,?,?,?,?,?,?,?::TEXT[])';
+  await db.run(sql,[id,owner,value.tieu_de,value.duong_link,value.doi_tuong_duoc_truy_cap,value.thoi_gian_het_han,value.hoat_dong,value.mo_ta,value.danh_muc,owner,postgresArray(value.doi_tuong_truy_cap_nhieu)]);
   return {id};
 }
 export async function updateDocumentLink(db,actor,payload){
@@ -76,9 +77,9 @@ export async function updateDocumentLink(db,actor,payload){
   const guard=isAdmin?'':' AND id_nguoi_tao = ?';
   const params=[value.tieu_de,value.duong_link,value.doi_tuong_duoc_truy_cap,
     value.thoi_gian_het_han,value.hoat_dong,value.mo_ta,value.danh_muc,
-    documentOwnerId(actor),id];
+    documentOwnerId(actor),postgresArray(value.doi_tuong_truy_cap_nhieu),id];
   if(!isAdmin)params.push(documentOwnerId(actor));
-  const sql='UPDATE quan_ly_tai_lieu SET tieu_de=?,duong_link=?,doi_tuong_duoc_truy_cap=?,thoi_gian_het_han=?,hoat_dong=?,mo_ta=?,danh_muc=?,id_nguoi_cap_nhat=? WHERE id=?'+guard;
+  const sql='UPDATE quan_ly_tai_lieu SET tieu_de=?,duong_link=?,doi_tuong_duoc_truy_cap=?,thoi_gian_het_han=?,hoat_dong=?,mo_ta=?,danh_muc=?,id_nguoi_cap_nhat=?,doi_tuong_truy_cap_nhieu=?::TEXT[] WHERE id=?'+guard;
   const changed=await db.run(sql,params);
   if(changed < 1)deny(409,'Tài liệu đã thay đổi. Hãy tải lại danh sách.');
   return {id};
