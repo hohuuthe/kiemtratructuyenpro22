@@ -1,4 +1,5 @@
 import {connectDocumentLinks,initDocumentLinks,resetDocumentLinks} from './document-links-ui.js';
+import { configureExamAccessCodeInput } from './exam-access-code-input.js';
 
 import 'katex/dist/katex.min.css';
 import { renderRoleHelp, attachRoleHelpInteractions, resetRoleHelpCache } from './help-center.js';
@@ -7800,7 +7801,7 @@ if (contentType && contentType.includes("application/json")) {
                         <div class="text-5xl mb-4">🔐</div>
                         <h3 class="text-xl font-bold text-gray-800 mb-2">Mã truy cập đề thi</h3>
                         <p class="text-gray-600 mb-5">Nhập đúng mật mã mới được xem đề thi và bắt đầu làm bài.</p>
-                        <input id="exam-password-input" type="password" autocomplete="off"
+                        <input id="exam-password-input" type="password" name="exam-access-challenge" autocomplete="one-time-code" autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore="true" data-form-type="other"
                           class="w-full border-2 rounded-xl p-3" placeholder="Nhập mật mã truy cập">
                         <p id="exam-password-error" class="min-h-6 mt-2 text-sm text-red-700" role="alert"></p>
                         <div class="mt-4 flex justify-center gap-3">
@@ -7809,6 +7810,7 @@ if (contentType && contentType.includes("application/json")) {
                         </div>
                     </div>`);
                 const input=document.getElementById('exam-password-input');
+                configureExamAccessCodeInput(input);
                 const confirm=document.getElementById('confirm-password-btn');
                 const error=document.getElementById('exam-password-error');
                 let busy=false;
