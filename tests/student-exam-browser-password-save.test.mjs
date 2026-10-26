@@ -30,8 +30,8 @@ test('unsupported masking never exposes an access code as plaintext', () => {
 test('exam challenge retains server verification and hides code from password managers', () => {
     const main = readFileSync('src/main.js', 'utf8');
     assert.match(main, /configureExamAccessCodeInput\(input\)/);
-    assert.match(main, /id="exam-password-input" type="password" name="exam-access-challenge" autocomplete="one-time-code"/);
-    assert.match(main, /data-lpignore="true" data-1p-ignore="true"/);
+    assert.match(main, /id="exam-password-input" type="text" name="exam-access-challenge" autocomplete="off"/);
+    assert.match(main, /style="-webkit-text-security: disc" data-lpignore="true" data-1p-ignore="true"/);
     assert.match(main, /'X-Exam-Access-Code':code/);
     assert.match(main, /if\(!response\.ok\|\|!result\.data\)/);
     assert.match(main, /confirm\.disabled=busy\|\|!input\.value\.trim\(\)/);
