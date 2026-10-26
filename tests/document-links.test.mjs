@@ -51,9 +51,10 @@ test('Cloudflare API and tab are wired, ownership and time restrictions happen s
  const main=readFileSync('src/main.js','utf8');
  const index=readFileSync('index.html','utf8');
  assert.match(api,/verifyAuthSession/);
- assert.match(api,/AND id_nguoi_tao = \?/);
- assert.match(api,/thoi_gian_het_han > \?/);
- assert.match(api,/canManageDocument\(user,existing\)/);
+ assert.match(api,/listDocumentLinks/);
+ assert.match(readFileSync('src/document-links-service.js','utf8'),/AND id_nguoi_tao = \?/);
+ assert.match(readFileSync('src/document-links-service.js','utf8'),/thoi_gian_het_han > CURRENT_TIMESTAMP/);
+ assert.match(readFileSync('src/document-links-service.js','utf8'),/canManageDocument\(actor,existing\)/);
  assert.match(main,/connectDocumentLinks\(\)/);
  assert.match(main,/resetDocumentLinks\(\)/);
  assert.match(index,/data-sidebar-tab="documents"/);
