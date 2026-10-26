@@ -54,6 +54,10 @@ export async function listDocumentLinks(db, actor, {manage=false}={}){
   }
   query+=' ORDER BY thoi_gian_tao DESC NULLS LAST, id DESC LIMIT 2000';
   const rows=await db.all(query,params);
+  if (manage) return (rows||[]).map(row=>({
+    ...row,
+    co_quyen_quan_ly: canManageDocument(actor,row)
+  }));
   return rows||[];
 }
 export async function createDocumentLink(db,actor,payload,makeId=()=>crypto.randomUUID()){
