@@ -1,5 +1,5 @@
 import { verifyAuthSession, getDynamicSecret, checkIsAdmin, checkIsTeacherOrAdmin, getDatabase } from './exam/utils';
-import { isExamOwner, redactExamForPublic } from './exam/security';
+import { isExamOwner, redactExamForPublic, examAccessChallenge, isProtectedExamForUser, protectedExamPreview } from './exam/security';
 import { canManageExamConfig, examConfigGuardedDeleteStatement } from '../../src/exam-config-deletion-policy';
 import { normalizeExamConfigInput, ExamConfigInputError } from '../../src/exam-config-contract';
 
@@ -12,7 +12,7 @@ interface Env {
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Exam-Access-Code',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
   'Content-Type': 'application/json',
   'Cache-Control': 'no-store'
@@ -95,6 +95,11 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
         return new Response(JSON.stringify({ data: null, error: "Không tìm thấy cấu hình đề thi" }), { status: 404, headers: corsHeaders });
       }
       const row: any = results[0];
+      const accessCode = request.headers.get('X-Exam-Access-Code');
+      const challenge = examAccessChallenge(user,row,accessCode);
+      if (challenge) return new Response(JSON.stringify({data:null,...challenge}), {
+        status:challenge.status,headers:corsHeaders
+      });
       const mapped = {
         ...(isExamOwner(user, row) ? mapRowRead(row) : redactExamForPublic(mapRowRead(row))),
         target_lop: row.target_lop || row.lop || '',
@@ -243,7 +248,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
 
     const allCreatorIds = [...new Set((mappedResults || []).map((row: any) => row.creator_id || row.creatorId).filter(Boolean))];
     return new Response(JSON.stringify({ 
-      data: filteredResults.map((row: any) => isExamOwner(user, row) ? row : redactExamForPublic(row)), 
+      data: filteredResults.map((row: any) => isProtectedExamForUser(user,row) ? protectedExamPreview(row) : isExamOwner(user, row) ? row : redactExamForPublic(row)), 
       allCreatorIds, 
       total: filteredResults.length,
       limit,
