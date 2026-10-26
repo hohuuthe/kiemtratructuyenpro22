@@ -7196,6 +7196,10 @@ if (contentType && contentType.includes("application/json")) {
         window._studentTeacherChangeSeq = 0;
         window.onStudentTeacherFilterChange = async function onStudentTeacherFilterChange() {
             const currentTeacherSeq = ++window._studentTeacherChangeSeq;
+            // Invalidate in-flight exam details and any earlier verified password.
+            ++window._studentExamChangeSeq;
+            window._studentExamAccessCode = '';
+            window._studentExamVerifiedId = '';
             console.log('onStudentTeacherFilterChange called, seq:', currentTeacherSeq);
             
             const elTeacher = document.getElementById('student-teacher-filter');
@@ -7474,7 +7478,8 @@ if (contentType && contentType.includes("application/json")) {
                     }
                     // The first detail request is a challenge for protected exams.
                     if (data.chedodethi === 'Đề có mã bảo mật' && !isAdminLoggedIn &&
-                        (!currentUser || String(currentUser.id) !== String(data.creator_id))) {
+                        (!currentUser || String(currentUser.id) !== String(data.creator_id)) &&
+                        window._studentExamVerifiedId !== selectedExamId) {
                         const code = await showExamPasswordModal(selectedExamId);
                         if (currentExamSeq !== window._studentExamChangeSeq) return;
                         if (!code) {
@@ -7812,7 +7817,20 @@ if (contentType && contentType.includes("application/json")) {
                 const closeButton=document.getElementById('modal-content')?.querySelector('button[title="Đóng"]');
                 if(closeButton)closeButton.onclick=cancel;
                 input.addEventListener('input',()=>{error.textContent='';confirm.disabled=busy||!input.value.trim();});
-                input.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();confirm.click();}});
+                input.addEventListener('keydown',event=>{
+                    if(event.key==='Enter'){
+                        event.preventDefault();
+                        if(!input.value.trim()){
+                            error.textContent='Vui lòng nhập mật mã truy cập đề thi.';
+                            input.focus();
+                            return;
+                        }
+                        confirm.click();
+                    }
+                });
+                input.addEventListener('blur',()=>{
+                    if(!input.value.trim())error.textContent='Vui lòng nhập mật mã truy cập đề thi.';
+                });
                 confirm.onclick=async()=>{
                     const code=input.value.trim();
                     if(!code){error.textContent='Vui lòng nhập mật mã truy cập đề thi.';input.focus();return;}
