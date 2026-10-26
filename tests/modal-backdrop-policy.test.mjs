@@ -34,17 +34,17 @@ test('core, account, user, import, document modals have no outside-close handler
     'public/components/tab-users.html'
   ]) {
     const html=read(file);
-    assert.doesNotMatch(html, /class="modal-overlay[^"]*"\\s+onclick=/);
+    assert.doesNotMatch(html, /class="modal-overlay[^"]*"\s+onclick=/);
   }
   assert.doesNotMatch(read('src/document-links-ui.js'),
-    /documents-modal'\\)\\?\\.addEventListener\\('click'[\\s\\S]*?\\bclose\\(\\)/);
+    /documents-modal'\)\?\.addEventListener\('click'[\s\S]*?\bclose\(\)/);
 });
 
 test('dynamic dialogs do not dismiss on outside clicks', () => {
   const main=read('src/main.js');
   assert.doesNotMatch(main, /<div class="modal-overlay absolute inset-0" onclick=/);
   assert.doesNotMatch(main, /<div class="absolute inset-0" onclick="closeSecondaryModal/);
-  assert.doesNotMatch(main, /if \\(bgOverlay\\) bgOverlay\\.onclick = closeZoomModal/);
+  assert.doesNotMatch(main, /if \(bgOverlay\) bgOverlay\.onclick = closeZoomModal/);
   assert.doesNotMatch(main, /id="qr-modal-backdrop" onclick=/);
   assert.doesNotMatch(main, /id="mobile-actions-backdrop" onclick=/);
 });
@@ -53,10 +53,10 @@ test('global modal guard loads and traps outside clicks, Escape and background s
   const index=read('index.html');
   const logic=read('src/modal-behavior.js');
   const css=read('src/style.css');
-  assert.match(index, /src\\/modal-behavior\\.js/);
+  assert.match(index, /src\/modal-behavior\.js/);
   assert.match(logic, /stopImmediatePropagation/);
-  assert.match(logic, /event\\.key === 'Escape'/);
+  assert.match(logic, /event\.key === 'Escape'/);
   assert.match(logic, /MutationObserver/);
-  assert.match(logic, /focusInside\\(top\\)/);
-  assert.match(css, /html\\.kttt-modal-open, body\\.kttt-modal-open/);
+  assert.match(logic, /focusInside\(top\)/);
+  assert.match(css, /html\.kttt-modal-open, body\.kttt-modal-open/);
 });
