@@ -53,7 +53,9 @@ export function initDocumentLinks(user){
 }
 let wired=false;
 export function connectDocumentLinks(){
- if(wired)return;wired=true;
+ if(wired)return;
+ if(!$('documents-form') || !$('documents-table-body'))return;
+ wired=true;
  $('documents-new')?.addEventListener('click',()=>modal());
  $('documents-reload')?.addEventListener('click',()=>load());
  $('documents-search')?.addEventListener('input',render);
