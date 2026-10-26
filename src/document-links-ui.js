@@ -23,7 +23,8 @@ function modal(id){
  if(!manage)return;
  const f=$('documents-form');f.reset();const found=list.find(x=>x.id===id);
  f.elements.namedItem('id').value=found?.id||'';
- for(const name of ['tieu_de','duong_link','doi_tuong_duoc_truy_cap'])if(found)f.elements.namedItem(name).value=found[name]||'';
+ for(const name of ['tieu_de','duong_link','doi_tuong_duoc_truy_cap','mo_ta','danh_muc'])if(found)f.elements.namedItem(name).value=found[name]||'';
+ if(!found)f.elements.namedItem('danh_muc').value='Chung';
  f.elements.namedItem('thoi_gian_het_han').value=expirationLocal(found?.thoi_gian_het_han);
  f.elements.namedItem('hoat_dong').checked=!found||active(found.hoat_dong);
  $('documents-modal-title').textContent=found?'Sửa liên kết tài liệu':'Thêm liên kết tài liệu';
@@ -73,7 +74,7 @@ export function connectDocumentLinks(){
   const f=e.currentTarget;
   const raw=f.elements.namedItem('thoi_gian_het_han').value;
   const expiration=raw?new Date(raw+':00+07:00').toISOString():null;
-  const value={id:f.elements.namedItem('id').value,tieu_de:f.elements.namedItem('tieu_de').value,duong_link:f.elements.namedItem('duong_link').value,doi_tuong_duoc_truy_cap:f.elements.namedItem('doi_tuong_duoc_truy_cap').value,thoi_gian_het_han:expiration,hoat_dong:f.elements.namedItem('hoat_dong').checked};
+  const value={id:f.elements.namedItem('id').value,tieu_de:f.elements.namedItem('tieu_de').value,mo_ta:f.elements.namedItem('mo_ta').value,danh_muc:f.elements.namedItem('danh_muc').value,duong_link:f.elements.namedItem('duong_link').value,doi_tuong_duoc_truy_cap:f.elements.namedItem('doi_tuong_duoc_truy_cap').value,thoi_gian_het_han:expiration,hoat_dong:f.elements.namedItem('hoat_dong').checked};
   const button=f.querySelector('[type=submit]');button.disabled=true;
   try{await request(value.id?'PUT':'POST','/api/documents',value);close();status('Đã lưu tài liệu thành công.');await load();}
   catch(err){status(err.message,true);}
