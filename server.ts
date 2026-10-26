@@ -1,3 +1,4 @@
+import {listDocumentLinks,createDocumentLink,updateDocumentLink,deleteDocumentLink,DocumentLinkServiceError} from './src/document-links-service.js';
 import { accountSessionMaterial, isAccountEnabled, isUnexpiredAccountToken } from './src/security-session';
 import { resolveTenantFromHostname } from './src/tenant-host-map';
 import crypto from 'crypto';
@@ -1854,6 +1855,40 @@ async function startServer() {
     }
   });
 
+  // --- QL Tài liệu: Express and Cloudflare share one authorization service ---
+  const documentDb = {
+    all: async(sql: string,params: any[]) => (await executeSqlQuery(sql,params)).results || [],
+    first: async(sql: string,params: any[]) => (await executeSqlQuery(sql,params)).results?.[0] || null,
+    run: async(sql: string,params: any[]) => Number((await executeSqlQuery(sql,params)).changes || 0)
+  };
+  async function documentActor(req: any) {
+    const header = req.headers.authorization || '';
+    if (!header) return null;
+    if (!header.startsWith('Bearer ')) throw new DocumentLinkServiceError(401,'Phiên đăng nhập không hợp lệ.');
+    const user = verifyJWTSync(header.slice(7), await getServerSecret());
+    if (!user) throw new DocumentLinkServiceError(401,'Phiên đăng nhập không hợp lệ.');
+    return user;
+  }
+  async function documentApiReply(req: any,res: any,action: (actor: any)=>Promise<any>,created=false) {
+    res.setHeader('Cache-Control','no-store');
+    try {
+      const actor = await documentActor(req);
+      const data = await action(actor);
+      return res.status(created?201:200).json({data,error:null});
+    } catch (e: any) {
+      return res.status(e instanceof DocumentLinkServiceError ? e.status : 500)
+        .json({error:e instanceof DocumentLinkServiceError ? e.message : 'Không thể xử lý tài liệu. Kiểm tra kết nối tới cơ sở dữ liệu Neon.'});
+    }
+  }
+  app.get('/api/documents',(req,res)=>documentApiReply(req,res,
+    actor=>listDocumentLinks(documentDb,actor,{manage:req.query.manage==='1'})));
+  app.post('/api/documents',(req,res)=>documentApiReply(req,res,
+    actor=>createDocumentLink(documentDb,actor,req.body),true));
+  app.put('/api/documents',(req,res)=>documentApiReply(req,res,
+    actor=>updateDocumentLink(documentDb,actor,req.body)));
+  app.delete('/api/documents',(req,res)=>documentApiReply(req,res,
+    actor=>deleteDocumentLink(documentDb,actor,String(req.query.id||''))));
+  
   // --- API /api/exams (Quản lý cấu hình đề thi) ---
   app.get("/api/exams", async (req, res) => {
     try {

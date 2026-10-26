@@ -1,3 +1,4 @@
+import {connectDocumentLinks,initDocumentLinks,resetDocumentLinks} from './document-links-ui.js';
 
 import 'katex/dist/katex.min.css';
 import { renderRoleHelp, attachRoleHelpInteractions, resetRoleHelpCache } from './help-center.js';
@@ -2210,6 +2211,8 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             updateThemeForRole();
             applyDoiTuongConfig();
             updateSidebarVisibility();
+            resetDocumentLinks();
+            window.__documentsTabRequested = false;
             resetRoleHelpCache();
             {
                 const helpRoot = document.getElementById('help-center-root');
@@ -2398,6 +2401,8 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 if (tab === 'exam') {
                     // TAB LÀM BÀI: Chỉ hiển thị cho Học sinh / Khách. TUYỆT ĐỐI KHÔNG hiển thị cho Giáo viên và Admin
                     visible = isStudentOrGuest;
+                } else if (tab === 'documents') {
+                    visible = true;
                 } else if (tab === 'help') {
                     // Trợ giúp: Hiển thị cho tất cả
                     visible = true;
@@ -4189,6 +4194,15 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
 
             const tabEl = document.getElementById(`tab-${tabName}`);
             if (tabEl) tabEl.classList.add('active');
+            if (tabName === 'documents') {
+                if (document.getElementById('documents-table-body')) {
+                    connectDocumentLinks();
+                    initDocumentLinks(currentUser);
+                } else {
+                    // Component may still be loading asynchronously.
+                    window.__documentsTabRequested = true;
+                }
+            }
             if (tabName === 'help') {
                 const helpRoot = document.getElementById('help-center-root');
                 attachRoleHelpInteractions(helpRoot);
@@ -22018,7 +22032,7 @@ CẤU TRÚC JSON:
 
             const components = [
                 'modal-container', 'tab-exam', 'tab-questions', 'tab-exams', 'tab-exam-editor',
-                'tab-teacher-assignment', 'tab-accounts', 'tab-users', 'tab-ranking', 'tab-settings', 'tab-help',
+                'tab-teacher-assignment', 'tab-accounts', 'tab-users', 'tab-ranking', 'tab-settings', 'tab-documents', 'tab-help',
                 'toast-container-center', 'toast-container-right', 'account-modal', 'user-modal'
             ];
             
@@ -22065,6 +22079,14 @@ CẤU TRÚC JSON:
 
             // Load all components in parallel for fast and reliable startup
             await Promise.all(components.map(comp => loadOne(comp)));
+            if (document.getElementById('documents-table-body')) {
+                connectDocumentLinks();
+                const documentsActive = document.getElementById('tab-documents')?.classList.contains('active');
+                if (documentsActive || window.__documentsTabRequested) {
+                    window.__documentsTabRequested = false;
+                    initDocumentLinks(currentUser);
+                }
+            }
 
             if (window.isAdminLoggedIn || window.isTeacherLoggedIn) {
                 document.getElementById('tab-exam')?.classList.remove('active');
