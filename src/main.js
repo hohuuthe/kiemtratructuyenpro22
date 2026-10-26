@@ -7375,6 +7375,7 @@ if (contentType && contentType.includes("application/json")) {
         window.onStudentExamNameChange = async function onStudentExamNameChange() {
             const currentExamSeq = ++window._studentExamChangeSeq;
             window._studentExamAccessCode = '';
+            window._studentExamVerifiedId = '';
             console.log('onStudentExamNameChange called, seq:', currentExamSeq);
             const elTeacher = document.getElementById('student-teacher-filter');
             const teacherId = elTeacher ? elTeacher.value : '';
@@ -7424,6 +7425,21 @@ if (contentType && contentType.includes("application/json")) {
                     if (detailRes.ok) {
                         const detailJson = await detailRes.json();
                         data = detailJson.data;
+                    } else if (detailRes.status === 403) {
+                        const detailJson = await detailRes.json().catch(() => ({}));
+                        if (detailJson.code === 'EXAM_ACCESS_CODE_REQUIRED') {
+                            const code = await showExamPasswordModal(selectedExamId);
+                            if (currentExamSeq !== window._studentExamChangeSeq) return;
+                            if (!code) { examSelect.value = ''; updateCurrentExamInfo(); return; }
+                            const verified = await fetch(`/api/exams?id=${encodeURIComponent(selectedExamId)}`, {
+                                headers: { ...(token ? { 'Authorization': 'Bearer ' + token } : {}), 'X-Exam-Access-Code': code }, cache:'no-store'
+                            });
+                            if (currentExamSeq !== window._studentExamChangeSeq) return;
+                            if (!verified.ok) throw Error('Không thể xác thực mã truy cập đề thi.');
+                            data = (await verified.json()).data;
+                            window._studentExamAccessCode = code;
+                            window._studentExamVerifiedId = selectedExamId;
+                        } else throw Error(detailJson.error || 'Không thể tải đề thi.');
                     }
                 } catch (apiErr) {
                     console.warn('API get exam config error:', apiErr);
@@ -7454,21 +7470,21 @@ if (contentType && contentType.includes("application/json")) {
                             return;
                         }
                     }
-                    // 2. Kiểm tra mã bảo mật SAU nếu thời gian hợp lệ
-                    if (data.chedodethi === 'Đề có mã bảo mật' && !isAdminLoggedIn && (!currentUser || currentUser.id !== data.creator_id)) {
-                        const code = await showExamPasswordModal();
+                    // The first detail request is a challenge for protected exams.
+                    if (data.chedodethi === 'Đề có mã bảo mật' && !isAdminLoggedIn &&
+                        (!currentUser || String(currentUser.id) !== String(data.creator_id))) {
+                        const code = await showExamPasswordModal(selectedExamId);
                         if (currentExamSeq !== window._studentExamChangeSeq) return;
-                        if (code === null) { // Người dùng hủy
-                            examSelect.value = ''; // Reset dropdown
+                        if (!code) {
+                            examSelect.value = '';
                             updateCurrentExamInfo();
                             return;
                         }
-                        // The backend verifies the code; never expose the correct code in GET.
                         window._studentExamAccessCode = code;
+                        window._studentExamVerifiedId = selectedExamId;
                     }
-                    
-                    if (currentExamSeq !== window._studentExamChangeSeq) return;
 
+                    if (currentExamSeq !== window._studentExamChangeSeq) return;
                     applyExamConfig(data);
                     
                     // LUỒNG MỚI BƯỚC 2: Chỉ đếm số lượng câu hỏi trên Server, KHÔNG TẢI NỘI DUNG CÂU HỎI VỀ
@@ -7768,44 +7784,51 @@ if (contentType && contentType.includes("application/json")) {
         }
 
         // ==================== EXAM TAB ====================
-        function showExamPasswordModal() {
-            return new Promise((resolve) => {
-                const modalContent = `
-                    <div class="p-8 text-center max-w-md mx-auto">
+        function showExamPasswordModal(examId) {
+            return new Promise(resolve => {
+                showModal(`
+                    <div class="p-6 sm:p-8 text-center max-w-md mx-auto">
                         <div class="text-5xl mb-4">🔐</div>
-                        <h3 class="text-2xl font-bold text-gray-800 mb-2">Mã bảo mật đề thi</h3>
-                        <p class="text-gray-600 mb-6">Đề thi này được bảo mật. Vui lòng nhập mã để tiếp tục.</p>
-                        
-                        <div class="space-y-4 text-left">
-                            <div class="relative">
-                                <input type="text" id="exam-password-input" style="-webkit-text-security: disc;" placeholder="Nhập mã bảo mật" autocomplete="off" data-lpignore="true" class="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-purple-500 focus:outline-none text-lg pr-12" onkeypress="if(event.key==='Enter') document.getElementById('confirm-password-btn').click()">
-                                <button type="button" onclick="togglePasswordVisibility('exam-password-input', this)" class="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-500 hover:text-gray-700">
-                                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
-                                </button>
-                            </div>
+                        <h3 class="text-xl font-bold text-gray-800 mb-2">Mã truy cập đề thi</h3>
+                        <p class="text-gray-600 mb-5">Nhập đúng mật mã mới được xem đề thi và bắt đầu làm bài.</p>
+                        <input id="exam-password-input" type="password" autocomplete="off"
+                          class="w-full border-2 rounded-xl p-3" placeholder="Nhập mật mã truy cập">
+                        <p id="exam-password-error" class="min-h-6 mt-2 text-sm text-red-700" role="alert"></p>
+                        <div class="mt-4 flex justify-center gap-3">
+                            <button type="button" id="cancel-password-btn" class="rounded-xl bg-gray-200 px-5 py-2 font-bold">Hủy</button>
+                            <button type="button" id="confirm-password-btn" disabled class="rounded-xl bg-purple-600 text-white px-5 py-2 font-bold disabled:opacity-50 disabled:cursor-not-allowed">Xác nhận</button>
                         </div>
-                        
-                        <div class="mt-6 flex justify-center gap-4">
-                            <button id="cancel-password-btn" class="px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition font-semibold">Hủy</button>
-                            <button id="confirm-password-btn" class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition font-semibold">Xác nhận</button>
-                        </div>
-                    </div>
-                `;
-                showModal(modalContent);
-                
-                document.getElementById('cancel-password-btn').onclick = () => {
-                    closeModal();
-                    resolve(null);
+                    </div>`);
+                const input=document.getElementById('exam-password-input');
+                const confirm=document.getElementById('confirm-password-btn');
+                const error=document.getElementById('exam-password-error');
+                let busy=false;
+                const cancel=()=>{if(busy)return;closeModal();resolve(null);};
+                document.getElementById('cancel-password-btn').onclick=cancel;
+                const closeButton=document.getElementById('modal-content')?.querySelector('button[title="Đóng"]');
+                if(closeButton)closeButton.onclick=cancel;
+                input.addEventListener('input',()=>{error.textContent='';confirm.disabled=busy||!input.value.trim();});
+                input.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();confirm.click();}});
+                confirm.onclick=async()=>{
+                    const code=input.value.trim();
+                    if(!code){error.textContent='Vui lòng nhập mật mã truy cập đề thi.';input.focus();return;}
+                    if(busy)return;
+                    busy=true;confirm.disabled=true;
+                    try{
+                        const token=localStorage.getItem('auth_token')||'';
+                        const response=await fetch(`/api/exams?id=${encodeURIComponent(examId)}`,{
+                            headers:{...(token?{'Authorization':'Bearer '+token}:{}),'X-Exam-Access-Code':code},cache:'no-store'
+                        });
+                        const result=await response.json().catch(()=>({}));
+                        if(!response.ok||!result.data){
+                            error.textContent=result.error||'Mật mã truy cập đề thi không đúng.';
+                            return;
+                        }
+                        closeModal();resolve(code);
+                    }catch(e){error.textContent='Không thể xác thực mật mã. Vui lòng thử lại.';}
+                    finally{busy=false;confirm.disabled=!input.value.trim();}
                 };
-                
-                document.getElementById('confirm-password-btn').onclick = () => {
-                    const password = document.getElementById('exam-password-input')?.value || '';
-                    closeModal();
-                    resolve(password);
-                };
-                
-                // Focus input
-                setTimeout(() => document.getElementById('exam-password-input').focus(), 100);
+                input.focus();
             });
         }
 
@@ -7888,6 +7911,11 @@ if (contentType && contentType.includes("application/json")) {
                     showToast('Vui lòng chọn bộ câu hỏi hoặc đề thi!', 'error');
                     document.getElementById('student-exam-name-filter')?.focus();
                     return;
+                }
+
+                if (window._studentExamVerifiedId !== selectedExamId &&
+                    examConfig?.chedodethi === 'Đề có mã bảo mật' && !isAdminLoggedIn && !isTeacherLoggedIn) {
+                    showToast('Vui lòng nhập đúng mật mã truy cập đề thi trước.', 'error');return;
                 }
 
                 // Luôn mở toàn màn hình ngay khi bấm Bắt đầu làm bài (User Gesture hợp lệ)
