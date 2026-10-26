@@ -21,6 +21,6 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci --no-audit --no-fund
-      - run: node --test tests/document-links.test.mjs
+      - run: node --test tests/document-links.test.mjs tests/document-links-service.test.mjs
       - run: npm run lint
       - run: npm run build
