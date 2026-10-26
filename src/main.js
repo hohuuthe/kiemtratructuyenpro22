@@ -2212,6 +2212,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             applyDoiTuongConfig();
             updateSidebarVisibility();
             resetDocumentLinks();
+            window.__documentsTabRequested = false;
             resetRoleHelpCache();
             {
                 const helpRoot = document.getElementById('help-center-root');
@@ -4194,8 +4195,13 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
             const tabEl = document.getElementById(`tab-${tabName}`);
             if (tabEl) tabEl.classList.add('active');
             if (tabName === 'documents') {
-                connectDocumentLinks();
-                initDocumentLinks(currentUser);
+                if (document.getElementById('documents-table-body')) {
+                    connectDocumentLinks();
+                    initDocumentLinks(currentUser);
+                } else {
+                    // Component may still be loading asynchronously.
+                    window.__documentsTabRequested = true;
+                }
             }
             if (tabName === 'help') {
                 const helpRoot = document.getElementById('help-center-root');
@@ -22073,6 +22079,14 @@ CẤU TRÚC JSON:
 
             // Load all components in parallel for fast and reliable startup
             await Promise.all(components.map(comp => loadOne(comp)));
+            if (document.getElementById('documents-table-body')) {
+                connectDocumentLinks();
+                const documentsActive = document.getElementById('tab-documents')?.classList.contains('active');
+                if (documentsActive || window.__documentsTabRequested) {
+                    window.__documentsTabRequested = false;
+                    initDocumentLinks(currentUser);
+                }
+            }
 
             if (window.isAdminLoggedIn || window.isTeacherLoggedIn) {
                 document.getElementById('tab-exam')?.classList.remove('active');
