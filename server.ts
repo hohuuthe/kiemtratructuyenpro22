@@ -1,3 +1,4 @@
+import {isExamOwner,redactExamForPublic,examAccessChallenge,isProtectedExamForUser,protectedExamPreview,accessCodeMatches} from './functions/api/exam/security';
 import {listDocumentLinks,createDocumentLink,updateDocumentLink,deleteDocumentLink,DocumentLinkServiceError} from './src/document-links-service.js';
 import { accountSessionMaterial, isAccountEnabled, isUnexpiredAccountToken } from './src/security-session';
 import { resolveTenantFromHostname } from './src/tenant-host-map';
@@ -1928,7 +1929,9 @@ async function startServer() {
           return res.status(404).json({ data: null, error: "Không tìm thấy cấu hình đề thi" });
         }
         const row: any = results[0];
-        const mapped = mapRowRead(row);
+        const challenge=examAccessChallenge(user,row,req.header('X-Exam-Access-Code'));
+        if(challenge)return res.status(challenge.status).json({data:null,...challenge});
+        const mapped = isExamOwner(user,row)?mapRowRead(row):redactExamForPublic(mapRowRead(row));
         mapped.is_shared_results = row.is_shared_results === 1 || row.is_shared_results === true || row.is_shared_results === 'true';
         return res.json({ data: mapped, error: null });
       }
@@ -1943,7 +1946,7 @@ async function startServer() {
         if (!isShared && !isAdmin) {
           return res.status(403).json({ data: null, error: "Đề thi này không được phép chia sẻ kết quả" });
         }
-        const mapped = mapRowRead(row);
+        const mapped = isExamOwner(user,row)?mapRowRead(row):redactExamForPublic(mapRowRead(row));
         mapped.is_shared_results = isShared;
         return res.json({ data: mapped, error: null });
       }
@@ -2070,7 +2073,8 @@ async function startServer() {
 
       const allCreatorIds = [...new Set((mappedResults || []).map((row: any) => row.creator_id || row.creatorId).filter(Boolean))];
       return res.json({ 
-        data: filteredResults, 
+        data: filteredResults.map((row:any)=>isProtectedExamForUser(user,row)?
+          protectedExamPreview(row):isExamOwner(user,row)?row:redactExamForPublic(row)),
         allCreatorIds, 
         total: filteredResults.length,
         limit,
@@ -4109,7 +4113,7 @@ async function getServerSecret(): Promise<string> {
 
   app.post("/api/exam/generate", async (req, res) => {
       try {
-          const { teacherId, examId, examName, examConfig } = req.body;
+          const { teacherId, examId, examName, examConfig, examAccessCode } = req.body;
           if (!teacherId) {
               return res.status(400).json({ error: 'Thiếu thông tin giáo viên (teacherId)' });
           }
@@ -4254,11 +4258,17 @@ async function getServerSecret(): Promise<string> {
               } catch(e) {}
           }
           const isAdmin = tokenUser && tokenUser.role === 'admin';
-          const isTeacher = tokenUser && (tokenUser.target_audience === 'Giáo viên' || tokenUser.role === 'teacher' || String(tokenUser.id) === String(activeExamConfig.creator_id || effectiveTeacherId));
+          const isTeacher = !!tokenUser && ['teacher','giáo viên'].includes(String(tokenUser.role||'').toLowerCase()) &&
+            [String(tokenUser.id||''),String(tokenUser.user_id||'')].includes(String(dbExam?.creator_id||''));
 
           // BẢO VỆ CHỐNG LÀM GIẢ: Thí sinh chỉ được làm đề đã lưu trong CSDL, không được tự chế examConfig
           if (!dbExam && !isAdmin && !isTeacher) {
               return res.status(404).json({ error: 'Đề thi không tồn tại hoặc chưa được lưu trên hệ thống!' });
+          }
+
+          if(dbExam?.chedodethi === 'Đề có mã bảo mật' && !isAdmin && !isTeacher &&
+             !accessCodeMatches(examAccessCode,dbExam.mabaomatdethi)){
+              return res.status(403).json({error:'Mật mã truy cập đề thi không đúng hoặc chưa được nhập.'});
           }
 
           // KIỂM TRA QUYỀN TRUY CẬP ĐỐI VỚI ĐỀ THI CHO ĐƠN VỊ
