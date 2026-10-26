@@ -86,6 +86,8 @@ export function normalizeDocumentLinkInput(input) {
     throw new DocumentLinkInputError('Trạng thái hoạt động phải là bật hoặc tắt.');
   }
   return {
+    mo_ta: String(input.mo_ta ?? '').trim().slice(0,4000),
+    danh_muc: String(input.danh_muc ?? 'Chung').trim().slice(0,100) || 'Chung',
     tieu_de:title, duong_link:url.href,
     doi_tuong_duoc_truy_cap:audience, thoi_gian_het_han:expires,
     hoat_dong:active === true || active === 1 ? 1 : 0
