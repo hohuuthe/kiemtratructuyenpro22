@@ -69,3 +69,22 @@ test('student and teacher audience query uses SQL array overlap',async()=>{
  assert.match(insert.sql,/doi_tuong_truy_cap_nhieu/);
  assert.equal(insert.args.at(-1),'{student,teacher}');
 });
+
+test('admin gets full management and teacher is limited to own document',async()=>{
+ const otherDb={...db,
+  async all(sql,args){return [
+   {...base,id:'mine',id_nguoi_tao:'teacher-A'},
+   {...base,id:'other',id_nguoi_tao:'teacher-B'}
+  ];},
+  async first(sql,args){return {id:args[0],id_nguoi_tao:'teacher-B'};}
+ };
+ const admin={id:'administrator',role:'admin'};
+ const adminRows=await listDocumentLinks(otherDb,admin,{manage:true});
+ assert.deepEqual(adminRows.map(r=>r.co_quyen_quan_ly),[true,true]);
+ const teacherRows=await listDocumentLinks(otherDb,actor,{manage:true});
+ assert.deepEqual(teacherRows.map(r=>r.co_quyen_quan_ly),[true,false]);
+ await assert.rejects(()=>updateDocumentLink(otherDb,actor,base),{status:403});
+ await assert.rejects(()=>deleteDocumentLink(otherDb,actor,base.id),{status:403});
+ await updateDocumentLink(otherDb,admin,base);
+ await deleteDocumentLink(otherDb,admin,base.id);
+});
