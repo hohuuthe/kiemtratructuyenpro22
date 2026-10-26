@@ -17,7 +17,7 @@ export class DocumentLinkServiceError extends Error {
 }
 const deny=(status,message)=>{throw new DocumentLinkServiceError(status,message);};
 const managementColumns='id,id_nguoi_tao,tieu_de,duong_link,doi_tuong_duoc_truy_cap,thoi_gian_het_han,hoat_dong,mo_ta,danh_muc,doi_tuong_truy_cap_nhieu,id_nguoi_cap_nhat,thoi_gian_tao,thoi_gian_cap_nhat';
-const readerColumns='id,tieu_de,duong_link,doi_tuong_duoc_truy_cap,thoi_gian_het_han,hoat_dong,mo_ta,danh_muc,thoi_gian_tao,thoi_gian_cap_nhat';
+const readerColumns='id,tieu_de,duong_link,doi_tuong_duoc_truy_cap,doi_tuong_truy_cap_nhieu,thoi_gian_het_han,hoat_dong,mo_ta,danh_muc,thoi_gian_tao,thoi_gian_cap_nhat';
 const eligible={
   guest: ['public'],
   student: ['public','authenticated','student'],
