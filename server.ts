@@ -4625,6 +4625,7 @@ async function getServerSecret(): Promise<string> {
               examConfig: activeExamConfig,
               maxCheatWarnings: maxCheatWarningsFromDB,
               teacherId: effectiveTeacherId,
+              studentUserId: tokenUser?.user_id || tokenUser?.id || null,
               timestamp: Date.now()
           };
 
