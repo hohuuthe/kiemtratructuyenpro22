@@ -90,3 +90,12 @@ test('bounded worker budget is not by itself a permanent manual grading failure'
   const code=readFileSync('src/essay-grading-pipeline.js','utf8');
   assert.match(code,/errorCode !== 'GRADING_BUDGET'/);
 });
+
+test('student-triggered retry cannot bypass live show_score',()=>{
+  const pages=readFileSync('functions/api/exam/retry-essay.ts','utf8');
+  const express=readFileSync('server.ts','utf8');
+  assert.match(pages,/const publicSummary=/);
+  assert.match(pages,/e\.show_score/);
+  assert.match(express,/const safeRetry=/);
+  assert.match(express,/permittedScore/);
+});
