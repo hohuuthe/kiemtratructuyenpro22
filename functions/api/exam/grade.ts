@@ -156,30 +156,26 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         const pSQ = getNum(examConfig.pointsSQ ?? examConfig.points_sq, 1);
         const pTL = getNum(examConfig.pointsTL ?? examConfig.points_tl, 1);
 
-        // Fetch Exam Config từ CSDL để lấy AI Grading Key nếu có
+        // Always resolve grading secrets from the server-side, verified exam session.
+        // Never trust a client-supplied examId or name to choose another exam's secret.
         let aiKey = '';
         try {
-            if (studentInfo.examId) {
-                const { results } = await db.prepare('SELECT ai_grading_key FROM exam_configs WHERE id = ?').bind(studentInfo.examId).all();
-                if (results && results.length > 0 && results[0].ai_grading_key) {
-                    aiKey = String(results[0].ai_grading_key);
-                }
+            const verifiedExamId = String(examConfig.id || '').trim();
+            if (verifiedExamId) {
+                const row: any = await db.prepare(
+                    'SELECT ai_grading_key FROM exam_configs WHERE id = ? AND creator_id = ? LIMIT 1'
+                ).bind(verifiedExamId, String(teacherId || '')).first();
+                if (row && row.ai_grading_key) aiKey = String(row.ai_grading_key).trim();
             }
-            if (!aiKey && (studentInfo.examName || examConfig.name)) {
-                const searchName = studentInfo.examName || examConfig.name;
-                const { results } = await db.prepare('SELECT ai_grading_key FROM exam_configs WHERE name = ?').bind(searchName).all();
-                if (results && results.length > 0 && results[0].ai_grading_key) {
-                    aiKey = String(results[0].ai_grading_key);
-                }
-            }
+            // No fallback by exam name: names are not unique across teachers.
             if (!aiKey) {
-                const { results } = await db.prepare('SELECT ai_grading_key FROM app_settings WHERE id = 1').all();
-                if (results && results.length > 0 && results[0].ai_grading_key) {
-                    aiKey = String(results[0].ai_grading_key);
-                }
+                const row: any = await db.prepare(
+                    'SELECT ai_grading_key FROM app_settings WHERE id = 1'
+                ).first();
+                if (row && row.ai_grading_key) aiKey = String(row.ai_grading_key).trim();
             }
-        } catch (e) {
-            console.error('Error fetching aiKey', e);
+        } catch (error) {
+            console.error('Failed to resolve essay grading key from verified exam');
         }
 
         // 2. Truy xuất câu hỏi gốc từ DB chính xác 100% bằng questionIds
@@ -334,8 +330,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         });
 
         // AI Grading for TL (Tự luận) - Hỗ trợ danh sách nhiều key cách nhau bằng dấu cách, tự động chuyển key khi hết hạn mức
-        const isAutoGradeEssay = examConfig.autoGradeEssay !== false && examConfig.auto_grade_essay !== false;
-        const rawAiKeys = (aiKey || '').trim().split(/\s+/).filter((k: string) => k.length > 5 && !k.includes("••••••••") && !k.includes("YOUR_"));
+        const gradeFlag = (value: any) => value === true || value === 1 || value === '1' || value === 'true';
+        const isAutoGradeEssay = gradeFlag(examConfig.autoGradeEssay ?? examConfig.auto_grade_essay);
+        const rawAiKeys = [...new Set((aiKey || '').trim().split(/\s+/).filter((k: string) => k.length > 5 && !k.includes("••••••••") && !k.includes("YOUR_")))];
 
         if (isAutoGradeEssay && rawAiKeys.length > 0 && tlQuestionsToGrade.length > 0) {
             let currentKeyIdx = 0;
@@ -404,14 +401,16 @@ YÊU CẦU:
                                 })
                             });
 
+                            const responseJson: any = await res.json().catch(() => ({}));
                             if (res.ok) {
-                                const json: any = await res.json();
-                                const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
-                                if (text) {
-                                    const parsed = JSON.parse(text);
-                                    const essayScore = Math.max(0, Math.min(pTL, Number(parsed.score) || 0));
+                                const responseText = responseJson.candidates?.[0]?.content?.parts?.[0]?.text;
+                                if (responseText) {
+                                    const parsed = JSON.parse(responseText);
+                                    const value = Number(parsed.score);
+                                    if (!Number.isFinite(value)) throw new Error('AI không trả về điểm hợp lệ.');
+                                    const essayScore = Math.max(0, Math.min(pTL, value));
                                     d.score = essayScore;
-                                    d.aiFeedback = parsed.feedback || '';
+                                    d.aiFeedback = String(parsed.feedback || '');
                                     d.gradingStatus = 'completed';
                                     rawEarnedScore += essayScore;
                                     gradedSuccessfully = true;
@@ -419,7 +418,7 @@ YÊU CẦU:
                                 }
                             }
 
-                            const errJson = await res.json().catch(() => ({})) as any;
+                            const errJson = responseJson as any;
                             const errMsg = (errJson.error?.message || '').toLowerCase();
                             // Nếu key bị hết hạn mức, quá quota, không hợp lệ hoặc hết hạn => đánh dấu cần đổi key
                             if (res.status === 429 || res.status === 403 || res.status === 401 ||
