@@ -80,3 +80,13 @@ test('manual overrides keep original stored question and invalidate AI lease',()
     assert.match(code,/d\.gradingStatus='completed'/);
   }
 });
+
+test('scheduled recovery also scans expired processing leases',()=>{
+  const code=readFileSync('functions/api/exam/retry-pending.ts','utf8');
+  assert.match(code,/grading_status = 'processing'/);
+  assert.match(code,/grading_lease_until IS NULL OR grading_lease_until < \?/);
+});
+test('bounded worker budget is not by itself a permanent manual grading failure',()=>{
+  const code=readFileSync('src/essay-grading-pipeline.js','utf8');
+  assert.match(code,/errorCode !== 'GRADING_BUDGET'/);
+});
