@@ -76,3 +76,22 @@ test('backend integrates durable submit and lease-safe final updates',()=>{
   assert.match(manual,/grading_lease_token = NULL/);
   assert.match(ui,/gradingInProgress/);
 });
+
+test('remote or invalid image attachments must not be graded using partial answers', async () => {
+  for (const image of ['https://example.org/student.png', 'data:image/png;base64,not valid']) {
+    let requests = 0;
+    const response = await gradeEssayWithKeyPool({
+      detail:{...base, userAnswer:{text:'My response',image},maxScore:2},
+      keys:['AIza-111111'], models:['gemini-2.5-flash'],
+      fetchImpl: async()=>{ requests++; return success(2); }
+    });
+    assert.equal(response.ok,false);
+    assert.equal(response.code,'UNSUPPORTED_ESSAY_IMAGE');
+    assert.equal(requests,0);
+  }
+});
+test('image_url alias is considered a submitted answer',()=>{
+  const details=prepareEssayDetails([{...base,userAnswer:{image_url:'https://example.org/submitted.png'}}],true,2);
+  assert.equal(details[0].gradingStatus,'pending');
+  assert.equal(details[0].score,null);
+});
