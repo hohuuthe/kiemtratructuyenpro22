@@ -3264,7 +3264,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                             studentClass: r.student_class, 
                             lop: lop,
                             donvi: donvi,
-                            score: r.score == null ? null : parseFloat(r.score), 
+                            score: r.score == null ? null : parseFloat(r.score), gradingStatus: r.grading_status || 'completed', 
                             correctCount: r.correct_count, 
                             totalQuestions: r.total_questions, 
                             timeTaken: r.time_taken, 
@@ -3275,6 +3275,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                             timestamp: r.created_at, 
                             loaiThiSinh: r.loai_thi_sinh, 
                             cheatWarningCount: Number(r.cheat_warning_count ?? r.cheatWarningCount ?? 0) || 0,
+                            gradingStatus: r.grading_status || 'completed',
                             aiGradingSummary: r.ai_grading_summary
                         };
                     });
@@ -16164,6 +16165,28 @@ CẤU TRÚC JSON:
             updateRankingSelection();
         }
 
+        window.retryEssayFromTeacher = async function retryEssayFromTeacher(resultId) {
+            if (!(isAdminLoggedIn || isTeacherLoggedIn)) return;
+            const token=localStorage.getItem('auth_token') || '';
+            if (!token) { showToast('Phiên đăng nhập đã hết hạn.', 'error'); return; }
+            try {
+                showToast('Đang yêu cầu AI tiếp tục chấm những câu tự luận còn chờ...', 'info');
+                const response=await fetch('/api/exam/retry-essay',{
+                    method:'POST', headers:{'Content-Type':'application/json',
+                        'Authorization':'Bearer '+token},
+                    body:JSON.stringify({resultId})
+                });
+                const body=await response.json();
+                if(!response.ok) throw new Error(body.error||'Không thể tiếp tục chấm AI.');
+                const status=body.data?.gradingStatus || 'retry_pending';
+                showToast(status==='completed' ? 'Đã chấm xong. Đang tải lại điểm chính thức.' :
+                    'Bài làm vẫn đang chờ. Hệ thống sẽ thử lại khi có Key hoạt động.', status==='completed'?'success':'warning');
+                await loadAllResults(true,0,true);
+                closeModal();
+                if(status==='completed') await showExamDetail(resultId);
+            } catch(e) { showToast(e.message||'Không thể chấm lại.', 'error'); }
+        };
+
         window.showExamDetail = async function showExamDetail(resultId) {
             const result = results.find(r => r.id === resultId);
             if (!result) {
@@ -16430,7 +16453,7 @@ CẤU TRÚC JSON:
                     
                     <div class="grid grid-cols-3 gap-2 mb-3 text-center">
                         <div class="p-2 bg-blue-50 rounded-lg shadow-sm border border-blue-100/50">
-                            <p id="total-score-val-${resultId}" class="text-xl sm:text-2xl font-black text-blue-600">${(Number(result.score) || 0).toFixed(1)}</p>
+                            <p id="total-score-val-${resultId}" class="text-xl sm:text-2xl font-black text-blue-600">${result.gradingStatus && result.gradingStatus !== 'completed' ? 'Chờ chấm' : (Number(result.score)||0).toFixed(1)}</p>
                             <p class="text-[10px] text-gray-500 uppercase font-bold tracking-wider mt-1">Điểm</p>
                             <p class="text-[10px] text-blue-700 mt-1 font-bold">Làm: ${result.answeredQuestionsCount || 0}/${result.totalQuestions}</p>
                         </div>
@@ -16453,6 +16476,9 @@ CẤU TRÚC JSON:
 
                     <div class="mt-6 flex flex-wrap justify-center gap-3 pb-4">
                         ${isExamCreator ? `<button onclick="saveManualGrades('${resultId}')" class="px-5 sm:px-6 py-2 bg-gradient-to-r from-green-600 to-emerald-600 text-white font-bold rounded-lg hover:from-green-700 hover:to-emerald-700 transition shadow-md text-sm sm:text-base">💾 Lưu điểm</button>` : ''}
+                        ${(isExamCreator || isAdminLoggedIn) && result.gradingStatus && result.gradingStatus !== 'completed'
+                          ? `<button onclick="retryEssayFromTeacher('${resultId}')" class="px-5 sm:px-6 py-2 rounded-lg bg-purple-600 text-white font-bold hover:bg-purple-700">🤖 Thử chấm AI lại</button>`
+                          : ''}
                         <button onclick="closeModal()" class="px-5 sm:px-6 py-2 bg-gray-500 text-white font-bold rounded-lg hover:bg-gray-600 transition shadow-md text-sm sm:text-base">Đóng</button>
                     </div>
                 </div>
