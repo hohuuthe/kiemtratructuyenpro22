@@ -64,3 +64,19 @@ test('results endpoint disallows unrelated teachers by exact exam ID',()=>{
   assert.match(code,/Đề thi không thuộc quyền của giáo viên/);
   assert.match(code,/const stored = Array.isArray\(original.details\)/);
 });
+
+test('admin must retain access while guest detail/roster is blocked in both runtimes',()=>{
+  const pages=readFileSync('functions/api/results.ts','utf8');
+  const express=readFileSync('server.ts','utf8');
+  assert.match(pages,/\}\s*else if \(!isAdmin\)\s*\{/);
+  assert.match(pages,/Danh sách kết quả chi tiết yêu cầu quyền giáo viên/);
+  assert.match(express,/Chỉ giáo viên hoặc quản trị viên được xem danh sách bài thi/);
+});
+test('manual overrides keep original stored question and invalidate AI lease',()=>{
+  for(const path of ['functions/api/results.ts','server.ts']){
+    const code=readFileSync(path,'utf8');
+    assert.match(code,/grading_lease_token = NULL, grading_lease_until = NULL/);
+    assert.match(code,/SELECT details FROM results WHERE id = \?/);
+    assert.match(code,/d\.gradingStatus='completed'/);
+  }
+});
