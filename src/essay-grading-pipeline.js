@@ -16,7 +16,7 @@ export function hasEssayAnswer(answer) {
   if (typeof answer === 'string') return answer.trim().length > 0;
   if (!answer || typeof answer !== 'object') return false;
   return String(answer.text || '').trim().length > 0 ||
-    String(answer.image || answer.imageUrl || '').trim().length > 0;
+    String(answer.image || answer.imageUrl || answer.image_url || '').trim().length > 0;
 }
 
 export function prepareEssayDetails(details, autoGrade, maxScore) {
@@ -117,15 +117,21 @@ function buildEssayParts(detail) {
   for (const [label, raw] of [
     ['Ảnh câu hỏi', detail.question?.image],
     ['Ảnh hướng dẫn chấm', detail.question?.options?.answerImage],
-    ['Ảnh bài làm', answer.image || answer.imageUrl]
+    ['Ảnh bài làm', answer.image || answer.imageUrl || answer.image_url]
   ]) {
-    const image = imagePart(raw);
-    if (image) parts.push({ text: label }, image);
+    // Never send only part of a student's work to an AI grader: an invalid,
+    // remote or oversized attachment requires human review instead.
+    if (raw) {
+      const image = imagePart(raw);
+      if (!image) return null;
+      parts.push({ text: label }, image);
+    }
   }
   return parts;
 }
 
 const DEFAULT_MODELS = ['gemini-2.5-flash', 'gemini-2.5-flash-lite'];
+export const MAX_ESSAY_GRADING_ATTEMPTS = 6;
 export async function gradeEssayWithKeyPool({
   detail, keys, fetchImpl = fetch, now = () => Date.now(),
   deadline = Date.now() + 22_000, perCallMs = 6_000,
@@ -135,8 +141,10 @@ export async function gradeEssayWithKeyPool({
   if (!pool.length) return { ok: false, code: 'NO_KEY' };
   const points = Number(detail.maxScore);
   if (!Number.isFinite(points) || points < 0) return { ok: false, code: 'INVALID_POINTS' };
+  const parts = buildEssayParts(detail);
+  if (!parts) return { ok: false, code: 'UNSUPPORTED_ESSAY_IMAGE' };
   const body = JSON.stringify({
-    contents: [{ parts: buildEssayParts(detail) }],
+    contents: [{ parts }],
     generationConfig: { responseMimeType: 'application/json', temperature: 0.1 }
   });
   let lastCode = 'AI_UNAVAILABLE';
@@ -267,6 +275,23 @@ export async function processStoredEssayGrading(db, resultId, options = {}) {
       ).bind(JSON.stringify(details), new Date(now()).toISOString(), resultId, lease).run();
       if (checkpoint.meta?.changes !== 1) return null; // lease was superseded/manual override
     }
+    // Stop endlessly repeating a permanently ungradeable answer or provider
+    // failure. Preserve partial checkpoints and route the remainder to teacher.
+    const attempts = Number(row.grading_attempts || 1);
+    const needsManual = errorCode === 'UNSUPPORTED_ESSAY_IMAGE' ||
+      errorCode === 'INVALID_POINTS' ||
+      (attempts >= MAX_ESSAY_GRADING_ATTEMPTS && errorCode !== 'NO_KEY');
+    if (needsManual) {
+      for (const entry of details) {
+        if (entry.question?.type === 'TL' && entry.gradingStatus !== 'completed' &&
+            entry.gradingStatus !== 'manual_required') {
+          entry.gradingStatus = 'manual_required';
+          entry.needsGrading = true;
+          entry.score = null;
+          entry.aiFeedback = 'Chưa thể chấm tự động câu này; vui lòng để giáo viên chấm.';
+        }
+      }
+    }
     const total = summarizeEssayDetails(details);
     let state = 'completed';
     if (total.manualCount) state = 'manual_required';
@@ -281,8 +306,8 @@ export async function processStoredEssayGrading(db, resultId, options = {}) {
       new Date(now()).toISOString(), resultId, lease).run();
     if (update.meta?.changes !== 1) return null;
     return { resultId, gradingStatus: state, score: total.score,
-      provisionalScore: total.provisionalScore, pendingCount: total.pendingCount,
-      nextRetryAt: nextRetry, gradingAttempts: Number(row.grading_attempts || 1) };
+      pendingCount: total.pendingCount, nextRetryAt: nextRetry,
+      gradingAttempts: Number(row.grading_attempts || 1) };
   } catch (err) {
     // An unexpected failure also releases the lease; never mark a partial score as final.
     const next = retryAfter(Number(row?.grading_attempts || 1), now());
