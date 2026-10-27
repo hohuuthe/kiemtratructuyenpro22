@@ -260,6 +260,11 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
 
     // 3. Tải danh sách kết quả theo mã chia sẻ đề thi (?examId=xxx)
     if (examIdParam) {
+      if (!isAdmin && !isTeacher) {
+        // Shared rosters must never expose answer keys, ungraded scores or
+        // student identity from unrestricted legacy results endpoints.
+        return new Response(JSON.stringify({error:'Danh sách kết quả chi tiết yêu cầu quyền giáo viên hoặc quản trị viên.'}),{status:403,headers:{...corsHeaders,'Cache-Control':'no-store'}});
+      }
       if (isTeacher) {
         const ownExam:any = await db.prepare('SELECT id FROM exam_configs WHERE id = ? AND creator_id = ? LIMIT 1')
           .bind(examIdParam,user.id).first();
