@@ -5052,6 +5052,34 @@ async function getServerSecret(): Promise<string> {
       }};
   }
 
+  app.post("/api/exam/retry-essay", async (req,res)=>{
+      try{
+          const auth=String(req.headers.authorization||'');
+          if(!auth.startsWith('Bearer ')) return res.status(401).json({error:'Đăng nhập để chấm lại.'});
+          const user=verifyJWTSync(auth.slice(7),await getServerSecret());
+          if(!user||!isUnexpiredAccountToken(user)) return res.status(401).json({error:'Phiên đăng nhập đã hết hạn.'});
+          const id=String(req.body?.resultId||'').trim();
+          if(!/^[a-zA-Z0-9-]{10,100}$/.test(id)) return res.status(400).json({error:'Mã bài không hợp lệ.'});
+          const db=gradingDatabase();
+          await ensureEssayGradingSchema(db);
+          const row=(await executeSqlQuery(
+            'SELECT r.id,r.user_id,r.exam_id,r.grading_status,r.grading_retry_at,e.creator_id '+
+            'FROM results r LEFT JOIN exam_configs e ON e.id=r.exam_id WHERE r.id = ?',[id]
+          )).results?.[0];
+          if(!row) return res.status(404).json({error:'Không tìm thấy bài thi.'});
+          const admin=String(user.role||'').toLowerCase()==='admin';
+          const teacher=admin||String(user.role||'').toLowerCase()==='teacher';
+          const own=!!row.user_id&&[user.id,user.user_id].some(v=>v&&String(v)===String(row.user_id));
+          const creator=teacher&&!!row.creator_id&&[user.id,user.user_id].some(v=>v&&String(v)===String(row.creator_id));
+          if(!admin&&!creator&&!own) return res.status(403).json({error:'Không có quyền chấm lại bài thi này.'});
+          if(!['pending','retry_pending','waiting_key','processing'].includes(row.grading_status))
+              return res.json({data:{resultId:id,gradingStatus:row.grading_status},error:null});
+          const result=await processStoredEssayGrading(db,id,{budgetMs:16000,force:admin||creator});
+          return res.json({data:result||{resultId:id,gradingStatus:row.grading_status},error:null});
+      }catch(error){console.error('Essay retry unavailable');return res.status(503).json({
+          error:'Bài đã lưu; hiện không thể chấm lại. Hãy thử sau.'});}
+  });
+
   app.post("/api/exam/grade", async (req, res) => {
       try {
           const { token, studentAnswers, clientQuestions, studentInfo, timeTaken } = req.body;
