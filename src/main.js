@@ -3264,7 +3264,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                             studentClass: r.student_class, 
                             lop: lop,
                             donvi: donvi,
-                            score: parseFloat(r.score), 
+                            score: r.score == null ? null : parseFloat(r.score), 
                             correctCount: r.correct_count, 
                             totalQuestions: r.total_questions, 
                             timeTaken: r.time_taken, 
@@ -9688,7 +9688,8 @@ if (contentType && contentType.includes("application/json")) {
                 window.currentExamToken = null;
                 try { localStorage.removeItem('currentExamToken'); } catch(e) {}
                 
-                const score = result.score;
+                const gradingInProgress = result.gradingStatus && result.gradingStatus !== 'completed';
+                const score = gradingInProgress ? null : result.score;
                 const correctCount = result.correctCount;
                 const detailedResults = result.detailedResults;
                 const insertedId = result.resultId;
@@ -9764,8 +9765,24 @@ if (contentType && contentType.includes("application/json")) {
                     results.unshift(submitResult);
                 }
 
-                // Trả về giao diện sau khi chấm xong
+                // Trả về giao diện với trạng thái chờ nếu AI chưa chấm đủ.
+                submitResult.gradingStatus = result.gradingStatus || 'completed';
+                submitResult.aiGradingError = gradingInProgress;
                 showResults(submitResult, detailedResults);
+                if (gradingInProgress && insertedId) {
+                    // Retry is persisted and leased server-side; never resubmit the exam token.
+                    const retryToken = localStorage.getItem('auth_token') || '';
+                    if (retryToken) fetch('/api/exam/retry-essay', {
+                        method: 'POST', headers: {
+                            'Content-Type':'application/json',
+                            'Authorization':'Bearer '+retryToken
+                        }, body: JSON.stringify({resultId: insertedId})
+                    }).then(r=>r.json()).then(data=>{
+                        if (data?.data?.gradingStatus === 'completed') {
+                            showToast('AI đã chấm xong bài tự luận. Bạn có thể tải lại kết quả.', 'success');
+                        }
+                    }).catch(()=>{});
+                }
 
             } catch (err) {
                 
@@ -10000,7 +10017,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 </div>
                 <div class="grid grid-cols-2 md:grid-cols-3 gap-2 md:gap-3 mb-4">
                     <div class="p-3 bg-blue-50 rounded-lg text-center shadow-sm relative border border-blue-100/50 flex flex-col justify-center">
-                        <p class="text-3xl sm:text-4xl lg:text-5xl font-black text-blue-600 leading-tight">${showScore ? (Number(result.score) || 0).toFixed(1) : '***'}</p>
+                        <p class="text-3xl sm:text-4xl lg:text-5xl font-black text-blue-600 leading-tight">${showScore ? (result.gradingStatus && result.gradingStatus !== 'completed' ? 'Chờ chấm' : (Number(result.score)||0).toFixed(1)) : '***'}</p>
                         <p class="text-xs md:text-sm text-blue-500 uppercase font-bold tracking-widest mt-0.5">Điểm số</p>
                         <div class="mt-1 text-xs md:text-sm text-blue-700 bg-white/50 py-1 px-2.5 rounded-full inline-block border border-blue-200">
                             Đã làm: <b>${result.answeredQuestionsCount}</b>/${result.totalQuestions}
