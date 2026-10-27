@@ -198,7 +198,7 @@ async function startServer() {
   // Requests without a bearer are handled by individual route access checks.
   app.use('/api', async (req, res, next) => {
     if (!req.headers.authorization) return next();
-    if (req.path === '/auth/login' || req.path === '/auth/change-password' || req.path === '/auth/register' || req.path === '/exam/grade') return next();
+    if (req.path === '/auth/login' || req.path === '/auth/change-password' || req.path === '/auth/register' ) return next();
     const header = req.headers.authorization;
     if (!header.startsWith('Bearer ')) return res.status(401).json({ error: 'Phiên đăng nhập không hợp lệ' });
     try {
