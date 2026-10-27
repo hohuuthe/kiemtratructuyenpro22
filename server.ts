@@ -5098,11 +5098,26 @@ async function getServerSecret(): Promise<string> {
               const existingSubmission = await executeSqlQuery("SELECT token_hash FROM _submitted_exam_tokens WHERE token_hash = ? LIMIT 1", [tokenHash]);
               if (existingSubmission && existingSubmission.results && existingSubmission.results.length > 0) {
                   const old=(await executeSqlQuery(
-                    'SELECT id,score,grading_status FROM results WHERE submission_token_hash = ?',
+                    'SELECT * FROM results WHERE submission_token_hash = ?',
                     [tokenHash])).results?.[0];
-                  if(old) return res.json({resultId:old.id,
-                    score:old.grading_status==='completed'?old.score:null,
-                    gradingStatus:old.grading_status,alreadySubmitted:true});
+                  if(old) {
+                    const show=decoded?.examConfig?.showDetails!==false &&
+                      decoded?.examConfig?.show_details!==false;
+                    const details=JSON.parse(String(old.details||'[]')).map((d:any)=>{
+                      if(show) return d;
+                      const {correctAnswer,aiFeedback,...safe}=d;
+                      if(safe.question?.options?.answerImage){
+                        const {answerImage,...options}=safe.question.options;
+                        safe.question={...safe.question,options};
+                      }
+                      return safe;
+                    });
+                    return res.json({resultId:old.id,
+                      score:old.grading_status==='completed'?old.score:null,
+                      gradingStatus:old.grading_status,correctCount:old.correct_count,
+                      cheatWarningCount:old.cheat_warning_count,detailedResults:details,
+                      alreadySubmitted:true});
+                  }
                   return res.status(409).json({error:'Bài thi đã nộp, đang xử lý.'});
               }
           } catch (tokErr) {
