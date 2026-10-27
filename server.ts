@@ -1,3 +1,4 @@
+import { ensureEssayGradingSchema, prepareEssayDetails, summarizeEssayDetails, processStoredEssayGrading } from "./src/essay-grading-pipeline.js";
 import {isExamOwner,redactExamForPublic,examAccessChallenge,isProtectedExamForUser,protectedExamPreview,accessCodeMatches} from './functions/api/exam/security';
 import {listDocumentLinks,createDocumentLink,updateDocumentLink,deleteDocumentLink,DocumentLinkServiceError} from './src/document-links-service.js';
 import { accountSessionMaterial, isAccountEnabled, isUnexpiredAccountToken } from './src/security-session';
@@ -5035,6 +5036,22 @@ async function getServerSecret(): Promise<string> {
       }
   });
 
+  // Reuse tenant-isolated Neon query engine for the durable essay pipeline.
+  function gradingDatabase() {
+      return { prepare(query: string) {
+          const bound = (params: any[]): any => ({
+              bind: (...values: any[]) => bound(values),
+              all: async () => ({ results: (await executeSqlQuery(query, params)).results }),
+              first: async () => (await executeSqlQuery(query, params)).results?.[0] || null,
+              run: async () => {
+                  const output = await executeSqlQuery(query, params);
+                  return { meta: { changes: output.changes || 0 } };
+              }
+          });
+          return bound([]);
+      }};
+  }
+
   app.post("/api/exam/grade", async (req, res) => {
       try {
           const { token, studentAnswers, clientQuestions, studentInfo, timeTaken } = req.body;
@@ -5052,7 +5069,13 @@ async function getServerSecret(): Promise<string> {
           try {
               const existingSubmission = await executeSqlQuery("SELECT token_hash FROM _submitted_exam_tokens WHERE token_hash = ? LIMIT 1", [tokenHash]);
               if (existingSubmission && existingSubmission.results && existingSubmission.results.length > 0) {
-                  return res.status(400).json({ error: 'Phiên thi này đã được nộp bài trước đó. Không thể nộp lại nhiều lần!' });
+                  const old=(await executeSqlQuery(
+                    'SELECT id,score,grading_status FROM results WHERE submission_token_hash = ?',
+                    [tokenHash])).results?.[0];
+                  if(old) return res.json({resultId:old.id,
+                    score:old.grading_status==='completed'?old.score:null,
+                    gradingStatus:old.grading_status,alreadySubmitted:true});
+                  return res.status(409).json({error:'Bài thi đã nộp, đang xử lý.'});
               }
           } catch (tokErr) {
               console.error('Error checking submitted token:', tokErr);
@@ -5274,128 +5297,12 @@ async function getServerSecret(): Promise<string> {
               score += questionScore;
           });
 
-          // Hỗ trợ danh sách nhiều key cách nhau bằng dấu cách, tự động chuyển key khi hết hạn mức
-          const rawAiKeys = [...new Set((aiKey || '').trim().split(/\s+/).filter((k: string) => k.length > 5 && !k.includes("••••••••") && !k.includes("YOUR_")))];
-          const gradeFlag = (value: any) => value === true || value === 1 || value === '1' || value === 'true';
-          const isAutoGradeEssay = gradeFlag(examConfig.autoGradeEssay ?? examConfig.auto_grade_essay);
-
-          if (isAutoGradeEssay && rawAiKeys.length > 0 && tlQuestionsToGrade.length > 0) {
-              let currentKeyIdx = 0;
-              const modelsToTry = ["gemini-3.8-flash", "gemini-3.1-flash-lite", "gemini-flash-latest", "gemini-3.5-flash"];
-
-              for (const d of tlQuestionsToGrade) {
-                  let studentAnsText = '';
-                  if (d.userAnswer && typeof d.userAnswer === 'object') {
-                      studentAnsText = String(d.userAnswer.text || '').trim();
-                  } else {
-                      studentAnsText = String(d.userAnswer || '').trim();
-                  }
-                  const studentAnsImage = (d.userAnswer && typeof d.userAnswer === 'object') ? d.userAnswer.image : '';
-
-                  if (!studentAnsText && !studentAnsImage) {
-                      d.score = 0;
-                      d.aiFeedback = "Học sinh không nộp bài làm (trống).";
-                      d.gradingStatus = 'completed';
-                      continue;
-                  }
-
-                  const pTL = examConfig.pointsTL || 1;
-                  const prompt = `
-Bạn là giám khảo chấm thi tự luận.
-THÔNG TIN ĐỀ BÀI:
-- Câu hỏi: ${d.question.content || ''}
-- Đáp án/Hướng dẫn: ${d.correctAnswer || ''}
-- Thang điểm: ${pTL} điểm.
-
-BÀI LÀM:
-- Chữ: ${studentAnsText || '(Trống)'}
-
-YÊU CẦU:
-1. Đọc nội dung ảnh (nếu có) và chữ.
-2. Chấm điểm chính xác theo thang điểm ${pTL}, trả về JSON: {"score": (số điểm), "feedback": "Nhận xét"}`;
-                  
-                  let parts: any[] = [{ text: prompt }];
-
-                  const qImg = getBase64Data(d.question.image);
-                  if (qImg) { parts.push({ text: "ẢNH CÂU HỎI:" }); parts.push({ inlineData: { data: qImg.data, mimeType: qImg.mimeType } }); }
-                  
-                  const aImg = getBase64Data(d.question.options?.answerImage);
-                  if (aImg) { parts.push({ text: "ẢNH ĐÁP ÁN:" }); parts.push({ inlineData: { data: aImg.data, mimeType: aImg.mimeType } }); }
-                  
-                  const sImg = getBase64Data(studentAnsImage);
-                  if (sImg) { parts.push({ text: "ẢNH BÀI LÀM CỦA HỌC SINH:" }); parts.push({ inlineData: { data: sImg.data, mimeType: sImg.mimeType } }); }
-
-                  let gradedSuccessfully = false;
-
-                  while (currentKeyIdx < rawAiKeys.length && !gradedSuccessfully) {
-                      const activeKey = rawAiKeys[currentKeyIdx];
-                      let keyNeedsSwitch = false;
-
-                      for (const m of modelsToTry) {
-                          try {
-                              const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${activeKey}`;
-                              const res = await fetch(url, {
-                                  method: 'POST',
-                                  headers: { 'Content-Type': 'application/json' },
-                                  body: JSON.stringify({
-                                      contents: [{ parts }],
-                                      generationConfig: { responseMimeType: "application/json", temperature: 0.1 }
-                                  })
-                              });
-
-                              const responseJson: any = await res.json().catch(() => ({}));
-                              if (res.ok) {
-                                  const text = responseJson.candidates?.[0]?.content?.parts?.[0]?.text;
-                                  if (text) {
-                                      const parsed = JSON.parse(text);
-                                      const value = Number(parsed.score);
-                                      if (!Number.isFinite(value)) throw new Error('Điểm AI không hợp lệ');
-                                      const essayScore = Math.max(0, Math.min(pTL, value));
-                                      d.score = essayScore;
-                                      d.aiFeedback = String(parsed.feedback || '');
-                                      d.gradingStatus = 'completed';
-                                      score += essayScore;
-                                      gradedSuccessfully = true;
-                                      break;
-                                  }
-                              }
-
-                              const errJson = responseJson as any;
-                              const errMsg = (errJson.error?.message || '').toLowerCase();
-                              if (res.status === 429 || res.status === 403 || res.status === 401 ||
-                                  (res.status === 400 && (errMsg.includes('key') || errMsg.includes('invalid'))) ||
-                                  errMsg.includes('quota') || errMsg.includes('resource_exhausted') || 
-                                  errMsg.includes('rate') || errMsg.includes('api_key_invalid') ||
-                                  errMsg.includes('api key not valid') || errMsg.includes('permission_denied') ||
-                                  errMsg.includes('expired') || errMsg.includes('limit')) {
-                                  keyNeedsSwitch = true;
-                                  break;
-                              }
-                          } catch (err: any) {
-                              const em = (err.message || '').toLowerCase();
-                              if (em.includes('quota') || em.includes('resource_exhausted') || em.includes('limit') || em.includes('429')) {
-                                  keyNeedsSwitch = true;
-                                  break;
-                              }
-                          }
-                      }
-
-                      if (gradedSuccessfully) {
-                          break;
-                      }
-
-                      if (keyNeedsSwitch || !gradedSuccessfully) {
-                          console.warn(`[AI Key Switcher Server]: Key ${currentKeyIdx + 1}/${rawAiKeys.length} bị lỗi hoặc hết hạn mức. Đang chuyển sang key tiếp theo...`);
-                          currentKeyIdx++;
-                      }
-                  }
-
-                  if (!gradedSuccessfully) {
-                      d.gradingStatus = 'failed';
-                      d.aiFeedback = 'Không thể chấm bằng AI (tất cả API Key trong danh sách đều đã hết hạn mức hoặc gặp lỗi).';
-                  }
-              }
-          }
+          // Persist first. Await AI later; provider faults never mean a zero-point answer.
+          const autoGrade = [true,1,'1','true'].includes(examConfig.autoGradeEssay ?? examConfig.auto_grade_essay);
+          const preparedEssayDetails=prepareEssayDetails(detailedResults,autoGrade,pTL);
+          const initialEssayStatus=summarizeEssayDetails(preparedEssayDetails);
+          const initialState=initialEssayStatus.pendingCount?'pending':
+             initialEssayStatus.manualCount?'manual_required':'completed';
 
           let totalMaxScore = 0;
           detailedResults.forEach((d: any) => {
@@ -5446,49 +5353,48 @@ YÊU CẦU:
               } catch(e) {}
           }
 
-          const uuid = crypto.randomUUID();
-          const insertPayload = [
-              uuid,
-              authenticatedUserId || studentInfo.userId || null,
-              authenticatedStudentName || studentInfo.name || '',
-              studentInfo.unit || authenticatedDonvi || '',
-              authenticatedLop || studentInfo.lop || '',
-              authenticatedDonvi || studentInfo.donvi || studentInfo.unit || '',
-              studentInfo.examName || '',
-              String(examConfig.id || studentInfo.examName || ''),
-              Number(scale10Score.toFixed(1)),
-              timeTaken || 0,
-              correctCount,
-              clientQuestions.length,
-              JSON.stringify(detailedResults),
-              studentInfo.loaiThiSinh || (authenticatedUserId ? 'Đã đăng nhập' : 'Tự do'),
-              cheatWarningCount,
-              new Date().toISOString()
-          ];
-
-          try {
-              await executeSqlQuery(`INSERT INTO results (id, user_id, student_name, student_class, lop, don_vi, exam_name, exam_id, score, time_taken, correct_count, total_questions, details, loai_thi_sinh, cheat_warning_count, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, insertPayload);
-          } catch(err) {
-              if (err && err.message && err.message.includes("hạn mức dữ liệu")) {
-        console.warn("Insert result error:", err.message);
-      } else {
-        console.error("Insert result error:", err);
-      }
+          const gradingDb=gradingDatabase();
+          await ensureEssayGradingSchema(gradingDb);
+          const uuid=crypto.randomUUID();
+          const validatedExamId=String(examConfig.id||'');
+          if(!validatedExamId) throw new Error('Thiếu mã đề đã xác thực.');
+          await executeSqlQuery(
+            `INSERT INTO results (id,user_id,student_name,student_class,lop,don_vi,exam_name,exam_id,
+              score,time_taken,correct_count,total_questions,details,loai_thi_sinh,
+              cheat_warning_count,created_at,submission_token_hash,grading_status,grading_updated_at)
+              VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+              ON CONFLICT (submission_token_hash) WHERE submission_token_hash IS NOT NULL DO NOTHING`,
+            [uuid,authenticatedUserId||studentInfo.userId||null,
+            authenticatedStudentName||studentInfo.name||'',studentInfo.unit||authenticatedDonvi||'',
+            authenticatedLop||studentInfo.lop||'',authenticatedDonvi||studentInfo.donvi||studentInfo.unit||'',
+            String(examConfig.name||studentInfo.examName||''),validatedExamId,
+            initialEssayStatus.score,timeTaken||0,correctCount,clientQuestions.length,
+            JSON.stringify(preparedEssayDetails),
+            studentInfo.loaiThiSinh||(authenticatedUserId?'Đã đăng nhập':'Tự do'),
+            cheatWarningCount,new Date().toISOString(),tokenHash,initialState,new Date().toISOString()]
+          );
+          const persisted=(await executeSqlQuery(
+            'SELECT id FROM results WHERE submission_token_hash = ?',[tokenHash])).results?.[0];
+          if(!persisted) throw new Error('Không xác nhận được bài đã lưu.');
+          const persistedId=String(persisted.id);
+          if(initialState==='pending') {
+              try{await processStoredEssayGrading(gradingDb,persistedId,{budgetMs:18000});}
+              catch(err){console.error('Essay saved for later retry');}
           }
-
-          // BẢO MẬT: Đánh dấu token đã nộp bài thành công vào bảng kiểm soát để ngăn chặn nộp lại
-          try {
-              await executeSqlQuery(
-                  `INSERT INTO _submitted_exam_tokens (token_hash, exam_id, student_name, submitted_at) VALUES (?, ?, ?, ?)`,
-                  [tokenHash, String(examConfig.id || studentInfo.examName || ''), studentInfo.name || '', new Date().toISOString()]
-              );
-          } catch(markErr) {
-              console.error('Error marking token as submitted in server.ts:', markErr);
-          }
+          const stored=(await executeSqlQuery(
+            'SELECT score,grading_status,details FROM results WHERE id = ?',[persistedId])).results?.[0];
+          if(!stored) throw new Error('Kết quả bài thi đã lưu không thể truy xuất.');
+          const finalScore=stored.grading_status==='completed'?stored.score:null;
+          const savedDetails=JSON.parse(String(stored.details||'[]'));
+          await executeSqlQuery(
+            'INSERT INTO _submitted_exam_tokens (token_hash,exam_id,student_name,submitted_at) '+
+            'VALUES (?,?,?,?) ON CONFLICT (token_hash) DO NOTHING',
+            [tokenHash,validatedExamId,authenticatedStudentName||studentInfo.name||'',new Date().toISOString()]
+          );
 
           // BẢO MẬT: Nếu cấu hình không cho xem chi tiết đáp án, loại bỏ hoàn toàn correctAnswer và ảnh đáp án trước khi trả về client
           const shouldShowDetails = examConfig.showDetails !== false && examConfig.show_details !== false;
-          const clientDetailedResults = detailedResults.map((d: any) => {
+          const clientDetailedResults = savedDetails.map((d: any) => {
               if (!shouldShowDetails) {
                   const { correctAnswer, aiFeedback, ...safeD } = d;
                   if (safeD.question && safeD.question.options && safeD.question.options.answerImage) {
@@ -5501,8 +5407,9 @@ YÊU CẦU:
           });
 
           return res.json({
-              resultId: uuid,
-              score: Number(scale10Score.toFixed(1)),
+              resultId: persistedId,
+              score: finalScore,
+              gradingStatus: stored.grading_status,
               correctCount,
               cheatWarningCount,
               detailedResults: clientDetailedResults
