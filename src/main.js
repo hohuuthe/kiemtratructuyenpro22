@@ -7216,6 +7216,8 @@ if (contentType && contentType.includes("application/json")) {
 
         window._studentTeacherChangeSeq = 0;
         window.onStudentTeacherFilterChange = async function onStudentTeacherFilterChange() {
+            // Student-only state must never reset teacher/admin question-bank state.
+            if (isAdminLoggedIn || isTeacherLoggedIn) return;
             const currentTeacherSeq = ++window._studentTeacherChangeSeq;
             // Invalidate in-flight exam details and any earlier verified password.
             ++window._studentExamChangeSeq;
@@ -7403,6 +7405,7 @@ if (contentType && contentType.includes("application/json")) {
 
         window._studentExamChangeSeq = 0;
         window.onStudentExamNameChange = async function onStudentExamNameChange() {
+            if (isAdminLoggedIn || isTeacherLoggedIn) return;
             const currentExamSeq = ++window._studentExamChangeSeq;
             window._studentExamAccessCode = '';
             window._studentExamVerifiedId = '';
