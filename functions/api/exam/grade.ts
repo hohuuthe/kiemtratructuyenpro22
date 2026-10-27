@@ -1,3 +1,4 @@
+import {liveExamVisibility,assertGradingQuestionSources,boundStudentIdentity,publicExamSubmission} from '../../../src/exam-grading-safety.js';
 import { ensureEssayGradingSchema, prepareEssayDetails, summarizeEssayDetails, processStoredEssayGrading } from '../../../src/essay-grading-pipeline.js';
 import { verifyAuthSession, verifyJWT, getDynamicSecret, hashToken, getDatabase } from './utils';
 
@@ -100,16 +101,18 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             return new Response(JSON.stringify({ error: 'Thiếu thông tin nộp bài thi bắt buộc.' }), { status: 400, headers: corsHeaders });
         }
 
-        let authenticatedUserId = studentInfo.userId || null;
+        let authenticatedUserId: any = null;
         let authenticatedStudentName = studentInfo.name || '';
         let authenticatedLop = studentInfo.lop || '';
         let authenticatedDonvi = studentInfo.donvi || studentInfo.unit || '';
 
         const authHeader = request.headers.get("authorization");
+        let liveUser: any = null;
         if (authHeader && authHeader.startsWith("Bearer ")) {
             try {
                 const verifiedUser = await verifyAuthSession(authHeader.substring(7), SECRET, db);
                 if (verifiedUser && (verifiedUser.id || verifiedUser.user_id)) {
+                    liveUser = verifiedUser;
                     authenticatedUserId = verifiedUser.user_id || verifiedUser.id;
                     if (verifiedUser.full_name) {
                         authenticatedStudentName = verifiedUser.full_name;
@@ -129,6 +132,15 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             return new Response(JSON.stringify({ error: 'Mã phiên thi không hợp lệ hoặc đã hết hạn.' }), { status: 403, headers: corsHeaders });
         }
 
+        if (authHeader && !liveUser) return new Response(JSON.stringify({error:'Phiên đăng nhập không hợp lệ.'}),{status:401,headers:corsHeaders});
+        const verifiedExamId = String(decoded.examConfig?.id || '').trim();
+        if (!verifiedExamId) return new Response(JSON.stringify({error:'Đề thi chưa được xác minh.'}),{status:403,headers:corsHeaders});
+        const liveExam:any = await db.prepare('SELECT id, creator_id, show_score, show_details FROM exam_configs WHERE id = ? LIMIT 1')
+          .bind(verifiedExamId).first();
+        if (!liveExam || String(liveExam.creator_id) !== String(decoded.teacherId || ''))
+          return new Response(JSON.stringify({error:'Đề thi không tồn tại hoặc đã thay đổi chủ sở hữu.'}),{status:403,headers:corsHeaders});
+        const visibility=liveExamVisibility(liveExam);
+        const trustedStudent=boundStudentIdentity(studentInfo,liveUser);
         // BẢO MẬT: Chống nộp bài trùng lặp (Token Replay Prevention)
         const tokenHash = await hashToken(token);
         try {
@@ -142,25 +154,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                 await ensureEssayGradingSchema(db);
                 const saved: any = await db.prepare('SELECT * FROM results WHERE submission_token_hash = ?').bind(tokenHash).first();
                 if (saved) {
-                    const showDetails = decoded?.examConfig?.showDetails !== false &&
-                        decoded?.examConfig?.show_details !== false;
-                    const parsed = JSON.parse(String(saved.details || '[]'));
-                    const safeDetails = parsed.map((d: any) => {
-                        if (showDetails) return d;
-                        const {correctAnswer,aiFeedback,...safe} = d;
-                        if(safe.question?.options?.answerImage) {
-                            const {answerImage,...options}=safe.question.options;
-                            safe.question={...safe.question,options};
-                        }
-                        return safe;
-                    });
-                    return new Response(JSON.stringify({
-                        resultId:saved.id, score:saved.grading_status==='completed'?saved.score:null,
-                        gradingStatus:saved.grading_status, nextRetryAt:saved.grading_retry_at,
-                        correctCount:saved.correct_count, timeTaken:saved.time_taken,
-                        cheatWarningCount:saved.cheat_warning_count,
-                        detailedResults:safeDetails, alreadySubmitted:true
-                    }),{status:200,headers:corsHeaders});
+                    return new Response(JSON.stringify(publicExamSubmission(saved,visibility,{alreadySubmitted:true})),{status:200,headers:corsHeaders});
                 }
                 return new Response(JSON.stringify({error:'Bài đã nộp và đang được hệ thống xử lý; không gửi lại bài.'}),{status:409,headers:corsHeaders});
             }
@@ -242,9 +236,10 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                 }
             }
         } catch (e) {
-            console.error('Error fetching real questions from DB', e);
+            throw new Error('Không thể tải câu hỏi gốc để chấm điểm; bài chưa được chấm.');
         }
 
+        assertGradingQuestionSources(questionIds,trueQuestionsMap);
         // Parse tf4 points configuration
         let tf4PointsMap: any = null;
         if (examConfig.tf4Points) {
@@ -399,7 +394,6 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         // Fail closed if durable persistence is unavailable.
         await ensureEssayGradingSchema(db);
         const resultId = crypto.randomUUID();
-        const verifiedExamId = String(examConfig.id || '');
         if (!verifiedExamId) throw new Error('Không xác định được mã đề đã xác minh.');
         await db.prepare(
           `INSERT INTO results (id, user_id, student_name, student_class, lop, don_vi, exam_name,
@@ -407,15 +401,15 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
           cheat_warning_count, created_at, submission_token_hash, grading_status, grading_updated_at)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT (submission_token_hash) WHERE submission_token_hash IS NOT NULL DO NOTHING`
-        ).bind(resultId, authenticatedUserId || studentInfo.userId || null,
-          authenticatedStudentName || studentInfo.name || '',
-          studentInfo.unit || authenticatedDonvi || '',
-          authenticatedLop || studentInfo.lop || '',
-          authenticatedDonvi || studentInfo.donvi || studentInfo.unit || '',
+        ).bind(resultId, trustedStudent.userId,
+          trustedStudent.name,
+          trustedStudent.donvi,
+          trustedStudent.lop,
+          trustedStudent.donvi,
           String(examConfig.name || studentInfo.examName || ''), verifiedExamId,
           initialGrade.score, timeTaken || 0, correctCount, clientQuestions.length,
           JSON.stringify(gradingDetails),
-          studentInfo.loaiThiSinh || (authenticatedUserId ? 'Đã đăng nhập' : 'Tự do'),
+          studentInfo.loaiThiSinh || (trustedStudent.userId ? 'Đã đăng nhập' : 'Tự do'),
           cheatWarningCount, new Date().toISOString(), tokenHash, gradingState,
           new Date().toISOString()).run();
         const saved: any = await db.prepare('SELECT id FROM results WHERE submission_token_hash = ?')
@@ -442,35 +436,10 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         ).bind(tokenHash, verifiedExamId, authenticatedStudentName || studentInfo.name || '',
           new Date().toISOString()).run();
 
-        // BẢO MẬT: Nếu cấu hình không cho xem chi tiết đáp án, loại bỏ hoàn toàn correctAnswer và ảnh đáp án trước khi trả về client
-        const shouldShowDetails = examConfig.showDetails !== false && examConfig.show_details !== false;
-        const clientDetailedResults = finalDetails.map((d: any) => {
-            if (!shouldShowDetails) {
-                const { correctAnswer, aiFeedback, ...safeD } = d;
-                if (safeD.question && safeD.question.options && safeD.question.options.answerImage) {
-                    const { answerImage, ...safeOptions } = safeD.question.options;
-                    safeD.question = { ...safeD.question, options: safeOptions };
-                }
-                return safeD;
-            }
-            return d;
-        });
-
-        return new Response(JSON.stringify({
-            resultId: persistedId,
-            score: publicScore,
-            gradingStatus: finalRow?.grading_status || gradeResult.gradingStatus,
-            provisionalScore: initialGrade.provisionalScore,
-            rawEarnedScore: initialGrade.provisionalScore,
-            totalMaxScore: Number(totalMaxScore.toFixed(2)),
-            scale10Score: finalScore === null ? null : Number(Math.max(0,Math.min(10,(Number(finalScore)/totalMaxScore)*10)).toFixed(2)),
-            correctCount,
-            cheatWarningCount,
-            detailedResults: clientDetailedResults
-        }), {
-            status: 200,
-            headers: corsHeaders
-        });
+        return new Response(JSON.stringify(publicExamSubmission({
+          ...finalRow, id:persistedId, grading_retry_at:gradeResult.nextRetryAt,
+          correct_count:correctCount, time_taken:timeTaken, cheat_warning_count:cheatWarningCount
+        },visibility,{totalMaxScore})), {status:200,headers:corsHeaders});
 
     } catch (err: any) {
         console.error("Lỗi POST /api/exam/grade:", err);
