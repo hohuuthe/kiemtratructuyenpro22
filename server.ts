@@ -1,3 +1,4 @@
+import {studentExamVisibility,projectStudentResultRow,projectStudentAttemptDetails} from './src/student-result-visibility';
 import {liveExamVisibility,assertGradingQuestionSources,boundStudentIdentity,publicExamSubmission} from './src/exam-grading-safety.js';
 import { ensureEssayGradingSchema, prepareEssayDetails, summarizeEssayDetails, processStoredEssayGrading } from "./src/essay-grading-pipeline.js";
 import {isExamOwner,redactExamForPublic,examAccessChallenge,isProtectedExamForUser,protectedExamPreview,accessCodeMatches} from './functions/api/exam/security';
@@ -2544,6 +2545,54 @@ async function startServer() {
   });
 
   // --- API /api/results (Quản lý bảng điểm & kết quả bài thi) ---
+  // Authenticated, tenant-scoped result history. Never accept a student ID from URL.
+  app.get("/api/results/me", async (req, res) => {
+    res.set('Cache-Control','private, no-store');
+    try {
+      const auth=String(req.headers.authorization||'');
+      if(!auth.startsWith('Bearer ')) return res.status(401).json({error:'Cần đăng nhập.'});
+      const account=verifyJWTSync(auth.slice(7),await getServerSecret());
+      if(!account?.id || checkIsTeacherOrAdmin(account))
+        return res.status(403).json({error:'Chỉ học sinh được xem kết quả cá nhân.'});
+      for(const k of ['userId','user_id','studentId','student_id','accountId','account_id','studentName','student_name']){
+        if(Object.prototype.hasOwnProperty.call(req.query,k))
+          return res.status(400).json({error:'Không cho phép chọn danh tính học sinh.'});
+      }
+      const ids=[...new Set([account.id,account.user_id].map(v=>String(v||'').trim()).filter(Boolean))];
+      if(!ids.length) return res.status(403).json({error:'Không xác định được tài khoản.'});
+      const placeholders=ids.map(()=>'?').join(',');
+      const examId=String(req.query.id||'').trim();
+      if(req.query.id!==undefined && !examId) return res.status(400).json({error:'Thiếu mã bài làm.'});
+      if(examId){
+        const {results}=await executeSqlQuery(
+          'SELECT r.id,r.exam_id,r.exam_name,r.score,r.correct_count,r.total_questions,r.time_taken,r.created_at,r.grading_status,r.details,'+
+          'e.show_score AS exam_show_score,e.show_details AS exam_show_details '+
+          'FROM results r LEFT JOIN exam_configs e ON e.id=r.exam_id '+
+          'WHERE r.id = ? AND r.user_id IN ('+placeholders+') LIMIT 1',[examId,...ids]);
+        const row=results?.[0];
+        if(!row) return res.status(404).json({error:'Không tìm thấy bài làm.'});
+        const permission=studentExamVisibility(row);
+        if(!permission.can_view_details) return res.status(403).json({error:'Đề thi không cho phép xem chi tiết.'});
+        return res.json({data:{...projectStudentResultRow(row),
+          details:projectStudentAttemptDetails(row.details,permission.can_view_score)},error:null});
+      }
+      const limit=Number(req.query.limit||30),offset=Number(req.query.offset||0);
+      if(!Number.isSafeInteger(limit)||limit<1||limit>100||
+         !Number.isSafeInteger(offset)||offset<0||offset>1000000)
+        return res.status(400).json({error:'Phân trang không hợp lệ.'});
+      const count=(await executeSqlQuery(
+        'SELECT COUNT(*) AS total FROM results WHERE user_id IN ('+placeholders+')',ids)).results?.[0];
+      const {results}=await executeSqlQuery(
+        'SELECT r.id,r.exam_id,r.exam_name,r.score,r.correct_count,r.total_questions,r.time_taken,'+
+        'r.created_at,r.grading_status,e.show_score AS exam_show_score,e.show_details AS exam_show_details '+
+        'FROM results r LEFT JOIN exam_configs e ON e.id=r.exam_id '+
+        'WHERE r.user_id IN ('+placeholders+') ORDER BY r.created_at DESC,r.id DESC LIMIT ? OFFSET ?',
+        [...ids,limit,offset]);
+      return res.json({data:(results||[]).map(projectStudentResultRow),
+        total:Number(count?.total||0),limit,offset,has_more:offset+(results||[]).length<Number(count?.total||0),error:null});
+    }catch(err){console.error('Private student result history unavailable');return res.status(503).json({error:'Không thể tải kết quả cá nhân.'});}
+  });
+
   app.get("/api/results", async (req, res) => {
     try {
       const idParam = req.query.id as string;
@@ -2612,6 +2661,9 @@ async function startServer() {
       const isAdmin = checkIsAdmin(user);
       const isTeacher = checkIsTeacherOrAdmin(user) && !isAdmin;
       const isStudent = user && !isAdmin && !isTeacher;
+      if(isStudent) return res.status(403).json({error:'Học sinh phải dùng API kết quả cá nhân.'});
+      if(!isAdmin && !isTeacher && (idParam || includeDetails))
+        return res.status(403).json({error:'Không được phép truy cập chi tiết bài làm.'});
 
       // 1. Chi tiết 1 bài thi theo ID
       if (idParam) {
