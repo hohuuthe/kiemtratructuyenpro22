@@ -390,7 +390,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
           exam_id, score, time_taken, correct_count, total_questions, details, loai_thi_sinh,
           cheat_warning_count, created_at, submission_token_hash, grading_status, grading_updated_at)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT (submission_token_hash) DO NOTHING`
+          ON CONFLICT (submission_token_hash) WHERE submission_token_hash IS NOT NULL DO NOTHING`
         ).bind(resultId, authenticatedUserId || studentInfo.userId || null,
           authenticatedStudentName || studentInfo.name || '',
           studentInfo.unit || authenticatedDonvi || '',
