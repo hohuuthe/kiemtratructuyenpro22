@@ -5394,6 +5394,9 @@ async function getServerSecret(): Promise<string> {
           }
 
           if(gradeAuthHeader && !verifiedStudent) return res.status(401).json({error:'Phiên đăng nhập không hợp lệ.'});
+          const signedStudentId=String(decoded.studentUserId || '');
+          if (signedStudentId !== String(verifiedStudent?.user_id || verifiedStudent?.id || ''))
+            return res.status(403).json({error:'Phiên thi không thuộc tài khoản đang nộp bài.'});
           const gradingDb=gradingDatabase();
           await ensureEssayGradingSchema(gradingDb);
           const uuid=crypto.randomUUID();
