@@ -140,12 +140,28 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             ).bind(tokenHash).first();
             if (existingSubmission) {
                 await ensureEssayGradingSchema(db);
-                const saved: any = await db.prepare('SELECT id, score, grading_status, grading_attempts, grading_retry_at FROM results WHERE submission_token_hash = ?').bind(tokenHash).first();
-                if (saved) return new Response(JSON.stringify({
-                    resultId:saved.id, score:saved.grading_status==='completed'?saved.score:null,
-                    gradingStatus:saved.grading_status, nextRetryAt:saved.grading_retry_at,
-                    alreadySubmitted:true
-                }),{status:200,headers:corsHeaders});
+                const saved: any = await db.prepare('SELECT * FROM results WHERE submission_token_hash = ?').bind(tokenHash).first();
+                if (saved) {
+                    const showDetails = decoded?.examConfig?.showDetails !== false &&
+                        decoded?.examConfig?.show_details !== false;
+                    const parsed = JSON.parse(String(saved.details || '[]'));
+                    const safeDetails = parsed.map((d: any) => {
+                        if (showDetails) return d;
+                        const {correctAnswer,aiFeedback,...safe} = d;
+                        if(safe.question?.options?.answerImage) {
+                            const {answerImage,...options}=safe.question.options;
+                            safe.question={...safe.question,options};
+                        }
+                        return safe;
+                    });
+                    return new Response(JSON.stringify({
+                        resultId:saved.id, score:saved.grading_status==='completed'?saved.score:null,
+                        gradingStatus:saved.grading_status, nextRetryAt:saved.grading_retry_at,
+                        correctCount:saved.correct_count, timeTaken:saved.time_taken,
+                        cheatWarningCount:saved.cheat_warning_count,
+                        detailedResults:safeDetails, alreadySubmitted:true
+                    }),{status:200,headers:corsHeaders});
+                }
                 return new Response(JSON.stringify({error:'Bài đã nộp và đang được hệ thống xử lý; không gửi lại bài.'}),{status:409,headers:corsHeaders});
             }
         } catch (tokErr) {
@@ -447,7 +463,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             provisionalScore: initialGrade.provisionalScore,
             rawEarnedScore: initialGrade.provisionalScore,
             totalMaxScore: Number(totalMaxScore.toFixed(2)),
-            scale10Score: calculatedScale10,
+            scale10Score: finalScore === null ? null : Number(Math.max(0,Math.min(10,(Number(finalScore)/totalMaxScore)*10)).toFixed(2)),
             correctCount,
             cheatWarningCount,
             detailedResults: clientDetailedResults
