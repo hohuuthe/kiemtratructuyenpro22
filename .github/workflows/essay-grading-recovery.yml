@@ -18,8 +18,8 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "$ESSAY_RETRY_CRON_SECRET" ] || [ -z "$ESSAY_RETRY_URLS" ]; then
-            echo "Essay retry is not yet configured."
-            exit 0
+            echo "::error::Missing ESSAY_RETRY_CRON_SECRET or ESSAY_RETRY_URLS. Configure both before enabling the retry schedule."
+            exit 1
           fi
           while IFS= read -r url || [ -n "$url" ]; do
             [ -z "$url" ] && continue
