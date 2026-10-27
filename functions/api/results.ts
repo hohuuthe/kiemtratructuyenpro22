@@ -424,10 +424,41 @@ export const onRequestPut: PagesFunction<Env> = async (context) => {
       }
     }
 
-    const safeDetails = typeof details === 'object' ? JSON.stringify(details) : (details || '[]');
+    if (!Array.isArray(details) || !Number.isFinite(Number(score))) {
+      return new Response(JSON.stringify({error:'Điểm và dữ liệu chi tiết không hợp lệ.'}),{status:400,headers:corsHeaders});
+    }
+    const safeDetailsArray = details.map((item:any) => {
+      const d={...item};
+      if(d.question?.type==='TL' && d.score !== null && d.score !== undefined
+         && Number.isFinite(Number(d.score)) && Number(d.score)>=0) {
+        const maximum=Number(d.maxScore ?? 1);
+        if(Number.isFinite(maximum)&&Number(d.score)>maximum){
+          throw new Error('Điểm tự luận vượt thang điểm.');
+        }
+        d.gradingStatus='completed';
+        d.needsGrading=false;
+      }
+      return d;
+    });
+    const pending=safeDetailsArray.some((d:any)=>d.question?.type==='TL' &&
+       (d.score===null || d.score===undefined || d.gradingStatus!=='completed'));
+    // Manual grading supersedes any in-flight AI lease; no late provider may overwrite it.
+    const updatedStatus=pending?'manual_required':'completed';
+    const total=pending?null:safeDetailsArray.reduce((sum:number,d:any)=>sum+(Number(d.score)||0),0);
     await db.prepare(
-      "UPDATE results SET score = ?, correct_count = ?, details = ? WHERE id = ?"
-    ).bind(Number(score) || 0, Number(correct_count) || 0, safeDetails, id).run();
+      "ALTER TABLE results ADD COLUMN IF NOT EXISTS grading_status TEXT DEFAULT 'completed'"
+    ).run();
+    await db.prepare(
+      "ALTER TABLE results ADD COLUMN IF NOT EXISTS grading_lease_token TEXT"
+    ).run();
+    await db.prepare(
+      "ALTER TABLE results ADD COLUMN IF NOT EXISTS grading_lease_until TEXT"
+    ).run();
+    const updated=await db.prepare(
+      "UPDATE results SET score = ?, correct_count = ?, details = ?, grading_status = ?, " +
+      "grading_lease_token = NULL, grading_lease_until = NULL WHERE id = ?"
+    ).bind(total, Number(correct_count)||0, JSON.stringify(safeDetailsArray),updatedStatus,id).run();
+    if(updated.meta?.changes!==1) throw new Error('Không ghi nhận được kết quả cập nhật.');
 
     return new Response(JSON.stringify({ success: true, message: "Đã cập nhật điểm thành công", error: null }), { status: 200, headers: corsHeaders });
   } catch (e: any) {
