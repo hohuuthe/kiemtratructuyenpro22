@@ -9,7 +9,10 @@
     "start": "node dist/server.cjs",
     "migrate:neon": "node scripts/migrate-to-neon.mjs",
     "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "verify:release": "node --import tsx --test --test-concurrency=2 tests/*.test.mjs tests/*.test.ts",
+    "prebuild": "npm run verify:release && npm run lint && node scripts/emit-release-proof.mjs prepare",
+    "postbuild": "node scripts/emit-release-proof.mjs publish"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1072.0",
