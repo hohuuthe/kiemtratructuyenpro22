@@ -5102,22 +5102,14 @@ async function getServerSecret(): Promise<string> {
                     'SELECT * FROM results WHERE submission_token_hash = ?',
                     [tokenHash])).results?.[0];
                   if(old) {
-                    const show=decoded?.examConfig?.showDetails!==false &&
-                      decoded?.examConfig?.show_details!==false;
-                    const details=JSON.parse(String(old.details||'[]')).map((d:any)=>{
-                      if(show) return d;
-                      const {correctAnswer,aiFeedback,...safe}=d;
-                      if(safe.question?.options?.answerImage){
-                        const {answerImage,...options}=safe.question.options;
-                        safe.question={...safe.question,options};
-                      }
-                      return safe;
-                    });
-                    return res.json({resultId:old.id,
-                      score:old.grading_status==='completed'?old.score:null,
-                      gradingStatus:old.grading_status,correctCount:old.correct_count,
-                      cheatWarningCount:old.cheat_warning_count,detailedResults:details,
-                      alreadySubmitted:true});
+                    const examId=String(decoded?.examConfig?.id || '');
+                    const owner=String(decoded?.teacherId || '');
+                    const cfg=(await executeSqlQuery(
+                      'SELECT id,creator_id,show_score,show_details FROM exam_configs WHERE id = ? LIMIT 1',
+                      [examId])).results?.[0];
+                    if(!cfg || String(cfg.creator_id)!==owner || String(old.exam_id)!==examId)
+                      return res.status(403).json({error:'Bài làm không thuộc phiên thi hợp lệ.'});
+                    return res.json(publicExamSubmission(old,liveExamVisibility(cfg),{alreadySubmitted:true}));
                   }
                   return res.status(409).json({error:'Bài thi đã nộp, đang xử lý.'});
               }
