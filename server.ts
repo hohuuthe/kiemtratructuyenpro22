@@ -5141,7 +5141,7 @@ async function getServerSecret(): Promise<string> {
           const db=gradingDatabase();
           await ensureEssayGradingSchema(db);
           const row=(await executeSqlQuery(
-            'SELECT r.id,r.user_id,r.exam_id,r.grading_status,r.grading_retry_at,e.creator_id '+
+            'SELECT r.id,r.user_id,r.exam_id,r.grading_status,r.grading_retry_at,e.creator_id,e.show_score '+
             'FROM results r LEFT JOIN exam_configs e ON e.id=r.exam_id WHERE r.id = ?',[id]
           )).results?.[0];
           if(!row) return res.status(404).json({error:'Không tìm thấy bài thi.'});
@@ -5150,10 +5150,12 @@ async function getServerSecret(): Promise<string> {
           const own=!!row.user_id&&[user.id,user.user_id].some(v=>v&&String(v)===String(row.user_id));
           const creator=teacher&&!!row.creator_id&&[user.id,user.user_id].some(v=>v&&String(v)===String(row.creator_id));
           if(!admin&&!creator&&!own) return res.status(403).json({error:'Không có quyền chấm lại bài thi này.'});
+          const permittedScore=admin||creator||liveExamVisibility({show_score:row.show_score}).showScore;
+          const safeRetry=(value:any)=>value?{...value,score:permittedScore?value.score:null}:value;
           if(!['pending','retry_pending','waiting_key','processing'].includes(row.grading_status))
               return res.json({data:{resultId:id,gradingStatus:row.grading_status},error:null});
           const result=await processStoredEssayGrading(db,id,{budgetMs:16000,force:admin||creator});
-          return res.json({data:result||{resultId:id,gradingStatus:row.grading_status},error:null});
+          return res.json({data:safeRetry(result||{resultId:id,gradingStatus:row.grading_status}),error:null});
       }catch(error){console.error('Essay retry unavailable');return res.status(503).json({
           error:'Bài đã lưu; hiện không thể chấm lại. Hãy thử sau.'});}
   });
