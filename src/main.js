@@ -15906,7 +15906,7 @@ CẤU TRÚC JSON:
             const sortedResults = filteredResults.sort((a, b) => {
                 let cmp = 0;
                 if (sortCol === 'score') {
-                    cmp = (Number(a.score) || 0) - (Number(b.score) || 0);
+                    cmp = (a.score == null ? -Infinity : Number(a.score)) - (b.score == null ? -Infinity : Number(b.score));
                 } else if (sortCol === 'correctCount') {
                     cmp = (Number(a.correctCount) || 0) - (Number(b.correctCount) || 0);
                     if (cmp === 0) {
@@ -16033,7 +16033,7 @@ CẤU TRÚC JSON:
                             ${escapeHTML(r.donvi || r.studentClass || '-')}
                         </td>
                         <td class="px-2 py-1.5 text-center whitespace-nowrap">
-                            <span class="px-2 py-0.5 rounded-full font-bold ${r.score >= 8 ? 'bg-green-100 text-green-700' : r.score >= 5 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-purple-700'}">${(Number(r.score) || 0).toFixed(1)}</span>
+                            <span class="px-2 py-0.5 rounded-full font-bold ${r.score >= 8 ? 'bg-green-100 text-green-700' : r.score >= 5 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-purple-700'}">${r.gradingStatus && r.gradingStatus !== 'completed' ? 'Chờ chấm' : (Number(r.score)||0).toFixed(1)}</span>
                         </td>
                         <td class="px-2 py-1.5 text-center text-gray-600 whitespace-nowrap">${r.correctCount}/${r.totalQuestions}</td>
                         <td class="px-2 py-1.5 text-center text-gray-600 whitespace-nowrap">${formatTime(r.timeTaken)}</td>
@@ -16109,7 +16109,7 @@ CẤU TRÚC JSON:
                             <div>
                                 <p class="text-[10px] text-gray-500 uppercase font-bold mb-0.5">Điểm số</p>
                                 <span class="text-xl font-black ${r.score >= 8 ? 'text-green-600' : r.score >= 5 ? 'text-yellow-600' : 'text-purple-600'}">
-                                    ${(Number(r.score) || 0).toFixed(1)}
+                                    ${r.gradingStatus && r.gradingStatus !== 'completed' ? 'Chờ chấm' : (Number(r.score)||0).toFixed(1)}
                                 </span>
                             </div>
                             <div>
