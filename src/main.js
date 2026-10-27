@@ -2168,6 +2168,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             // XÓA SẠCH DẤU VẾT & DỮ LIỆU CŨ ĐỂ KHÔNG BỊ ẢNH HƯỞNG LẪN NHAU KHI ĐỔI TÀI KHOẢN
             questions = [];
             questionsLoaded = false;
+            questionBankRevision++;
             results = [];
             resultsLoaded = false;
             resetRankingUnitFilterSession();
@@ -2530,6 +2531,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             if (typeof results !== 'undefined') results.length = 0;
             if (typeof accounts !== 'undefined') accounts.length = 0;
             questionsLoaded = false;
+            questionBankRevision++;
             resultsLoaded = false;
             resetRankingUnitFilterSession();
             accountsLoaded = false;
@@ -3003,6 +3005,8 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
         }
 
         let questionsLoaded = false;
+        let questionsLoadPromise = null;
+        let questionBankRevision = 0;
 
         function checkExamQuestionsAvailability(examConfig, getCount) {
             let isEnough = true;
@@ -3035,89 +3039,122 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
 
         async function fetchAllQuestionsChunked(onProgress) {
             const token = localStorage.getItem('auth_token') || '';
+            if (!token) throw new Error('Phiên đăng nhập không hợp lệ. Vui lòng đăng nhập lại.');
+            const generation = authDataGeneration;
+            const userId = String(currentUser?.id || '');
+            const verifySession = () => {
+                if (generation !== authDataGeneration || userId !== String(currentUser?.id || '') ||
+                    token !== (localStorage.getItem('auth_token') || '')) {
+                    throw new Error('Phiên đăng nhập đã thay đổi trong khi tải câu hỏi.');
+                }
+            };
             const chunkSize = 1000;
             let offset = 0;
-            let allQuestions = [];
-            let hasMore = true;
+            const allQuestions = [];
             let pageNum = 1;
-
-            while (hasMore) {
-                if (typeof onProgress === 'function') {
-                    onProgress(allQuestions.length, pageNum, false);
-                }
-                const url = `/api/questions?limit=${chunkSize}&offset=${offset}`;
-                const res = await fetch(url, {
-                    headers: { 'Authorization': 'Bearer ' + token }
-                });
-                if (!res.ok) {
-                    throw new Error(`Lỗi máy chủ (${res.status}) khi tải dữ liệu câu hỏi tại đợt ${pageNum}`);
-                }
-                const contentType = res.headers.get("content-type");
+            while (true) {
+                verifySession();
+                if (typeof onProgress === 'function') onProgress(allQuestions.length, pageNum, false);
                 let json;
-                if (contentType && contentType.includes("application/json")) {
-                    json = await res.json();
-                } else {
-                    throw new Error("Server returned non-JSON response. Status: " + res.status);
-                }
-                const chunk = (json && Array.isArray(json.data)) ? json.data : [];
-                
-                if (chunk.length > 0) {
-                    allQuestions.push(...chunk);
-                }
-
-                const hasMoreFromApi = (json.has_more !== undefined) ? json.has_more : (chunk.length >= chunkSize);
-                if (chunk.length < chunkSize || hasMoreFromApi === false || chunk.length === 0) {
-                    hasMore = false;
-                } else {
-                    offset += chunkSize;
-                    pageNum++;
-                    if (pageNum > 100) {
-                        console.warn('Đã đạt giới hạn an toàn 100 đợt tải (100,000 câu hỏi)');
+                for (let attempt = 0; attempt < 3; attempt++) {
+                    verifySession();
+                    try {
+                        const res = await fetch('/api/questions?limit=' + chunkSize + '&offset=' + offset, {
+                            cache: 'no-store',
+                            headers: { 'Authorization': 'Bearer ' + token, 'Cache-Control': 'no-cache' }
+                        });
+                        verifySession();
+                        if (!res.ok) {
+                            const error = new Error('Không tải được ngân hàng câu hỏi (HTTP ' + res.status + ')');
+                            error.status = res.status;
+                            throw error;
+                        }
+                        if (!res.headers.get('content-type')?.includes('application/json')) {
+                            throw new Error('Máy chủ trả về dữ liệu không đúng định dạng.');
+                        }
+                        json = await res.json();
+                        verifySession();
+                        if (!json || !Array.isArray(json.data) || json.error) {
+                            throw new Error(json?.error || 'Dữ liệu câu hỏi không hợp lệ.');
+                        }
                         break;
+                    } catch (err) {
+                        verifySession();
+                        // Không thử lại khi phiên đăng nhập hết hạn hoặc không có quyền.
+                        if (err.status === 401 || err.status === 403 || attempt === 2) throw err;
+                        await new Promise(resolve => setTimeout(resolve, 250 * (attempt + 1)));
                     }
                 }
+                if (json.data.length > chunkSize || (json.has_more !== undefined && typeof json.has_more !== 'boolean')) {
+                    throw new Error('Phân trang ngân hàng câu hỏi không hợp lệ.');
+                }
+                allQuestions.push(...json.data);
+                const hasMore = json.has_more !== undefined ? json.has_more : json.data.length === chunkSize;
+                if (hasMore && json.data.length === 0) throw new Error('Dữ liệu phân trang chưa đầy đủ.');
+                if (!hasMore) break;
+                offset += json.data.length;
+                pageNum++;
+                if (pageNum > 100) throw new Error('Ngân hàng câu hỏi vượt giới hạn 100.000 câu; không thể xác nhận đã tải đầy đủ.');
             }
-
-            if (typeof onProgress === 'function') {
-                onProgress(allQuestions.length, pageNum, true);
+            verifySession();
+            const receivedIds = new Set(allQuestions.map(q => String(q?.id || '')));
+            if (receivedIds.size !== allQuestions.length || receivedIds.has('')) {
+                throw new Error('Dữ liệu ngân hàng câu hỏi bị trùng hoặc thiếu mã câu hỏi khi phân trang.');
             }
+            if (typeof onProgress === 'function') onProgress(allQuestions.length, pageNum, true);
             return allQuestions;
         }
         window.fetchAllQuestionsChunked = fetchAllQuestionsChunked;
 
         async function loadQuestions(force = false, onProgress = null) {
+            if (!(isAdminLoggedIn || isTeacherLoggedIn)) return false;
             if (questionsLoaded && !force) return true;
-            try {
-                if (!isAdminLoggedIn && !isTeacherLoggedIn) {
-                    console.log('Skipping lazy load questions: unauthorized role for fetching question bank.');
-                    return false;
-                }
-
-                const generation = authDataGeneration;
-                console.log('Loading questions from /api/questions (chunked)...');
-                const data = await fetchAllQuestionsChunked(onProgress);
-                if (generation !== authDataGeneration || !(isAdminLoggedIn || isTeacherLoggedIn)) return false;
-
-                if (data && Array.isArray(data)) {
+            // Dùng chung một request cho các tab, tránh response cũ ghi đè response mới.
+            if (questionsLoadPromise) return questionsLoadPromise;
+            const generation = authDataGeneration;
+            const userId = String(currentUser?.id || '');
+            const revision = questionBankRevision;
+            const request = (async () => {
+                try {
+                    const data = await fetchAllQuestionsChunked(onProgress);
+                    if (generation !== authDataGeneration ||
+                        userId !== String(currentUser?.id || '') ||
+                        revision !== questionBankRevision ||
+                        !(isAdminLoggedIn || isTeacherLoggedIn)) return false;
                     questions = data.map(q => ({
-                        id: q.id, type: q.type, level: q.level, lesson: q.lesson, content: q.content, options: q.options || {}, answer: q.answer, image: q.image || '', created_at: q.created_at || null, creatorId: q.creatorId || q.creator_id
+                        id: q.id, type: q.type, level: q.level, lesson: q.lesson,
+                        content: q.content, options: q.options || {}, answer: q.answer,
+                        image: q.image || '', created_at: q.created_at || null,
+                        creatorId: q.creatorId || q.creator_id
                     }));
                     questionsLoaded = true;
-                    if (typeof updateQuestionTeacherFilter === 'function') updateQuestionTeacherFilter();
-                    if (typeof updateLessonFilter === 'function') updateLessonFilter();
+                    updateQuestionTeacherFilter();
+                    updateLessonFilter();
+                    updateExamTeacherFilter();
+                    // Danh sách bài trong Tạo/sửa đề luôn đồng bộ sau khi tải thành công.
+                    if (document.getElementById('exam-lesson-selection')) renderLessonCheckboxes();
                     updateStats();
-                    if (typeof updateQuestionStats === 'function') updateQuestionStats();
-                    if (typeof renderQuestionsList === 'function') renderQuestionsList();
-                    if (typeof updateCurrentExamInfo === 'function') {
-                        updateCurrentExamInfo();
-                    }
+                    updateQuestionStats();
+                    renderQuestionsList();
+                    updateCurrentExamInfo();
                     return true;
+                } catch (err) {
+                    console.error('Không tải được ngân hàng câu hỏi:', err);
+                    if (generation === authDataGeneration && userId === String(currentUser?.id || '')) {
+                        questionsLoaded = false;
+                        const select = document.getElementById('question-lesson-filter');
+                        if (select && !questions.length) select.replaceChildren(new Option('Lỗi tải danh sách bài - hãy mở lại tab để thử lại', ''));
+                        const container = document.getElementById('exam-lesson-selection');
+                        if (container && !questions.length) {
+                            container.textContent = 'Không thể tải ngân hàng câu hỏi. Hãy mở lại tab để thử lại. (' + (err?.message || 'Lỗi kết nối') + ')';
+                        }
+                    }
+                    return false;
                 }
-                return false;
-            } catch (e) {
-                console.error('Error loading questions:', e);
-                return false;
-            }
+            })();
+            questionsLoadPromise = request;
+            try { return await request; }
+            finally { if (questionsLoadPromise === request) questionsLoadPromise = null; }
         }
 
         async function fetchAllResultsChunked(onProgress) {
@@ -3867,6 +3904,8 @@ if (e && e.message && e.message.includes('hạn mức')) {
                 (payload.questions && receipt.count !== payload.questions.length))
                 throw new Error(receipt.error || 'Máy chủ chưa xác nhận lưu đủ câu hỏi.');
             questionsLoaded = false;
+            questionBankRevision++;
+            questionsLoadPromise = null; // Mutations require a fresh readback, not an old pending read.
             return true;
         }
 
@@ -4126,8 +4165,11 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
                         }
                         const examSelect = document.getElementById('student-exam-name-filter');
                         if (examSelect) examSelect.innerHTML = '<option value="">Chọn Bộ Câu hỏi/Đề thi</option>';
-                        questions = [];
-                        questionsLoaded = false; 
+                        if (!(isAdminLoggedIn || isTeacherLoggedIn)) {
+                            questions = [];
+                            questionsLoaded = false;
+                            questionBankRevision++;
+                        } 
                     }
                     window.scrollTo({ top: 0, behavior: 'smooth' });
                 } else {
@@ -4224,7 +4266,8 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
             if (tabName === 'questions' || tabName === 'exam-editor') {
                 if (!questionsLoaded) {
                     showLoadingProgress('Đang tải Ngân hàng Câu hỏi', async () => {
-                        await loadQuestions();
+                        const loaded = await loadQuestions();
+                        if (!loaded) throw new Error('Tải ngân hàng câu hỏi thất bại. Mở lại tab để thử lại.');
                         if (tabName === 'questions') {
                             updateQuestionTeacherFilter();
                             updateLessonFilter();
@@ -7196,6 +7239,8 @@ if (contentType && contentType.includes("application/json")) {
 
         window._studentTeacherChangeSeq = 0;
         window.onStudentTeacherFilterChange = async function onStudentTeacherFilterChange() {
+            // Student-only state must never reset teacher/admin question-bank state.
+            if (isAdminLoggedIn || isTeacherLoggedIn) return;
             const currentTeacherSeq = ++window._studentTeacherChangeSeq;
             // Invalidate in-flight exam details and any earlier verified password.
             ++window._studentExamChangeSeq;
@@ -7232,8 +7277,11 @@ if (contentType && contentType.includes("application/json")) {
             }
             window._studentExamAccessCode='';
             window._studentExamVerifiedId='';
-            questions = []; // Xóa sạch danh sách câu hỏi trong bộ nhớ
-            questionsLoaded = false;
+            if (!(isAdminLoggedIn || isTeacherLoggedIn)) {
+                questions = []; // Dữ liệu phiên làm bài của học sinh, không xóa ngân hàng GV/Admin.
+                questionsLoaded = false;
+                questionBankRevision++;
+            }
             window.examAvailableCounts = null;
             
             // Reset trạng thái bài thi về ban đầu nếu đang ở tab làm bài
@@ -7380,6 +7428,7 @@ if (contentType && contentType.includes("application/json")) {
 
         window._studentExamChangeSeq = 0;
         window.onStudentExamNameChange = async function onStudentExamNameChange() {
+            if (isAdminLoggedIn || isTeacherLoggedIn) return;
             const currentExamSeq = ++window._studentExamChangeSeq;
             window._studentExamAccessCode = '';
             window._studentExamVerifiedId = '';
@@ -7407,8 +7456,11 @@ if (contentType && contentType.includes("application/json")) {
                 examConfig.tg_bd = null;
                 examConfig.tg_kt = null;
             }
-            questions = []; // Xóa câu hỏi trong bộ nhớ
-            questionsLoaded = false;
+            if (!(isAdminLoggedIn || isTeacherLoggedIn)) {
+                questions = []; // Chỉ dọn dữ liệu học sinh.
+                questionsLoaded = false;
+                questionBankRevision++;
+            }
             window.examAvailableCounts = null;
             
             if (typeof resetExam === 'function') {
@@ -10076,8 +10128,11 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             }
 
             // QUAN TRỌNG: Xóa hoàn toàn trạng thái bài thi cũ, câu hỏi, câu trả lời, token để không bị nhận diện là "đang thi"
-            questions = [];
-            questionsLoaded = false;
+            if (!(isAdminLoggedIn || isTeacherLoggedIn)) {
+                questions = [];
+                questionsLoaded = false;
+                questionBankRevision++;
+            }
             window.currentExamToken = null;
             currentExam = {
                 questions: [],
@@ -13666,6 +13721,10 @@ D. Phát biểu SAI</pre>
         let examSavePending = false;
         function invalidateExamEditorSession() {
             authDataGeneration += 1;
+            questionBankRevision += 1;
+            questionsLoadPromise = null; // Old session requests may finish, but must not block new ones.
+            window._studentTeacherChangeSeq = (window._studentTeacherChangeSeq || 0) + 1;
+            window._studentExamChangeSeq = (window._studentExamChangeSeq || 0) + 1;
             clearRecentQuestionFocus();
             examEditorInitialized = false;
             examEditorInitializing = null;
@@ -13709,6 +13768,10 @@ D. Phát biểu SAI</pre>
             if (examEditorInitializing) await examEditorInitializing;
             if (!examEditorInitialized) await initExamPanel();
             if (generation !== authDataGeneration || !(isAdminLoggedIn || isTeacherLoggedIn)) return false;
+            if (!examEditorInitialized || !questionsLoaded) {
+                showToast('Không thể tải đủ ngân hàng câu hỏi. Hãy mở lại tab để thử tải.', 'error');
+                return false;
+            }
             if (newExam) {
                 ++examUserLoadIntentSeq;
                 ++examConfigLoadSeq; // Cancel any in-flight Nạp/selection response.
@@ -13721,6 +13784,8 @@ D. Phát biểu SAI</pre>
         };
         async function initExamPanel() {
             if (examEditorInitialized) {
+                if (!questionsLoaded) await loadQuestions();
+                if (questionsLoaded) renderLessonCheckboxes();
                 updateAvailableCounts();
                 return;
             }
@@ -13758,7 +13823,11 @@ D. Phát biểu SAI</pre>
             // 0.1 Cập nhật danh sách giáo viên chia sẻ
             renderSharedTeachersSelect();
             
-            // 1. Render danh sách bài học (QUAN TRỌNG NHẤT)
+            // Phải có ngân hàng câu hỏi trước khi khởi tạo danh sách bài học.
+            if (!questionsLoaded && !(await loadQuestions())) return;
+            if (generation !== authDataGeneration) return;
+            updateExamTeacherFilter();
+            // 1. Render danh sách bài học
             renderLessonCheckboxes();
             
             // 2. Cập nhật số lượng câu có sẵn
@@ -13837,10 +13906,8 @@ D. Phát biểu SAI</pre>
                     .filter(l => l && l.trim() !== '')
             )].sort();
 
-            // Clean up selectedLessons to only include existing lessons
-            if (examConfig.selectedLessons && examConfig.selectedLessons.length > 0) {
-                examConfig.selectedLessons = examConfig.selectedLessons.filter(l => lessons.includes(l));
-            }
+            // Render không được tự thay đổi cấu hình đề thi. Chỉ người dùng chọn/hủy bài mới sửa selectedLessons.
+            // Tránh mất lựa chọn khi thay giáo viên, khi dữ liệu đang tải hoặc câu hỏi vừa được cập nhật.
 
             const container = document.getElementById('exam-lesson-selection');
             
@@ -13854,6 +13921,10 @@ D. Phát biểu SAI</pre>
 
             updateExamGlobalStats();
 
+            if (!questionsLoaded) {
+                container.textContent = 'Đang tải ngân hàng câu hỏi...';
+                return;
+            }
             // CASE 1: Không có câu hỏi
             if (filteredQuestions.length === 0) {
                 container.innerHTML = `
