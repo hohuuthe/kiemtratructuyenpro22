@@ -3264,7 +3264,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                             studentClass: r.student_class, 
                             lop: lop,
                             donvi: donvi,
-                            score: parseFloat(r.score), 
+                            score: r.score == null ? null : parseFloat(r.score), gradingStatus: r.grading_status || 'completed', 
                             correctCount: r.correct_count, 
                             totalQuestions: r.total_questions, 
                             timeTaken: r.time_taken, 
@@ -3275,6 +3275,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                             timestamp: r.created_at, 
                             loaiThiSinh: r.loai_thi_sinh, 
                             cheatWarningCount: Number(r.cheat_warning_count ?? r.cheatWarningCount ?? 0) || 0,
+                            gradingStatus: r.grading_status || 'completed',
                             aiGradingSummary: r.ai_grading_summary
                         };
                     });
@@ -3375,6 +3376,23 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 myStudentTotal = Number(payload.total) || 0;
                 myStudentPage = Number(page) || 0;
                 window.renderMyStudentResultsPage();
+                // Opportunistic recovery when the student returns after provider downtime.
+                // Trigger at most one attempt; the server lease and retry_at enforce backoff.
+                const queued = myStudentResults.find(row =>
+                  ['pending','retry_pending','waiting_key'].includes(row.grading_status));
+                if (queued) {
+                    fetch('/api/exam/retry-essay', {
+                        method:'POST',
+                        headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
+                        body:JSON.stringify({resultId:String(queued.id)})
+                    }).then(r=>r.json()).then(answer=>{
+                        if(answer?.data?.gradingStatus==='completed' &&
+                           seq===myStudentRequestSeq &&
+                           String(currentUser?.id||'')===expectedAccount) {
+                            loadMyStudentResults(myStudentPage);
+                        }
+                    }).catch(()=>{});
+                }
             } catch (error) {
                 if (seq === myStudentRequestSeq && list) {
                     list.textContent = error.message || 'Không thể tải kết quả.';
@@ -9688,7 +9706,8 @@ if (contentType && contentType.includes("application/json")) {
                 window.currentExamToken = null;
                 try { localStorage.removeItem('currentExamToken'); } catch(e) {}
                 
-                const score = result.score;
+                const gradingInProgress = result.gradingStatus && result.gradingStatus !== 'completed';
+                const score = gradingInProgress ? null : result.score;
                 const correctCount = result.correctCount;
                 const detailedResults = result.detailedResults;
                 const insertedId = result.resultId;
@@ -9764,8 +9783,24 @@ if (contentType && contentType.includes("application/json")) {
                     results.unshift(submitResult);
                 }
 
-                // Trả về giao diện sau khi chấm xong
+                // Trả về giao diện với trạng thái chờ nếu AI chưa chấm đủ.
+                submitResult.gradingStatus = result.gradingStatus || 'completed';
+                submitResult.aiGradingError = gradingInProgress;
                 showResults(submitResult, detailedResults);
+                if (gradingInProgress && insertedId) {
+                    // Retry is persisted and leased server-side; never resubmit the exam token.
+                    const retryToken = localStorage.getItem('auth_token') || '';
+                    if (retryToken) fetch('/api/exam/retry-essay', {
+                        method: 'POST', headers: {
+                            'Content-Type':'application/json',
+                            'Authorization':'Bearer '+retryToken
+                        }, body: JSON.stringify({resultId: insertedId})
+                    }).then(r=>r.json()).then(data=>{
+                        if (data?.data?.gradingStatus === 'completed') {
+                            showToast('AI đã chấm xong bài tự luận. Bạn có thể tải lại kết quả.', 'success');
+                        }
+                    }).catch(()=>{});
+                }
 
             } catch (err) {
                 
@@ -10000,7 +10035,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 </div>
                 <div class="grid grid-cols-2 md:grid-cols-3 gap-2 md:gap-3 mb-4">
                     <div class="p-3 bg-blue-50 rounded-lg text-center shadow-sm relative border border-blue-100/50 flex flex-col justify-center">
-                        <p class="text-3xl sm:text-4xl lg:text-5xl font-black text-blue-600 leading-tight">${showScore ? (Number(result.score) || 0).toFixed(1) : '***'}</p>
+                        <p class="text-3xl sm:text-4xl lg:text-5xl font-black text-blue-600 leading-tight">${showScore ? (result.gradingStatus && result.gradingStatus !== 'completed' ? 'Chờ chấm' : (Number(result.score)||0).toFixed(1)) : '***'}</p>
                         <p class="text-xs md:text-sm text-blue-500 uppercase font-bold tracking-widest mt-0.5">Điểm số</p>
                         <div class="mt-1 text-xs md:text-sm text-blue-700 bg-white/50 py-1 px-2.5 rounded-full inline-block border border-blue-200">
                             Đã làm: <b>${result.answeredQuestionsCount}</b>/${result.totalQuestions}
@@ -15871,7 +15906,7 @@ CẤU TRÚC JSON:
             const sortedResults = filteredResults.sort((a, b) => {
                 let cmp = 0;
                 if (sortCol === 'score') {
-                    cmp = (Number(a.score) || 0) - (Number(b.score) || 0);
+                    cmp = (a.score == null ? -Infinity : Number(a.score)) - (b.score == null ? -Infinity : Number(b.score));
                 } else if (sortCol === 'correctCount') {
                     cmp = (Number(a.correctCount) || 0) - (Number(b.correctCount) || 0);
                     if (cmp === 0) {
@@ -15998,7 +16033,7 @@ CẤU TRÚC JSON:
                             ${escapeHTML(r.donvi || r.studentClass || '-')}
                         </td>
                         <td class="px-2 py-1.5 text-center whitespace-nowrap">
-                            <span class="px-2 py-0.5 rounded-full font-bold ${r.score >= 8 ? 'bg-green-100 text-green-700' : r.score >= 5 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-purple-700'}">${(Number(r.score) || 0).toFixed(1)}</span>
+                            <span class="px-2 py-0.5 rounded-full font-bold ${r.score >= 8 ? 'bg-green-100 text-green-700' : r.score >= 5 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-purple-700'}">${r.gradingStatus && r.gradingStatus !== 'completed' ? 'Chờ chấm' : (Number(r.score)||0).toFixed(1)}</span>
                         </td>
                         <td class="px-2 py-1.5 text-center text-gray-600 whitespace-nowrap">${r.correctCount}/${r.totalQuestions}</td>
                         <td class="px-2 py-1.5 text-center text-gray-600 whitespace-nowrap">${formatTime(r.timeTaken)}</td>
@@ -16074,7 +16109,7 @@ CẤU TRÚC JSON:
                             <div>
                                 <p class="text-[10px] text-gray-500 uppercase font-bold mb-0.5">Điểm số</p>
                                 <span class="text-xl font-black ${r.score >= 8 ? 'text-green-600' : r.score >= 5 ? 'text-yellow-600' : 'text-purple-600'}">
-                                    ${(Number(r.score) || 0).toFixed(1)}
+                                    ${r.gradingStatus && r.gradingStatus !== 'completed' ? 'Chờ chấm' : (Number(r.score)||0).toFixed(1)}
                                 </span>
                             </div>
                             <div>
@@ -16129,6 +16164,28 @@ CẤU TRÚC JSON:
             renderRankingPagination(totalItems, pageSize, totalPages, window.rankingCurrentPage);
             updateRankingSelection();
         }
+
+        window.retryEssayFromTeacher = async function retryEssayFromTeacher(resultId) {
+            if (!(isAdminLoggedIn || isTeacherLoggedIn)) return;
+            const token=localStorage.getItem('auth_token') || '';
+            if (!token) { showToast('Phiên đăng nhập đã hết hạn.', 'error'); return; }
+            try {
+                showToast('Đang yêu cầu AI tiếp tục chấm những câu tự luận còn chờ...', 'info');
+                const response=await fetch('/api/exam/retry-essay',{
+                    method:'POST', headers:{'Content-Type':'application/json',
+                        'Authorization':'Bearer '+token},
+                    body:JSON.stringify({resultId})
+                });
+                const body=await response.json();
+                if(!response.ok) throw new Error(body.error||'Không thể tiếp tục chấm AI.');
+                const status=body.data?.gradingStatus || 'retry_pending';
+                showToast(status==='completed' ? 'Đã chấm xong. Đang tải lại điểm chính thức.' :
+                    'Bài làm vẫn đang chờ. Hệ thống sẽ thử lại khi có Key hoạt động.', status==='completed'?'success':'warning');
+                await loadAllResults(true,0,true);
+                closeModal();
+                if(status==='completed') await showExamDetail(resultId);
+            } catch(e) { showToast(e.message||'Không thể chấm lại.', 'error'); }
+        };
 
         window.showExamDetail = async function showExamDetail(resultId) {
             const result = results.find(r => r.id === resultId);
@@ -16396,7 +16453,7 @@ CẤU TRÚC JSON:
                     
                     <div class="grid grid-cols-3 gap-2 mb-3 text-center">
                         <div class="p-2 bg-blue-50 rounded-lg shadow-sm border border-blue-100/50">
-                            <p id="total-score-val-${resultId}" class="text-xl sm:text-2xl font-black text-blue-600">${(Number(result.score) || 0).toFixed(1)}</p>
+                            <p id="total-score-val-${resultId}" class="text-xl sm:text-2xl font-black text-blue-600">${result.gradingStatus && result.gradingStatus !== 'completed' ? 'Chờ chấm' : (Number(result.score)||0).toFixed(1)}</p>
                             <p class="text-[10px] text-gray-500 uppercase font-bold tracking-wider mt-1">Điểm</p>
                             <p class="text-[10px] text-blue-700 mt-1 font-bold">Làm: ${result.answeredQuestionsCount || 0}/${result.totalQuestions}</p>
                         </div>
@@ -16419,6 +16476,9 @@ CẤU TRÚC JSON:
 
                     <div class="mt-6 flex flex-wrap justify-center gap-3 pb-4">
                         ${isExamCreator ? `<button onclick="saveManualGrades('${resultId}')" class="px-5 sm:px-6 py-2 bg-gradient-to-r from-green-600 to-emerald-600 text-white font-bold rounded-lg hover:from-green-700 hover:to-emerald-700 transition shadow-md text-sm sm:text-base">💾 Lưu điểm</button>` : ''}
+                        ${(isExamCreator || isAdminLoggedIn) && result.gradingStatus && result.gradingStatus !== 'completed'
+                          ? `<button onclick="retryEssayFromTeacher('${resultId}')" class="px-5 sm:px-6 py-2 rounded-lg bg-purple-600 text-white font-bold hover:bg-purple-700">🤖 Thử chấm AI lại</button>`
+                          : ''}
                         <button onclick="closeModal()" class="px-5 sm:px-6 py-2 bg-gray-500 text-white font-bold rounded-lg hover:bg-gray-600 transition shadow-md text-sm sm:text-base">Đóng</button>
                     </div>
                 </div>

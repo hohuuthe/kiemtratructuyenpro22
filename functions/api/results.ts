@@ -1,3 +1,4 @@
+import {liveExamVisibility,projectExamSubmissionDetails} from '../../src/exam-grading-safety.js';
 import { verifyAuthSession, getDynamicSecret, getDatabase } from './exam/utils';
 import { processExamResultsDeletion } from '../../src/exam-results-delete-service';
 import { listExamResultsDeletionTargets } from '../../src/exam-results-targets-service';
@@ -61,6 +62,7 @@ function parseResultRow(row: any, includeDetails = false) {
     cheat_warning_count: Number(row.cheat_warning_count) || 0,
     cheatWarningCount: Number(row.cheat_warning_count) || 0,
     ai_grading_summary: row.ai_grading_summary || null,
+    grading_status: row.grading_status || 'completed',
     ...(includeDetails ? { details } : {})
   };
 }
@@ -166,6 +168,8 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
       await db.prepare("ALTER TABLE users ADD COLUMN lop TEXT").run();
     } catch (e) {}
 
+    // Legacy /api/results never returns raw student submissions to non-staff.
+    // Students must use /api/results/me which enforces per-account ownership.
     // Student requests are confined to the private, authenticated endpoint.
     // Never serve shared-exam rosters or legacy lists to logged-in students.
     if (isStudent) {
@@ -182,7 +186,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
           SELECT 
             r.id, r.user_id, r.student_name, r.student_class, r.exam_name, r.exam_id, r.score, r.time_taken, 
             r.correct_count, r.total_questions, r.details, r.loai_thi_sinh, r.cheat_warning_count, 
-            r.ai_grading_summary, r.created_at,
+            r.ai_grading_summary, r.grading_status, r.created_at,
             COALESCE(u.lop, u2.lop, '') as lop,
             COALESCE(u.donvi, u.address, u2.donvi, u2.address, r.student_class, '') as don_vi
           FROM results r
@@ -210,18 +214,8 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
         if (!examRows || examRows.length === 0) {
           return new Response(JSON.stringify({ data: null, error: "Bạn không có quyền xem chi tiết kết quả này" }), { status: 403, headers: corsHeaders });
         }
-      } else if (isStudent) {
-        const isOwner = !!row.user_id && (String(row.user_id) === String(user.id) || String(row.user_id) === String(user.user_id));
-        if (!isOwner) {
-          return new Response(JSON.stringify({ data: null, error: "Bạn chỉ có thể xem chi tiết bài thi của chính mình" }), { status: 403, headers: corsHeaders });
-        }
-      } else if (!user) {
-        const { results: sharedCheck } = await db.prepare(
-          "SELECT id FROM exam_configs WHERE id = ? AND (is_shared_results = 1 OR is_shared_results = 'true' OR is_shared_results = true)"
-        ).bind(row.exam_id).all();
-        if (!sharedCheck || sharedCheck.length === 0) {
-          return new Response(JSON.stringify({ data: null, error: "Kết quả này không được công khai" }), { status: 403, headers: corsHeaders });
-        }
+      } else if (!isAdmin) {
+        return new Response(JSON.stringify({error:'Chỉ giáo viên phụ trách hoặc quản trị viên được xem chi tiết tại API này.'}),{status:403,headers:corsHeaders});
       }
 
       return new Response(JSON.stringify({ data: parseResultRow(row, true), error: null }), { status: 200, headers: corsHeaders });
@@ -261,11 +255,21 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     }
 
     const columns = includeDetails
-      ? "r.id, r.user_id, r.student_name, r.student_class, r.score, r.correct_count, r.total_questions, r.time_taken, r.exam_name, r.exam_id, r.created_at, r.loai_thi_sinh, r.cheat_warning_count, r.ai_grading_summary, COALESCE(u.lop, u2.lop, '') as lop, COALESCE(u.donvi, u.address, u2.donvi, u2.address, r.student_class, '') as don_vi, r.details"
-      : "r.id, r.user_id, r.student_name, r.student_class, r.score, r.correct_count, r.total_questions, r.time_taken, r.exam_name, r.exam_id, r.created_at, r.loai_thi_sinh, r.cheat_warning_count, r.ai_grading_summary, COALESCE(u.lop, u2.lop, '') as lop, COALESCE(u.donvi, u.address, u2.donvi, u2.address, r.student_class, '') as don_vi";
+      ? "r.id, r.user_id, r.student_name, r.student_class, r.score, r.correct_count, r.total_questions, r.time_taken, r.exam_name, r.exam_id, r.created_at, r.loai_thi_sinh, r.cheat_warning_count, r.ai_grading_summary, r.grading_status, COALESCE(u.lop, u2.lop, '') as lop, COALESCE(u.donvi, u.address, u2.donvi, u2.address, r.student_class, '') as don_vi, r.details"
+      : "r.id, r.user_id, r.student_name, r.student_class, r.score, r.correct_count, r.total_questions, r.time_taken, r.exam_name, r.exam_id, r.created_at, r.loai_thi_sinh, r.cheat_warning_count, r.ai_grading_summary, r.grading_status, COALESCE(u.lop, u2.lop, '') as lop, COALESCE(u.donvi, u.address, u2.donvi, u2.address, r.student_class, '') as don_vi";
 
     // 3. Tải danh sách kết quả theo mã chia sẻ đề thi (?examId=xxx)
     if (examIdParam) {
+      if (!isAdmin && !isTeacher) {
+        // Shared rosters must never expose answer keys, ungraded scores or
+        // student identity from unrestricted legacy results endpoints.
+        return new Response(JSON.stringify({error:'Danh sách kết quả chi tiết yêu cầu quyền giáo viên hoặc quản trị viên.'}),{status:403,headers:{...corsHeaders,'Cache-Control':'no-store'}});
+      }
+      if (isTeacher) {
+        const ownExam:any = await db.prepare('SELECT id FROM exam_configs WHERE id = ? AND creator_id = ? LIMIT 1')
+          .bind(examIdParam,user.id).first();
+        if (!ownExam) return new Response(JSON.stringify({error:'Đề thi không thuộc quyền của giáo viên.'}),{status:403,headers:corsHeaders});
+      }
       if (!isAdmin && !isTeacher) {
         const { results: sharedExam } = await db.prepare(
           "SELECT id FROM exam_configs WHERE id = ? AND (is_shared_results = 1 OR is_shared_results = 'true' OR is_shared_results = true)"
@@ -424,10 +428,53 @@ export const onRequestPut: PagesFunction<Env> = async (context) => {
       }
     }
 
-    const safeDetails = typeof details === 'object' ? JSON.stringify(details) : (details || '[]');
+    if (!Array.isArray(details) || !Number.isFinite(Number(score))) {
+      return new Response(JSON.stringify({error:'Điểm và dữ liệu chi tiết không hợp lệ.'}),{status:400,headers:corsHeaders});
+    }
+    // Never trust client-supplied original question snapshots, answer keys,
+    // multiple-choice points or arbitrary question/array lengths.
+    const original:any = await db.prepare('SELECT details FROM results WHERE id = ? LIMIT 1').bind(id).first();
+    if (!original) return new Response(JSON.stringify({error:'Không tìm thấy bài làm.'}),{status:404,headers:corsHeaders});
+    const stored = Array.isArray(original.details) ? original.details : JSON.parse(String(original.details || '[]'));
+    if (!Array.isArray(stored) || details.length !== stored.length)
+      return new Response(JSON.stringify({error:'Số câu hỏi không khớp dữ liệu gốc.'}),{status:400,headers:corsHeaders});
+    const safeDetailsArray = stored.map((previous:any,index:number) => {
+      const submitted:any = details[index];
+      if (!submitted || String(submitted.question?.id ?? '') !== String(previous.question?.id ?? ''))
+        throw new Error('Thứ tự hoặc ID câu hỏi không khớp dữ liệu đã lưu.');
+      const d={...previous};
+      if (d.question?.type !== 'TL') return d;
+      if(submitted.score !== null && submitted.score !== undefined) {
+        const point=Number(submitted.score);
+        const maximum=Number(d.maxScore ?? 1);
+        if(!Number.isFinite(point) || point<0 || !Number.isFinite(maximum) || point>maximum)
+          throw new Error('Điểm tự luận không hợp lệ hoặc vượt thang điểm.');
+        d.score=point;
+        d.gradingStatus='completed';
+        d.needsGrading=false;
+        d.aiFeedback='Điểm đã được giáo viên cập nhật thủ công.';
+      }
+      return d;
+    });
+    const pending=safeDetailsArray.some((d:any)=>d.question?.type==='TL' &&
+       (d.score===null || d.score===undefined || d.gradingStatus!=='completed'));
+    // Manual grading supersedes any in-flight AI lease; no late provider may overwrite it.
+    const updatedStatus=pending?'manual_required':'completed';
+    const total=pending?null:safeDetailsArray.reduce((sum:number,d:any)=>sum+(Number(d.score)||0),0);
     await db.prepare(
-      "UPDATE results SET score = ?, correct_count = ?, details = ? WHERE id = ?"
-    ).bind(Number(score) || 0, Number(correct_count) || 0, safeDetails, id).run();
+      "ALTER TABLE results ADD COLUMN IF NOT EXISTS grading_status TEXT DEFAULT 'completed'"
+    ).run();
+    await db.prepare(
+      "ALTER TABLE results ADD COLUMN IF NOT EXISTS grading_lease_token TEXT"
+    ).run();
+    await db.prepare(
+      "ALTER TABLE results ADD COLUMN IF NOT EXISTS grading_lease_until TEXT"
+    ).run();
+    const updated=await db.prepare(
+      "UPDATE results SET score = ?, correct_count = ?, details = ?, grading_status = ?, " +
+      "grading_lease_token = NULL, grading_lease_until = NULL WHERE id = ?"
+    ).bind(total, Number(correct_count)||0, JSON.stringify(safeDetailsArray),updatedStatus,id).run();
+    if(updated.meta?.changes!==1) throw new Error('Không ghi nhận được kết quả cập nhật.');
 
     return new Response(JSON.stringify({ success: true, message: "Đã cập nhật điểm thành công", error: null }), { status: 200, headers: corsHeaders });
   } catch (e: any) {
