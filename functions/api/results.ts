@@ -61,6 +61,7 @@ function parseResultRow(row: any, includeDetails = false) {
     cheat_warning_count: Number(row.cheat_warning_count) || 0,
     cheatWarningCount: Number(row.cheat_warning_count) || 0,
     ai_grading_summary: row.ai_grading_summary || null,
+    grading_status: row.grading_status || 'completed',
     ...(includeDetails ? { details } : {})
   };
 }
@@ -182,7 +183,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
           SELECT 
             r.id, r.user_id, r.student_name, r.student_class, r.exam_name, r.exam_id, r.score, r.time_taken, 
             r.correct_count, r.total_questions, r.details, r.loai_thi_sinh, r.cheat_warning_count, 
-            r.ai_grading_summary, r.created_at,
+            r.ai_grading_summary, r.grading_status, r.created_at,
             COALESCE(u.lop, u2.lop, '') as lop,
             COALESCE(u.donvi, u.address, u2.donvi, u2.address, r.student_class, '') as don_vi
           FROM results r
@@ -261,8 +262,8 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     }
 
     const columns = includeDetails
-      ? "r.id, r.user_id, r.student_name, r.student_class, r.score, r.correct_count, r.total_questions, r.time_taken, r.exam_name, r.exam_id, r.created_at, r.loai_thi_sinh, r.cheat_warning_count, r.ai_grading_summary, COALESCE(u.lop, u2.lop, '') as lop, COALESCE(u.donvi, u.address, u2.donvi, u2.address, r.student_class, '') as don_vi, r.details"
-      : "r.id, r.user_id, r.student_name, r.student_class, r.score, r.correct_count, r.total_questions, r.time_taken, r.exam_name, r.exam_id, r.created_at, r.loai_thi_sinh, r.cheat_warning_count, r.ai_grading_summary, COALESCE(u.lop, u2.lop, '') as lop, COALESCE(u.donvi, u.address, u2.donvi, u2.address, r.student_class, '') as don_vi";
+      ? "r.id, r.user_id, r.student_name, r.student_class, r.score, r.correct_count, r.total_questions, r.time_taken, r.exam_name, r.exam_id, r.created_at, r.loai_thi_sinh, r.cheat_warning_count, r.ai_grading_summary, r.grading_status, COALESCE(u.lop, u2.lop, '') as lop, COALESCE(u.donvi, u.address, u2.donvi, u2.address, r.student_class, '') as don_vi, r.details"
+      : "r.id, r.user_id, r.student_name, r.student_class, r.score, r.correct_count, r.total_questions, r.time_taken, r.exam_name, r.exam_id, r.created_at, r.loai_thi_sinh, r.cheat_warning_count, r.ai_grading_summary, r.grading_status, COALESCE(u.lop, u2.lop, '') as lop, COALESCE(u.donvi, u.address, u2.donvi, u2.address, r.student_class, '') as don_vi";
 
     // 3. Tải danh sách kết quả theo mã chia sẻ đề thi (?examId=xxx)
     if (examIdParam) {
