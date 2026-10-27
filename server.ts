@@ -2956,11 +2956,34 @@ async function startServer() {
         }
       }
 
-      const safeDetails = typeof details === 'object' ? JSON.stringify(details) : (details || '[]');
-      await executeSqlQuery(
-        "UPDATE results SET score = ?, correct_count = ?, details = ? WHERE id = ?",
-        [Number(score) || 0, Number(correct_count) || 0, safeDetails, id]
+      if(!Array.isArray(details)) return res.status(400).json({error:'Chi tiết chấm thi không hợp lệ.'});
+      const storedRow=(await executeSqlQuery('SELECT details FROM results WHERE id = ?',[id])).results?.[0];
+      if(!storedRow) return res.status(404).json({error:'Không tìm thấy bài làm.'});
+      const stored=Array.isArray(storedRow.details)?storedRow.details:JSON.parse(String(storedRow.details||'[]'));
+      if(!Array.isArray(stored)||stored.length!==details.length)
+        return res.status(400).json({error:'Số câu hỏi không khớp dữ liệu gốc.'});
+      const safeDetails=stored.map((original:any,i:number)=>{
+        const incoming=details[i];
+        if(!incoming || String(incoming.question?.id??'')!==String(original.question?.id??''))
+          throw new Error('ID câu hỏi không hợp lệ.');
+        const d={...original};
+        if(d.question?.type!=='TL') return d;
+        if(incoming.score!==null&&incoming.score!==undefined){
+          const points=Number(incoming.score),maximum=Number(d.maxScore??1);
+          if(!Number.isFinite(points)||points<0||!Number.isFinite(maximum)||points>maximum)
+            throw new Error('Điểm thủ công vượt giới hạn.');
+          d.score=points;d.gradingStatus='completed';d.needsGrading=false;
+          d.aiFeedback='Đã chấm thủ công.';
+        }
+        return d;
+      });
+      const pending=safeDetails.some((d:any)=>d.question?.type==='TL'&&d.gradingStatus!=='completed');
+      const finalScore=pending?null:safeDetails.reduce((a:number,d:any)=>a+(Number(d.score)||0),0);
+      const updated=await executeSqlQuery(
+        'UPDATE results SET score = ?, details = ?, grading_status = ?, grading_lease_token = NULL, grading_lease_until = NULL WHERE id = ?',
+        [finalScore,JSON.stringify(safeDetails),pending?'manual_required':'completed',id]
       );
+      if(updated.changes!==1)throw new Error('Không cập nhật được điểm.');
 
       return res.json({ success: true, message: "Đã cập nhật điểm thành công", error: null });
     } catch (e: any) {
