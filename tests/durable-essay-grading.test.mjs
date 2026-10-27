@@ -69,7 +69,7 @@ test('backend integrates durable submit and lease-safe final updates',()=>{
   const retry=readFileSync('functions/api/exam/retry-essay.ts','utf8');
   const manual=readFileSync('functions/api/results.ts','utf8');
   const ui=readFileSync('src/main.js','utf8');
-  assert.match(edge,/ON CONFLICT \(submission_token_hash\) DO NOTHING/);
+  assert.match(edge,/ON CONFLICT \(submission_token_hash\) WHERE submission_token_hash IS NOT NULL DO NOTHING/);
   assert.match(edge,/processStoredEssayGrading/);
   assert.match(retry,/verifyAuthSession/);
   assert.match(retry,/creator=teacher/);
