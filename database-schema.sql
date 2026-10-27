@@ -52,6 +52,14 @@ CREATE TABLE IF NOT EXISTS results (
     loai_thi_sinh TEXT,
     cheat_warning_count INTEGER DEFAULT 0,
     ai_grading_summary TEXT,
+    submission_token_hash TEXT,
+    grading_status TEXT DEFAULT 'completed',
+    grading_attempts INTEGER DEFAULT 0,
+    grading_retry_at TEXT,
+    grading_lease_token TEXT,
+    grading_lease_until TEXT,
+    grading_error_code TEXT,
+    grading_updated_at TEXT,
     created_at TEXT
 );
 
@@ -201,6 +209,8 @@ CREATE INDEX IF NOT EXISTS idx_users_phone ON users(phone_number);
 
 -- BẢNG RESULTS
 CREATE INDEX IF NOT EXISTS idx_results_exam_id ON results(exam_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_results_submission_token_hash ON results(submission_token_hash) WHERE submission_token_hash IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_results_grading_queue ON results(grading_status, grading_retry_at);
 CREATE INDEX IF NOT EXISTS idx_results_user_id ON results(user_id);
 CREATE INDEX IF NOT EXISTS idx_results_created_at ON results(created_at);
 CREATE INDEX IF NOT EXISTS idx_results_exam_created ON results(exam_id, created_at DESC);
