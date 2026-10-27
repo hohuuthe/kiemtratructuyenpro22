@@ -42,7 +42,7 @@ export async function queryOwnResultHistory(db: any, user: any, url: URL) {
       if (!id.trim()) return reply({ error: 'Thiếu mã bài làm.' }, 400);
       // Read visibility from the live exam config by exact ID, never by a duplicated name.
       const sql = 'SELECT r.id, r.exam_id, r.exam_name, r.score, r.correct_count, r.total_questions, ' +
-        'r.time_taken, r.created_at, r.details, ec.show_score AS exam_show_score, ' +
+        'r.time_taken, r.created_at, r.grading_status, r.details, ec.show_score AS exam_show_score, ' +
         'ec.show_details AS exam_show_details FROM results r ' +
         'LEFT JOIN exam_configs ec ON ec.id = r.exam_id ' +
         'WHERE r.id = ? AND r.' + scope + ' LIMIT 1';
@@ -72,7 +72,7 @@ export async function queryOwnResultHistory(db: any, user: any, url: URL) {
     ).bind(...ids).first();
     const response: any = await db.prepare(
       'SELECT r.id, r.exam_id, r.exam_name, r.score, r.correct_count, r.total_questions, ' +
-      'r.time_taken, r.created_at, ec.show_score AS exam_show_score, ' +
+      'r.time_taken, r.created_at, r.grading_status, ec.show_score AS exam_show_score, ' +
       'ec.show_details AS exam_show_details FROM results r ' +
       'LEFT JOIN exam_configs ec ON ec.id = r.exam_id WHERE r.' + scope +
       ' ORDER BY r.created_at DESC, r.id DESC LIMIT ? OFFSET ?'
