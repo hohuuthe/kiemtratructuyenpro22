@@ -280,7 +280,8 @@ export async function processStoredEssayGrading(db, resultId, options = {}) {
     const attempts = Number(row.grading_attempts || 1);
     const needsManual = errorCode === 'UNSUPPORTED_ESSAY_IMAGE' ||
       errorCode === 'INVALID_POINTS' ||
-      (attempts >= MAX_ESSAY_GRADING_ATTEMPTS && errorCode !== 'NO_KEY');
+      (attempts >= MAX_ESSAY_GRADING_ATTEMPTS && errorCode !== 'NO_KEY' &&
+        errorCode !== 'GRADING_BUDGET');
     if (needsManual) {
       for (const entry of details) {
         if (entry.question?.type === 'TL' && entry.gradingStatus !== 'completed' &&
