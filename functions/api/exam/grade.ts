@@ -133,6 +133,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         }
 
         if (authHeader && !liveUser) return new Response(JSON.stringify({error:'Phiên đăng nhập không hợp lệ.'}),{status:401,headers:corsHeaders});
+        const signedStudentId=String(decoded.studentUserId || '');
+        if (signedStudentId !== String(liveUser?.user_id || liveUser?.id || ''))
+          return new Response(JSON.stringify({error:'Phiên thi không thuộc tài khoản đang nộp bài.'}),{status:403,headers:corsHeaders});
         const verifiedExamId = String(decoded.examConfig?.id || '').trim();
         if (!verifiedExamId) return new Response(JSON.stringify({error:'Đề thi chưa được xác minh.'}),{status:403,headers:corsHeaders});
         const liveExam:any = await db.prepare('SELECT id, creator_id, show_score, show_details FROM exam_configs WHERE id = ? LIMIT 1')
