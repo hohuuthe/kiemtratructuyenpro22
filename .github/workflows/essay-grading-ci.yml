@@ -8,6 +8,9 @@ on:
       - 'functions/api/exam/**'
       - 'functions/api/results*'
       - 'tests/*essay*.test.mjs'
+      - 'tests/exam-grading-safety.test.mjs'
+      - 'src/exam-grading-safety.js'
+      - 'functions/api/results.ts'
       - '.github/workflows/essay-grading-ci.yml'
   workflow_dispatch:
 permissions:
@@ -23,6 +26,6 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci --no-audit --no-fund
-      - run: node --test tests/durable-essay-grading.test.mjs tests/essay-key-pool.test.mjs
+      - run: node --test tests/durable-essay-grading.test.mjs tests/essay-key-pool.test.mjs tests/exam-grading-safety.test.mjs
       - run: npm run lint
       - run: npm run build
