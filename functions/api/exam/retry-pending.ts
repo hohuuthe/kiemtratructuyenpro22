@@ -28,11 +28,14 @@ export const onRequestPost:PagesFunction<Env>=async(context)=>{
     const now=new Date().toISOString();
     // At most two requests per wakeup; each has a strictly bounded provider budget.
     const rows:any=await db.prepare(
-      "SELECT id FROM results WHERE grading_status IN ('pending','retry_pending','waiting_key') " +
+      "SELECT id FROM results WHERE ( " +
+      "(grading_status IN ('pending','retry_pending','waiting_key') " +
       "AND (grading_retry_at IS NULL OR grading_retry_at <= ?) " +
-      "AND (grading_lease_until IS NULL OR grading_lease_until < ?) " +
-      "ORDER BY COALESCE(grading_retry_at,created_at) ASC, id ASC LIMIT 2"
-    ).bind(now,now).all();
+      "AND (grading_lease_until IS NULL OR grading_lease_until < ?)) " +
+      "OR (grading_status = 'processing' AND " +
+      "(grading_lease_until IS NULL OR grading_lease_until < ?)) " +
+      ") ORDER BY COALESCE(grading_retry_at,created_at) ASC, id ASC LIMIT 2"
+    ).bind(now,now,now).all();
     const states:any[]=[];
     for(const row of rows?.results||[]){
       try {
