@@ -376,7 +376,6 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         // Theo yêu cầu tuyệt đối: Hệ thống giữ nguyên điểm thô, lưu nguyên xi điểm thô vào kết quả, không phiên sang thang điểm 10.
         const calculatedScale10 = Number(scale10Score.toFixed(2));
         const calculatedRaw = Number(rawEarnedScore.toFixed(2));
-        const finalScore = calculatedRaw;
 
         const cheatWarningCount = Number(body.cheatWarningCount ?? body.studentInfo?.cheatWarningCount ?? 0) || 0;
         const correctCount = detailedResults.filter((d: any) => d.isCorrect && d.question.type !== 'TL').length;
