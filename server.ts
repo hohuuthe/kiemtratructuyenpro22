@@ -2767,6 +2767,7 @@ async function startServer() {
 
       // 3. Tải danh sách kết quả theo mã chia sẻ (?examId=xxx)
       if (examIdParam) {
+        if (!isAdmin && !isTeacher) return res.status(403).json({error:'Chỉ giáo viên hoặc quản trị viên được xem danh sách bài thi.'});
         if (isTeacher) {
           const { results: ownExam } = await executeSqlQuery("SELECT id FROM exam_configs WHERE id = ? AND creator_id = ?", [examIdParam, user.id]);
           if (!ownExam?.length) return res.status(403).json({ data: [], error: "Không có quyền xem đề thi này" });
