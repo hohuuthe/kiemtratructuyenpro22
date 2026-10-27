@@ -214,7 +214,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
         if (!examRows || examRows.length === 0) {
           return new Response(JSON.stringify({ data: null, error: "Bạn không có quyền xem chi tiết kết quả này" }), { status: 403, headers: corsHeaders });
         }
-      } else {
+      } else if (!isAdmin) {
         return new Response(JSON.stringify({error:'Chỉ giáo viên phụ trách hoặc quản trị viên được xem chi tiết tại API này.'}),{status:403,headers:corsHeaders});
       }
 
