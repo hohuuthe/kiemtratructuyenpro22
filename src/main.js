@@ -3375,6 +3375,23 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 myStudentTotal = Number(payload.total) || 0;
                 myStudentPage = Number(page) || 0;
                 window.renderMyStudentResultsPage();
+                // Opportunistic recovery when the student returns after provider downtime.
+                // Trigger at most one attempt; the server lease and retry_at enforce backoff.
+                const queued = myStudentResults.find(row =>
+                  ['pending','retry_pending','waiting_key'].includes(row.grading_status));
+                if (queued) {
+                    fetch('/api/exam/retry-essay', {
+                        method:'POST',
+                        headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
+                        body:JSON.stringify({resultId:String(queued.id)})
+                    }).then(r=>r.json()).then(answer=>{
+                        if(answer?.data?.gradingStatus==='completed' &&
+                           seq===myStudentRequestSeq &&
+                           String(currentUser?.id||'')===expectedAccount) {
+                            loadMyStudentResults(myStudentPage);
+                        }
+                    }).catch(()=>{});
+                }
             } catch (error) {
                 if (seq === myStudentRequestSeq && list) {
                     list.textContent = error.message || 'Không thể tải kết quả.';
