@@ -51,25 +51,47 @@ function parseDetails(value) {
     return [];
   }
 }
+function safeText(value) {
+  if (typeof value === 'string' || typeof value === 'number') return value;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return '';
+  return typeof value.text === 'string' || typeof value.text === 'number'
+    ? {text:value.text} : '';
+}
+function safeImage(value) { return typeof value === 'string' ? value : ''; }
+function safeOption(value) {
+  if (typeof value === 'string' || typeof value === 'number') return value;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return '';
+  return {text:safeText(value.text ?? value.content ?? value.value ?? value.label),
+    image:safeImage(value.image ?? value.img ?? value.src ?? value.url)};
+}
 function safeQuestion(question) {
   const q = question && typeof question === 'object' ? question : {};
-  const safe = {};
-  for (const key of ['id','type','level','lesson','content','image',
-    'optionImages','option_images','images','shuffledOptions','shuffled_options']) {
-    if (q[key] !== undefined) safe[key] = q[key];
+  const safe = {type:String(q.type || ''),content:safeText(q.content),
+    image:safeImage(q.image)};
+  for(const k of ['id','level','lesson']) if(typeof q[k]==='string' || typeof q[k]==='number') safe[k]=q[k];
+  const images=q.optionImages ?? q.option_images ?? q.images;
+  if(images && typeof images==='object') {
+    const allowed={};
+    for(const k of ['A','B','C','D','a','b','c','d'])
+      if(typeof images[k]==='string') allowed[k]=images[k];
+    if(Array.isArray(images))
+      images.slice(0,4).forEach((v,i)=>{if(typeof v==='string')allowed[['A','B','C','D'][i]]=v});
+    safe.optionImages=allowed;
   }
-  if (q.options !== undefined) {
-    const opts = q.options;
-    if (Array.isArray(opts)) safe.options = opts.slice(0, 4);
-    else if (opts && typeof opts === 'object') {
-      const visible = {};
-      for (const key of ['A','B','C','D','a','b','c','d',
-        'optA','optB','optC','optD','optionA','optionB','optionC','optionD',
-        'opt_a','opt_b','opt_c','opt_d','0','1','2','3','4']) {
-        if (Object.prototype.hasOwnProperty.call(opts,key)) visible[key] = opts[key];
-      }
-      safe.options = visible;
-    }
+  const shuffled=q.shuffledOptions ?? q.shuffled_options;
+  if(Array.isArray(shuffled) && shuffled.length===4 &&
+     shuffled.every(v=>typeof v==='string' && ['A','B','C','D'].includes(v.toUpperCase())) &&
+     new Set(shuffled.map(v=>v.toUpperCase())).size===4)
+    safe.shuffledOptions=shuffled.map(v=>v.toUpperCase());
+  const opts=q.options;
+  if(Array.isArray(opts))safe.options=opts.slice(0,4).map(safeOption);
+  else if(opts && typeof opts==='object') {
+    const visible={};
+    for (const key of ['A','B','C','D','a','b','c','d',
+      'optA','optB','optC','optD','optionA','optionB','optionC','optionD',
+      'opt_a','opt_b','opt_c','opt_d','0','1','2','3','4'])
+      if(Object.prototype.hasOwnProperty.call(opts,key)) visible[key]=safeOption(opts[key]);
+    safe.options=visible;
   }
   return safe;
 }
