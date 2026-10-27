@@ -5064,22 +5064,27 @@ async function getServerSecret(): Promise<string> {
               return res.status(400).json({ error: 'Exam mismatch or invalid token' });
           }
 
+          // Resolve from the signed exam session, never from mutable studentInfo.
           let aiKey = '';
-          let examConfigs: any[] = [];
           try {
-              if (studentInfo.examId) {
-                  const res = await executeSqlQuery('SELECT ai_grading_key FROM exam_configs WHERE id = ? AND creator_id = ?', [studentInfo.examId, teacherId]);
-                  examConfigs = res.results || [];
+              const verifiedExamId = String(examConfig?.id || '').trim();
+              if (verifiedExamId) {
+                  const found = await executeSqlQuery(
+                      'SELECT ai_grading_key FROM exam_configs WHERE id = ? AND creator_id = ? LIMIT 1',
+                      [verifiedExamId, String(teacherId || '')]
+                  );
+                  aiKey = String(found.results?.[0]?.ai_grading_key || '').trim();
               }
-              if (!examConfigs || examConfigs.length === 0) {
-                  const res = await executeSqlQuery('SELECT ai_grading_key FROM exam_configs WHERE name = ? AND creator_id = ?', [studentInfo.examName, teacherId]);
-                  examConfigs = res.results || [];
+              if (!aiKey) {
+                  const defaults = await executeSqlQuery(
+                      'SELECT ai_grading_key FROM app_settings WHERE id = 1', []
+                  );
+                  aiKey = String(defaults.results?.[0]?.ai_grading_key || '').trim();
               }
-          } catch(e) {}
-          if (examConfigs && examConfigs.length > 0) {
-              aiKey = examConfigs[0].ai_grading_key;
+          } catch (err) {
+              console.error('Failed to resolve essay grading key for verified exam');
           }
-          
+
           const normalizeTypeForGrading = (type: any) => {
               const t = String(type || '').trim().toLowerCase();
               if (t === '4-1' || t === 'trac_nghiem' || t === 'mcq') return '4-1';
@@ -5270,8 +5275,9 @@ async function getServerSecret(): Promise<string> {
           });
 
           // Hỗ trợ danh sách nhiều key cách nhau bằng dấu cách, tự động chuyển key khi hết hạn mức
-          const rawAiKeys = (aiKey || '').trim().split(/\s+/).filter((k: string) => k.length > 5 && !k.includes("••••••••") && !k.includes("YOUR_"));
-          const isAutoGradeEssay = examConfig.autoGradeEssay !== false && examConfig.auto_grade_essay !== false;
+          const rawAiKeys = [...new Set((aiKey || '').trim().split(/\s+/).filter((k: string) => k.length > 5 && !k.includes("••••••••") && !k.includes("YOUR_")))];
+          const gradeFlag = (value: any) => value === true || value === 1 || value === '1' || value === 'true';
+          const isAutoGradeEssay = gradeFlag(examConfig.autoGradeEssay ?? examConfig.auto_grade_essay);
 
           if (isAutoGradeEssay && rawAiKeys.length > 0 && tlQuestionsToGrade.length > 0) {
               let currentKeyIdx = 0;
@@ -5337,14 +5343,16 @@ YÊU CẦU:
                                   })
                               });
 
+                              const responseJson: any = await res.json().catch(() => ({}));
                               if (res.ok) {
-                                  const json: any = await res.json();
-                                  const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
+                                  const text = responseJson.candidates?.[0]?.content?.parts?.[0]?.text;
                                   if (text) {
                                       const parsed = JSON.parse(text);
-                                      const essayScore = Math.max(0, Math.min(pTL, Number(parsed.score) || 0));
+                                      const value = Number(parsed.score);
+                                      if (!Number.isFinite(value)) throw new Error('Điểm AI không hợp lệ');
+                                      const essayScore = Math.max(0, Math.min(pTL, value));
                                       d.score = essayScore;
-                                      d.aiFeedback = parsed.feedback || '';
+                                      d.aiFeedback = String(parsed.feedback || '');
                                       d.gradingStatus = 'completed';
                                       score += essayScore;
                                       gradedSuccessfully = true;
@@ -5352,7 +5360,7 @@ YÊU CẦU:
                                   }
                               }
 
-                              const errJson = await res.json().catch(() => ({})) as any;
+                              const errJson = responseJson as any;
                               const errMsg = (errJson.error?.message || '').toLowerCase();
                               if (res.status === 429 || res.status === 403 || res.status === 401 ||
                                   (res.status === 400 && (errMsg.includes('key') || errMsg.includes('invalid'))) ||
