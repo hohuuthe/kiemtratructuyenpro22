@@ -95,6 +95,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     }
 
     const db = getDatabase(context);
+    await db.prepare("ALTER TABLE results ADD COLUMN IF NOT EXISTS grading_status TEXT DEFAULT 'completed'").run();
     const secret = await getDynamicSecret(db, env.JWT_SECRET);
     const user = await verifyAuthSession(header.substring(7), secret, db);
     if (!user) return reply({ error: 'Phiên đăng nhập không hợp lệ hoặc đã hết hạn.' }, 401);
