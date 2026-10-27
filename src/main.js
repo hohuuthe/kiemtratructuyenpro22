@@ -3040,19 +3040,30 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
         async function fetchAllQuestionsChunked(onProgress) {
             const token = localStorage.getItem('auth_token') || '';
             if (!token) throw new Error('Phiên đăng nhập không hợp lệ. Vui lòng đăng nhập lại.');
+            const generation = authDataGeneration;
+            const userId = String(currentUser?.id || '');
+            const verifySession = () => {
+                if (generation !== authDataGeneration || userId !== String(currentUser?.id || '') ||
+                    token !== (localStorage.getItem('auth_token') || '')) {
+                    throw new Error('Phiên đăng nhập đã thay đổi trong khi tải câu hỏi.');
+                }
+            };
             const chunkSize = 1000;
             let offset = 0;
             const allQuestions = [];
             let pageNum = 1;
             while (true) {
+                verifySession();
                 if (typeof onProgress === 'function') onProgress(allQuestions.length, pageNum, false);
                 let json;
                 for (let attempt = 0; attempt < 3; attempt++) {
+                    verifySession();
                     try {
                         const res = await fetch('/api/questions?limit=' + chunkSize + '&offset=' + offset, {
                             cache: 'no-store',
                             headers: { 'Authorization': 'Bearer ' + token, 'Cache-Control': 'no-cache' }
                         });
+                        verifySession();
                         if (!res.ok) {
                             const error = new Error('Không tải được ngân hàng câu hỏi (HTTP ' + res.status + ')');
                             error.status = res.status;
@@ -3062,22 +3073,33 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                             throw new Error('Máy chủ trả về dữ liệu không đúng định dạng.');
                         }
                         json = await res.json();
+                        verifySession();
                         if (!json || !Array.isArray(json.data) || json.error) {
                             throw new Error(json?.error || 'Dữ liệu câu hỏi không hợp lệ.');
                         }
                         break;
                     } catch (err) {
+                        verifySession();
                         // Không thử lại khi phiên đăng nhập hết hạn hoặc không có quyền.
                         if (err.status === 401 || err.status === 403 || attempt === 2) throw err;
                         await new Promise(resolve => setTimeout(resolve, 250 * (attempt + 1)));
                     }
                 }
+                if (json.data.length > chunkSize || (json.has_more !== undefined && typeof json.has_more !== 'boolean')) {
+                    throw new Error('Phân trang ngân hàng câu hỏi không hợp lệ.');
+                }
                 allQuestions.push(...json.data);
                 const hasMore = json.has_more !== undefined ? json.has_more : json.data.length === chunkSize;
-                if (!hasMore || json.data.length === 0) break;
+                if (hasMore && json.data.length === 0) throw new Error('Dữ liệu phân trang chưa đầy đủ.');
+                if (!hasMore) break;
                 offset += json.data.length;
                 pageNum++;
                 if (pageNum > 100) throw new Error('Ngân hàng câu hỏi vượt giới hạn 100.000 câu; không thể xác nhận đã tải đầy đủ.');
+            }
+            verifySession();
+            const receivedIds = new Set(allQuestions.map(q => String(q?.id || '')));
+            if (receivedIds.size !== allQuestions.length || receivedIds.has('')) {
+                throw new Error('Dữ liệu ngân hàng câu hỏi bị trùng hoặc thiếu mã câu hỏi khi phân trang.');
             }
             if (typeof onProgress === 'function') onProgress(allQuestions.length, pageNum, true);
             return allQuestions;
@@ -3883,6 +3905,7 @@ if (e && e.message && e.message.includes('hạn mức')) {
                 throw new Error(receipt.error || 'Máy chủ chưa xác nhận lưu đủ câu hỏi.');
             questionsLoaded = false;
             questionBankRevision++;
+            questionsLoadPromise = null; // Mutations require a fresh readback, not an old pending read.
             return true;
         }
 
@@ -13698,6 +13721,10 @@ D. Phát biểu SAI</pre>
         let examSavePending = false;
         function invalidateExamEditorSession() {
             authDataGeneration += 1;
+            questionBankRevision += 1;
+            questionsLoadPromise = null; // Old session requests may finish, but must not block new ones.
+            window._studentTeacherChangeSeq = (window._studentTeacherChangeSeq || 0) + 1;
+            window._studentExamChangeSeq = (window._studentExamChangeSeq || 0) + 1;
             clearRecentQuestionFocus();
             examEditorInitialized = false;
             examEditorInitializing = null;
@@ -13741,6 +13768,10 @@ D. Phát biểu SAI</pre>
             if (examEditorInitializing) await examEditorInitializing;
             if (!examEditorInitialized) await initExamPanel();
             if (generation !== authDataGeneration || !(isAdminLoggedIn || isTeacherLoggedIn)) return false;
+            if (!examEditorInitialized || !questionsLoaded) {
+                showToast('Không thể tải đủ ngân hàng câu hỏi. Hãy mở lại tab để thử tải.', 'error');
+                return false;
+            }
             if (newExam) {
                 ++examUserLoadIntentSeq;
                 ++examConfigLoadSeq; // Cancel any in-flight Nạp/selection response.
@@ -13875,10 +13906,8 @@ D. Phát biểu SAI</pre>
                     .filter(l => l && l.trim() !== '')
             )].sort();
 
-            // Không xóa lựa chọn đã lưu nếu ngân hàng chưa tải thành công.
-            if (questionsLoaded && examConfig.selectedLessons && examConfig.selectedLessons.length > 0) {
-                examConfig.selectedLessons = examConfig.selectedLessons.filter(l => lessons.includes(l));
-            }
+            // Render không được tự thay đổi cấu hình đề thi. Chỉ người dùng chọn/hủy bài mới sửa selectedLessons.
+            // Tránh mất lựa chọn khi thay giáo viên, khi dữ liệu đang tải hoặc câu hỏi vừa được cập nhật.
 
             const container = document.getElementById('exam-lesson-selection');
             
