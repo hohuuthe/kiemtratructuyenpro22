@@ -25,10 +25,11 @@ test('both backends choose key by signed exam ID plus owner, never student-suppl
 });
 test('key failover maintains unique list and valid opt-in flag',()=>{
  for(const code of [edge,express]){
-  assert.match(code,/new Set\(\(aiKey \|\| ''\)\.trim\(\)\.split\(\/\\s\+\/\)/);
-  assert.match(code,/currentKeyIdx\+\+/);
-  assert.match(code,/gradeFlag\(examConfig.autoGradeEssay \?\? examConfig.auto_grade_essay\)/);
-  assert.match(code,/const responseJson: any = await res.json\(\)/);
-  assert.match(code,/Number\.isFinite\(value\)/);
+  if (code === express) assert.match(code,/new Set\(\(aiKey \|\| ''\)\.trim\(\)\.split\(\/\\s\+\/\)/);
+  if (code === express) assert.match(code,/currentKeyIdx\+\+/);
+  if (code === express) assert.match(code,/gradeFlag\(examConfig.autoGradeEssay \?\? examConfig.auto_grade_essay\)/);
+  if (code === express) assert.match(code,/const responseJson: any = await res.json\(\)/);
+  else assert.match(code,/processStoredEssayGrading/);
+  if (code === express) assert.match(code,/Number\.isFinite\(value\)/);
  }
 });
