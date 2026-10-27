@@ -1,3 +1,4 @@
+import {liveExamVisibility,assertGradingQuestionSources,boundStudentIdentity,publicExamSubmission} from './src/exam-grading-safety.js';
 import { ensureEssayGradingSchema, prepareEssayDetails, summarizeEssayDetails, processStoredEssayGrading } from "./src/essay-grading-pipeline.js";
 import {isExamOwner,redactExamForPublic,examAccessChallenge,isProtectedExamForUser,protectedExamPreview,accessCodeMatches} from './functions/api/exam/security';
 import {listDocumentLinks,createDocumentLink,updateDocumentLink,deleteDocumentLink,DocumentLinkServiceError} from './src/document-links-service.js';
@@ -5254,6 +5255,7 @@ async function getServerSecret(): Promise<string> {
               return false;
           }
 
+          assertGradingQuestionSources(questionIds,trueQuestionsMap);
           const detailedResults = clientQuestions.map((q, i) => {
               const trueQId = questionIds[i];
               const trueQ = trueQuestionsMap[trueQId];
@@ -5372,16 +5374,18 @@ async function getServerSecret(): Promise<string> {
           const cheatWarningCount = Number(req.body.cheatWarningCount ?? studentInfo.cheatWarningCount ?? 0) || 0;
           const correctCount = detailedResults.filter((d) => d.isCorrect && d.question.type !== 'TL').length;
 
-          let authenticatedUserId = studentInfo.userId || null;
+          let authenticatedUserId: any = null;
           let authenticatedStudentName = studentInfo.name || '';
           let authenticatedLop = studentInfo.lop || '';
           let authenticatedDonvi = studentInfo.donvi || studentInfo.unit || '';
 
           const gradeAuthHeader = req.headers.authorization;
+          let verifiedStudent:any=null;
           if (gradeAuthHeader && gradeAuthHeader.startsWith("Bearer ")) {
               try {
                   const verifiedTokenUser = verifyJWTSync(gradeAuthHeader.substring(7), await getServerSecret());
                   if (verifiedTokenUser && (verifiedTokenUser.id || verifiedTokenUser.user_id)) {
+                          verifiedStudent=verifiedTokenUser;
                       authenticatedUserId = verifiedTokenUser.user_id || verifiedTokenUser.id;
                       if (verifiedTokenUser.full_name) {
                           authenticatedStudentName = verifiedTokenUser.full_name;
@@ -5396,24 +5400,31 @@ async function getServerSecret(): Promise<string> {
               } catch(e) {}
           }
 
+          if(gradeAuthHeader && !verifiedStudent) return res.status(401).json({error:'Phiên đăng nhập không hợp lệ.'});
           const gradingDb=gradingDatabase();
           await ensureEssayGradingSchema(gradingDb);
           const uuid=crypto.randomUUID();
           const validatedExamId=String(examConfig.id||'');
           if(!validatedExamId) throw new Error('Thiếu mã đề đã xác thực.');
+          const liveExamRes=await executeSqlQuery('SELECT id,creator_id,show_score,show_details FROM exam_configs WHERE id = ? LIMIT 1',[validatedExamId]);
+          const liveExam=liveExamRes.results?.[0];
+          if(!liveExam || String(liveExam.creator_id)!==String(teacherId||''))
+            return res.status(403).json({error:'Đề thi không còn hợp lệ.'});
+          const visibility=liveExamVisibility(liveExam);
+          const trustedStudent=boundStudentIdentity(studentInfo,verifiedStudent);
           await executeSqlQuery(
             `INSERT INTO results (id,user_id,student_name,student_class,lop,don_vi,exam_name,exam_id,
               score,time_taken,correct_count,total_questions,details,loai_thi_sinh,
               cheat_warning_count,created_at,submission_token_hash,grading_status,grading_updated_at)
               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
               ON CONFLICT (submission_token_hash) WHERE submission_token_hash IS NOT NULL DO NOTHING`,
-            [uuid,authenticatedUserId||studentInfo.userId||null,
-            authenticatedStudentName||studentInfo.name||'',studentInfo.unit||authenticatedDonvi||'',
-            authenticatedLop||studentInfo.lop||'',authenticatedDonvi||studentInfo.donvi||studentInfo.unit||'',
+            [uuid,trustedStudent.userId,
+            trustedStudent.name,trustedStudent.donvi,
+            trustedStudent.lop,trustedStudent.donvi,
             String(examConfig.name||studentInfo.examName||''),validatedExamId,
             initialEssayStatus.score,timeTaken||0,correctCount,clientQuestions.length,
             JSON.stringify(preparedEssayDetails),
-            studentInfo.loaiThiSinh||(authenticatedUserId?'Đã đăng nhập':'Tự do'),
+            studentInfo.loaiThiSinh||(trustedStudent.userId?'Đã đăng nhập':'Tự do'),
             cheatWarningCount,new Date().toISOString(),tokenHash,initialState,new Date().toISOString()]
           );
           const persisted=(await executeSqlQuery(
@@ -5435,28 +5446,10 @@ async function getServerSecret(): Promise<string> {
             [tokenHash,validatedExamId,authenticatedStudentName||studentInfo.name||'',new Date().toISOString()]
           );
 
-          // BẢO MẬT: Nếu cấu hình không cho xem chi tiết đáp án, loại bỏ hoàn toàn correctAnswer và ảnh đáp án trước khi trả về client
-          const shouldShowDetails = examConfig.showDetails !== false && examConfig.show_details !== false;
-          const clientDetailedResults = savedDetails.map((d: any) => {
-              if (!shouldShowDetails) {
-                  const { correctAnswer, aiFeedback, ...safeD } = d;
-                  if (safeD.question && safeD.question.options && safeD.question.options.answerImage) {
-                      const { answerImage, ...safeOptions } = safeD.question.options;
-                      safeD.question = { ...safeD.question, options: safeOptions };
-                  }
-                  return safeD;
-              }
-              return d;
-          });
-
-          return res.json({
-              resultId: persistedId,
-              score: finalScore,
-              gradingStatus: stored.grading_status,
-              correctCount,
-              cheatWarningCount,
-              detailedResults: clientDetailedResults
-          });
+          return res.json(publicExamSubmission({
+            ...stored,id:persistedId,correct_count:correctCount,
+            time_taken:timeTaken,cheat_warning_count:cheatWarningCount
+          },visibility,{totalMaxScore}));
 
       } catch (err) {
           if (err && err.message && err.message.includes("hạn mức dữ liệu")) {
