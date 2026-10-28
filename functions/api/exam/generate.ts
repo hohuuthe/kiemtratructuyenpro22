@@ -322,7 +322,6 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
               return new Response(JSON.stringify(makeExamAttemptLimitError(attemptCount, maxAttemptsVal)), {status:403,headers:corsHeaders});
 
-            }), { status: 403, headers: corsHeaders });
             }
         }
 
