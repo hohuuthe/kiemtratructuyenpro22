@@ -114,7 +114,7 @@ export function renderStudentResultCards(container, rows, { onOpen, formatDate, 
             '<div class="student-result-card-top">' +
                 '<div class="student-result-card-kind"><span class="student-result-kind-icon" aria-hidden="true">✦</span> BÀI KIỂM TRA</div>' +
                 '<div class="student-result-score" aria-label="Điểm số: ' + escapeStudentText(scoreDisplay(score)) + '">' +
-                    '<strong>' + (canScore ? escapeStudentText(scoreDisplay(score)) : 'Đã ẩn') + '</strong><small>' + (canScore ? 'điểm' : 'theo cấu hình đề thi') + '</small>' +
+                    '<strong>' + (canScore ? (result.grading_status && result.grading_status !== 'completed' ? 'Chờ chấm' : escapeStudentText(scoreDisplay(score))) : 'Đã ẩn') + '</strong><small>' + (canScore ? 'điểm' : 'theo cấu hình đề thi') + '</small>' +
                 '</div>' +
             '</div>' +
             '<h3 class="student-result-card-title">' + escapeStudentText(result.exam_name || 'Bài thi chưa có tên') + '</h3>' +
