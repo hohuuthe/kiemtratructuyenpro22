@@ -1,0 +1,26 @@
+name: Student exam start attempt limit
+on:
+  push:
+    branches: [fix/student-attempt-limit-modal-20261028]
+  pull_request:
+    paths:
+      - 'src/student-exam-start-guard.js'
+      - 'src/main.js'
+      - 'functions/api/exam/generate.ts'
+      - 'server.ts'
+      - 'tests/student-exam-start-attempt-limit.test.mjs'
+      - '.github/workflows/student-exam-start-attempt-limit.yml'
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: node --test tests/student-exam-start-attempt-limit.test.mjs
+      - run: npm run lint
+      - run: npm run build
