@@ -88,3 +88,19 @@ test('admin gets full management and teacher is limited to own document',async()
  await updateDocumentLink(otherDb,admin,base);
  await deleteDocumentLink(otherDb,admin,base.id);
 });
+
+test('owner-only listing SQL restricts rows and protects direct URL exposure',async()=>{
+ const sqlCalls=[];
+ const rows=[{...base,id:'owner-A',id_nguoi_tao:'teacher-A',doi_tuong_truy_cap_nhieu:['owner'],duong_link:'https://example.org/private'},
+  {...base,id:'owner-B',id_nguoi_tao:'teacher-B',doi_tuong_truy_cap_nhieu:['owner'],duong_link:'https://example.org/secret'}];
+ const privateDb={...db,async all(sql,args){sqlCalls.push({sql,args});return rows;},async first(sql,args){return {id:args[0],id_nguoi_tao:'teacher-B',doi_tuong_truy_cap_nhieu:['owner']};}};
+ await listDocumentLinks(privateDb,actor);
+ assert.match(sqlCalls[0].sql,/NOT \(doi_tuong_truy_cap_nhieu @> ARRAY\['owner'\]/);
+ assert.match(sqlCalls[0].sql,/id_nguoi_tao = \?/);
+ assert.equal(sqlCalls[0].args.at(-1),'teacher-A');
+ const adminRows=await listDocumentLinks(privateDb,{id:'admin-A',role:'admin'},{manage:true});
+ assert.equal(adminRows.length,0,'non-owner admins must not receive private links or metadata');
+ const ownRows=await listDocumentLinks(privateDb,actor,{manage:true});
+ assert.deepEqual(ownRows.map(x=>x.id),['owner-A']);
+ await assert.rejects(()=>updateDocumentLink(privateDb,{id:'admin-A',role:'admin'},base),{status:403});
+});
