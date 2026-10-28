@@ -359,7 +359,11 @@
                 <div id="ai-key-status" class="absolute left-3 top-2.5 hidden z-10">
                     <!-- Status icons will be injected here -->
                 </div>
-                <textarea id="exam-config-ai-grading-key" rows="2" placeholder="Nhập một hoặc nhiều API Key (cách nhau bởi dấu cách)..." class="w-full pl-10 px-4 py-2 border-2 border-purple-100 rounded-xl focus:border-purple-500 focus:outline-none text-sm font-mono mb-2" onchange="validateAIGradingKey(this.value)"></textarea>
+                <textarea id="exam-config-ai-grading-key" rows="3" spellcheck="false" autocomplete="off" data-lpignore="true" placeholder="Nhập một hoặc nhiều API Key (cách nhau bởi dấu cách)..." class="w-full pl-10 px-4 py-2 border-2 border-purple-100 rounded-xl focus:border-purple-500 focus:outline-none text-sm font-mono mb-2" onchange="validateAIGradingKey(this.value)"></textarea>
+             </div>
+             <div class="flex flex-wrap items-center gap-2 mt-2">
+               <button id="btn-test-exam-grading-keys" type="button" onclick="validateAIGradingKey(document.getElementById('exam-config-ai-grading-key').value)" class="px-3 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold disabled:opacity-50">🔍 Kiểm tra từng API Key</button>
+               <span class="text-xs text-gray-600">Mỗi mã đề có danh sách Key độc lập; Key được thử lần lượt khi chấm.</span>
              </div>
              <p id="ai-key-msg" class="text-[10px] mt-1 hidden font-medium"></p>
              <p class="text-xs text-purple-600 mt-2">

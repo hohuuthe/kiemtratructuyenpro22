@@ -545,6 +545,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             examConfig: makeGradeSessionConfig(activeExamConfig),
             maxCheatWarnings: maxCheatWarningsFromDB,
             teacherId: effectiveTeacherId,
+            studentUserId: tokenUser?.user_id || tokenUser?.id || null,
             timestamp: Date.now(),
             exp: Math.floor(Date.now() / 1000) + Math.max(3600, Math.min(8 * 3600, (Number(activeExamConfig.time_limit || 45) + 60) * 60))
         };
