@@ -6,6 +6,7 @@ import { renderScientificContent } from '../src/scientific-formula-engine.ts';
 import { renderExamReviewMath, renderExamDetailOptions } from '../src/exam-detail-formula-renderer.js';
 import { cleanHTMLText } from '../src/exam-pdf-generator.ts';
 import { parseFormattedText } from '../src/exam-docx-generator.ts';
+import { formatAnswerDisplay } from '../src/exam-excel-generator.ts';
 
 const samples=[
  'Thẻ <p> trong HTML dùng để tạo phần tử nào?',
@@ -18,27 +19,49 @@ const samples=[
  'Đáp án A. <p> là thẻ đoạn văn.'
 ];
 const breakExamples=[
-  '<br>', '<br/>', '<br />', '<BR/>',
-  'Thẻ <br/> dùng để làm gì trong HTML?',
-  'Trong HTML, thẻ <br> có tác dụng gì?',
-  'Đáp án A. <br/>',
-  'Cú pháp <br /> là thẻ xuống dòng.',
-  'Mã nguồn `<br/>` trong HTML.'
+ '<br>', '<br/>', '<br />', '<BR/>',
+ 'A. <br/>', 'A. <br/>.', 'Đáp án A: <br/>',
+ '<br/> là thẻ đơn.', '<br/ >.',
+ 'Câu nào dùng <br/>?', 'Thẻ <br/> dùng để làm gì trong HTML?',
+ 'Trong HTML, thẻ <br> có tác dụng gì?',
+ 'Cú pháp <br /> là thẻ xuống dòng.',
+ 'Mã nguồn \`<br/>\` trong HTML.',
+ 'Dòng một<br/>Dòng hai',
+ 'B. <hr/> và C. <br/>.',
+ '&lt;br/&gt;', '&lt;br&gt;', '&lt;br /&gt;',
 ];
 for(const sample of breakExamples){
- test('render literal HTML break syntax: '+sample,()=>{
-   for(const render of [renderScientificContent,renderExamReviewMath,cleanHTMLText]){
+ test('questions, answers, review and PDF preserve literal HTML breaks: '+sample,()=>{
+   for(const render of [renderScientificContent, renderExamReviewMath, cleanHTMLText]){
      const html=render(sample);
-     assert.match(html,/&lt;br\s*\/??&gt;/i,'break source swallowed: '+html);
-     assert.ok(!/<br\s*\/?>/i.test(html),'break became live markup: '+html);
+     // Source tag spelling is preserved in escaped output, never executed.
+     if (/<br\s*\/?\s*>/i.test(sample) || /&lt;br\s*\/?\s*&gt;/i.test(sample)) {
+       assert.match(html,/&lt;br\s*\/?\s*&gt;/i,'literal HTML break swallowed: '+html);
+     }
+     assert.ok(!/<br\s*\/?\s*>/i.test(html),'raw HTML break was executed: '+html);
    }
  });
 }
-test('legacy authored line breaks still work outside HTML-tag teaching context',()=>{
- assert.match(renderScientificContent('Dòng một<br/>Dòng hai'),/<br\s*\/?>/);
- assert.match(renderScientificContent('Dòng một\\nDòng hai'),/<br\s*\/?>/);
+test('real newline creates a line break without interpreting source HTML tags',()=>{
+ const html=renderScientificContent('Dòng một\\nDòng hai và mã <br/>');
+ assert.match(html,/Dòng một<br\\s*\\/?>Dòng hai/);
+ assert.match(html,/&lt;br\\/&gt;/);
 });
-
+test('actual HTML answer choices rendered in review retain source tags',()=>{
+ const options={type:'4-1', options:{
+   A:{text:'<br/ >.'}, B:{text:'<hr/>.'}, C:{text:'<qr/>.'}, D:{text:'<dr/>.'}
+ }};
+ const html=renderExamDetailOptions(options,'A','B');
+ for(const tag of ['br/ ','hr/','qr/','dr/']) assert.ok(html.includes('&lt;'+tag+'&gt;'),html);
+ assert.ok(!/<(?:br|hr|qr|dr)\b[^>]*>/i.test(html),html);
+});
+test('Word export preserves literal HTML break examples and actual newlines',async()=>{
+ for(const sample of breakExamples){
+   const xml=await docxXml(sample);
+   if(/<br\s*\/?\s*>|&lt;br\s*\/?\s*&gt;/i.test(sample))
+     assert.match(xml,/&lt;br\s*\/?\s*&gt;/i,xml);
+ }
+});
 const encode=s=>s.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');
 for(const sample of samples){
  test('student/bank/review/PDF render literal HTML: '+sample.slice(0,45),()=>{
@@ -105,4 +128,11 @@ test('Word export mixed HTML and scientific subscripts preserves each', async()=
  const xml=await docxXml('Trong HTML, thẻ <p> là gì? Chất H<sub>2</sub>O');
  assert.ok(xml.includes('&lt;p&gt;'),xml);
  assert.match(xml,/<w:vertAlign w:val="subscript"/);
+});
+
+test('Excel answer output keeps HTML tags as literal text',()=>{
+ for(const sample of ['<br/>','A. <br/>','<br/ >.']){
+   assert.equal(formatAnswerDisplay('TL',sample),sample);
+   assert.equal(formatAnswerDisplay('SQ',sample),sample);
+ }
 });
