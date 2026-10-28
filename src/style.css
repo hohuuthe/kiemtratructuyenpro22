@@ -951,3 +951,48 @@ button { touch-action: manipulation; }
 
 /* Dialogs must lock background scrolling while keeping their own content scrollable. */
 html.kttt-modal-open, body.kttt-modal-open { overflow: hidden !important; overscroll-behavior: none; }
+
+/* Stable compact student exam dialogs, shared between mobile and desktop.
+   Sizing intentionally overrides stale utility classes from other modal types. */
+#modal-content.student-exam-compact-modal {
+  box-sizing: border-box !important;
+  width: min(400px, calc(100vw - 32px)) !important;
+  max-width: min(400px, calc(100vw - 32px)) !important;
+  min-width: 0 !important;
+  height: auto !important;
+  max-height: calc(100dvh - 32px) !important;
+  min-height: 0 !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  border-radius: 18px !important;
+  animation: none !important;
+  transform: none !important;
+}
+#modal-content.student-exam-compact-modal .student-exam-compact-body {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  padding: 22px 20px 18px;
+  overflow-wrap: anywhere;
+}
+.student-exam-dialog-head { display: flex; align-items: center; gap: 11px; margin-bottom: 12px; padding-right: 32px; }
+.student-exam-dialog-icon { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 40px; width: 40px; height: 40px; border-radius: 12px; font-size: 21px; }
+.student-exam-dialog-icon-warning { background: #fff7ed; }
+.student-exam-dialog-icon-ready { background: #ecfdf5; }
+.student-exam-dialog-title { margin: 0; font-size: 17px; font-weight: 750; line-height: 1.3; color: #0f172a; }
+.student-exam-dialog-note { margin: 0 0 13px; font-size: 13px; line-height: 1.55; color: #475569; }
+.student-exam-dialog-note strong { color: #1e293b; }
+.student-exam-dialog-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 12px; padding: 10px 8px; margin-bottom: 12px; }
+.student-exam-dialog-stats > div { display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 0; text-align: center; font-size: 11px; color: #64748b; }
+.student-exam-dialog-stats strong { font-size: 14px; font-weight: 750; color: #0f172a; }
+.student-exam-dialog-footnote { font-size: 12px; line-height: 1.45; color: #64748b; margin: 0 0 14px; }
+.student-exam-dialog-actions { display: flex; flex-direction: column; gap: 7px; }
+.student-exam-dialog-primary { width: 100%; min-height: 42px; border-radius: 11px; padding: 9px 12px; background: #4f46e5; color: #fff; font-size: 14px; font-weight: 700; cursor: pointer; }
+.student-exam-dialog-primary:hover { background: #4338ca; }
+.student-exam-dialog-primary:focus-visible, .student-exam-dialog-secondary:focus-visible { outline: 2px solid #6366f1; outline-offset: 2px; }
+.student-exam-dialog-secondary { min-height: 34px; background: transparent; color: #64748b; font-size: 12px; cursor: pointer; }
+@media (max-width: 420px) {
+  #modal-content.student-exam-compact-modal { width: calc(100vw - 24px) !important; max-width: calc(100vw - 24px) !important; max-height: calc(100dvh - 24px) !important; }
+  #modal-content.student-exam-compact-modal .student-exam-compact-body { padding: 20px 16px 16px; }
+  .student-exam-dialog-title { font-size: 16px; }
+}
