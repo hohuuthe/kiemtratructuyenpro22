@@ -43,9 +43,9 @@ for(const sample of breakExamples){
  });
 }
 test('real newline creates a line break without interpreting source HTML tags',()=>{
- const html=renderScientificContent('Dòng một\\nDòng hai và mã <br/>');
- assert.match(html,/Dòng một<br\\s*\\/?>Dòng hai/);
- assert.match(html,/&lt;br\\/&gt;/);
+ const html=renderScientificContent('Dòng một\nDòng hai và mã <br/>');
+ assert.match(html,/Dòng một<br\s*\/?>Dòng hai/);
+ assert.match(html,/&lt;br\/&gt;/);
 });
 test('actual HTML answer choices rendered in review retain source tags',()=>{
  const options={type:'4-1', options:{
