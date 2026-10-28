@@ -1,3 +1,4 @@
+import {makeExamAttemptLimitError} from './src/student-exam-attempt-limit.js';
 import {isExamOwner,redactExamForPublic,examAccessChallenge,isProtectedExamForUser,protectedExamPreview,accessCodeMatches} from './functions/api/exam/security';
 import {listDocumentLinks,createDocumentLink,updateDocumentLink,deleteDocumentLink,DocumentLinkServiceError} from './src/document-links-service.js';
 import { accountSessionMaterial, isAccountEnabled, isUnexpiredAccountToken } from './src/security-session';
@@ -4387,13 +4388,18 @@ async function getServerSecret(): Promise<string> {
                       attemptCount = Number(attempts?.[0]?.count || attempts?.[0]?.['COUNT(*)'] || 0);
                   }
               } catch(err) {
-                  console.error("Lỗi kiểm tra số lần làm bài:", err);
+
+                console.error("Lỗi kiểm tra số lần làm bài:",err);
+
+                return res.status(503).json({code:'EXAM_ATTEMPT_CHECK_UNAVAILABLE',error:'Không thể kiểm tra số lượt thi. Vui lòng thử lại sau.'});
+
               }
 
-              if (attemptCount >= maxAttemptsVal) {
-                  return res.status(403).json({
-                      error: `🛑 Bạn đã đạt giới hạn số lần làm bài thi này! (Bạn đã hoàn thành ${attemptCount} lần / Tối đa ${maxAttemptsVal} lần làm bài quy định). Bạn không thể làm thêm bài thi này nữa!`
-                  });
+              if(attemptCount >= maxAttemptsVal) {
+
+                return res.status(403).json(makeExamAttemptLimitError(attemptCount,maxAttemptsVal));
+
+              });
               }
           }
 

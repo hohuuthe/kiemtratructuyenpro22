@@ -1,4 +1,5 @@
 import {connectDocumentLinks,initDocumentLinks,resetDocumentLinks} from './document-links-ui.js';
+import {readExamAttemptLimitRejection,countCachedStudentExamAttempts} from './student-exam-attempt-limit.js';
 import {readBrowserGeminiKeys,saveBrowserGeminiKeys,prioritizeGradingKeys,splitGeminiKeys} from './essay-browser-ai-keys.js';
 import { configureExamAccessCodeInput } from './exam-access-code-input.js';
 
@@ -7953,9 +7954,25 @@ if (contentType && contentType.includes("application/json")) {
             window.scrollTo({ top: 0, behavior: 'smooth' });
         };
 
+        window.showStudentAttemptLimitDialog = function showStudentAttemptLimitDialog(used, maximum) {
+            const countsValid = Number.isSafeInteger(used) && used >= 0 && Number.isSafeInteger(maximum) && maximum > 0;
+            const detail = countsValid ? `Bạn đã hoàn thành ${used} / ${maximum} lượt làm bài được phép.` : 'Bạn đã sử dụng hết số lượt làm bài của đề thi này.';
+            showModal(`
+                <div class="p-6 w-full max-w-md mx-auto text-center" role="alertdialog" aria-modal="true" aria-labelledby="attempt-limit-title">
+                    <div class="text-5xl mb-3" aria-hidden="true">🛑</div>
+                    <h3 id="attempt-limit-title" class="text-xl font-extrabold text-red-700 mb-3">Đã hết lượt làm bài</h3>
+                    <p class="font-semibold text-gray-800 mb-2">${detail}</p>
+                    <p class="text-sm text-gray-600 mb-5">Bạn không thể bắt đầu lượt thi mới. Hãy liên hệ giáo viên phụ trách để được hỗ trợ.</p>
+                    <button type="button" id="exam-attempt-limit-close" class="px-6 py-3 rounded-xl bg-indigo-600 text-white font-bold">Đã hiểu</button>
+                </div>`, 'md');
+            document.getElementById('exam-attempt-limit-close')?.addEventListener('click',closeModal);
+            document.getElementById('exam-attempt-limit-close')?.focus();
+        };
         window.startExam = async function startExam(btn) {
             console.log('startExam called');
-            try { getExamAudioContext(); } catch(e) {}
+            if(window._studentExamStartPending)return;
+            window._studentExamStartPending=true;
+            let examStartedSuccessfully=false;
             const startBtn = btn || document.querySelector('button[onclick*="startExam"]');
             const originalBtnText = startBtn ? startBtn.innerHTML : '';
             
@@ -7996,15 +8013,7 @@ if (contentType && contentType.includes("application/json")) {
                     examConfig?.chedodethi === 'Đề có mã bảo mật' && !isAdminLoggedIn && !isTeacherLoggedIn) {
                     showToast('Vui lòng nhập đúng mật mã truy cập đề thi trước.', 'error');return;
                 }
-
-                // Luôn mở toàn màn hình ngay khi bấm Bắt đầu làm bài (User Gesture hợp lệ)
-                try {
-                    if (typeof window.enterExamFullscreen === 'function') {
-                        window.enterExamFullscreen();
-                    }
-                } catch (e) {
-                    console.warn('Auto fullscreen on startExam click:', e);
-                }
+                // Only enter exam fullscreen after the API authorizes this attempt.
 
                 // KHẮC PHỤC LỖI TẢI NHẦM ĐỀ: Đồng bộ tuyệt đối giữa examConfig trong bộ nhớ và đề được chọn
                 if (!examConfig || !examConfig.id || String(examConfig.id) !== String(selectedExamId)) {
@@ -8146,9 +8155,8 @@ if (contentType && contentType.includes("application/json")) {
                         }).length;
                     }
 
-                    if (localAttempts >= maxAttemptsVal) {
-                        showToast(`🛑 Bạn đã đạt giới hạn số lần làm bài thi này! (Bạn đã hoàn thành ${localAttempts} lần / Tối đa ${maxAttemptsVal} lần làm bài quy định). Bạn không thể làm thêm nữa!`, 'error');
-                        if (startBtn) { startBtn.disabled = false; startBtn.innerHTML = originalBtnText; }
+                    if(localAttempts >= maxAttemptsVal){
+                        window.showStudentAttemptLimitDialog(localAttempts,maxAttemptsVal);
                         return;
                     }
                 }
@@ -8182,11 +8190,13 @@ if (contentType && contentType.includes("application/json")) {
                 
                 if (!response.ok) {
                     let errMessage = 'Lỗi khi tải đề thi từ máy chủ';
+                    let parsedError = null;
                     try {
                         const rawText = await response.text();
                         let parsed = null;
                         try {
                             parsed = JSON.parse(rawText);
+                            parsedError=parsed;
                         } catch(jsonErr) {}
 
                         if (parsed && (parsed.error || parsed.message)) {
@@ -8203,8 +8213,9 @@ if (contentType && contentType.includes("application/json")) {
                     } catch(e) {
                         errMessage = '🛑 Lỗi kết nối hoặc máy chủ phản hồi không đúng định dạng.';
                     }
-                    showToast(errMessage, 'error');
-                    if (startBtn) { startBtn.disabled = false; startBtn.innerHTML = originalBtnText; }
+                    const limitRejection=readExamAttemptLimitRejection(response.status,parsedError);
+                    if(limitRejection) window.showStudentAttemptLimitDialog(limitRejection.attemptsUsed,limitRejection.maxAttempts);
+                    else showToast(errMessage,'error');
                     return;
                 }
                 
@@ -8237,15 +8248,19 @@ if (contentType && contentType.includes("application/json")) {
                 };
 
                 startExamUI();
+                examStartedSuccessfully=true;
 
                 showToast('Bắt đầu làm bài! Chúc bạn thi tốt.', 'success');
             } catch (error) {
                 console.error('Lỗi khi bắt đầu thi:', error);
                 showToast('Có lỗi xảy ra khi chuẩn bị đề thi. Vui lòng thử lại!', 'error');
             } finally {
-                if (startBtn) {
-                    startBtn.disabled = false;
-                    startBtn.innerHTML = originalBtnText;
+                window._studentExamStartPending=false;
+                if(startBtn){startBtn.disabled=false;startBtn.innerHTML=originalBtnText;}
+                if(!examStartedSuccessfully){
+                    document.getElementById('exam-interface')?.classList.add('hidden');
+                    document.getElementById('exam-form')?.classList.remove('hidden');
+                    window.hideFullscreenEnforcer?.();
                 }
             }
         }

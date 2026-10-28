@@ -1,3 +1,4 @@
+import {makeExamAttemptLimitError} from '../../../src/student-exam-attempt-limit.js';
 import { signJWT, verifyAuthSession, getDynamicSecret, getDatabase } from './utils';
 import {makeGradeSessionConfig, accessCodeMatches} from './security';
 
@@ -310,13 +311,18 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                     attemptCount = Number((attempts?.[0] as any)?.count || (attempts?.[0] as any)?.['COUNT(*)'] || 0);
                 }
             } catch(err) {
-                console.error("Lỗi kiểm tra số lần làm bài:", err);
+
+              console.error("Lỗi kiểm tra số lần làm bài:",err);
+
+              return new Response(JSON.stringify({code:'EXAM_ATTEMPT_CHECK_UNAVAILABLE',error:'Không thể kiểm tra số lượt thi. Vui lòng thử lại sau.'}),{status:503,headers:corsHeaders});
+
             }
 
-            if (attemptCount >= maxAttemptsVal) {
-                return new Response(JSON.stringify({
-                    error: `🛑 Bạn đã đạt giới hạn số lần làm bài thi này! (Bạn đã hoàn thành ${attemptCount} lần / Tối đa ${maxAttemptsVal} lần làm bài quy định). Bạn không thể làm thêm bài thi này nữa!`
-                }), { status: 403, headers: corsHeaders });
+            if(attemptCount >= maxAttemptsVal) {
+
+              return new Response(JSON.stringify(makeExamAttemptLimitError(attemptCount, maxAttemptsVal)), {status:403,headers:corsHeaders});
+
+            }), { status: 403, headers: corsHeaders });
             }
         }
 
