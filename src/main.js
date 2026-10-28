@@ -1,6 +1,7 @@
 import {connectDocumentLinks,initDocumentLinks,resetDocumentLinks} from './document-links-ui.js';
 import {readBrowserGeminiKeys,saveBrowserGeminiKeys,prioritizeGradingKeys,splitGeminiKeys} from './essay-browser-ai-keys.js';
 import { configureExamAccessCodeInput } from './exam-access-code-input.js';
+import { parseExamAttemptLimitError, buildExamAttemptLimitModal, fetchExamStartResponse } from './student-exam-start-guard.js';
 
 import 'katex/dist/katex.min.css';
 import { renderRoleHelp, attachRoleHelpInteractions, resetRoleHelpCache } from './help-center.js';
@@ -7932,7 +7933,7 @@ if (contentType && contentType.includes("application/json")) {
 
             // Luôn kích hoạt và ràng buộc toàn màn hình bắt buộc khi bắt đầu làm bài
             if (typeof window.enterExamFullscreen === 'function') {
-                window.enterExamFullscreen();
+                Promise.resolve(window.enterExamFullscreen()).catch(() => {});
             }
             if (typeof window.enforceFullscreenConstraint === 'function') {
                 window.enforceFullscreenConstraint();
@@ -7953,7 +7954,10 @@ if (contentType && contentType.includes("application/json")) {
             window.scrollTo({ top: 0, behavior: 'smooth' });
         };
 
+        let examStartPending = false;
         window.startExam = async function startExam(btn) {
+            if (examStartPending) return;
+            examStartPending = true;
             console.log('startExam called');
             try { getExamAudioContext(); } catch(e) {}
             const startBtn = btn || document.querySelector('button[onclick*="startExam"]');
@@ -7997,27 +8001,15 @@ if (contentType && contentType.includes("application/json")) {
                     showToast('Vui lòng nhập đúng mật mã truy cập đề thi trước.', 'error');return;
                 }
 
-                // Luôn mở toàn màn hình ngay khi bấm Bắt đầu làm bài (User Gesture hợp lệ)
-                try {
-                    if (typeof window.enterExamFullscreen === 'function') {
-                        window.enterExamFullscreen();
-                    }
-                } catch (e) {
-                    console.warn('Auto fullscreen on startExam click:', e);
-                }
+                // Chỉ mở toàn màn hình sau khi xác thực lượt thi thành công.
 
                 // KHẮC PHỤC LỖI TẢI NHẦM ĐỀ: Đồng bộ tuyệt đối giữa examConfig trong bộ nhớ và đề được chọn
                 if (!examConfig || !examConfig.id || String(examConfig.id) !== String(selectedExamId)) {
                     const token = localStorage.getItem('auth_token') || '';
-                    const detailRes = await fetch(`/api/exams?id=${encodeURIComponent(selectedExamId)}`, {
-                        headers: token ? { 'Authorization': 'Bearer ' + token } : {}
+                    const detailRes = await fetchExamStartResponse(fetch, `/api/exams?id=${encodeURIComponent(selectedExamId)}`, {
+                        headers: token ? { 'Authorization': 'Bearer ' + token } : {}, cache: 'no-store'
                     });
-                    if (detailRes.ok) {
-                        const detailJson = await detailRes.json();
-                        if (detailJson.data) {
-                            applyExamConfig(detailJson.data);
-                        }
-                    }
+                    if (detailRes.ok && detailRes.body?.data) applyExamConfig(detailRes.body.data);
                 }
 
                 if (!examConfig || !examConfig.id || String(examConfig.id) !== String(selectedExamId)) {
@@ -8128,30 +8120,7 @@ if (contentType && contentType.includes("application/json")) {
                     return;
                 }
 
-                // KIỂM TRA TRƯỚC SỐ LẦN LÀM BÀI TRÊN CLIENT
-                const maxAttemptsVal = Math.max(0, parseInt(examConfig.maxAttempts || examConfig.max_attempts) || 0);
-                if (maxAttemptsVal > 0 && !isAdminLoggedIn && !isTeacherLoggedIn) {
-                    let localAttempts = 0;
-                    const currentStudentName = (name || '').trim().toLowerCase();
-                    const currentUserId = (currentUser?.id || currentUser?.user_id) ? String(currentUser.id || currentUser.user_id) : null;
-                    
-                    const resList = (window.resultsList && Array.isArray(window.resultsList)) ? window.resultsList : (typeof resultsList !== 'undefined' && Array.isArray(resultsList) ? resultsList : []);
-                    if (resList.length > 0) {
-                        localAttempts = resList.filter(r => {
-                            const matchExam = String(r.exam_id) === String(selectedExamId) || (r.exam_name && String(r.exam_name).trim().toLowerCase() === String(examName).trim().toLowerCase());
-                            if (!matchExam) return false;
-                            if (currentUserId && r.user_id && String(r.user_id) === currentUserId) return true;
-                            if (currentStudentName && r.student_name && String(r.student_name).trim().toLowerCase() === currentStudentName) return true;
-                            return false;
-                        }).length;
-                    }
-
-                    if (localAttempts >= maxAttemptsVal) {
-                        showToast(`🛑 Bạn đã đạt giới hạn số lần làm bài thi này! (Bạn đã hoàn thành ${localAttempts} lần / Tối đa ${maxAttemptsVal} lần làm bài quy định). Bạn không thể làm thêm nữa!`, 'error');
-                        if (startBtn) { startBtn.disabled = false; startBtn.innerHTML = originalBtnText; }
-                        return;
-                    }
-                }
+                // Máy chủ kiểm tra giới hạn theo kết quả thực trong CSDL, không dùng cache trên thiết bị.
 
                 // Tải đề thi từ Backend Server (bảo mật, không có đáp án, lấy đúng số lượng theo đề thi được chọn)
                 const payload = {
@@ -8174,41 +8143,30 @@ if (contentType && contentType.includes("application/json")) {
                     reqHeaders['Authorization'] = 'Bearer ' + authToken;
                 }
 
-                const response = await fetch('/api/exam/generate', {
-                    method: 'POST',
-                    headers: reqHeaders,
+                const response = await fetchExamStartResponse(fetch, '/api/exam/generate', {
+                    method: 'POST', headers: reqHeaders, cache: 'no-store',
                     body: JSON.stringify(payload)
                 });
-                
                 if (!response.ok) {
-                    let errMessage = 'Lỗi khi tải đề thi từ máy chủ';
-                    try {
-                        const rawText = await response.text();
-                        let parsed = null;
-                        try {
-                            parsed = JSON.parse(rawText);
-                        } catch(jsonErr) {}
-
-                        if (parsed && (parsed.error || parsed.message)) {
-                            errMessage = parsed.error || parsed.message;
-                        } else if (rawText && rawText.trim() && rawText.length < 300 && !rawText.includes('<html')) {
-                            errMessage = rawText.trim();
-                        } else if (response.status === 403) {
-                            errMessage = '🛑 Bạn không có quyền tham gia làm đề thi này do Đơn vị, Lớp học không phù hợp hoặc đã đạt giới hạn số lần làm bài quy định.';
-                        } else if (response.status === 404) {
-                            errMessage = '🛑 Không tìm thấy câu hỏi hoặc cấu hình đề thi trên hệ thống.';
-                        } else {
-                            errMessage = '🛑 Lỗi kết nối hoặc máy chủ phản hồi không đúng định dạng.';
-                        }
-                    } catch(e) {
-                        errMessage = '🛑 Lỗi kết nối hoặc máy chủ phản hồi không đúng định dạng.';
+                    const limitInfo = parseExamAttemptLimitError(response.status, response.body);
+                    if (limitInfo) {
+                        showModal(buildExamAttemptLimitModal(examName, limitInfo), 'compact', false);
+                        document.getElementById('exam-attempt-limit-confirm')?.addEventListener('click', closeModal, { once: true });
+                        document.getElementById('exam-attempt-limit-confirm')?.focus();
+                        return;
                     }
-                    showToast(errMessage, 'error');
-                    if (startBtn) { startBtn.disabled = false; startBtn.innerHTML = originalBtnText; }
+                    const message = response.body?.error || response.body?.message;
+                    showToast(typeof message === 'string' && message.trim()
+                        ? message : response.status === 404
+                            ? 'Không tìm thấy câu hỏi hoặc cấu hình đề thi trên hệ thống.'
+                            : 'Không thể tải đề thi từ máy chủ. Vui lòng thử lại.', 'error');
                     return;
                 }
-                
-                const result = await response.json();
+                const result = response.body;
+                if (!result || !Array.isArray(result.questions) || result.questions.length === 0 || !result.token) {
+                    showToast('Dữ liệu đề thi không hợp lệ. Vui lòng thử lại.', 'error');
+                    return;
+                }
                 const examQuestions = result.questions;
                 window.currentExamToken = result.token; // Lưu khóa bảo mật để chấm điểm sau
 
@@ -8241,8 +8199,9 @@ if (contentType && contentType.includes("application/json")) {
                 showToast('Bắt đầu làm bài! Chúc bạn thi tốt.', 'success');
             } catch (error) {
                 console.error('Lỗi khi bắt đầu thi:', error);
-                showToast('Có lỗi xảy ra khi chuẩn bị đề thi. Vui lòng thử lại!', 'error');
+                showToast(error?.code === 'EXAM_START_TIMEOUT' ? error.message : 'Có lỗi kết nối hoặc chuẩn bị đề thi. Vui lòng thử lại!', 'error');
             } finally {
+                examStartPending = false;
                 if (startBtn) {
                     startBtn.disabled = false;
                     startBtn.innerHTML = originalBtnText;
