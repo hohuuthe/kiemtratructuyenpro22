@@ -81,8 +81,11 @@ test('responsive markup includes mobile cards, two metadata columns and multi-ch
  assert.match(html,/>Mô tả<\/th>/);
  assert.match(html,/>Danh mục<\/th>/);
  assert.match(html,/name="doi_tuong_truy_cap_nhieu"/);
+ assert.match(html,/value="owner"/);
+ assert.match(html,/Chính chủ/);
  assert.match(ui,/documents-mobile-list/);
  assert.match(ui,/documents-audience-error/);
+ assert.match(ui,/items.some\(x=>x.value==='owner'&&x.checked\)/);
 });
 
 test('server-granted row permissions drive edit buttons, never claimed profile admin',()=>{
@@ -107,4 +110,9 @@ test('owner-only audience hides private document from non-creators including adm
  const input={tieu_de:'Chính chủ',duong_link:'https://example.com/private',doi_tuong_duoc_truy_cap:'owner',doi_tuong_truy_cap_nhieu:['owner'],hoat_dong:1};
  assert.deepEqual(normalizeDocumentLinkInput(input).doi_tuong_truy_cap_nhieu,['owner']);
  assert.throws(()=>normalizeDocumentLinkInput({...input,doi_tuong_truy_cap_nhieu:['owner','public']}),DocumentLinkInputError);
+});
+
+test('owner-only schema upgrade remains available for old tenant databases',()=>{
+ assert.ok(DOCUMENT_LINK_SCHEMA_STATEMENTS.some(sql=>sql.includes('qltl_owner_constraints')));
+ assert.ok(DOCUMENT_LINK_SCHEMA_STATEMENTS.some(sql=>sql.includes("'owner'=ANY(doi_tuong_truy_cap_nhieu)")));
 });
