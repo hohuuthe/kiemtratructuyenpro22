@@ -1,5 +1,5 @@
 import {connectDocumentLinks,initDocumentLinks,resetDocumentLinks} from './document-links-ui.js';
-import {readBrowserGeminiKeys,saveBrowserGeminiKeys,prioritizeGradingKeys,splitGeminiKeys} from './essay-browser-ai-keys.js';
+import {readBrowserGeminiKeys,saveBrowserGeminiKeys,prioritizeGradingKeys,splitGeminiKeys,browserAIAccountIdentity,validateManualEssayAIGrade} from './essay-browser-ai-keys.js';
 import { configureExamAccessCodeInput } from './exam-access-code-input.js';
 
 import 'katex/dist/katex.min.css';
@@ -569,7 +569,7 @@ if (contentTypeConfig && contentTypeConfig.includes("application/json")) {
             try {
                 // Ưu tiên key từ server, nếu không có mới tìm trong localStorage
                 if (!apiKey || apiKey === 'undefined') {
-                    apiKey = window.currentUser?.username ? (localStorage.getItem('gemini_api_key_' + window.currentUser.username) || localStorage.getItem('gemini_api_key')) : localStorage.getItem('gemini_api_key');
+                    apiKey = readBrowserGeminiKeys(localStorage, window.currentUser).join(' ');
                 }
                 if (!apiKey || apiKey === 'undefined') {
                     const localSettings = localStorage.getItem('appSettings');
@@ -2511,6 +2511,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
         window.adminLogout = adminLogout;
         async function adminLogout() {
             closeModal();
+            document.getElementById('essay-ai-config-overlay')?.remove();
             localStorage.removeItem('auth_token');
             isAdminLoggedIn = false;
             isTeacherLoggedIn = false;
@@ -15334,6 +15335,7 @@ if (contentType && contentType.includes("application/json")) {
                 return;
             }
             document.getElementById('essay-ai-config-overlay')?.remove();
+            const ownerIdentity = browserAIAccountIdentity(currentUser);
             const overlay = document.createElement('div');
             overlay.id = 'essay-ai-config-overlay';
             overlay.setAttribute('role', 'dialog');
@@ -15371,6 +15373,7 @@ if (contentType && contentType.includes("application/json")) {
                 const button=event.target.closest('[data-essay-ai-action]');
                 if(!button || !overlay.contains(button))return;
                 const action=button.dataset.essayAiAction;
+                if(browserAIAccountIdentity(currentUser)!==ownerIdentity){overlay.remove();showToast('Phiên đăng nhập đã thay đổi. Vui lòng mở lại cấu hình AI.','warning');return;}
                 if(action==='close'){overlay.remove();return;}
                 if(action==='save' || action==='clear'){
                     try {
@@ -15389,7 +15392,7 @@ if (contentType && contentType.includes("application/json")) {
                     report.textContent='Đang kiểm tra '+keys.length+' Key...';
                     try {
                         const responses=await Promise.all(keys.map(k=>testSingleGeminiKey(k)));
-                        if(!overlay.isConnected)return;
+                        if(!overlay.isConnected || browserAIAccountIdentity(currentUser)!==ownerIdentity){overlay.remove();return;}
                         report.replaceChildren();
                         responses.forEach((item,i)=>{
                             const line=document.createElement('p');
@@ -15421,6 +15424,7 @@ if (contentType && contentType.includes("application/json")) {
                 await initAI();
             }
             
+            const gradingAccount = browserAIAccountIdentity(currentUser);
             let graderAi = ai;
             const checkHasKeys = (k) => {
                 if (!k) return false;
@@ -15443,7 +15447,7 @@ if (contentType && contentType.includes("application/json")) {
                 } catch (e) { console.error('Lỗi khởi tạo AI:', e); }
             }
 
-            if (!graderAi) {
+            if (!gradingKey || !graderAi) {
                 showToast('Hệ thống AI chưa được cấu hình. Vui lòng nhập API Key trong phần Cài đặt hệ thống hoặc trong cấu hình đề thi này.', 'error');
                 return;
             }
@@ -15530,7 +15534,10 @@ CẤU TRÚC JSON:
                 });
                 
                 const responseText = response.text;
-                const data = JSON.parse(responseText);
+                const data = validateManualEssayAIGrade(responseText, targetConfig.pointsTL || 1);
+                if(browserAIAccountIdentity(currentUser)!==gradingAccount || !document.getElementById(`grade-tl-${resultId}-${index}`)) {
+                    throw new Error('Phiên hoặc biểu mẫu chấm điểm đã thay đổi; không áp dụng kết quả AI.');
+                }
 
                 if (input) {
                     input.value = data.score;
@@ -22829,7 +22836,7 @@ CẤU TRÚC JSON:
             const { GoogleGenAI, Type } = module;
             
             // Lấy key đã lưu trên trình duyệt
-            let savedKey = window.currentUser?.username ? (localStorage.getItem('gemini_api_key_' + window.currentUser.username) || localStorage.getItem('gemini_api_key') || '') : (localStorage.getItem('gemini_api_key') || '');
+            let savedKey = readBrowserGeminiKeys(localStorage, window.currentUser).join(' ');
             
             // Nếu không có key cá nhân và server có cấu hình, hiển thị key ẩn
             const displayKey = savedKey;
@@ -22992,9 +22999,7 @@ CẤU TRÚC JSON:
 
             let keyStr = inputEl ? inputEl.value.trim() : '';
             if (!keyStr) {
-                keyStr = window.currentUser?.username
-                    ? (localStorage.getItem('gemini_api_key_' + window.currentUser.username) || localStorage.getItem('gemini_api_key') || '')
-                    : (localStorage.getItem('gemini_api_key') || '');
+                keyStr = readBrowserGeminiKeys(localStorage, window.currentUser).join(' ');
             }
 
             const validKeys = keyStr.split(/\s+/).filter(k => k.length > 5 && !k.includes("••••••••") && !k.includes("YOUR_"));
@@ -23057,12 +23062,8 @@ CẤU TRÚC JSON:
         window.saveAIKeySettingsAndApply = function() {
             const inputEl = document.getElementById('ai-api-key');
             if (inputEl) {
-                const key = inputEl.value.trim();
-                if (window.currentUser?.username) {
-                    localStorage.setItem('gemini_api_key_' + window.currentUser.username, key);
-                } else {
-                    localStorage.setItem('gemini_api_key', key);
-                }
+                try {saveBrowserGeminiKeys(localStorage,window.currentUser,inputEl.value);}
+                catch(e){showToast(e.message,'error');return;}
             }
             updateAIKeySummaryUI();
             toggleAIKeySettingsForm(false);
@@ -23185,12 +23186,9 @@ CẤU TRÚC JSON:
                 return;
             }
 
-            // Lưu API Key cá nhân của tài khoản hiện tại vào localStorage để không phải nhập lại
-            if (window.currentUser?.username) { 
-                localStorage.setItem('gemini_api_key_' + window.currentUser.username, apiKey); 
-            } else { 
-                localStorage.setItem('gemini_api_key', apiKey); 
-            }
+            // Shared with manual essay grading, scoped to the authenticated account.
+            try {saveBrowserGeminiKeys(localStorage,window.currentUser,apiKey);}
+            catch(e){showToast(e.message,'error');return;}
 
             window.lastAIGeneration = { apiKey, topic, type, level, count, lesson };
 
