@@ -3,6 +3,7 @@
  * Client headers, query parameters, path segments and Referer never route a DB.
  * TENANT_HOST_MAP example: {"school-a.example.vn":"school_a","school-b.example.vn":"school_b"}.
  * Add custom default hostname as {"app.example.vn":"default"}.
+ * testpro.id.vn is an explicitly approved built-in hostname for the default tenant.
  */
 export function resolveTenantFromHostname(hostname: string, env: any): string {
   const host = String(hostname || '').trim().toLowerCase().replace(/\.$/, '').replace(/:\d+$/, '');
@@ -15,6 +16,11 @@ export function resolveTenantFromHostname(hostname: string, env: any): string {
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Invalid TENANT_HOST_MAP');
     hostMap = parsed;
   }
+
+  // This explicitly approved custom domain uses the same default Neon database as Pages.
+  // Exact match only; an attacker-controlled subdomain must never inherit this route.
+  // Keep it pinned to default even if TENANT_HOST_MAP accidentally assigns another slug.
+  if (host === 'testpro.id.vn') return 'default';
 
   const normalized = Object.entries(hostMap).filter(([name]) => name.toLowerCase().replace(/\.$/, '') === host);
   if (normalized.length) {
