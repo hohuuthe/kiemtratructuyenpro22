@@ -8137,29 +8137,8 @@ if (contentType && contentType.includes("application/json")) {
                     return;
                 }
 
-                // KIỂM TRA TRƯỚC SỐ LẦN LÀM BÀI TRÊN CLIENT
-                const maxAttemptsVal = Math.max(0, parseInt(examConfig.maxAttempts || examConfig.max_attempts) || 0);
-                if (maxAttemptsVal > 0 && !isAdminLoggedIn && !isTeacherLoggedIn) {
-                    let localAttempts = 0;
-                    const currentStudentName = (name || '').trim().toLowerCase();
-                    const currentUserId = (currentUser?.id || currentUser?.user_id) ? String(currentUser.id || currentUser.user_id) : null;
-                    
-                    const resList = (window.resultsList && Array.isArray(window.resultsList)) ? window.resultsList : (typeof resultsList !== 'undefined' && Array.isArray(resultsList) ? resultsList : []);
-                    if (resList.length > 0) {
-                        localAttempts = resList.filter(r => {
-                            const matchExam = String(r.exam_id) === String(selectedExamId) || (r.exam_name && String(r.exam_name).trim().toLowerCase() === String(examName).trim().toLowerCase());
-                            if (!matchExam) return false;
-                            if (currentUserId && r.user_id && String(r.user_id) === currentUserId) return true;
-                            if (currentStudentName && r.student_name && String(r.student_name).trim().toLowerCase() === currentStudentName) return true;
-                            return false;
-                        }).length;
-                    }
-
-                    if(localAttempts >= maxAttemptsVal){
-                        window.showStudentAttemptLimitDialog(localAttempts,maxAttemptsVal);
-                        return;
-                    }
-                }
+                // A stale/local results list must never reject a student.
+                // The server's tenant-specific count is authoritative.
 
                 // Tải đề thi từ Backend Server (bảo mật, không có đáp án, lấy đúng số lượng theo đề thi được chọn)
                 const payload = {
@@ -8182,11 +8161,19 @@ if (contentType && contentType.includes("application/json")) {
                     reqHeaders['Authorization'] = 'Bearer ' + authToken;
                 }
 
-                const response = await fetch('/api/exam/generate', {
-                    method: 'POST',
-                    headers: reqHeaders,
-                    body: JSON.stringify(payload)
-                });
+                const controller = new AbortController();
+                const requestTimeout = setTimeout(() => controller.abort(), 25000);
+                let response;
+                try {
+                    response = await fetch('/api/exam/generate', {
+                        method: 'POST',
+                        headers: reqHeaders,
+                        body: JSON.stringify(payload),
+                        signal: controller.signal
+                    });
+                } finally {
+                    clearTimeout(requestTimeout);
+                }
                 
                 if (!response.ok) {
                     let errMessage = 'Lỗi khi tải đề thi từ máy chủ';
@@ -8253,7 +8240,9 @@ if (contentType && contentType.includes("application/json")) {
                 showToast('Bắt đầu làm bài! Chúc bạn thi tốt.', 'success');
             } catch (error) {
                 console.error('Lỗi khi bắt đầu thi:', error);
-                showToast('Có lỗi xảy ra khi chuẩn bị đề thi. Vui lòng thử lại!', 'error');
+                showToast(error?.name === 'AbortError'
+                    ? 'Máy chủ phản hồi quá lâu. Bài thi chưa bắt đầu. Bạn có thể thử lại.'
+                    : 'Có lỗi xảy ra khi chuẩn bị đề thi. Vui lòng thử lại!', 'error');
             } finally {
                 window._studentExamStartPending=false;
                 if(startBtn){startBtn.disabled=false;startBtn.innerHTML=originalBtnText;}
