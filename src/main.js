@@ -1,4 +1,5 @@
 import {connectDocumentLinks,initDocumentLinks,resetDocumentLinks} from './document-links-ui.js';
+import {readBrowserGeminiKeys,saveBrowserGeminiKeys,prioritizeGradingKeys,splitGeminiKeys} from './essay-browser-ai-keys.js';
 import { configureExamAccessCodeInput } from './exam-access-code-input.js';
 
 import 'katex/dist/katex.min.css';
@@ -15290,6 +15291,84 @@ if (contentType && contentType.includes("application/json")) {
             if (elCorrect) elCorrect.textContent = `${newCorrectCount}/${result.totalQuestions}`;
         }
 
+
+        // Independent overlay preserves the open exam detail and its unsaved grades.
+        window.openEssayAIConfig = function openEssayAIConfig() {
+            if (!currentUser?.username) {
+                showToast('Vui lòng đăng nhập để cấu hình khóa AI cá nhân.', 'warning');
+                return;
+            }
+            document.getElementById('essay-ai-config-overlay')?.remove();
+            const overlay = document.createElement('div');
+            overlay.id = 'essay-ai-config-overlay';
+            overlay.setAttribute('role', 'dialog');
+            overlay.setAttribute('aria-modal', 'true');
+            overlay.setAttribute('aria-label', 'Cấu hình AI chấm tự luận');
+            overlay.className = 'fixed inset-0 z-[999999] bg-black/60 flex items-center justify-center p-3 sm:p-5';
+            overlay.innerHTML = `
+                <div class="bg-white w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl shadow-2xl p-5 sm:p-6 space-y-4">
+                    <div class="flex items-center justify-between gap-3 border-b pb-3">
+                        <div><h3 class="font-extrabold text-lg text-purple-800">⚙️ Cấu hình AI chấm tự luận</h3>
+                        <p class="text-xs text-gray-500">Cài đặt & Kiểm tra Gemini API Key cá nhân</p></div>
+                        <button type="button" data-essay-ai-action="close" class="rounded-lg border px-3 py-2" aria-label="Đóng">✕</button>
+                    </div>
+                    <p class="text-xs bg-amber-50 border border-amber-200 text-amber-900 p-3 rounded-lg">
+                       Key chỉ được lưu trong trình duyệt này theo tài khoản hiện tại, không đồng bộ với CSDL.
+                       Trên máy tính dùng chung, hãy xóa key khi sử dụng xong.
+                       Thứ tự ưu tiên: key cá nhân → key đề thi → key hệ thống.
+                    </p>
+                    <label class="block text-sm font-bold">Danh sách Gemini API Key (cách nhau bởi dấu cách)
+                        <textarea id="essay-ai-browser-keys" rows="4" autocomplete="off" spellcheck="false" data-lpignore="true" class="w-full mt-2 p-3 border rounded-xl font-mono text-xs" placeholder="Nhập một hoặc nhiều Gemini API Key"></textarea>
+                    </label>
+                    <p class="text-xs text-gray-500">Nếu key hết hạn mức, hệ thống tự chuyển sang key tiếp theo.</p>
+                    <div id="essay-ai-test-report" class="text-xs space-y-2" aria-live="polite"></div>
+                    <div class="flex flex-wrap justify-end gap-2 border-t pt-3">
+                        <button type="button" data-essay-ai-action="test" class="bg-indigo-50 border border-indigo-200 text-indigo-700 font-bold rounded-lg px-3 py-2 text-xs">🔍 Kiểm tra Key</button>
+                        <button type="button" data-essay-ai-action="clear" class="bg-rose-50 text-rose-700 font-bold rounded-lg px-3 py-2 text-xs">Xóa Key</button>
+                        <button type="button" data-essay-ai-action="save" class="bg-purple-600 text-white font-bold rounded-lg px-4 py-2 text-xs">💾 Lưu Key</button>
+                        <button type="button" data-essay-ai-action="close" class="bg-gray-100 font-bold rounded-lg px-3 py-2 text-xs">Đóng</button>
+                    </div>
+                </div>`;
+            (document.fullscreenElement || document.body).appendChild(overlay);
+            const input=overlay.querySelector('#essay-ai-browser-keys');
+            input.value=readBrowserGeminiKeys(localStorage,currentUser).join(' ');
+            overlay.addEventListener('click', async event => {
+                const button=event.target.closest('[data-essay-ai-action]');
+                if(!button || !overlay.contains(button))return;
+                const action=button.dataset.essayAiAction;
+                if(action==='close'){overlay.remove();return;}
+                if(action==='save' || action==='clear'){
+                    try {
+                        const count=saveBrowserGeminiKeys(localStorage,currentUser,action==='clear'?'':input.value);
+                        if(action==='clear')input.value='';
+                        showToast(action==='clear'?'Đã xóa Key cá nhân trên trình duyệt.':'Đã lưu '+count+' Key cá nhân trên trình duyệt.','success');
+                        if(action==='save')overlay.remove();
+                    }catch(e){showToast(e.message,'error');}
+                    return;
+                }
+                if(action==='test'){
+                    const keys=splitGeminiKeys(input.value);
+                    const report=overlay.querySelector('#essay-ai-test-report');
+                    if(!keys.length){report.textContent='Vui lòng nhập ít nhất một API Key hợp lệ.';return;}
+                    button.disabled=true;
+                    report.textContent='Đang kiểm tra '+keys.length+' Key...';
+                    try {
+                        const responses=await Promise.all(keys.map(k=>testSingleGeminiKey(k)));
+                        if(!overlay.isConnected)return;
+                        report.replaceChildren();
+                        responses.forEach((item,i)=>{
+                            const line=document.createElement('p');
+                            line.className='p-2 rounded-lg '+(item.ok?'bg-green-50 text-green-800':'bg-rose-50 text-rose-800');
+                            line.textContent='Key #'+(i+1)+': '+(item.ok?'Hoạt động tốt':String(item.title||'Không khả dụng'));
+                            report.appendChild(line);
+                        });
+                    }catch(e){report.textContent='Không kiểm tra được các Key. Vui lòng thử lại.';}
+                    finally{button.disabled=false;}
+                }
+            });
+            input.focus();
+        };
+
         window.gradeTLWithAI = async function gradeTLWithAI(resultId, index) {
             const result = results.find(r => r.id === resultId);
             if (!result || !result.details[index]) return;
@@ -15314,16 +15393,10 @@ if (contentType && contentType.includes("application/json")) {
                 return arr.length > 0;
             };
 
-            // 1. Ưu tiên Key từ ĐỀ THI
-            let gradingKey = targetConfig.aiGradingKey;
-            
-            // 2. Nếu đề không có Key, sử dùng AI Grading Key mặc định từ Cài đặt hệ thống
-            if (!checkHasKeys(gradingKey)) {
-                if (checkHasKeys(appSettings.aiGradingKey)) {
-                    gradingKey = appSettings.aiGradingKey;
-                    console.log('ℹ️ Đề thi không có Key riêng, sử dụng AI Grading Key mặc định từ Cài đặt hệ thống.');
-                }
-            }
+            // Client-only key first, then exam key pool, then system key pool.
+            // Do not persist browser keys in results or exam configuration.
+            const orderedKeys = prioritizeGradingKeys(localStorage,currentUser,targetConfig?.aiGradingKey,appSettings?.aiGradingKey);
+            const gradingKey = orderedKeys.join(' ');
 
             if (checkHasKeys(gradingKey)) {
                 try {
@@ -16351,6 +16424,7 @@ CẤU TRÚC JSON:
                             >
                                 🤖 AI Chấm
                             </button>
+                            <button type="button" onclick="openEssayAIConfig()" class="px-3 py-1.5 border border-purple-300 bg-white text-purple-700 rounded-lg hover:bg-purple-50 text-xs font-bold shadow-sm whitespace-nowrap" title="Cấu hình và kiểm tra Gemini API Key cá nhân trên trình duyệt">⚙️ Cấu hình AI</button>
                             ` : ''}
                         </div>
                         <div id="ai-feedback-${resultId}-${i}" class="mt-2 text-xs text-purple-700 italic hidden break-words"></div>
