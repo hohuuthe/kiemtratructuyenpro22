@@ -19,6 +19,34 @@ test('hostname alone selects a tenant; headers / query / referer cannot switch',
   assert.throws(()=>resolveTenantFromHostname('school-a.example.vn.evil.com',tenants));
   assert.throws(()=>resolveTenantFromHostname('school-a.example.vn',{TENANT_HOST_MAP:'broken-json'}));
 });
+test('testpro.id.vn always routes to default Neon, without cross-tenant fallback', () => {
+  const conflictingMap = { TENANT_HOST_MAP: JSON.stringify({
+    'testpro.id.vn': 'school_b',
+    'school-a.example.vn': 'school_a',
+    'school-b.example.vn': 'school_b'
+  }) };
+  for (const env of [{}, tenants, conflictingMap]) {
+    assert.equal(resolveTenantFromHostname('testpro.id.vn', env), 'default');
+    assert.equal(resolveTenantFromHostname('TESTPRO.ID.VN.', env), 'default');
+    assert.equal(resolveTenantFromRequest({
+      url: 'https://testpro.id.vn/api/health?tenant=school_b&slug=school_b',
+      headers: new Headers({
+        'x-tenant-slug': 'school_b',
+        'x-tenant': 'school_b',
+        'referer': 'https://school-b.example.vn/'
+      })
+    }, env), 'default');
+  }
+  for (const spoofedHost of [
+    'eviltestpro.id.vn',
+    'testpro.id.vn.evil.example',
+    'testpro-id.vn'
+  ]) {
+    assert.throws(() => resolveTenantFromHostname(spoofedHost, {}));
+  }
+  assert.throws(() => resolveTenantFromHostname('testpro.id.vn', { TENANT_HOST_MAP: '{invalid' }));
+});
+
 test('locked or changed accounts invalidate previously signed state', async () => {
   const original = {id:'a1',user_id:'u1',username:'t',password:'pbkdf2:abc',role:'admin',is_active:1};
   const proof = await accountSessionState(original);
