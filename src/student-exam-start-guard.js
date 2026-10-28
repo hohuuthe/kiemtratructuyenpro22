@@ -39,25 +39,43 @@ export function buildExamAttemptLimitModal(examName, details) {
   const limit = safeCount(info.maxAttempts);
   const hasCount = count !== null && limit !== null && limit > 0;
   const examMessage = title
-    ? 'Đề thi <strong class="text-slate-800">' + escapeExamText(title) + '</strong> đã đạt giới hạn lượt làm bài được phép.'
+    ? 'Đề thi <strong>' + escapeExamText(title) + '</strong> đã đạt giới hạn lượt làm bài được phép.'
     : 'Bạn đã đạt giới hạn lượt làm bài được phép của đề thi này.';
-  const countMarkup = hasCount
-    ? '<div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-slate-700 mb-4 text-left">'
-      + '<div class="flex justify-between gap-4"><span>Đã làm:</span><strong>' + count + ' lượt</strong></div>'
-      + '<div class="flex justify-between gap-4 mt-2"><span>Tối đa:</span><strong>' + limit + ' lượt</strong></div>'
-      + '<div class="flex justify-between gap-4 mt-2 pt-2 border-t border-amber-200"><span>Còn lại:</span><strong>0 lượt</strong></div>'
+  const counts = hasCount
+    ? '<div class="student-exam-dialog-stats" aria-label="Thống kê lượt thi">'
+      + '<div><span>Đã làm:</span><strong>' + count + ' lượt</strong></div>'
+      + '<div><span>Tối đa:</span><strong>' + limit + ' lượt</strong></div>'
+      + '<div><span>Còn lại:</span><strong>0 lượt</strong></div>'
       + '</div>'
     : '';
-  return '<div role="alertdialog" aria-modal="true" aria-labelledby="exam-attempt-limit-heading" '
-    + 'aria-describedby="exam-attempt-limit-description" class="p-5 sm:p-6 text-center w-full mx-auto">'
-    + '<div class="w-14 h-14 rounded-2xl bg-amber-50 border border-amber-100 text-3xl flex items-center justify-center mx-auto mb-3" aria-hidden="true">🔒</div>'
-    + '<h3 id="exam-attempt-limit-heading" class="text-lg sm:text-xl font-bold text-slate-900 mb-2">Bạn đã hết lượt làm bài</h3>'
-    + '<p id="exam-attempt-limit-description" class="text-sm text-slate-600 mb-4">' + examMessage + '</p>'
-    + countMarkup
-    + '<p class="text-xs sm:text-sm text-slate-500 mb-5">Bạn không thể bắt đầu thêm lượt thi. Nếu cần được làm lại, vui lòng liên hệ giáo viên phụ trách.</p>'
-    + '<button type="button" id="exam-attempt-limit-confirm" '
-    + 'class="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:ring-offset-2">Đã hiểu</button>'
-    + '</div>';
+  return '<section class="student-exam-compact-body" role="alertdialog" aria-modal="true"'
+    + ' aria-labelledby="exam-attempt-limit-heading" aria-describedby="exam-attempt-limit-description">'
+    + '<div class="student-exam-dialog-head">'
+    + '<span class="student-exam-dialog-icon student-exam-dialog-icon-warning" aria-hidden="true">🔒</span>'
+    + '<h3 class="student-exam-dialog-title" id="exam-attempt-limit-heading">Bạn đã hết lượt làm bài</h3>'
+    + '</div>'
+    + '<p class="student-exam-dialog-note" id="exam-attempt-limit-description">' + examMessage + '</p>'
+    + counts
+    + '<p class="student-exam-dialog-footnote">Nếu cần làm lại, vui lòng liên hệ giáo viên phụ trách.</p>'
+    + '<div class="student-exam-dialog-actions"><button type="button" id="exam-attempt-limit-confirm"'
+    + ' class="student-exam-dialog-primary">Đã hiểu</button></div>'
+    + '</section>';
+}
+
+export function buildExamReadyModal() {
+  return '<section class="student-exam-compact-body" role="dialog" aria-modal="true"'
+    + ' aria-labelledby="exam-start-ready-heading" aria-describedby="exam-start-ready-description">'
+    + '<div class="student-exam-dialog-head">'
+    + '<span class="student-exam-dialog-icon student-exam-dialog-icon-ready" aria-hidden="true">✅</span>'
+    + '<h3 class="student-exam-dialog-title" id="exam-start-ready-heading">Đề thi đã sẵn sàng</h3>'
+    + '</div>'
+    + '<p class="student-exam-dialog-note" id="exam-start-ready-description">'
+    + 'Nhấn <strong>Vào phòng thi</strong> để mở toàn màn hình và bắt đầu tính giờ làm bài.'
+    + '</p>'
+    + '<div class="student-exam-dialog-actions">'
+    + '<button type="button" id="exam-start-ready-confirm" class="student-exam-dialog-primary">Vào phòng thi</button>'
+    + '<button type="button" id="exam-start-ready-cancel" class="student-exam-dialog-secondary">Quay lại chọn đề</button>'
+    + '</div></section>';
 }
 
 /**
