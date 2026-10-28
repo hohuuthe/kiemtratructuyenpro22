@@ -6,7 +6,7 @@
  * All visibility checks run server-side. Never accept a client-supplied owner.
  */
 import {
-  DOCUMENT_AUDIENCES, canManageDocument, documentActorRole, documentOwnerId,
+  DOCUMENT_AUDIENCES, canManageDocument, documentActorRole, documentOwnerId, documentAudienceValues,
   normalizeDocumentLinkInput, DocumentLinkInputError
 } from './document-link-policy.js';
 
@@ -17,7 +17,7 @@ export class DocumentLinkServiceError extends Error {
 }
 const deny=(status,message)=>{throw new DocumentLinkServiceError(status,message);};
 const managementColumns='id,id_nguoi_tao,tieu_de,duong_link,doi_tuong_duoc_truy_cap,thoi_gian_het_han,hoat_dong,mo_ta,danh_muc,doi_tuong_truy_cap_nhieu,id_nguoi_cap_nhat,thoi_gian_tao,thoi_gian_cap_nhat';
-const readerColumns='id,tieu_de,duong_link,doi_tuong_duoc_truy_cap,doi_tuong_truy_cap_nhieu,thoi_gian_het_han,hoat_dong,mo_ta,danh_muc,thoi_gian_tao,thoi_gian_cap_nhat';
+const readerColumns='id,id_nguoi_tao,tieu_de,duong_link,doi_tuong_duoc_truy_cap,doi_tuong_truy_cap_nhieu,thoi_gian_het_han,hoat_dong,mo_ta,danh_muc,thoi_gian_tao,thoi_gian_cap_nhat';
 const eligible={
   guest: ['public'],
   student: ['public','authenticated','student'],
@@ -49,15 +49,27 @@ export async function listDocumentLinks(db, actor, {manage=false}={}){
   } else {
     query+=' AND hoat_dong = 1 AND (thoi_gian_het_han IS NULL OR thoi_gian_het_han > CURRENT_TIMESTAMP)';
     const audiences=eligible[role]||eligible.guest;
-    query+=' AND doi_tuong_truy_cap_nhieu && ARRAY['+audiences.map(()=>'?').join(',')+']::TEXT[]';
+    // Owner-only documents must never appear in another user's read response,
+    // even when stale data also contains a broadly visible audience.
+    const owner=documentOwnerId(actor);
+    query+=' AND ((NOT (doi_tuong_truy_cap_nhieu @> ARRAY[\'owner\']::TEXT[]) AND doi_tuong_truy_cap_nhieu && ARRAY['+audiences.map(()=>'?').join(',')+']::TEXT[])';
     params.push(...audiences);
+    if(owner){query+=' OR (doi_tuong_truy_cap_nhieu @> ARRAY[\'owner\']::TEXT[] AND id_nguoi_tao = ?)';params.push(owner);}
+    query+=')';
   }
   query+=' ORDER BY thoi_gian_tao DESC NULLS LAST, id DESC LIMIT 2000';
   const rows=await db.all(query,params);
-  if (manage) return (rows||[]).map(row=>({
-    ...row,
-    co_quyen_quan_ly: canManageDocument(actor,row)
-  }));
+  if (manage) return (rows||[]).filter(row=>!documentAudienceValues(row).includes('owner') || documentOwnerId(actor)===String(row.id_nguoi_tao||'')).map(row=>{
+    const canReadOwnerOnly = !documentAudienceValues(row).includes('owner') ||
+      documentOwnerId(actor) === String(row.id_nguoi_tao || '');
+    return {
+      ...row,
+      // Admin can still manage records but cannot see an owner's private URL.
+      duong_link: canReadOwnerOnly ? row.duong_link : '',
+      co_quyen_quan_ly: canManageDocument(actor,row),
+      co_quyen_xem: canReadOwnerOnly
+    };
+  });
   return rows||[];
 }
 export async function createDocumentLink(db,actor,payload,makeId=()=>crypto.randomUUID()){
@@ -74,8 +86,10 @@ export async function updateDocumentLink(db,actor,payload){
   requireEditor(actor);
   const id=cleanId(payload?.id);
   const value=cleanPayload(payload);
-  const existing=await db.first('SELECT id,id_nguoi_tao FROM quan_ly_tai_lieu WHERE id = ?',[id]);
+  const existing=await db.first('SELECT id,id_nguoi_tao,doi_tuong_truy_cap_nhieu FROM quan_ly_tai_lieu WHERE id = ?',[id]);
   if(!existing)deny(404,'Không tìm thấy tài liệu cần sửa.');
+  if(documentAudienceValues(existing).includes('owner') && String(existing.id_nguoi_tao)!==documentOwnerId(actor))
+    deny(403,'Chỉ người đăng được sửa liên kết Chính chủ.');
   if(!canManageDocument(actor,existing))deny(403,'Bạn không có quyền sửa tài liệu này.');
   const isAdmin=documentActorRole(actor)==='admin';
   const guard=isAdmin?'':' AND id_nguoi_tao = ?';

@@ -6,7 +6,8 @@ export const DOCUMENT_AUDIENCES = Object.freeze({
   authenticated: 'Mọi tài khoản đăng nhập',
   teacher: 'Giáo viên',
   student: 'Học sinh',
-  admin: 'Chỉ quản trị viên'
+  admin: 'Chỉ quản trị viên',
+  owner: 'Chính chủ (chỉ người đăng)'
 });
 export const DOCUMENT_AUDIENCE_KEYS = Object.freeze(Object.keys(DOCUMENT_AUDIENCES));
 
@@ -63,8 +64,14 @@ export function documentIsActive(row, at = Date.now()) {
 export function canViewDocument(actor, row, at = Date.now()) {
   if (!row || !documentIsActive(row, at)) return false;
   const role = documentActorRole(actor);
-  if (role === 'admin') return true;
   const audiences = documentAudienceValues(row);
+  // 'Chính chủ' overrides every other audience (including admin and public).
+  // The user ID must come from the verified server-side session, never request data.
+  if (audiences.includes('owner')) {
+    return role !== 'guest' && Boolean(documentOwnerId(actor)) &&
+      documentOwnerId(actor) === String(row.id_nguoi_tao || '');
+  }
+  if (role === 'admin') return true;
   return audiences.includes('public') ||
     (audiences.includes('authenticated') && role !== 'guest') ||
     audiences.includes(role);
@@ -98,6 +105,9 @@ export function normalizeDocumentLinkInput(input) {
     throw new DocumentLinkInputError('Hãy chọn ít nhất một đối tượng truy cập hợp lệ.');
   }
   const audiences = [...new Set(selected)];
+  if (audiences.includes('owner') && audiences.length !== 1) {
+    throw new DocumentLinkInputError('Chính chủ chỉ được chọn riêng, không thể kết hợp với nhóm khác.');
+  }
   if (typeof input.doi_tuong_duoc_truy_cap === 'string' &&
       input.doi_tuong_truy_cap_nhieu !== undefined &&
       input.doi_tuong_duoc_truy_cap !== audiences[0]) {

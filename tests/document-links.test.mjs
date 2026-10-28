@@ -21,7 +21,7 @@ test('role recognition and isolation',()=>{
 });
 test('every audience is server gated',()=>{
  const actors=[null,student,teacher,admin];
- const expected={public:[1,1,1,1],authenticated:[0,1,1,1],teacher:[0,0,1,1],student:[0,1,0,1],admin:[0,0,0,1]};
+ const expected={public:[1,1,1,1],authenticated:[0,1,1,1],teacher:[0,0,1,1],student:[0,1,0,1],admin:[0,0,0,1],owner:[0,0,1,0]};
  for(const audience of Object.keys(DOCUMENT_AUDIENCES))assert.deepEqual(actors.map(x=>Number(canViewDocument(x,row(audience)))),expected[audience],audience);
 });
 test('disabled and expired documents unavailable to all',()=>{
@@ -81,8 +81,11 @@ test('responsive markup includes mobile cards, two metadata columns and multi-ch
  assert.match(html,/>Mô tả<\/th>/);
  assert.match(html,/>Danh mục<\/th>/);
  assert.match(html,/name="doi_tuong_truy_cap_nhieu"/);
+ assert.match(html,/value="owner"/);
+ assert.match(html,/Chính chủ/);
  assert.match(ui,/documents-mobile-list/);
  assert.match(ui,/documents-audience-error/);
+ assert.match(ui,/items.some\(x=>x.value==='owner'&&x.checked\)/);
 });
 
 test('server-granted row permissions drive edit buttons, never claimed profile admin',()=>{
@@ -96,4 +99,20 @@ test('server-granted row permissions drive edit buttons, never claimed profile a
  const ui=readFileSync('src/document-links-ui.js','utf8');
  assert.match(ui,/canEditDocumentRow\(manage,r\)/);
  assert.match(ui,/if\(id&&!canEditDocumentRow\(manage,found\)\)return/);
+});
+
+test('owner-only audience hides private document from non-creators including admins',()=>{
+ const privateRow={...row('owner'),doi_tuong_truy_cap_nhieu:['owner']};
+ assert.equal(canViewDocument(teacher,privateRow),true);
+ for (const other of [null,student,teacher2,admin]) assert.equal(canViewDocument(other,privateRow),false);
+ assert.equal(canViewDocument(teacher,{...privateRow,doi_tuong_truy_cap_nhieu:['public','owner']}),true);
+ assert.equal(canViewDocument(admin,{...privateRow,doi_tuong_truy_cap_nhieu:['public','owner']}),false);
+ const input={tieu_de:'Chính chủ',duong_link:'https://example.com/private',doi_tuong_duoc_truy_cap:'owner',doi_tuong_truy_cap_nhieu:['owner'],hoat_dong:1};
+ assert.deepEqual(normalizeDocumentLinkInput(input).doi_tuong_truy_cap_nhieu,['owner']);
+ assert.throws(()=>normalizeDocumentLinkInput({...input,doi_tuong_truy_cap_nhieu:['owner','public']}),DocumentLinkInputError);
+});
+
+test('owner-only schema upgrade remains available for old tenant databases',()=>{
+ assert.ok(DOCUMENT_LINK_SCHEMA_STATEMENTS.some(sql=>sql.includes('qltl_owner_constraints')));
+ assert.ok(DOCUMENT_LINK_SCHEMA_STATEMENTS.some(sql=>sql.includes("'owner'=ANY(doi_tuong_truy_cap_nhieu)")));
 });
