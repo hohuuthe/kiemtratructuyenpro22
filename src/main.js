@@ -1298,7 +1298,9 @@ if (contentTypeConfig && contentTypeConfig.includes("application/json")) {
                 return renderScientificContent(text);
             }
 
-            return String(text);
+            // Fail closed if the scientific renderer is unavailable: never
+            // insert raw question/answer HTML into innerHTML.
+            return String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         }
 
         function escapeHTML(text) {

@@ -9,7 +9,6 @@
 const STYLE_NAMES = new Set(['sup', 'sub', 'b', 'strong', 'i', 'em', 'u', 'mark']);
 const STYLE_TAG = /<\/?(?:sup|sub|b|strong|i|em|u|mark)>/gi;
 const CODE_SPAN = /(?:\x60{3}[\s\S]*?\x60{3}|\x60[^\x60\n]+\x60)/g;
-const BREAK = /<br\s*\/?>/gi;
 const TEACHING_CONTEXT = /(?:\b(?:html|css|javascript|tag|element)\b|thẻ|cú pháp|mã nguồn|đoạn mã|cặp thẻ|phần tử)/iu;
 
 /** Decode only encoded tag-shaped entities, then re-escape at the sink. */
@@ -18,7 +17,7 @@ export function normalizeEducationalTagEntities(source) {
 }
 
 /**
- * Tokens: text, code, open, close, break. Unknown/unsafe HTML is always text.
+ * Tokens: text, code, open, close. Unknown/unsafe HTML and <br/> stay literal.
  * Code spans remain opaque even when they contain a matched formatting pair.
  */
 export function tokenizeEducationalInlineMarkup(sourceInput) {
@@ -59,24 +58,19 @@ export function tokenizeEducationalInlineMarkup(sourceInput) {
     }
     const selected = [...pairedTags.entries()].sort((a, b) => a[0] - b[0]);
     let previous = 0;
-    const appendTextWithBreaks = text => {
-      if (!text) return;
-      if (teaching) { add('text', text); return; }
-      BREAK.lastIndex = 0;
-      let pos = 0;
-      for (const m of text.matchAll(BREAK)) {
-        add('text', text.slice(pos, m.index));
-        add('break', '\n');
-        pos = m.index + m[0].length;
-      }
-      add('text', text.slice(pos));
-    };
+    // Assessment question/answer text is source code when it contains HTML
+    // examples. There is no reliable way to distinguish an authored <br/>
+    // from a code-example <br/> by surrounding words, punctuation, or casing.
+    // NEVER transform such tags into layout instructions: preserve the exact
+    // characters and escape them at each renderer. Actual newline characters
+    // are still rendered as line breaks by the scientific/Word pipelines.
+    const appendLiteralText = text => add('text', text);
     for (const [index, token] of selected) {
-      appendTextWithBreaks(part.slice(previous, index));
+      appendLiteralText(part.slice(previous, index));
       add(token.type, token.value, token.name);
       previous = index + token.value.length;
     }
-    appendTextWithBreaks(part.slice(previous));
+    appendLiteralText(part.slice(previous));
   };
   let previous = 0;
   for (const match of source.matchAll(CODE_SPAN)) {
