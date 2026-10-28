@@ -315,7 +315,8 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
             if (attemptCount >= maxAttemptsVal) {
                 return new Response(JSON.stringify({
-                    error: `🛑 Bạn đã đạt giới hạn số lần làm bài thi này! (Bạn đã hoàn thành ${attemptCount} lần / Tối đa ${maxAttemptsVal} lần làm bài quy định). Bạn không thể làm thêm bài thi này nữa!`
+                    code: 'EXAM_ATTEMPT_LIMIT_REACHED', attemptCount, maxAttempts: maxAttemptsVal,
+                    error: `Bạn đã đạt giới hạn số lần làm bài thi này! (Bạn đã hoàn thành ${attemptCount} lần / Tối đa ${maxAttemptsVal} lần làm bài quy định).`
                 }), { status: 403, headers: corsHeaders });
             }
         }
