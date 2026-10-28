@@ -59,7 +59,7 @@ export async function listDocumentLinks(db, actor, {manage=false}={}){
   }
   query+=' ORDER BY thoi_gian_tao DESC NULLS LAST, id DESC LIMIT 2000';
   const rows=await db.all(query,params);
-  if (manage) return (rows||[]).map(row=>{
+  if (manage) return (rows||[]).filter(row=>!documentAudienceValues(row).includes('owner') || documentOwnerId(actor)===String(row.id_nguoi_tao||'')).map(row=>{
     const canReadOwnerOnly = !documentAudienceValues(row).includes('owner') ||
       documentOwnerId(actor) === String(row.id_nguoi_tao || '');
     return {
