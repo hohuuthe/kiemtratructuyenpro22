@@ -1,7 +1,7 @@
 import {connectDocumentLinks,initDocumentLinks,resetDocumentLinks} from './document-links-ui.js';
 import {readBrowserGeminiKeys,saveBrowserGeminiKeys,prioritizeGradingKeys,splitGeminiKeys} from './essay-browser-ai-keys.js';
 import { configureExamAccessCodeInput } from './exam-access-code-input.js';
-import { parseExamAttemptLimitError, buildExamAttemptLimitModal, fetchExamStartResponse } from './student-exam-start-guard.js';
+import { parseExamAttemptLimitError, buildExamAttemptLimitModal, buildExamReadyModal, fetchExamStartResponse } from './student-exam-start-guard.js';
 
 import 'katex/dist/katex.min.css';
 import { renderRoleHelp, attachRoleHelpInteractions, resetRoleHelpCache } from './help-center.js';
@@ -4985,16 +4985,27 @@ if (contentType && contentType.includes("application/json")) {
             return { container, el };
         }
 
+        // Prevent an old close animation from erasing a freshly opened dialog.
+        let modalContentClearTimer = null;
         function showModal(content, fullScreen = false, alwaysScrollbar = false) {
+            if (modalContentClearTimer !== null) {
+                clearTimeout(modalContentClearTimer);
+                modalContentClearTimer = null;
+            }
             const { container, el } = ensureModalElements();
             if (!el || !container) {
                 console.error('Critical Error: modal-content element could not be created or found.');
                 return;
             }
-            // Reset custom style overrides if any
-            el.style.width = '';
-            el.style.backgroundColor = '';
-            el.classList.remove('always-scrollbar-y', 'question-authoring-modal', 'exam-export-modal', 'student-results-detail-modal');
+            // Clear layout dimensions left behind by other shared dialogs.
+            // In particular, inline maxWidth/maxHeight from a prior large modal
+            // must never force the student status dialogs to open full width.
+            for (const property of ['width', 'maxWidth', 'minWidth', 'height', 'maxHeight', 'minHeight',
+                'overflow', 'overflowX', 'overflowY', 'backgroundColor']) {
+                el.style[property] = '';
+            }
+            el.classList.remove('always-scrollbar-y', 'question-authoring-modal', 'exam-export-modal',
+                'student-results-detail-modal', 'student-exam-compact-modal');
             
             el.innerHTML = content;
             
@@ -5019,7 +5030,10 @@ if (contentType && contentType.includes("application/json")) {
                 'md:max-w-[98vw]', 'md:h-[95vh]', 'max-w-[98vw]', 'h-[95vh]', 'max-w-sm', 'max-w-md', 'lg:max-w-5xl', 'md:w-full'
             );
 
-            if (fullScreen === 'question-authoring') {
+            if (fullScreen === 'student-exam-compact') {
+                // Dedicated fixed compact dimensions; independent of Tailwind size classes.
+                el.classList.add('student-exam-compact-modal');
+            } else if (fullScreen === 'question-authoring') {
                 el.classList.add('question-authoring-modal', 'overflow-y-auto');
             } else if (fullScreen === true || fullScreen === 'full') {
                 el.classList.add('w-[98vw]', 'max-w-6xl', 'max-h-[94vh]', 'overflow-y-auto');
@@ -5058,11 +5072,18 @@ if (contentType && contentType.includes("application/json")) {
                 container.classList.add('hidden');
                 container.style.display = 'none';
             });
-            setTimeout(() => {
+            if (modalContentClearTimer !== null) clearTimeout(modalContentClearTimer);
+            modalContentClearTimer = setTimeout(() => {
+                modalContentClearTimer = null;
+                // A newer modal may have opened while the old one was closing.
+                const isVisible = Array.from(document.querySelectorAll('#modal-container'))
+                    .some(container => !container.classList.contains('hidden') && container.style.display !== 'none');
+                if (isVisible) return;
                 const el = document.getElementById('modal-content');
                 if (el) {
                     el.innerHTML = '';
-                    el.classList.remove('always-scrollbar-y', 'question-authoring-modal', 'exam-export-modal', 'student-results-detail-modal');
+                    el.classList.remove('always-scrollbar-y', 'question-authoring-modal',
+                        'exam-export-modal', 'student-results-detail-modal', 'student-exam-compact-modal');
                 }
             }, 300);
         }
@@ -8150,7 +8171,7 @@ if (contentType && contentType.includes("application/json")) {
                 if (!response.ok) {
                     const limitInfo = parseExamAttemptLimitError(response.status, response.body);
                     if (limitInfo) {
-                        showModal(buildExamAttemptLimitModal(examName, limitInfo), 'compact', false);
+                        showModal(buildExamAttemptLimitModal(examName, limitInfo), 'student-exam-compact', false);
                         document.getElementById('exam-attempt-limit-confirm')?.addEventListener('click', closeModal, { once: true });
                         document.getElementById('exam-attempt-limit-confirm')?.focus();
                         return;
@@ -8197,19 +8218,7 @@ if (contentType && contentType.includes("application/json")) {
                 // Việc mở toàn màn hình cần một thao tác click trực tiếp, không thể gọi
                 // sau await fetch (trình duyệt chặn vì mất user activation).
                 // Chỉ học sinh được máy chủ chấp thuận mới thấy hội thoại này.
-                showModal(`
-                    <div class="p-5 sm:p-6 text-center w-full mx-auto">
-                        <div class="text-3xl mb-3" aria-hidden="true">✅</div>
-                        <h3 class="text-lg sm:text-xl font-bold text-slate-900 mb-2">Đề thi đã sẵn sàng</h3>
-                        <p class="text-sm text-slate-600 mb-5">Nhấn <strong>Vào phòng thi</strong> để mở toàn màn hình và bắt đầu tính giờ làm bài.</p>
-                        <button type="button" id="exam-start-ready-confirm"
-                            class="w-full py-3 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold focus:ring-2 focus:ring-indigo-400 focus:ring-offset-2">
-                            Vào phòng thi
-                        </button>
-                        <button type="button" id="exam-start-ready-cancel"
-                            class="mt-3 text-sm text-slate-500 hover:text-slate-800">Quay lại chọn đề</button>
-                    </div>
-                `, 'compact', false);
+                showModal(buildExamReadyModal(), 'student-exam-compact', false);
                 const readyButton = document.getElementById('exam-start-ready-confirm');
                 if (!readyButton) {
                     closeModal();
