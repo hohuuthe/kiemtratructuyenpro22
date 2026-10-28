@@ -8194,9 +8194,43 @@ if (contentType && contentType.includes("application/json")) {
                     maxCheatWarnings: maxCheatAllowed
                 };
 
-                startExamUI();
-
-                showToast('Bắt đầu làm bài! Chúc bạn thi tốt.', 'success');
+                // Việc mở toàn màn hình cần một thao tác click trực tiếp, không thể gọi
+                // sau await fetch (trình duyệt chặn vì mất user activation).
+                // Chỉ học sinh được máy chủ chấp thuận mới thấy hội thoại này.
+                showModal(`
+                    <div class="p-5 sm:p-6 text-center w-full mx-auto">
+                        <div class="text-3xl mb-3" aria-hidden="true">✅</div>
+                        <h3 class="text-lg sm:text-xl font-bold text-slate-900 mb-2">Đề thi đã sẵn sàng</h3>
+                        <p class="text-sm text-slate-600 mb-5">Nhấn <strong>Vào phòng thi</strong> để mở toàn màn hình và bắt đầu tính giờ làm bài.</p>
+                        <button type="button" id="exam-start-ready-confirm"
+                            class="w-full py-3 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold focus:ring-2 focus:ring-indigo-400 focus:ring-offset-2">
+                            Vào phòng thi
+                        </button>
+                        <button type="button" id="exam-start-ready-cancel"
+                            class="mt-3 text-sm text-slate-500 hover:text-slate-800">Quay lại chọn đề</button>
+                    </div>
+                `, 'compact', false);
+                const readyButton = document.getElementById('exam-start-ready-confirm');
+                if (!readyButton) {
+                    closeModal();
+                    showToast('Không thể mở hội thoại vào phòng thi. Vui lòng thử lại.', 'error');
+                    return;
+                }
+                let readyAccepted = false;
+                readyButton.addEventListener('click', () => {
+                    if (readyAccepted) return;
+                    if (String(document.getElementById('student-exam-name-filter')?.value || '') !== String(selectedExamId)) {
+                        closeModal();
+                        showToast('Đề thi đã thay đổi. Vui lòng chọn và tải lại đề thi.', 'warning');
+                        return;
+                    }
+                    readyAccepted = true;
+                    closeModal();
+                    startExamUI();
+                    showToast('Bắt đầu làm bài! Chúc bạn thi tốt.', 'success');
+                }, { once: true });
+                document.getElementById('exam-start-ready-cancel')?.addEventListener('click', closeModal, { once: true });
+                readyButton.focus();
             } catch (error) {
                 console.error('Lỗi khi bắt đầu thi:', error);
                 showToast(error?.code === 'EXAM_START_TIMEOUT' ? error.message : 'Có lỗi kết nối hoặc chuẩn bị đề thi. Vui lòng thử lại!', 'error');
