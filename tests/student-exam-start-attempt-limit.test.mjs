@@ -40,6 +40,9 @@ test('Front end never enters fullscreen before server accepts exam start', () =>
   assert.match(region,/showModal\(buildExamAttemptLimitModal/);
   assert.match(region,/finally \{\s*examStartPending = false;/);
   assert.doesNotMatch(region,/enterExamFullscreen\(/);
+  assert.match(region,/exam-start-ready-confirm/);
+  assert.match(region,/readyButton.addEventListener\('click'/);
+  assert.match(region,/startExamUI\(\)/);
   assert.doesNotMatch(region,/KIỂM TRA TRƯỚC SỐ LẦN LÀM BÀI TRÊN CLIENT/);
   for(const path of ['functions/api/exam/generate.ts','server.ts']) {
     const backend=readFileSync(path,'utf8');
