@@ -4399,7 +4399,6 @@ async function getServerSecret(): Promise<string> {
 
                 return res.status(403).json(makeExamAttemptLimitError(attemptCount,maxAttemptsVal));
 
-              });
               }
           }
 
