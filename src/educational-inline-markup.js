@@ -9,7 +9,6 @@
 const STYLE_NAMES = new Set(['sup', 'sub', 'b', 'strong', 'i', 'em', 'u', 'mark']);
 const STYLE_TAG = /<\/?(?:sup|sub|b|strong|i|em|u|mark)>/gi;
 const CODE_SPAN = /(?:\x60{3}[\s\S]*?\x60{3}|\x60[^\x60\n]+\x60)/g;
-const BREAK = /<br\s*\/?>/gi;
 const TEACHING_CONTEXT = /(?:\b(?:html|css|javascript|tag|element)\b|thẻ|cú pháp|mã nguồn|đoạn mã|cặp thẻ|phần tử)/iu;
 
 /** Decode only encoded tag-shaped entities, then re-escape at the sink. */
@@ -61,15 +60,11 @@ export function tokenizeEducationalInlineMarkup(sourceInput) {
     let previous = 0;
     const appendTextWithBreaks = text => {
       if (!text) return;
-      if (teaching) { add('text', text); return; }
-      BREAK.lastIndex = 0;
-      let pos = 0;
-      for (const m of text.matchAll(BREAK)) {
-        add('text', text.slice(pos, m.index));
-        add('break', '\n');
-        pos = m.index + m[0].length;
-      }
-      add('text', text.slice(pos));
+      // <br>, <br/> and <br /> are commonly the literal answer in HTML
+      // lessons. Do not silently consume them as layout markup when context
+      // is a stand-alone answer (e.g. just "<br/>"). Use actual newlines for
+      // authored line breaks; the renderer safely turns those into <br/>.
+      add('text', text);
     };
     for (const [index, token] of selected) {
       appendTextWithBreaks(part.slice(previous, index));
