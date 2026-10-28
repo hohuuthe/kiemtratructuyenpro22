@@ -70,10 +70,11 @@ export async function fetchExamStartResponse(fetcher, url, options = {}, timeout
   let timerId;
   const timeout = new Promise((_, reject) => {
     timerId = setTimeout(() => {
-      controller.abort();
       const error = new Error('Kết nối máy chủ quá thời gian cho phép. Vui lòng thử lại.');
       error.code = 'EXAM_START_TIMEOUT';
+      // Trả lỗi timeout trước khi abort kích hoạt rejection từ fetch.
       reject(error);
+      controller.abort();
     }, deadline);
   });
   try {
