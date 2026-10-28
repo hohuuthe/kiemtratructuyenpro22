@@ -17,6 +17,28 @@ const samples=[
  'Dòng lệnh `<p>` trong HTML.',
  'Đáp án A. <p> là thẻ đoạn văn.'
 ];
+const breakExamples=[
+  '<br>', '<br/>', '<br />', '<BR/>',
+  'Thẻ <br/> dùng để làm gì trong HTML?',
+  'Trong HTML, thẻ <br> có tác dụng gì?',
+  'Đáp án A. <br/>',
+  'Cú pháp <br /> là thẻ xuống dòng.',
+  'Mã nguồn `<br/>` trong HTML.'
+];
+for(const sample of breakExamples){
+ test('render literal HTML break syntax: '+sample,()=>{
+   for(const render of [renderScientificContent,renderExamReviewMath,cleanHTMLText]){
+     const html=render(sample);
+     assert.match(html,/&lt;br\s*\/??&gt;/i,'break source swallowed: '+html);
+     assert.ok(!/<br\s*\/?>/i.test(html),'break became live markup: '+html);
+   }
+ });
+}
+test('legacy authored line breaks still work outside HTML-tag teaching context',()=>{
+ assert.match(renderScientificContent('Dòng một<br/>Dòng hai'),/<br\s*\/?>/);
+ assert.match(renderScientificContent('Dòng một\\nDòng hai'),/<br\s*\/?>/);
+});
+
 const encode=s=>s.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');
 for(const sample of samples){
  test('student/bank/review/PDF render literal HTML: '+sample.slice(0,45),()=>{
