@@ -28,7 +28,7 @@ export const onRequestGet:PagesFunction=async context=>{
   const {db,user,invalid}=await state(context);
   if(invalid)return reply({error:'Phiên đăng nhập không hợp lệ.'},401);
   const manage=new URL(context.request.url).searchParams.get('manage')==='1';
-  return reply({data:await listDocumentLinks(adapter(db),user,{manage}),error:null});
+  return reply({data:await listDocumentLinks(adapter(db),user,{manage,includeReadable:manage&&new URL(context.request.url).searchParams.get('includeReadable')==='1'}),error:null});
  }catch(e){return failure(e);}
 };
 export const onRequestPost:PagesFunction=async context=>{
