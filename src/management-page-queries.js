@@ -14,7 +14,9 @@ export function parseManagementPage(url) {
     unit:(p.get('unit')||'').trim().slice(0,160),
     className:(p.get('class')||'').trim().slice(0,80),
     exam:(p.get('exam')||'').trim().slice(0,180),
-    teacher:(p.get('teacher')||'').trim().slice(0,100)};
+    teacher:(p.get('teacher')||'').trim().slice(0,100),
+    sort:(p.get('sort')||'rank').trim().slice(0,32),
+    direction:p.get('direction')==='desc'?'DESC':'ASC'};
 }
 export function accountsPageQuery(page) {
   const conditions=[],args=[];
@@ -51,7 +53,12 @@ export function resultsPageQuery(page, actor) {
   const where=predicates.length?' WHERE '+predicates.join(' AND '):'';
   const from=' FROM results r';
   const projection='r.id,r.user_id,r.student_name,r.student_class,r.score,r.correct_count,r.total_questions,r.time_taken,r.exam_name,r.exam_id,r.created_at,r.loai_thi_sinh,r.cheat_warning_count,r.ai_grading_summary,r.lop,r.don_vi,(SELECT ec.creator_id FROM exam_configs ec WHERE ec.id=r.exam_id LIMIT 1) AS exam_creator_id';
+  const sortColumns={rank:'r.score DESC,r.time_taken ASC',score:'r.score',correctCount:'r.correct_count',
+    timeTaken:'r.time_taken',studentName:'r.student_name',loaiThiSinh:'r.loai_thi_sinh',
+    lop:'r.lop',donvi:'r.don_vi',aiGrading:'r.ai_grading_summary',examName:'r.exam_name'};
+  const selected=Object.hasOwn(sortColumns,page.sort)?page.sort:'rank';
+  const order=selected==='rank'?'r.score DESC,r.time_taken ASC':sortColumns[selected]+' '+page.direction;
   return {countSQL:'SELECT COUNT(*) AS total'+from+where,countArgs:args,
-    rowsSQL:'SELECT '+projection+from+where+' ORDER BY r.created_at DESC,r.id DESC LIMIT ? OFFSET ?',
+    rowsSQL:'SELECT '+projection+from+where+' ORDER BY '+order+',r.id DESC LIMIT ? OFFSET ?',
     rowsArgs:[...args,page.limit,(page.page-1)*page.limit]};
 }
