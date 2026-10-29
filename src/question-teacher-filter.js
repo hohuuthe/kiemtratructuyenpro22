@@ -1,4 +1,4 @@
-import {verifiedQuestionAuthorName} from './question-creator-identity.js';
+import {verifiedQuestionAuthorName,verifiedQuestionAuthorUsername} from './question-creator-identity.js';
 /**
  * Teacher filtering in the question bank is a view-only operation over the
  * server-authorized questions already loaded for the current login session.
@@ -29,20 +29,30 @@ export function questionTeacherOptions(questions, accounts, currentUser, isAdmin
     const ids = [...new Set(rows.map(questionCreatorId).filter(Boolean))];
     const options = ids.map(id => {
         const account = accountById.get(id);
-        const fromQuestion=rows.find(q=>questionCreatorId(q)===id && verifiedQuestionAuthorName(q));
-        const name = verifiedQuestionAuthorName(fromQuestion) || String(account?.full_name || account?.username || '').trim();
-        const username = String(account?.username || '').trim();
-        return { id, label: name || `Người tạo (mã: ${id})`, username };
+        const fromQuestion=rows.find(q=>questionCreatorId(q)===id && (verifiedQuestionAuthorName(q) || verifiedQuestionAuthorUsername(q)));
+        const name = verifiedQuestionAuthorName(fromQuestion) || String(account?.full_name || '').trim();
+        const username = verifiedQuestionAuthorUsername(fromQuestion) || String(account?.username || '').trim();
+        return {id,label:name || username || 'Chưa có tên giáo viên',username};
     });
     const nameCounts = new Map();
     for (const entry of options) {
         const key = entry.label.toLocaleLowerCase('vi');
-        nameCounts.set(key, (nameCounts.get(key) || 0) + 1);
+        nameCounts.set(key,(nameCounts.get(key)||0)+1);
     }
-    for (const entry of options) {
-        if (nameCounts.get(entry.label.toLocaleLowerCase('vi')) > 1) {
-            entry.label += ` (${entry.username && entry.username !== entry.label ? entry.username : entry.id})`;
+    let unnamed=0;
+    for(const entry of options){
+        if(nameCounts.get(entry.label.toLocaleLowerCase('vi'))>1){
+            if(entry.username && entry.username.toLocaleLowerCase('vi')!==entry.label.toLocaleLowerCase('vi'))
+                entry.label+=' ('+entry.username+')';
+            else if(!entry.username)entry.label+=' (giáo viên '+(++unnamed)+')';
         }
+    }
+    // Prevent duplicate labels without ever displaying raw account identifiers.
+    const seen=new Map();
+    for(const entry of options){
+        const key=entry.label.toLocaleLowerCase('vi');
+        const count=(seen.get(key)||0)+1;seen.set(key,count);
+        if(count>1)entry.label+=' ('+count+')';
     }
     return options.map(({id, label}) => ({id, label}))
         .sort((a,b) => a.label.localeCompare(b.label,'vi') || a.id.localeCompare(b.id));
