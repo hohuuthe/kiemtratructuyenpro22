@@ -40,15 +40,15 @@ export function resultsPageQuery(page, actor) {
   const isAdmin=String(actor.role||'').toLowerCase()==='admin';
   const predicates=[],args=[];
   if(!isAdmin){
-    // Only server-verified account/profile IDs and class/unit assignments may expand scope.
-    const owned='EXISTS (SELECT 1 FROM exam_configs ec WHERE ec.id=r.exam_id AND ec.creator_id IN (?,?))';
-    const permitted=[owned];args.push(String(actor.id),String(actor.user_id||actor.id));
-    for(const entry of (Array.isArray(actor.assignedScopes)?actor.assignedScopes:[]).slice(0,150)){
-      if(!entry?.className||!entry?.unit)continue;
-      permitted.push("(LOWER(TRIM(r.lop))=LOWER(TRIM(?)) AND LOWER(TRIM(r.don_vi))=LOWER(TRIM(?)))");
-      args.push(String(entry.className),String(entry.unit));
-    }
-    predicates.push('('+permitted.join(' OR ')+')');
+    // Results AND their exam names must belong to this authenticated teacher.
+    // Class assignments never grant access to another teacher's exam/result.
+    // An immutable exam ID must match its exact creator; names can collide.
+    const role=String(actor.role||'').trim().toLowerCase();
+    if(role!=='teacher'&&role!=='giáo viên')throw new Error('Teacher login required');
+    const accountId=String(actor.id||'').trim(),profileId=String(actor.user_id||'').trim()||accountId;
+    if(!accountId)throw new Error('Teacher account ID required');
+    predicates.push('EXISTS (SELECT 1 FROM exam_configs ec WHERE ec.id=r.exam_id AND ec.creator_id IN (?,?))');
+    args.push(accountId,profileId);
   }
   if(page.exam){predicates.push('r.exam_name=?');args.push(page.exam);}
   if(page.unit){predicates.push('LOWER(TRIM(COALESCE(r.don_vi,\'\')))=LOWER(TRIM(?))');args.push(page.unit);}
@@ -95,6 +95,22 @@ export function managementFacetQuery(baseQuery,column){
   return {sql:'SELECT DISTINCT NULLIF(TRIM('+column+"),'') AS value"+from+
     (from.includes(' WHERE ')?' AND ':' WHERE ')+condition+' ORDER BY value LIMIT 1000',
     args:baseQuery.countArgs};
+}
+
+/** Every exam title offered to a teacher comes from an owned exam ID, even
+ * if no learner has submitted that exam yet. Never use the title as ownership. */
+export function teacherOwnedExamNamesQuery(actor) {
+  const role=String(actor?.role||'').trim().toLowerCase();
+  const accountId=String(actor?.id||'').trim();
+  if((role!=='teacher'&&role!=='giáo viên')||!accountId)
+    throw new Error('Verified teacher required');
+  const profileId=String(actor.user_id||'').trim()||accountId;
+  return {
+    sql: "SELECT DISTINCT TRIM(ec.name) AS name FROM exam_configs ec " +
+      "WHERE ec.creator_id IN (?, ?) AND NULLIF(TRIM(ec.name), '') IS NOT NULL " +
+      "ORDER BY name LIMIT 5000",
+    args: [accountId,profileId]
+  };
 }
 
 /** Small, role-scoped filter metadata; never return full account/result records. */
