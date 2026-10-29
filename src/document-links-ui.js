@@ -27,7 +27,7 @@ function render(){
   const audiences=documentAudienceValues(r).map(a=>DOCUMENT_AUDIENCES[a]).join(' · ');
   const expired=!!r.thoi_gian_het_han&&Date.parse(r.thoi_gian_het_han)<=Date.now();
   const state=expired?'Hết hạn':!active(r.hoat_dong)?'Đã tắt':'Đang mở';
-  const safeUrl=safeLink(r.duong_link);
+  const safeUrl=r.co_quyen_xem===false?'':safeLink(r.duong_link);
   return '<article class="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-3 min-w-0">'+
    '<div class="flex justify-between gap-3 items-start"><h3 class="font-bold text-slate-900 text-base break-words min-w-0">'+clean(r.tieu_de)+'</h3><span class="shrink-0 rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold">'+clean(state)+'</span></div>'+
    '<p class="text-sm text-slate-600 whitespace-pre-line break-words">'+clean(r.mo_ta||'Chưa có mô tả')+'</p>'+
