@@ -50,7 +50,7 @@ export function resultsPageQuery(page, actor) {
     predicates.push('('+permitted.join(' OR ')+')');
   }
   if(page.exam){predicates.push('r.exam_name=?');args.push(page.exam);}
-  if(page.unit){predicates.push('LOWER(TRIM(COALESCE(NULLIF(r.don_vi,\'\'),r.student_class,\'\')))=LOWER(TRIM(?))');args.push(page.unit);}
+  if(page.unit){predicates.push('LOWER(TRIM(COALESCE(r.don_vi,\'\')))=LOWER(TRIM(?))');args.push(page.unit);}
   if(page.className){predicates.push('LOWER(TRIM(COALESCE(NULLIF(r.lop,\'\'),r.student_class,\'\')))=LOWER(TRIM(?))');args.push(page.className);}
   if(page.teacher && isAdmin){predicates.push('EXISTS (SELECT 1 FROM exam_configs ec WHERE ec.id=r.exam_id AND (ec.creator_id=? OR ec.creator_id IN (SELECT a.user_id FROM accounts a WHERE a.id=?) OR ec.creator_id IN (SELECT a.id FROM accounts a WHERE a.user_id=?)))');args.push(page.teacher,page.teacher,page.teacher);}
   if(page.search){const cols=['r.student_name','r.student_class','r.exam_name','r.don_vi','r.lop','r.loai_thi_sinh'];
