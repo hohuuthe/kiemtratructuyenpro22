@@ -16985,10 +16985,26 @@ CẤU TRÚC JSON:
         // ==================== ACCOUNTS MANAGEMENT ====================
         window.accountsCurrentPage = 1;
         window.accountsPageSize = 50;
-        let accountsTotalServer = null,accountsPageRequestSeq=0;
+        let accountsTotalServer = null,accountsPageRequestSeq=0,accountsFilterFacets=null,accountsFacetSession='';
         window.lastAccountsFilterKey = '';
 
         function populateAccountsFilters() {
+            if(isAdminLoggedIn && accountsFilterFacets){
+                for(const [id,key,label] of [
+                  ['accounts-audience-filter','audiences','-- Chọn đối tượng --'],
+                  ['accounts-unit-filter','units','-- Tất cả trường/đơn vị --'],
+                  ['accounts-class-filter','classes','-- Tất cả lớp --']
+                ]){
+                    const select=document.getElementById(id);
+                    if(!select)continue;
+                    const selected=select.value;
+                    const values=[...new Set(accountsFilterFacets[key]||[])].filter(Boolean).sort((a,b)=>String(a).localeCompare(String(b),'vi'));
+                    select.replaceChildren(new Option(label,''),
+                      ...values.map(value=>new Option(value,value)));
+                    select.value=values.includes(selected)?selected:'';
+                }
+                return;
+            }
             const audSelect = document.getElementById('accounts-audience-filter');
             const unitSelect = document.getElementById('accounts-unit-filter');
             const classSelect = document.getElementById('accounts-class-filter');
@@ -17457,6 +17473,10 @@ CẤU TRÚC JSON:
             if (!tbody && !cardContainer) return;
             
             if (isAdminLoggedIn && !accountsLoaded) {
+                const session=authDataGeneration+':'+String(currentUser?.id||'');
+                if(accountsFacetSession!==session){
+                    accountsFacetSession=session;accountsFilterFacets=null;accountsTotalServer=null;
+                }
                 const seq=++accountsPageRequestSeq,generation=authDataGeneration,uid=String(currentUser?.id||'');
                 try {
                     const p = new URLSearchParams({page:String(window.accountsCurrentPage||1),limit:String(window.accountsPageSize||50),
@@ -17464,12 +17484,14 @@ CẤU TRÚC JSON:
                       audience:document.getElementById('accounts-audience-filter')?.value||'',
                       unit:document.getElementById('accounts-unit-filter')?.value||'',
                       class:document.getElementById('accounts-class-filter')?.value||''});
+                    if(!accountsFilterFacets)p.set('facets','1');
                     const response=await fetch('/api/accounts-page?'+p,{headers:{Authorization:'Bearer '+(localStorage.getItem('auth_token')||'')},cache:'no-store'});
                     if(!response.ok)throw Error('HTTP '+response.status);
                     const payload=await response.json();
                     if(!Array.isArray(payload.data))throw Error('Trang tài khoản không hợp lệ');
                     if(seq!==accountsPageRequestSeq||generation!==authDataGeneration||uid!==String(currentUser?.id||''))return;
                     accounts=payload.data;window.accounts=accounts;
+                    if(payload.facets)accountsFilterFacets=payload.facets;
                     accountsTotalServer=Number(payload.total||0);
                     accountsLoaded=true;
                 }catch(e){console.error('Không tải được trang tài khoản:',e);return showToast('Không thể tải trang tài khoản: '+e.message,'error');}
@@ -17536,11 +17558,16 @@ CẤU TRÚC JSON:
             if (currentFilterKey !== window.lastAccountsFilterKey) {
                 window.accountsCurrentPage = 1;
                 window.lastAccountsFilterKey = currentFilterKey;
+                if(isAdminLoggedIn && accountsLoaded && accountsTotalServer!==null){
+                    accountsLoaded=false;void renderAccounts();return;
+                }
             }
 
             const userList = (window.usersList && window.usersList.length > 0) ? window.usersList : [];
 
-            let filteredAccounts = (accounts || []).filter(acc => {
+            // Server pages are already filtered in SQL. Never re-filter a 50-row page locally.
+            let filteredAccounts = (isAdminLoggedIn && accountsTotalServer!==null)
+                ? [...(accounts||[])] : (accounts || []).filter(acc => {
                 const linkedUser = userList.find(u => u.id === acc.user_id || u.id === acc.id) || null;
                 const accAudience = (acc.target_audience || (linkedUser && linkedUser.target_audience) || '').trim();
                 const accUnit = (acc.donvi || (linkedUser && (linkedUser.donvi || linkedUser.address)) || '').trim();
