@@ -1,4 +1,4 @@
-import {parseManagementPage,accountsPageQuery,resultsPageQuery,resolveTeacherManagementScope} from './src/management-page-queries.js';
+import {parseManagementPage,accountsPageQuery,resultsPageQuery,resolveTeacherManagementScope,accountsFacetQueries,resultsFacetQuery} from './src/management-page-queries.js';
 import {isExamOwner,redactExamForPublic,examAccessChallenge,isProtectedExamForUser,protectedExamPreview,accessCodeMatches} from './functions/api/exam/security';
 import {listDocumentLinks,createDocumentLink,updateDocumentLink,deleteDocumentLink,DocumentLinkServiceError} from './src/document-links-service.js';
 import { accountSessionMaterial, isAccountEnabled, isUnexpiredAccountToken } from './src/security-session';
@@ -808,12 +808,21 @@ async function startServer() {
       const auth=req.headers.authorization||'';
       if(!auth.startsWith('Bearer '))return res.status(401).json({error:'Yêu cầu đăng nhập Admin.'});
       const actor=verifyJWTSync(auth.slice(7),await getServerSecret());
-      if(!checkIsAdmin(actor))return res.status(403).json({error:'Không có quyền quản lý tài khoản.'});
+      if(!actor||String(actor.role||'').toLowerCase()!=='admin')return res.status(403).json({error:'Không có quyền quản lý tài khoản.'});
       const page=parseManagementPage('https://local.invalid'+req.originalUrl),q=accountsPageQuery(page);
       const count=await executeSqlQuery(q.countSQL,q.countArgs);
       const data=await executeSqlQuery(q.rowsSQL,q.rowsArgs);
       const total=Number(count.results?.[0]?.total||0);
-      return res.json({data:data.results||[],total,page:page.page,limit:page.limit,has_more:page.page*page.limit<total,error:null});
+      let facets:any=null;
+      if(req.query.facets==='1') {
+        const sets:any[]=[];
+        for(const sql of accountsFacetQueries()){
+          const rows=await executeSqlQuery(sql,[]);
+          sets.push((rows.results||[]).map((x:any)=>x.value).filter(Boolean));
+        }
+        facets={audiences:sets[0],units:sets[1],classes:sets[2]};
+      }
+      return res.json({data:data.results||[],total,page:page.page,limit:page.limit,has_more:page.page*page.limit<total,facets,error:null});
     }catch(e){return res.status(500).json({error:'Không thể tải trang tài khoản.'});}
   });
   app.get('/api/results-page',async(req,res)=>{
@@ -828,7 +837,17 @@ async function startServer() {
       const count=await executeSqlQuery(q.countSQL,q.countArgs);
       const data=await executeSqlQuery(q.rowsSQL,q.rowsArgs);
       const total=Number(count.results?.[0]?.total||0);
-      return res.json({data:data.results||[],total,page:page.page,limit:page.limit,has_more:page.page*page.limit<total,error:null});
+      let facets:any=null;
+      if(req.query.facets==='1') {
+        const query=resultsFacetQuery(verified);
+        const meta=await executeSqlQuery(query.sql,query.args);
+        facets={rows:meta.results||[]};
+        if(verified.role==='admin'){
+          const teachers=await executeSqlQuery(`SELECT a.id,a.username,u.full_name FROM accounts a LEFT JOIN users u ON u.id=COALESCE(a.user_id,a.id) WHERE LOWER(a.role) IN ('teacher','giáo viên') OR LOWER(u.target_audience)='giáo viên' ORDER BY u.full_name,a.username LIMIT 500`,[]);
+          facets.teachers=(teachers.results||[]).map((x:any)=>({id:x.id,label:x.full_name||x.username||x.id}));
+        }
+      }
+      return res.json({data:data.results||[],total,page:page.page,limit:page.limit,has_more:page.page*page.limit<total,facets,error:null});
     }catch(e){return res.status(500).json({error:'Không thể tải trang kết quả.'});}
   });
 
