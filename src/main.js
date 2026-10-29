@@ -573,15 +573,7 @@ if (contentTypeConfig && contentTypeConfig.includes("application/json")) {
                 if (!apiKey || apiKey === 'undefined') {
                     apiKey = window.currentUser?.username ? (localStorage.getItem('gemini_api_key_' + window.currentUser.username) || localStorage.getItem('gemini_api_key')) : localStorage.getItem('gemini_api_key');
                 }
-                if (!apiKey || apiKey === 'undefined') {
-                    const localSettings = localStorage.getItem('appSettings');
-                    if (localSettings) {
-                        try {
-                            const parsed = JSON.parse(localSettings);
-                            if (parsed.aiGradingKey) apiKey = parsed.aiGradingKey;
-                        } catch (e) {}
-                    }
-                }
+                // Tuyệt đối không khôi phục khóa Gemini nhạy cảm từ appSettings chung.
                 
                 ai = new GoogleGenAIClass({ apiKey: (apiKey || '').trim() });
                 console.log('✅ Global AI (Proxy Mode) initialized' + (serverConfig?.isGeminiConfigured ? ' (Using System Key)' : ''));
@@ -1518,6 +1510,8 @@ Trả về kết quả dưới dạng JSON Array, mỗi phần tử tương ứn
 
         async function init() {
             try {
+                // Xóa cấu hình cũ có thể chứa khóa quản trị từng được lưu trên trình duyệt.
+                try { localStorage.removeItem('appSettings'); } catch (_) {}
                 console.log('Initializing application components...');
                 
                 // Kiểm tra và tự động đăng nhập nếu đã lưu (Làm sớm để tránh flicker)
@@ -2224,6 +2218,9 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             resetMyStudentResults();
             publicTeachersLoaded=false;publicTeacherPromise=null;
             adminSettingsLoaded=false;adminSettingsPromise=null;
+            appSettings.aiGradingKey='';
+            appSettings.aiPrompt=DEFAULT_AI_PROMPT;
+            appSettings.aiAppraisePrompt=DEFAULT_AI_APPRAISE_PROMPT;
             // Nạp lại dữ liệu theo quyền hạn tài khoản đăng nhập đồng thời (Song song, không tuần tự)
             await loadData();
 
@@ -2524,6 +2521,9 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             publicTeachersLoaded=false;publicTeacherPromise=null;
             adminSettingsLoaded=false;adminSettingsPromise=null;
             appSettings.aiGradingKey='';
+            appSettings.aiPrompt=DEFAULT_AI_PROMPT;
+            appSettings.aiAppraisePrompt=DEFAULT_AI_APPRAISE_PROMPT;
+            localStorage.removeItem('appSettings');
             // Xóa sạch dữ liệu trong bộ nhớ để bảo mật tuyệt đối
             if (typeof questions !== 'undefined') questions.length = 0;
             if (typeof exams !== 'undefined') exams.length = 0;
@@ -3816,7 +3816,7 @@ if (contentType && contentType.includes("application/json")) {
 
         async function saveSettingsToDB() {
             try {
-                localStorage.setItem('appSettings', JSON.stringify(appSettings));
+                localStorage.removeItem('appSettings'); // Không lưu khóa hoặc prompt AI vào bộ nhớ trình duyệt.
                 
                 // Lưu cấu hình hiển thị của người dùng (kể cả admin và học sinh)
                 const userPrefs = {
@@ -3893,6 +3893,7 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
               isAdminLoggedIn||(isTeacherLoggedIn&&!adminTabs.includes(tabName))||
               (tabName==='ranking'&&Boolean(currentUser)))){showAdminLoginModal();return}
             if(tabName==='exam'&&(isAdminLoggedIn||isTeacherLoggedIn))tabName='exams';
+            requestedTab=tabName; // Guard phản hồi bất đồng bộ bằng tên tab đích thực tế.
             const placeholder=document.getElementById('tab-'+tabName);
             if(placeholder&&placeholder.dataset.componentLoaded!=='true'&&placeholder.children.length===0){
               const generation=authDataGeneration;
@@ -3972,8 +3973,7 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
                 tabName = 'exams';
             }
 
-            // Các tab bảo mật
-            const protectedTabs = ['questions', 'exams', 'exam-editor', 'accounts', 'users', 'settings', 'ranking', 'teacher-assignment'];
+            // Sử dụng protectedTabs đã khai báo ở đầu hàm (không khai báo trùng).
             
             // Nếu là tab bảo mật và chưa đăng nhập, yêu cầu xác thực
             if (protectedTabs.includes(tabName)) {
@@ -22345,7 +22345,7 @@ CẤU TRÚC JSON:
                         window.appSettings.qrCodeUrl = r2ImageUrl;
                         window.appSettings.qr_code_url = r2ImageUrl;
                     }
-                    localStorage.setItem('appSettings', JSON.stringify(appSettings || window.appSettings || {}));
+                    localStorage.removeItem('appSettings'); // Không lưu khóa hoặc prompt AI vào bộ nhớ trình duyệt.
                     localStorage.removeItem('custom_qr_image_data');
 
                     if (typeof showToast === 'function') {
@@ -22405,7 +22405,7 @@ CẤU TRÚC JSON:
                     window.appSettings.qrCodeUrl = '';
                     window.appSettings.qr_code_url = '';
                 }
-                localStorage.setItem('appSettings', JSON.stringify(appSettings || window.appSettings || {}));
+                localStorage.removeItem('appSettings'); // Không lưu khóa hoặc prompt AI vào bộ nhớ trình duyệt.
                 localStorage.removeItem('custom_qr_image_data');
                 window._qrTimestamp = Date.now();
 
