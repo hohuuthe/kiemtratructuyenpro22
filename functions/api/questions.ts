@@ -1,3 +1,4 @@
+import {QUESTION_CREATOR_JOIN_SQL,QUESTION_CREATOR_NAME_SQL} from '../../src/question-creator-identity.js';
 import { verifyAuthSession, getDynamicSecret, getDatabase, checkIsTeacherOrAdmin, checkIsAdmin } from './exam/utils';
 import { requiredQuestionLesson, questionLessonDeleteScope, requireQuestionLessonConfirmation, questionLessonCountQuery, questionLessonDeleteQuery, QuestionLessonDeleteError, canDeleteQuestionsByLesson } from '../../src/question-lesson-delete-policy';
 
@@ -36,6 +37,8 @@ function mapQuestionRead(q: any) {
     image: q.image || '',
     creatorId: q.creator_id,
     creator_id: q.creator_id,
+    creator_name: q.creator_name || '',
+    creatorName: q.creator_name || '',
     created_at: q.created_at,
     updated_at: q.updated_at
   };
@@ -122,16 +125,16 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
 
     const paginationClause = limit > 0 ? ` LIMIT ${limit} OFFSET ${offset}` : '';
 
-    let query = "SELECT * FROM questions";
+    let query = "SELECT q.*, "+QUESTION_CREATOR_NAME_SQL+" AS creator_name FROM questions q "+QUESTION_CREATOR_JOIN_SQL;
     const params: any[] = [];
     if (!isAdmin) {
-      query += " WHERE creator_id = ?";
+      query += " WHERE q.creator_id = ?";
       params.push(targetTeacherId);
     } else if (teacherIdParam) {
       query += " WHERE creator_id = ?";
       params.push(teacherIdParam);
     }
-    query += ` ORDER BY created_at DESC NULLS LAST, id DESC${paginationClause}`;
+    query += ` ORDER BY q.created_at DESC NULLS LAST, q.id DESC${paginationClause}`;
 
     const { results } = await db.prepare(query).bind(...params).all();
     const mapped = (results || []).map(mapQuestionRead);
