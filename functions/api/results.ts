@@ -15,7 +15,8 @@ const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-  'Content-Type': 'application/json'
+  'Content-Type': 'application/json',
+  'Cache-Control': 'private, no-store'
 };
 
 export const onRequestOptions: PagesFunction<Env> = async () => {
@@ -206,8 +207,8 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
 
       if (isTeacher) {
         const { results: examRows } = await db.prepare(
-          "SELECT id FROM exam_configs WHERE id = ? AND creator_id = ?"
-        ).bind(row.exam_id, user.id).all();
+          "SELECT id FROM exam_configs WHERE id = ? AND creator_id IN (?, ?)"
+        ).bind(row.exam_id, user.id, user.user_id || user.id).all();
         if (!examRows || examRows.length === 0) {
           return new Response(JSON.stringify({ data: null, error: "Bạn không có quyền xem chi tiết kết quả này" }), { status: 403, headers: corsHeaders });
         }
@@ -237,7 +238,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
       }
 
       if (isTeacher) {
-        const { results: myExams } = await db.prepare("SELECT id FROM exam_configs WHERE creator_id = ?").bind(user.id).all();
+        const { results: myExams } = await db.prepare("SELECT id FROM exam_configs WHERE creator_id IN (?, ?)").bind(user.id, user.user_id || user.id).all();
         const examIds = (myExams || []).map((e: any) => String(e.id)).filter(Boolean);
         if (examIds.length === 0) {
           return new Response(JSON.stringify({ count: 0, error: null }), { status: 200, headers: corsHeaders });
@@ -267,6 +268,16 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
 
     // 3. Tải danh sách kết quả theo mã chia sẻ đề thi (?examId=xxx)
     if (examIdParam) {
+      if (isTeacher) {
+        // A shared result code does not grant access to another teacher's
+        // submissions. Verify immutable creator ID before reading any rows.
+        const { results: ownExams } = await db.prepare(
+          "SELECT id FROM exam_configs WHERE id = ? AND creator_id IN (?, ?)"
+        ).bind(examIdParam, user.id, user.user_id || user.id).all();
+        if (!ownExams?.length)
+          return new Response(JSON.stringify({data:[],error:'Không có quyền xem đề thi này'}),
+            {status:403,headers:corsHeaders});
+      }
       if (!isAdmin && !isTeacher) {
         const { results: sharedExam } = await db.prepare(
           "SELECT id FROM exam_configs WHERE id = ? AND (is_shared_results = 1 OR is_shared_results = 'true' OR is_shared_results = true)"
@@ -320,7 +331,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     }
 
     if (isTeacher) {
-      const { results: myExams } = await db.prepare("SELECT id FROM exam_configs WHERE creator_id = ?").bind(user.id).all();
+      const { results: myExams } = await db.prepare("SELECT id FROM exam_configs WHERE creator_id IN (?, ?)").bind(user.id, user.user_id || user.id).all();
       const examIds = (myExams || []).map((e: any) => String(e.id)).filter(Boolean);
       if (examIds.length === 0) {
         return makePaginatedResponse([], includeDetails);

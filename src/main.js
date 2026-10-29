@@ -3270,12 +3270,22 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
               document.getElementById('ranking-class-filter')?.value||'',window.rankingSortColumn||'rank',window.rankingSortDirection||'asc']);
         }
         async function loadAllResults(force = false, retryCount = 0, silent = false, onProgress = null) {
-            if (resultsLoaded && !force) return;
-            if (isAdminLoggedIn || isTeacherLoggedIn) {
-                const session=authDataGeneration+':'+String(currentUser?.id||'');
-                if(rankingFacetSession!==session){
-                    rankingFacetSession=session;rankingFacetCache=null;rankingServerTotal=null;rankingLastQueryKey='';
+            const managementActor = isAdminLoggedIn || isTeacherLoggedIn;
+            if (managementActor) {
+                const session = authDataGeneration + ':' + String(currentUser?.id || '');
+                if (rankingFacetSession !== session) {
+                    // Never reuse result rows or exam filter metadata across logins.
+                    rankingFacetSession = session;
+                    rankingFacetCache = null;
+                    rankingServerTotal = null;
+                    rankingLastQueryKey = '';
+                    resultsLoaded = false;
+                    results = [];
                 }
+            }
+            if (force && managementActor) rankingFacetCache = null;
+            if (resultsLoaded && !force) return;
+            if (managementActor) {
                 const seq=++rankingLoadSeq,generation=authDataGeneration,uid=String(currentUser?.id||'');
                 const key=rankingQueryKey();
                 const args=new URLSearchParams({page:String(window.rankingCurrentPage||1),limit:String(window.rankingPageSize==='all'?50:Math.min(100,Number(window.rankingPageSize)||50)),
@@ -3509,6 +3519,12 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
         };
 
         window.loadSharedResultsByCode = async function() {
+            // Teacher's result tab is strictly restricted to their own exams,
+            // even when another teacher enabled public result sharing.
+            if (isTeacherLoggedIn && !isAdminLoggedIn) {
+                showToast('Giáo viên chỉ xem kết quả các đề thi do mình tạo.', 'warning');
+                return;
+            }
             const codeInput = document.getElementById('shared-result-code');
             const rankingTable = document.getElementById('ranking-table');
             
@@ -4108,6 +4124,21 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
                 return;
             }
             if (tabName === 'ranking') {
+                if (isAdminLoggedIn || isTeacherLoggedIn) {
+                    const session = authDataGeneration + ':' + String(currentUser?.id || '');
+                    if (rankingFacetSession !== session) {
+                        // Purge previous account's exam names BEFORE the first
+                        // ranking render, even when resultsLoaded was true.
+                        rankingFacetSession = session;
+                        rankingFacetCache = null;
+                        rankingServerTotal = null;
+                        rankingLastQueryKey = '';
+                        resultsLoaded = false;
+                        results = [];
+                    }
+                }
+                document.getElementById('ranking-shared-results-control')?.classList.toggle(
+                    'hidden', isTeacherLoggedIn && !isAdminLoggedIn);
                 document.getElementById('ranking-student-panel')?.classList.add('hidden');
                 document.getElementById('ranking-admin-panel')?.classList.remove('hidden');
                 let loadPromise = null;
@@ -4271,7 +4302,29 @@ if (contentType && contentType.includes("application/json")) {
         function populateRankingExamFilter() {
             const select = document.getElementById('ranking-exam-filter');
             if (!select) return;
-            if((isAdminLoggedIn||isTeacherLoggedIn)&&rankingFacetCache){
+            if (isTeacherLoggedIn && !isAdminLoggedIn) {
+                // The ONLY teacher options come from the server's immutable,
+                // authenticated creator-ID query, never shared/unlocked maps.
+                const session = authDataGeneration + ':' + String(currentUser?.id || '');
+                const trusted = rankingFacetSession === session && rankingFacetCache
+                    ? [...(Array.isArray(rankingFacetCache.exams) ? rankingFacetCache.exams : []),
+                       ...(Array.isArray(rankingFacetCache.rows) ? rankingFacetCache.rows.map(row=>row.exam) : [])]
+                    : [];
+                // Include older saved result titles of this teacher's OWN exams
+                // after an exam rename; facets.rows is ownership-scoped in SQL.
+                const names = [...new Set(trusted.filter(x => typeof x === 'string' && x.trim()))]
+                    .sort((a,b)=>a.localeCompare(b,'vi'));
+                const prior = select.value;
+                const options = [{label:'-- Tất cả đề thi --',value:''},
+                    ...names.map(name=>({label:name,value:name}))];
+                if (select.options.length !== options.length ||
+                    options.some((x,i)=>select.options[i].value!==x.value ||
+                        select.options[i].textContent!==x.label))
+                    select.replaceChildren(...options.map(x=>new Option(x.label,x.value)));
+                select.value=names.includes(prior)?prior:'';
+                return;
+            }
+            if(isAdminLoggedIn&&rankingFacetCache){
                 const old=select.value;
                 const names=[...new Set((rankingFacetCache.rows||[]).map(x=>x.exam).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'vi'));
                 select.replaceChildren(new Option('-- Tất cả đề thi --',''),
@@ -4289,14 +4342,6 @@ if (contentType && contentType.includes("application/json")) {
             const selectedTeacher = isAdmin ? (document.getElementById('ranking-teacher-filter')?.value || '') : '';
             if (isAdmin) {
                 examNames = selectedTeacher ? [] : Object.keys(examToCreatorMap);
-            } else if (isTeacher && currentUser) {
-                // Lọc theo creator_id hoặc status is_unlocked
-                examNames = Object.keys(examToCreatorMap).filter(name => {
-                    const examId = window.examNameToIdMap && window.examNameToIdMap[name];
-                    const isCreator = String(examIdToCreatorMap[String(examId)] || examToCreatorMap[name] || '') === String(currentUser.id);
-                    const isUnlocked = examId && window.unlockedExamIds && window.unlockedExamIds.has(String(examId));
-                    return isCreator || isUnlocked;
-                });
             } else {
                 examNames = [...new Set(results.map(r => r.examName))].filter(Boolean);
             }
@@ -4304,13 +4349,6 @@ if (contentType && contentType.includes("application/json")) {
             // Bổ sung đề thi từ kết quả hiện có (vẫn tuân thủ quy tắc sống còn)
             let availableResults = [...results];
             if (isAdmin && selectedTeacher) availableResults = availableResults.filter(r=>matchesRankingTeacher(r,selectedTeacher));
-            if (isTeacher && currentUser) {
-                availableResults = availableResults.filter(r => {
-                    const isCreator = String(examToCreatorMap[r.examName]) === String(currentUser.id);
-                    const isUnlocked = r.examId && window.unlockedExamIds && window.unlockedExamIds.has(String(r.examId));
-                    return isCreator || isUnlocked;
-                });
-            }
             const resultExamNames = [...new Set(availableResults.map(r => r.examName))].filter(Boolean);
             examNames = [...new Set([...examNames, ...resultExamNames])].sort();
             
@@ -15802,43 +15840,10 @@ CẤU TRÚC JSON:
             if(!serverPagedRanking){
             if (teacherFilter) filteredResults = filteredResults.filter(r=>matchesRankingTeacher(r,teacherFilter));
             
-            // Giáo viên chỉ xem được kết quả thi của các đề mình tạo HOẶC được chia sẻ kết quả VÀ chỉ xem được kết quả của học sinh thuộc các lớp mình được phân công
-            if (isTeacher && currentUser) {
-                const teacherDonvi = String(currentUser.donvi || '').trim().toLowerCase();
-
-                const teacherAssignedClassSet = new Set();
-                if (currentUser && Array.isArray(currentUser.assigned_classes)) {
-                    currentUser.assigned_classes.forEach(ac => {
-                        const clsName = String(ac.class_name || ac.lop || ac || '').trim().toLowerCase();
-                        if (clsName) teacherAssignedClassSet.add(clsName);
-                    });
-                }
-                if (teacherAssignedClassSet.size === 0 && window.usersList && currentUser) {
-                    const teacherId = currentUser.user_id || currentUser.id;
-                    const foundMe = window.usersList.find(u => u.id === teacherId || u.user_id === teacherId || u.username === currentUser.username);
-                    if (foundMe && Array.isArray(foundMe.assigned_classes)) {
-                        foundMe.assigned_classes.forEach(ac => {
-                            const clsName = String(ac.class_name || ac.lop || ac || '').trim().toLowerCase();
-                            if (clsName) teacherAssignedClassSet.add(clsName);
-                        });
-                    }
-                }
-
-                filteredResults = filteredResults.filter(r => {
-                    const creatorId = r.examId ? examIdToCreatorMap[String(r.examId)] : examToCreatorMap[r.examName];
-                    const isUnlocked = r.examId && window.unlockedExamIds && window.unlockedExamIds.has(String(r.examId));
-                    const isOwnExam = String(creatorId) === String(currentUser.id) || (currentUser.user_id && String(creatorId) === String(currentUser.user_id)) || !creatorId;
-                    const isOwnExamOrUnlocked = isOwnExam || isUnlocked;
-                    
-                    const studentDonvi = String(r.donvi || r.studentClass || '').trim().toLowerCase();
-                    const isSameUnit = !teacherDonvi || studentDonvi === teacherDonvi || studentDonvi.includes(teacherDonvi) || teacherDonvi.includes(studentDonvi);
-
-                    const studentLop = String(r.lop || r.studentClass || '').trim().toLowerCase();
-                    const isAssignedClass = teacherAssignedClassSet.size === 0 || teacherAssignedClassSet.has(studentLop);
-                    
-                    return (isOwnExamOrUnlocked || isAssignedClass) && (isSameUnit || isOwnExam);
-                });
-            }
+            // Fail closed while server ownership-scoped pages are loading.
+            // Local class lists, unlocked codes and missing creator IDs MUST NOT
+            // re-enable results belonging to a different teacher.
+            if (isTeacher) filteredResults = [];
 
 
 

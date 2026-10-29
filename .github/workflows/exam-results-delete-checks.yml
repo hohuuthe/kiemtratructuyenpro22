@@ -10,6 +10,10 @@ on:
       - 'src/exam-results-targets-service.ts'
       - 'src/ranking-delete-exam-targets.js'
       - 'src/main.js'
+      - 'src/management-page-queries.js'
+      - 'functions/api/results-page.ts'
+      - 'functions/api/exams.ts'
+      - 'tests/ranking-teacher-owned-exams.test.mjs'
       - 'server.ts'
       - 'functions/api/results.ts'
       - 'functions/api/results/delete-by-exam.ts'
@@ -38,6 +42,8 @@ jobs:
         run: npx tsx --test tests/exam-results-delete-by-exam.test.ts tests/exam-results-targets.test.ts tests/exam-config-legacy-delete.test.ts tests/question-delete-by-lesson.test.ts
       - name: Exam-management UI and security regressions
         run: node --test tests/exam-attempt-counts.test.mjs tests/exam-config-table-layout.test.mjs tests/exam-management-filters.test.mjs tests/ranking-delete-exam-results.test.mjs tests/ranking-desktop-width.test.mjs
+      - name: Strict teacher-owned result API isolation
+        run: node --import tsx --test tests/ranking-teacher-owned-exams.test.mjs tests/management-server-pagination.test.mjs
       - name: TypeScript check
         run: npm run lint
       - name: Production build

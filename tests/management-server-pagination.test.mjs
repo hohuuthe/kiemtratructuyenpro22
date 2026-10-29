@@ -43,8 +43,11 @@ test('teacher assignments are verified against profile school and scoped into qu
  });
  assert.deepEqual(verified.assignedScopes,[{className:'12A',unit:'School A'}]);
  const q=resultsPageQuery(parseManagementPage('https://h/api/results-page'),verified);
- assert.match(q.rowsSQL,/class_name|r\.lop/);
- assert.ok(q.rowsArgs.includes('12A'));
+ // Class assignment metadata may be useful elsewhere but must NEVER
+ // authorize reading results of another teacher's exam.
+ assert.match(q.rowsSQL,/ec\.id=r\.exam_id AND ec\.creator_id IN \(\?,\?\)/);
+ assert.deepEqual(q.countArgs,['teacherA','profileA']);
+ assert.ok(!q.rowsArgs.includes('12A'));
  assert.ok(!q.rowsArgs.includes('12B'));
  assert.equal(seen.length,2);
 });

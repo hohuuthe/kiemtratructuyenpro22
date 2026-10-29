@@ -1,7 +1,7 @@
 import {buildRankingResultsDeletion,RankingResultDeleteError} from './src/ranking-result-delete-policy.js';
 import {QUESTION_CREATOR_JOIN_SQL,QUESTION_CREATOR_NAME_SQL,QUESTION_CREATOR_USERNAME_SQL} from './src/question-creator-identity.js';
 import {EXAM_CREATOR_JOIN_SQL,EXAM_CREATOR_NAME_SQL} from './src/exam-creator-identity.js';
-import {parseManagementPage,accountsPageQuery,resultsPageQuery,resolveTeacherManagementScope,accountsFacetQueries,resultsFacetQuery} from './src/management-page-queries.js';
+import {parseManagementPage,accountsPageQuery,resultsPageQuery,resolveTeacherManagementScope,accountsFacetQueries,resultsFacetQuery,teacherOwnedExamNamesQuery} from './src/management-page-queries.js';
 import {isExamOwner,redactExamForPublic,examAccessChallenge,isProtectedExamForUser,protectedExamPreview,accessCodeMatches} from './functions/api/exam/security';
 import {listDocumentLinks,listDocumentLinksPage,parseDocumentLinkPage,createDocumentLink,updateDocumentLink,deleteDocumentLink,DocumentLinkServiceError} from './src/document-links-service.js';
 import { accountSessionMaterial, isAccountEnabled, isUnexpiredAccountToken } from './src/security-session';
@@ -845,6 +845,11 @@ async function startServer() {
         const query=resultsFacetQuery(verified);
         const meta=await executeSqlQuery(query.sql,query.args);
         facets={rows:meta.results||[]};
+        if(verified.role==='teacher'){
+          const owned=teacherOwnedExamNamesQuery(verified);
+          const names=await executeSqlQuery(owned.sql,owned.args);
+          facets.exams=(names.results||[]).map((row:any)=>row.name).filter(Boolean);
+        }
         if(verified.role==='admin'){
           const teachers=await executeSqlQuery(`SELECT a.id,a.username,u.full_name FROM accounts a LEFT JOIN users u ON u.id=COALESCE(a.user_id,a.id) WHERE LOWER(a.role) IN ('teacher','giáo viên') OR LOWER(u.target_audience)='giáo viên' ORDER BY u.full_name,a.username LIMIT 500`,[]);
           facets.teachers=(teachers.results||[]).map((x:any)=>({id:x.id,label:x.full_name||x.username||x.id}));
@@ -1952,7 +1957,6 @@ async function startServer() {
       const idParam = req.query.id as string;
       const codeParam = req.query.code as string;
       const teacherIdParam = req.query.teacherId as string;
-      const forRanking = req.query.forRanking === 'true';
       const sharedOnly = req.query.sharedOnly === 'true';
 
       const authHeader = req.headers.authorization;
@@ -1998,6 +2002,8 @@ async function startServer() {
           return res.status(404).json({ data: null, error: "Mã đề không tồn tại" });
         }
         const row: any = results[0];
+        if (isTeacher && !isExamOwner(user,row))
+          return res.status(403).json({data:null,error:'Giáo viên chỉ được truy cập đề thi do mình tạo'});
         const isShared = row.is_shared_results === 1 || row.is_shared_results === true || row.is_shared_results === 'true';
         if (!isShared && !isAdmin) {
           return res.status(403).json({ data: null, error: "Đề thi này không được phép chia sẻ kết quả" });
@@ -2041,15 +2047,16 @@ async function startServer() {
           : "";
       let query = "SELECT ec.id, ec.name, ec.creator_id, ec.chedodethi, ec.mabaomatdethi, ec.target_lop, ec.lop, ec.target_donvi, ec.donvi, ec.time_limit, ec.count_41, ec.count_tf4, ec.count_sq, ec.count_tl, ec.points_41, ec.points_tf4, ec.points_sq, ec.points_tl, ec.selected_lessons, ec.counts_detail, ec.access_control, ec.tf4_scoring_mode, ec.tf4_points, ec.is_shared_results, ec.max_cheat_warnings, ec.tg_bd, ec.tg_kt, ec.ai_prompt, ec.immediate_feedback, ec.show_score, ec.show_details, ec.sq_case_sensitive, ec.sq_punctuation_sensitive, ec.auto_grade_essay, ec.tieu_de_bai_thi, ec.created_at, ec.updated_at, creator_profile.donvi AS teacher_donvi, "+EXAM_CREATOR_NAME_SQL+" AS creator_name" + attemptCountProjection + " FROM exam_configs ec " + EXAM_CREATOR_JOIN_SQL;
       const params: any[] = isTeacher ? [user.id, user.user_id || user.id] : [];
-      if (teacherIdParam) {
+      if (isTeacher) {
+        // A teacher's creator identity is server-verified; forRanking,
+        // teacherId and sharedOnly must never widen their exam list.
+        query += " WHERE ec.creator_id IN (?, ?)";
+        params.push(user.id, user.user_id || user.id);
+      } else if (teacherIdParam) {
         query += " WHERE (ec.creator_id = ? OR ec.creator_id IN (SELECT user_id FROM accounts WHERE id = ?) OR ec.creator_id IN (SELECT id FROM accounts WHERE user_id = ?))";
         params.push(teacherIdParam, teacherIdParam, teacherIdParam);
       } else if (sharedOnly) {
         query += " WHERE ec.is_shared_results = 1 OR ec.is_shared_results = 'true' OR ec.is_shared_results = true";
-      } else if (isTeacher && !forRanking) {
-        // Historical exam_configs may store the linked teacher profile ID.
-        query += " WHERE ec.creator_id IN (?, ?)";
-        params.push(user.id, user.user_id || user.id);
       }
       query += ` ORDER BY ec.name ASC, ec.id ASC${paginationClause}`;
 
@@ -2694,7 +2701,9 @@ async function startServer() {
 
         const row: any = results[0];
         if (isTeacher) {
-          const { results: examRows } = await executeSqlQuery("SELECT id FROM exam_configs WHERE id = ? AND creator_id = ?", [row.exam_id, user.id]);
+          const { results: examRows } = await executeSqlQuery(
+            "SELECT id FROM exam_configs WHERE id = ? AND creator_id IN (?, ?)",
+            [row.exam_id, user.id, user.user_id || user.id]);
           if (!examRows || examRows.length === 0) {
             return res.status(403).json({ data: null, error: "Bạn không có quyền xem chi tiết kết quả này" });
           }
@@ -2749,7 +2758,9 @@ async function startServer() {
           return res.json({ count, error: null });
         }
         if (isTeacher) {
-          const { results: myExams } = await executeSqlQuery("SELECT id FROM exam_configs WHERE creator_id = ?", [user.id]);
+          const { results: myExams } = await executeSqlQuery(
+            "SELECT id FROM exam_configs WHERE creator_id IN (?, ?)",
+            [user.id, user.user_id || user.id]);
           const examIds = (myExams || []).map((e: any) => String(e.id)).filter(Boolean);
           if (examIds.length === 0) return res.json({ count: 0, error: null });
 
@@ -2774,7 +2785,9 @@ async function startServer() {
       // 3. Tải danh sách kết quả theo mã chia sẻ (?examId=xxx)
       if (examIdParam) {
         if (isTeacher) {
-          const { results: ownExam } = await executeSqlQuery("SELECT id FROM exam_configs WHERE id = ? AND creator_id = ?", [examIdParam, user.id]);
+          const { results: ownExam } = await executeSqlQuery(
+            "SELECT id FROM exam_configs WHERE id = ? AND creator_id IN (?, ?)",
+            [examIdParam, user.id, user.user_id || user.id]);
           if (!ownExam?.length) return res.status(403).json({ data: [], error: "Không có quyền xem đề thi này" });
         }
         if (!isAdmin && !isTeacher) {
@@ -2835,65 +2848,34 @@ async function startServer() {
       }
 
       if (isTeacher) {
-        let assignedClassNames: string[] = [];
-        try {
-          const teacherId = user.user_id || user.id || '';
-          const teacherName = user.full_name || '';
-          const { results: tcRows } = await executeSqlQuery(
-            "SELECT class_name FROM teacher_classes WHERE teacher_id = ? OR teacher_id = ? OR teacher_name = ?",
-            [user.id, teacherId, teacherName]
-          );
-          if (tcRows && tcRows.length > 0) {
-            assignedClassNames = Array.from(new Set(tcRows.map((r: any) => String(r.class_name || '').trim()).filter(Boolean)));
-          }
-        } catch (tcErr) {}
-
+        // Never widen the exam-result list by classroom membership or a
+        // username/title match. Missing exam configs stay inaccessible.
         const { results: myExams } = await executeSqlQuery(
-          "SELECT id FROM exam_configs WHERE creator_id = ? OR creator_id IN (SELECT user_id FROM accounts WHERE id = ?) OR creator_id IN (SELECT id FROM accounts WHERE user_id = ?)",
-          [user.id, user.id, user.id]
+          "SELECT id FROM exam_configs WHERE creator_id IN (?, ?)",
+          [user.id, user.user_id || user.id]
         );
-        const examIds = (myExams || []).map((e: any) => String(e.id)).filter(Boolean);
-
-        if (assignedClassNames.length === 0 && examIds.length === 0) {
-          return sendPaginatedResults([], includeDetails);
-        }
-
-        const whereConditions: string[] = [];
-        const sqlParams: any[] = [];
-
-        if (examIds.length > 0) {
-          const placeholders = examIds.map(() => '?').join(',');
-          whereConditions.push(`r.exam_id IN (${placeholders})`);
-          sqlParams.push(...examIds);
-        }
-
-        if (assignedClassNames.length > 0) {
-          const lowerAssigned = assignedClassNames.map(c => c.toLowerCase());
-          const classPlaceholders = lowerAssigned.map(() => '?').join(',');
-          whereConditions.push(`LOWER(TRIM(r.student_class)) IN (${classPlaceholders})`);
-          whereConditions.push(`LOWER(TRIM(u.lop)) IN (${classPlaceholders})`);
-          whereConditions.push(`LOWER(TRIM(u2.lop)) IN (${classPlaceholders})`);
-          sqlParams.push(...lowerAssigned, ...lowerAssigned, ...lowerAssigned);
-        }
-
-        const whereSql = whereConditions.join(" OR ");
-
+        const examIds = (myExams || []).map((e:any)=>String(e.id)).filter(Boolean);
+        if (!examIds.length) return sendPaginatedResults([], includeDetails);
+        const placeholders = examIds.map(()=>'?').join(',');
         let rows: any[] = [];
         try {
           const { results } = await executeSqlQuery(`
-            SELECT ${columns} 
+            SELECT ${columns}
             FROM results r
             LEFT JOIN accounts a ON (r.user_id IS NOT NULL AND r.user_id != '' AND (r.user_id = a.id OR r.user_id = a.user_id))
             LEFT JOIN users u ON (r.user_id IS NOT NULL AND r.user_id != '' AND r.user_id = u.id)
             LEFT JOIN users u2 ON (a.user_id IS NOT NULL AND a.user_id != '' AND a.user_id = u2.id)
-            WHERE ${whereSql} 
+            WHERE r.exam_id IN (${placeholders})
             GROUP BY r.id, r.user_id, r.student_name, r.student_class, r.score, r.correct_count, r.total_questions, r.time_taken, r.exam_name, r.exam_id, r.created_at, r.loai_thi_sinh, r.cheat_warning_count, r.ai_grading_summary
-            ORDER BY r.created_at DESC, r.id DESC 
+            ORDER BY r.created_at DESC, r.id DESC
             ${paginationClause}
-          `, sqlParams);
+          `, examIds);
           rows = results || [];
         } catch (err) {
-          const { results } = await executeSqlQuery(`SELECT ${fallbackColumns} FROM results ORDER BY created_at DESC, id DESC ${paginationClause}`, []);
+          // A failed JOIN must never trigger an unscoped fallback.
+          const { results } = await executeSqlQuery(
+            `SELECT ${fallbackColumns} FROM results r WHERE r.exam_id IN (${placeholders})
+             ORDER BY r.created_at DESC, r.id DESC ${paginationClause}`, examIds);
           rows = results || [];
         }
         return sendPaginatedResults(rows, includeDetails);

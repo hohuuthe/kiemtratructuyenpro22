@@ -117,6 +117,10 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
         return new Response(JSON.stringify({ data: null, error: "Mã đề không tồn tại" }), { status: 404, headers: corsHeaders });
       }
       const row: any = results[0];
+      // Shared result codes are for students/guests, not a way for a logged-in
+      // teacher to enumerate another teacher's exam titles.
+      if (isTeacher && !isExamOwner(user,row))
+        return new Response(JSON.stringify({data:null,error:'Giáo viên chỉ được truy cập đề thi do mình tạo'}),{status:403,headers:corsHeaders});
       const isShared = row.is_shared_results === 1 || row.is_shared_results === true || row.is_shared_results === 'true';
       if (!isShared && !isAdmin) {
         return new Response(JSON.stringify({ data: null, error: "Đề thi này không được phép chia sẻ kết quả" }), { status: 403, headers: corsHeaders });
