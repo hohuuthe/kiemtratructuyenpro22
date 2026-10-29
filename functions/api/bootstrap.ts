@@ -10,6 +10,7 @@ const headers = {
 export const onRequestGet: PagesFunction = async (context) => {
   try {
     const db = getDatabase(context);
+    if (!db) throw new Error('Database not configured');
     const row: any = await db.prepare(`
       SELECT app_title, author_info, question_font_size, answer_font_size,
              display_mode, show_results_details, allow_ranking_details,
