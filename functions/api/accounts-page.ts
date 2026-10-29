@@ -11,7 +11,7 @@ export const onRequestGet:PagesFunction=async context=>{
   const count=await db.prepare(q.countSQL).bind(...q.countArgs).first();
   const {results}=await db.prepare(q.rowsSQL).bind(...q.rowsArgs).all();
   const total=Number(count?.total||0);
-  let facets=null;
+  let facets:any=null;
   if(new URL(context.request.url).searchParams.get('facets')==='1') {
     const sets=[];
     for(const sql of accountsFacetQueries()){const r=await db.prepare(sql).all();sets.push((r.results||[]).map(x=>x.value).filter(Boolean));}
