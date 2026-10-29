@@ -1513,7 +1513,6 @@ Trả về kết quả dưới dạng JSON Array, mỗi phần tử tương ứn
                 // Fallback to offline mode or basic UI
                 updateStats();
                 applyDoiTuongConfig();
-                initExamPanel();
             }
         }
 
@@ -2224,6 +2223,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
 
             resetMyStudentResults();
             publicTeachersLoaded=false;publicTeacherPromise=null;
+            adminSettingsLoaded=false;adminSettingsPromise=null;
             // Nạp lại dữ liệu theo quyền hạn tài khoản đăng nhập đồng thời (Song song, không tuần tự)
             await loadData();
 
@@ -2522,6 +2522,8 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
 
             resetMyStudentResults();
             publicTeachersLoaded=false;publicTeacherPromise=null;
+            adminSettingsLoaded=false;adminSettingsPromise=null;
+            appSettings.aiGradingKey='';
             // Xóa sạch dữ liệu trong bộ nhớ để bảo mật tuyệt đối
             if (typeof questions !== 'undefined') questions.length = 0;
             if (typeof exams !== 'undefined') exams.length = 0;
@@ -2690,6 +2692,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 await initExamPanel();
                 checkExamConfigSufficiency();
             } else if (tabName === 'settings') {
+                await ensureAdminSettingsLoaded();
                 loadSettings();
             } else if (tabName === 'accounts') {
                 renderAccounts();
@@ -2702,6 +2705,35 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             }
         }
 
+        let adminSettingsLoaded=false,adminSettingsPromise=null;
+        async function ensureAdminSettingsLoaded(){
+          if(!isAdminLoggedIn||adminSettingsLoaded)return;
+          if(adminSettingsPromise)return adminSettingsPromise;
+          const generation=authDataGeneration;
+          adminSettingsPromise=(async()=>{
+            const token=localStorage.getItem('auth_token')||'';
+            const response=await fetch('/api/settings',{headers:{Authorization:'Bearer '+token},cache:'no-store'});
+            if(!response.ok)throw Error('Không tải được cấu hình quản trị: HTTP '+response.status);
+            const json=await response.json();
+            if(!json.data)throw Error('Cấu hình quản trị không hợp lệ');
+            if(generation!==authDataGeneration||!isAdminLoggedIn)return;
+            const d=json.data;
+            appSettings={...appSettings,showResultsDetails:d.show_results_details,
+              allowRankingDetails:d.allow_ranking_details,
+              showDeleteSelectedRanking:d.show_delete_selected_ranking,
+              immediateFeedback:d.immediate_feedback,sqCaseSensitive:d.sq_case_sensitive,
+              sqPunctuationSensitive:d.sq_punctuation_sensitive,
+              questionFontSize:d.question_font_size,answerFontSize:d.answer_font_size,
+              displayMode:d.display_mode,appTitle:d.app_title||appSettings.appTitle,
+              authorInfo:d.author_info||appSettings.authorInfo,
+              aiPrompt:d.ai_prompt||'',aiAppraisePrompt:d.ai_appraise_prompt||'',
+              aiGradingKey:d.ai_grading_key||'',qrCodeUrl:d.qr_code_url||''};
+            window.appSettings=appSettings;
+            adminSettingsLoaded=true;
+          })();
+          try{await adminSettingsPromise}catch(e){showToast(e.message||'Không tải được cấu hình quản trị','error');throw e}
+          finally{adminSettingsPromise=null}
+        }
         // ==================== SETTINGS ====================
 
         window.updateFontSizeDisplay = function updateFontSizeDisplay(type, value) {
@@ -3851,7 +3883,9 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
 
         // ==================== TAB NAVIGATION ====================
         window.switchTab = switchTab;
+        let requestedTab = '';
         function switchTab(tabName) {
+            requestedTab = tabName;
             console.log('switchTab called:',tabName);
             const protectedTabs=['questions','exams','exam-editor','accounts','users','settings','ranking','teacher-assignment'];
             const adminTabs=['accounts','settings','teacher-assignment'];
@@ -3861,7 +3895,10 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
             if(tabName==='exam'&&(isAdminLoggedIn||isTeacherLoggedIn))tabName='exams';
             const placeholder=document.getElementById('tab-'+tabName);
             if(placeholder&&placeholder.dataset.componentLoaded!=='true'&&placeholder.children.length===0){
-              void ensureTabComponent(tabName).then(ok=>{if(ok)switchTab(tabName)});
+              const generation=authDataGeneration;
+              void ensureTabComponent(tabName).then(ok=>{
+                if(ok&&generation===authDataGeneration&&requestedTab===tabName)switchTab(tabName);
+              });
               return;
             }
             
@@ -3891,7 +3928,7 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
 
             // TRƯỜNG HỢP: Quay lại tab Làm bài
             if (tabName === 'exam') {
-                if(!isAdminLoggedIn&&!isTeacherLoggedIn)void ensureStudentTeacherDirectory();
+                // Teacher directory loads on selector interaction only.
                 // Nếu đang hiển thị kết quả hoặc bài thi đã bị hủy/chưa bắt đầu
                 if (isShowingResults || !isExamInProgress) {
                     resetExam();
@@ -5192,8 +5229,14 @@ if (contentType && contentType.includes("application/json")) {
                 select.remove(1);
             }
             
-            // No network I/O from student selector; directory is loaded on exam tab.
+            // Fetch directory only on user interaction.
             if(!accounts)accounts=[];
+            if(!select.dataset.directoryListener){
+              select.dataset.directoryListener='1';
+              const load=()=>{if(!isAdminLoggedIn&&!isTeacherLoggedIn)void ensureStudentTeacherDirectory()};
+              select.addEventListener('focus',load);
+              select.addEventListener('pointerdown',load);
+            }
             
             const creatorIds = [...new Set([...(window.allExamCreatorIds || []), ...(examConfigCreatorIds || [])])].map(String);
             
