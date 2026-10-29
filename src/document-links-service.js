@@ -77,7 +77,7 @@ export async function listDocumentLinks(db, actor, {manage=false,includeReadable
       // Shared documents are read-only; never disclose management audit details
       // or owner-only links to another teacher or administrator.
       id_nguoi_cap_nhat: canEdit ? row.id_nguoi_cap_nhat : undefined,
-      duong_link: canReadOwnerOnly ? row.duong_link : '',
+      duong_link: (canEdit || canViewDocument(actor,row)) && canReadOwnerOnly ? row.duong_link : '',
       co_quyen_quan_ly: canEdit,
       co_quyen_xem: canEdit || canViewDocument(actor,row)
     };
@@ -117,8 +117,10 @@ export async function updateDocumentLink(db,actor,payload){
 export async function deleteDocumentLink(db,actor,idInput){
   requireEditor(actor);
   const id=cleanId(idInput);
-  const existing=await db.first('SELECT id,id_nguoi_tao FROM quan_ly_tai_lieu WHERE id = ?',[id]);
+  const existing=await db.first('SELECT id,id_nguoi_tao,doi_tuong_truy_cap_nhieu FROM quan_ly_tai_lieu WHERE id = ?',[id]);
   if(!existing)deny(404,'Không tìm thấy tài liệu cần xóa.');
+  if(documentAudienceValues(existing).includes('owner') && String(existing.id_nguoi_tao)!==documentOwnerId(actor))
+    deny(403,'Chỉ người đăng được xóa liên kết Chính chủ.');
   if(!canManageDocument(actor,existing))deny(403,'Bạn không có quyền xóa tài liệu này.');
   const isAdmin=documentActorRole(actor)==='admin';
   const params=isAdmin?[id]:[id,documentOwnerId(actor)];
