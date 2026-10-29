@@ -18468,38 +18468,39 @@ CẤU TRÚC JSON:
         window.exportAccountsToExcel = async function exportAccountsToExcel() {
             try {
                 let dataToExport = accounts;
-                // Nếu danh sách rỗng hoặc chưa nạp đầy đủ (chưa qua chunked load: !accountsLoaded)
-                if (!dataToExport || dataToExport.length === 0 || !accountsLoaded || (isAdminLoggedIn && accountsTotalServer!==null && accounts.length<accountsTotalServer)) {
-                    const token = localStorage.getItem('auth_token') || '';
-                    if (token) {
-                        try {
-                            const fetchFn = (typeof fetchAllAccountsChunked === 'function') ? fetchAllAccountsChunked : (window.fetchAllAccountsChunked || null);
-                            if (typeof fetchFn === 'function') {
-                                const allAccounts = await fetchFn();
-                                if (allAccounts && allAccounts.length > 0) {
-                                    accounts = allAccounts;
-                                    window.accounts = accounts;
-                                    accountsLoaded = true;
-                                    dataToExport = accounts;
-                                }
-                            } else {
-                                const res = await fetch('/api/accounts?limit=all', {
-                                    headers: { 'Authorization': 'Bearer ' + token }
-                                });
-                                if (res.ok) {
-                                    const resJson = await res.json();
-                                    if (resJson.data && Array.isArray(resJson.data)) {
-                                        accounts = resJson.data;
-                                        window.accounts = accounts;
-                                        accountsLoaded = true;
-                                        dataToExport = accounts;
-                                    }
-                                }
-                            }
-                        } catch (fetchErr) {
-                            console.warn('Lỗi lấy tài khoản khi xuất:', fetchErr);
+                if(isAdminLoggedIn){
+                    // Explicit Excel export: use filtered server pages, not the 50-row UI cache.
+                    const generation=authDataGeneration,uid=String(currentUser?.id||'');
+                    const query=new URLSearchParams({
+                        limit:'100',search:document.getElementById('accounts-search')?.value||'',
+                        audience:document.getElementById('accounts-audience-filter')?.value||'',
+                        unit:document.getElementById('accounts-unit-filter')?.value||'',
+                        class:document.getElementById('accounts-class-filter')?.value||''
+                    });
+                    const rows=[],seen=new Set();let total=null;
+                    for(let page=1;page<=1000;page++){
+                        if(generation!==authDataGeneration||uid!==String(currentUser?.id||''))throw Error('Phiên đăng nhập thay đổi khi xuất.');
+                        query.set('page',String(page));
+                        const response=await fetch('/api/accounts-page?'+query,{
+                            headers:{Authorization:'Bearer '+(localStorage.getItem('auth_token')||'')},cache:'no-store'
+                        });
+                        if(!response.ok)throw Error('Lỗi tải tài khoản: HTTP '+response.status);
+                        const json=await response.json();
+                        if(!Array.isArray(json.data)||!Number.isFinite(Number(json.total)))throw Error('Dữ liệu xuất không hợp lệ.');
+                        if(total===null)total=Number(json.total);
+                        if(Number(json.total)!==total)throw Error('Tài khoản thay đổi khi xuất; vui lòng thử lại.');
+                        for(const item of json.data){
+                            if(!item?.id||seen.has(String(item.id)))throw Error('Dữ liệu xuất bị trùng hoặc thiếu ID.');
+                            seen.add(String(item.id));rows.push(item);
                         }
+                        if(rows.length>=total)break;
+                        if(!json.data.length||page===1000)throw Error('Chưa tải đủ tài khoản, không xuất file thiếu.');
                     }
+                    if(rows.length!==total)throw Error('Số tài khoản xuất không khớp tổng máy chủ.');
+                    dataToExport=rows;
+                }else if(!dataToExport||!accountsLoaded){
+                    dataToExport=await fetchAllAccountsChunked();
+                    if(!Array.isArray(dataToExport))throw Error('Không tải đủ tài khoản để xuất.');
                 }
 
                 if (!dataToExport || dataToExport.length === 0) {
@@ -18514,7 +18515,7 @@ CẤU TRÚC JSON:
                 const classFilter = (document.getElementById('accounts-class-filter')?.value || '').trim();
 
                 let userList = (window.usersList && window.usersList.length > 0) ? window.usersList : [];
-                if (userList.length === 0 && typeof fetchAllUsersChunked === 'function') {
+                if (!isAdminLoggedIn && userList.length === 0 && typeof fetchAllUsersChunked === 'function') {
                     try {
                         const uList = await fetchAllUsersChunked();
                         if (uList && uList.length > 0) {
@@ -18526,7 +18527,7 @@ CẤU TRÚC JSON:
                 let exportList = dataToExport;
                 const hasActiveFilter = Boolean(searchTerm || audienceFilter || unitFilter || classFilter);
 
-                if (hasActiveFilter) {
+                if (hasActiveFilter && !isAdminLoggedIn) {
                     exportList = dataToExport.filter(acc => {
                         const linkedUser = userList.find(u => u.id === acc.user_id || u.id === acc.id) || null;
                         const accAudience = (acc.target_audience || (linkedUser && linkedUser.target_audience) || '').trim();
@@ -18552,7 +18553,8 @@ CẤU TRÚC JSON:
                         return true;
                     });
                     if (exportList.length === 0) {
-                        exportList = dataToExport;
+                        showToast('Không có tài khoản phù hợp bộ lọc, không xuất dữ liệu khác.','warning');
+                        return;
                     }
                 }
 
