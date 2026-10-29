@@ -30,6 +30,7 @@ import * as docx from 'docx';
 import { generateExamDocx, makeWordMathRun } from './exam-docx-generator.ts';
 import { buildQuestionBankExportInventory, buildQuestionBankExportPlan } from './question-bank-word-selection.js';
 import { generateQuestionBankDocx } from './question-bank-docx-generator.ts';
+import { beginQuestionBankWordSavePicker, writeQuestionBankWordFile, createQuestionBankWordDownload } from './question-bank-word-download.js';
 import { inspectScientificDocx, WORD_IMPORT_ENGINE_VERSION } from './word-omml-reader.js';
 import { verifyImportedWordQuestions, checkWordImportBeforeSave, correctImportedWordEquation, normalizeWordImportAnswer } from './word-import-verification.js';
 import { splitScientificContent } from './scientific-formula-tokenizer.js';
@@ -13006,6 +13007,17 @@ D. Phát biểu SAI</pre>
         // and DOCX creation, so displayed totals cannot silently diverge.
         let bankWordExportInventory = null;
         let bankWordExportOpening = false;
+        const bankWordDownloadReleases = [];
+        function releaseQuestionBankWordDownloads() {
+            for (const release of bankWordDownloadReleases.splice(0)) {
+                try { release(); } catch (error) { console.warn('[WordBank] Cannot release download URL:', error); }
+            }
+        }
+        window.closeQuestionBankWordModal = function closeQuestionBankWordModal() {
+            releaseQuestionBankWordDownloads();
+            document.getElementById('export-word-modal')?.remove();
+            bankWordExportInventory = null;
+        };
 
         async function loadVerifiedQuestionBankWordInventory() {
             if (!currentUser?.id) throw new Error('Vui lòng đăng nhập lại tài khoản giáo viên.');
@@ -13229,7 +13241,7 @@ D. Phát biểu SAI</pre>
                           '<div><h3 class="font-black text-base md:text-lg text-gray-900">📤 Tùy chọn xuất file Word</h3>' +
                           '<p class="text-xs text-gray-500">Ngân hàng của bạn: <strong class="text-blue-700">' + inventory.totalAvailable + '</strong> câu hỏi, ' +
                               '<strong>' + inventory.lessonKeys.length + '</strong> bài học</p></div>' +
-                          '<button type="button" onclick="document.getElementById(\'export-word-modal\').remove()" ' +
+                          '<button type="button" onclick="closeQuestionBankWordModal()" ' +
                             'class="p-2 text-gray-500 hover:text-red-600 text-lg cursor-pointer" aria-label="Đóng">✕</button>' +
                         '</div>' +
                         '<div class="p-4 sm:p-5 overflow-y-auto flex-1 space-y-4">' +
@@ -13267,15 +13279,17 @@ D. Phát biểu SAI</pre>
                           '<div class="text-xs font-bold text-gray-700">Chi tiết bài học và số lượng câu hỏi hiện có</div>' +
                           '<div class="space-y-2">' + lessonsHtml + '</div>' +
                         '</div>' +
+                        '<div id="exp-download-ready" class="hidden flex-none px-4 py-3 border-t border-blue-200 bg-blue-50 space-y-2" aria-live="polite"></div>' +
                         '<div class="p-4 border-t bg-gray-50 flex items-center justify-end gap-3">' +
-                          '<button type="button" onclick="document.getElementById(\'export-word-modal\').remove()" class="px-4 py-2 text-sm border border-gray-300 rounded-xl text-gray-700 cursor-pointer">Hủy</button>' +
+                          '<button type="button" onclick="closeQuestionBankWordModal()" class="px-4 py-2 text-sm border border-gray-300 rounded-xl text-gray-700 cursor-pointer">Hủy</button>' +
                           '<button type="button" id="btn-execute-export-word" onclick="executeExportWord()" ' +
                             'class="px-5 py-2.5 text-sm bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl font-bold cursor-pointer">📤 Thực hiện Xuất Word</button>' +
                         '</div>' +
                       '</div>' +
                     '</div>';
-                document.getElementById('export-word-modal')?.remove();
+                window.closeQuestionBankWordModal();
                 document.body.insertAdjacentHTML('beforeend', modalHtml);
+                bankWordExportInventory = inventory;
                 window.updateTypeFilterButtonsUI();
             } catch (error) {
                 console.error('[WordBank] Cannot load verified export inventory:', error);
@@ -13298,6 +13312,14 @@ D. Phát biểu SAI</pre>
             button.disabled = true;
             const originalLabel = button.textContent;
             button.textContent = '⏳ Đang xác minh và tạo Word...';
+            const downloadName = 'NganHangCauHoi_' + new Date().toISOString().slice(0, 10) + '.docx';
+            const ownerAtStart = String(currentUser?.id ?? '');
+            // Start the native file picker NOW, inside the real click gesture.
+            // Awaiting the database or DOCX generation first would lose activation.
+            const saveRequest = beginQuestionBankWordSavePicker(
+                downloadName,
+                typeof window.showSaveFilePicker === 'function' ? window.showSaveFilePicker.bind(window) : null
+            );
             try {
                 const selectedChoices = currentBankWordExportChoices();
                 const sortMode = currentBankWordSortMode();
@@ -13334,14 +13356,64 @@ D. Phát biểu SAI</pre>
                 if (!(blob instanceof Blob) || blob.size < 1000) {
                     throw new Error('File Word không được tạo đúng định dạng.');
                 }
-                const fileUrl = URL.createObjectURL(blob);
-                const download = document.createElement('a');
-                download.href = fileUrl;
-                download.download = 'NganHangCauHoi_' + new Date().toISOString().slice(0, 10) + '.docx';
-                document.body.appendChild(download);
-                download.click();
-                download.remove();
-                setTimeout(() => URL.revokeObjectURL(fileUrl), 30000);
+                // Validate the DOCX ZIP header before offering any download.
+                const signature = new Uint8Array(await blob.slice(0, 4).arrayBuffer());
+                if (signature.length !== 4 || signature[0] !== 0x50 || signature[1] !== 0x4b ||
+                    signature[2] !== 0x03 || signature[3] !== 0x04) {
+                    throw new Error('Tệp Word tạo ra không đúng định dạng DOCX.');
+                }
+                if (!modal.isConnected || document.getElementById('export-word-modal') !== modal ||
+                    String(currentUser?.id ?? '') !== ownerAtStart) {
+                    throw new Error('Phiên xuất Word đã đóng hoặc tài khoản đã thay đổi. Vui lòng xuất lại.');
+                }
+
+                // Only a completed file-system write + close proves that a file
+                // has been saved. Synthetic anchor clicks have no success API.
+                let savedWithPicker = false;
+                let pickerCancelled = false;
+                let pickerError = null;
+                if (saveRequest) {
+                    const choice = await saveRequest;
+                    if (choice?.handle) {
+                        try {
+                            savedWithPicker = await writeQuestionBankWordFile(choice.handle, blob);
+                        } catch (error) {
+                            pickerError = error;
+                            console.warn('[WordBank] Native save failed, keeping manual download:', error);
+                        }
+                    } else if (choice?.error?.name === 'AbortError') {
+                        pickerCancelled = true;
+                    } else if (choice?.error) {
+                        pickerError = choice.error;
+                    }
+                }
+                if (!modal.isConnected || document.getElementById('export-word-modal') !== modal ||
+                    String(currentUser?.id ?? '') !== ownerAtStart) {
+                    throw new Error('Phiên xuất Word không còn hiệu lực. Vui lòng mở lại form.');
+                }
+
+                const downloadPanel = modal.querySelector('#exp-download-ready');
+                if (!downloadPanel) throw new Error('Không tìm thấy khu vực tải file Word.');
+                releaseQuestionBankWordDownloads();
+                downloadPanel.replaceChildren();
+                downloadPanel.classList.remove('hidden');
+                const downloadNote = document.createElement('p');
+                downloadNote.className = 'text-xs sm:text-sm font-semibold text-blue-900';
+                downloadPanel.appendChild(downloadNote);
+
+                // Do not remove this anchor or revoke the Blob URL until the
+                // user closes the modal: async click() may be browser-blocked.
+                const wordDownload = createQuestionBankWordDownload(blob, downloadName);
+                bankWordDownloadReleases.push(wordDownload.release);
+                downloadPanel.appendChild(wordDownload.link);
+
+                if (!savedWithPicker && !pickerCancelled) {
+                    // Best-effort automatic download; the persistent user-click
+                    // link above is the reliable fallback for all browsers.
+                    try { wordDownload.link.click(); }
+                    catch (error) { console.warn('[WordBank] Browser rejected auto-download:', error); }
+                }
+
                 if (wordFormulaWarnings.length) {
                     const details = wordFormulaWarnings.map(issue =>
                         issue.location + ' — ' + issue.reason + ': ' + issue.source
@@ -13351,21 +13423,32 @@ D. Phát biểu SAI</pre>
                         'nguồn LaTeX bị lỗi được giữ nguyên để không suy đoán.\n\n' + details ],
                         { type: 'text/plain;charset=utf-8' });
                     const warningUrl = URL.createObjectURL(report);
+                    bankWordDownloadReleases.push(() => URL.revokeObjectURL(warningUrl));
                     const warningLink = document.createElement('a');
                     warningLink.href = warningUrl;
                     warningLink.download = 'CanhBao_CongThuc_Word_' + new Date().toISOString().slice(0, 10) + '.txt';
-                    document.body.appendChild(warningLink);
-                    warningLink.click();
-                    warningLink.remove();
-                    setTimeout(() => URL.revokeObjectURL(warningUrl), 30000);
-                    showToast('Đã xuất đủ ' + freshPlan.totalSelected + ' câu; có ' +
-                        wordFormulaWarnings.length + ' công thức nguồn cần kiểm tra. Xem file cảnh báo đi kèm.', 'warning');
-                } else {
-                    showToast('Đã tạo Word với đúng ' + freshPlan.totalSelected + ' câu từ ' +
-                        freshPlan.selectedLessons + ' bài. Công thức hỗ trợ là Equation chỉnh sửa được.', 'success');
+                    warningLink.textContent = '⬇ Tải báo cáo cảnh báo công thức (' + wordFormulaWarnings.length + ')';
+                    warningLink.className = 'block text-xs font-bold text-amber-800 underline mt-2';
+                    downloadPanel.appendChild(warningLink);
                 }
-                modal.remove();
-                bankWordExportInventory = null;
+
+                const contentSummary = freshPlan.totalSelected + ' câu từ ' +
+                    freshPlan.selectedLessons + ' bài';
+                if (savedWithPicker) {
+                    downloadNote.textContent = 'Đã lưu thành công file Word (' + contentSummary +
+                        '). Bạn có thể nhấn nút bên dưới để tải thêm một bản.';
+                    showToast('Đã lưu thành công Word với đúng ' + contentSummary + '.', 'success');
+                } else if (pickerCancelled) {
+                    downloadNote.textContent = 'Bạn đã hủy hộp thoại lưu. File Word (' +
+                        contentSummary + ') đã tạo xong. Hãy nhấn nút Tải file Word bên dưới để lưu.';
+                    showToast('Đã hủy lưu tự động. Nhấn Tải file Word trong form nếu cần tải về.', 'warning');
+                } else {
+                    downloadNote.textContent = 'File Word (' + contentSummary +
+                        ') đã tạo xong. Nếu trình duyệt chưa tải tự động, hãy nhấn nút Tải file Word bên dưới.';
+                    showToast('Đã tạo Word với đúng ' + contentSummary +
+                        '. Nếu chưa thấy file, nhấn Tải file Word trong form.', 'info');
+                }
+                if (pickerError) console.warn('[WordBank] Save picker unavailable:', pickerError);
             } catch (error) {
                 console.error('[WordBank] Export failed:', error);
                 showToast('Không thể xuất file Word đầy đủ: ' + (error.message || error), 'error');

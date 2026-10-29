@@ -24,7 +24,7 @@ jobs:
       - name: Formula tokenizer regression tests
         run: node --test tests/scientific-formula-tokenizer.test.mjs tests/scientific-formula-acceptance.test.mjs tests/scientific-formula-student-view.test.mjs
       - name: Cross-surface scientific formula export tests
-        run: node --import tsx --test tests/scientific-formula-unified.test.mjs tests/exam-export-regression.test.mjs tests/exam-word-smart-options.test.mjs tests/exam-detail-formula-parity.test.mjs tests/word-editable-chemistry.test.mjs tests/question-bank-word-export.test.mjs tests/question-bank-fraction-regression.test.mjs
+        run: node --import tsx --test tests/scientific-formula-unified.test.mjs tests/exam-export-regression.test.mjs tests/exam-word-smart-options.test.mjs tests/exam-detail-formula-parity.test.mjs tests/word-editable-chemistry.test.mjs tests/question-bank-word-export.test.mjs tests/question-bank-fraction-regression.test.mjs tests/question-bank-word-download.test.mjs
       - name: Verified Word Office Math import and database transaction tests
         run: node --import tsx --test tests/word-import-omml.test.mjs tests/word-import-transaction.test.mjs
       - name: Word answer-grading contract and formula tokenizer regression
@@ -47,6 +47,8 @@ jobs:
         run: node --import tsx --test tests/security-session-runtime.test.ts
       - name: Tenant / revocation / CAS integration contracts
         run: node --import tsx --test tests/security-tenant-integration.test.ts
+      - name: TypeScript check
+        run: npm run lint
       - name: Production build
         run: npm run build
       - name: Ensure DEV-only result fixture is absent in Production
