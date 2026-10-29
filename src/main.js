@@ -1554,15 +1554,10 @@ Trả về kết quả dưới dạng JSON Array, mỗi phần tử tương ứn
                 // Lazy load questions
                 // Do not prefetch questions.
                 
-                // Mặc định hiển thị tab phù hợp theo vai trò đăng nhập
+                // Khách và học sinh bắt đầu tại Làm bài; không tải tab quản trị.
                 try {
-                    if (!document.querySelector('.tab-content.active')) {
-                        if (isAdminLoggedIn || isTeacherLoggedIn) {
-                            switchTab('help');
-                        } else {
-                            switchTab('exam');
-                        }
-                    }
+                    if (!isAdminLoggedIn && !isTeacherLoggedIn) switchTab('exam');
+                    else if (!document.querySelector('.tab-content.active')) switchTab('help');
                 } catch (e) {
                     console.warn('switchTab init error:', e);
                 }
@@ -21955,6 +21950,27 @@ CẤU TRÚC JSON:
             }
         };
         const tabComponentPromises=new Map();
+        const auxiliaryComponents=new Map();
+        async function ensureAuxiliaryComponent(name){
+          const placeholder=document.getElementById(name);
+          if(!placeholder||placeholder.dataset.componentLoaded==='true'||placeholder.children.length>0)return true;
+          if(auxiliaryComponents.has(name))return auxiliaryComponents.get(name);
+          const request=(async()=>{
+            try{
+              const response=await fetch('/components/'+name+'.html');
+              if(!response.ok)throw Error('Modal component HTTP '+response.status);
+              const template=document.createElement('template');
+              template.innerHTML=(await response.text()).trim();
+              const element=template.content.firstElementChild;
+              if(!element||element.id!==name)throw Error('Invalid modal component');
+              element.dataset.componentLoaded='true';
+              placeholder.replaceWith(element);
+              return true;
+            }catch(err){console.error('Cannot load modal component',err);return false}
+            finally{auxiliaryComponents.delete(name)}
+          })();
+          auxiliaryComponents.set(name,request);return request;
+        }
         async function ensureTabComponent(name){
           const id='tab-'+name,p=document.getElementById(id);
           if(!p)return false;
@@ -21967,7 +21983,10 @@ CẤU TRÚC JSON:
               const t=document.createElement('template');t.innerHTML=(await r.text()).trim();
               const element=t.content.firstElementChild;
               if(!element||element.id!==id)throw Error('Invalid component');
-              element.dataset.componentLoaded='true';p.replaceWith(element);return true;
+              element.dataset.componentLoaded='true';p.replaceWith(element);
+              if(name==='users')await ensureAuxiliaryComponent('user-modal');
+              if(name==='accounts')await ensureAuxiliaryComponent('account-modal');
+              return true;
             }catch(err){console.error('Cannot load tab',err);showToast('Không thể mở tab. Vui lòng thử lại.','error');return false}
             finally{tabComponentPromises.delete(name)}
           })();
