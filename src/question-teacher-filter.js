@@ -1,3 +1,4 @@
+import {verifiedQuestionAuthorName} from './question-creator-identity.js';
 /**
  * Teacher filtering in the question bank is a view-only operation over the
  * server-authorized questions already loaded for the current login session.
@@ -24,11 +25,12 @@ export function questionTeacherOptions(questions, accounts, currentUser, isAdmin
     if (currentUser?.id != null && !accountById.has(String(currentUser.id))) {
         accountById.set(String(currentUser.id), currentUser);
     }
-    const ids = [...new Set((Array.isArray(questions) ? questions : [])
-        .map(questionCreatorId).filter(Boolean))];
+    const rows=Array.isArray(questions)?questions:[];
+    const ids = [...new Set(rows.map(questionCreatorId).filter(Boolean))];
     const options = ids.map(id => {
         const account = accountById.get(id);
-        const name = String(account?.full_name || account?.username || '').trim();
+        const fromQuestion=rows.find(q=>questionCreatorId(q)===id && verifiedQuestionAuthorName(q));
+        const name = verifiedQuestionAuthorName(fromQuestion) || String(account?.full_name || account?.username || '').trim();
         const username = String(account?.username || '').trim();
         return { id, label: name || `Người tạo (mã: ${id})`, username };
     });
