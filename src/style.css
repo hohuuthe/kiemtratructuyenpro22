@@ -632,7 +632,7 @@ button { touch-action: manipulation; }
 }
 
 
-/* Exam management: dense, readable and responsive without hiding exam names. */
+/* Exam management: compact and readable; full titles remain in native cell tooltips. */
 #exam-configs-table-scroll { max-width: 100%; }
 .exam-configs-table {
   table-layout: fixed;
@@ -713,11 +713,20 @@ button { touch-action: manipulation; }
   word-break: break-all;
   line-height: 1.45;
 }
-.exam-configs-table .exam-config-title-column,
+/* Keep exam names compact and strictly single-line. Long titles remain
+   available in each cell's title attribute rather than wrapping table rows. */
+.exam-configs-table .exam-config-title-column {
+  white-space: nowrap;
+}
 .exam-configs-table .exam-config-title-cell {
-  white-space: normal;
-  overflow-wrap: anywhere;
+  font-size: 11px;
+  line-height: 1.35;
+  letter-spacing: -0.1px;
+  white-space: nowrap;
+  overflow-wrap: normal;
   word-break: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .exam-configs-table .exam-config-scope-column {
   white-space: normal;
