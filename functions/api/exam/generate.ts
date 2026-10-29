@@ -312,6 +312,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                 }
             } catch(err) {
                 console.error("Lỗi kiểm tra số lần làm bài:", err);
+                return new Response(JSON.stringify({code:'EXAM_ATTEMPT_CHECK_UNAVAILABLE',error:'Không thể kiểm tra lượt thi. Vui lòng thử lại.'}),{status:503,headers:corsHeaders});
             }
 
             if (attemptCount >= maxAttemptsVal) {
