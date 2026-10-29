@@ -3256,7 +3256,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
         }
         window.fetchAllResultsChunked = fetchAllResultsChunked;
 
-        let rankingServerTotal=null,rankingLoadSeq=0,rankingLastQueryKey='';
+        let rankingServerTotal=null,rankingLoadSeq=0,rankingLastQueryKey='',rankingFacetCache=null,rankingFacetSession='';
         function rankingQueryKey(){
             return JSON.stringify([window.rankingCurrentPage||1,window.rankingPageSize||50,
               document.getElementById('ranking-search')?.value||'',document.getElementById('ranking-exam-filter')?.value||'',
@@ -3266,6 +3266,10 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
         async function loadAllResults(force = false, retryCount = 0, silent = false, onProgress = null) {
             if (resultsLoaded && !force) return;
             if (isAdminLoggedIn || isTeacherLoggedIn) {
+                const session=authDataGeneration+':'+String(currentUser?.id||'');
+                if(rankingFacetSession!==session){
+                    rankingFacetSession=session;rankingFacetCache=null;rankingServerTotal=null;rankingLastQueryKey='';
+                }
                 const seq=++rankingLoadSeq,generation=authDataGeneration,uid=String(currentUser?.id||'');
                 const key=rankingQueryKey();
                 const args=new URLSearchParams({page:String(window.rankingCurrentPage||1),limit:String(window.rankingPageSize==='all'?50:Math.min(100,Number(window.rankingPageSize)||50)),
@@ -3275,6 +3279,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                   unit:document.getElementById('ranking-unit-filter')?.value||'',
                   class:document.getElementById('ranking-class-filter')?.value||'',
                   sort:window.rankingSortColumn||'rank',direction:window.rankingSortDirection||'asc'});
+                if(!rankingFacetCache)args.set('facets','1');
                 try{
                     const response=await fetch('/api/results-page?'+args,{headers:{Authorization:'Bearer '+(localStorage.getItem('auth_token')||'')},cache:'no-store'});
                     if(!response.ok)throw Error('HTTP '+response.status);
@@ -3282,6 +3287,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                     if(!Array.isArray(payload.data))throw Error('Trang kết quả không hợp lệ');
                     if(seq!==rankingLoadSeq||generation!==authDataGeneration||uid!==String(currentUser?.id||''))return;
                     rankingServerTotal=Number(payload.total||0);
+                    if(payload.facets)rankingFacetCache=payload.facets;
                     rankingLastQueryKey=key;
                     results=payload.data.map(r=>({id:r.id,userId:r.user_id||'',studentName:r.student_name,studentClass:r.student_class,
                       lop:r.lop||'',donvi:r.don_vi||r.student_class||'',score:Number(r.score)||0,correctCount:r.correct_count,
@@ -4213,6 +4219,17 @@ if (contentType && contentType.includes("application/json")) {
             }
         }
         function populateRankingTeacherFilter() {
+            if((isAdminLoggedIn||isTeacherLoggedIn)&&rankingFacetCache){
+                const select=document.getElementById('ranking-teacher-filter');
+                if(!select)return;
+                const current=isAdminLoggedIn?select.value:'';
+                const choices=isAdminLoggedIn?(rankingFacetCache.teachers||[]):[];
+                select.replaceChildren(new Option('-- Tất cả giáo viên --',''),
+                    ...choices.map(x=>new Option(x.label,x.id)));
+                select.value=choices.some(x=>x.id===current)?current:'';
+                select.disabled=!isAdminLoggedIn;
+                syncAdminTeacherFilterVisibility();return;
+            }
             syncAdminTeacherFilterVisibility();
             const select = document.getElementById('ranking-teacher-filter');
             if (!select) return;
@@ -4246,6 +4263,13 @@ if (contentType && contentType.includes("application/json")) {
         function populateRankingExamFilter() {
             const select = document.getElementById('ranking-exam-filter');
             if (!select) return;
+            if((isAdminLoggedIn||isTeacherLoggedIn)&&rankingFacetCache){
+                const old=select.value;
+                const names=[...new Set((rankingFacetCache.rows||[]).map(x=>x.exam).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'vi'));
+                select.replaceChildren(new Option('-- Tất cả đề thi --',''),
+                    ...names.map(x=>new Option(x,x)));
+                select.value=names.includes(old)?old:'';return;
+            }
             
             const currentSelection = select.value;
             
@@ -4310,6 +4334,13 @@ if (contentType && contentType.includes("application/json")) {
         function populateRankingUnitFilter() {
             const select = document.getElementById('ranking-unit-filter');
             if (!select) return;
+            if((isAdminLoggedIn||isTeacherLoggedIn)&&rankingFacetCache){
+                const old=select.value;
+                const names=[...new Set((rankingFacetCache.rows||[]).map(x=>x.unit).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'vi'));
+                select.replaceChildren(new Option('-- Tất cả đơn vị --',''),
+                    ...names.map(x=>new Option(x,x)));
+                select.value=names.includes(old)?old:'';select.disabled=false;return;
+            }
             const isTeacher = isTeacherLoggedIn && !isAdminLoggedIn;
             const plan = buildRankingUnitOptions({
                 results, users: window.usersList, isTeacher,
@@ -4361,6 +4392,19 @@ if (contentType && contentType.includes("application/json")) {
         async function populateRankingClassFilter() {
             const select = document.getElementById('ranking-class-filter');
             if (!select) return;
+            if(isAdminLoggedIn||isTeacherLoggedIn){
+                // Do not fetch /api/users or every exam when ranking uses server pages.
+                if(!rankingFacetCache)return;
+                const selected=select.value;
+                const exam=document.getElementById('ranking-exam-filter')?.value||'';
+                const unit=document.getElementById('ranking-unit-filter')?.value||'';
+                const names=[...new Set((rankingFacetCache.rows||[])
+                  .filter(row=>(!exam||row.exam===exam)&&(!unit||row.unit===unit))
+                  .map(row=>row.class_name).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'vi',{numeric:true}));
+                select.replaceChildren(new Option('-- Tất cả lớp --',''),
+                    ...names.map(x=>new Option(x,x)));
+                select.value=names.includes(selected)?selected:'';return;
+            }
             const currentSelection = select.value;
 
             const token = localStorage.getItem('auth_token') || '';
@@ -15341,7 +15385,7 @@ CẤU TRÚC JSON:
 
         window.rankingCurrentPage = 1;
         const savedRankingPageSize = localStorage.getItem('ranking_page_size');
-        window.rankingPageSize = savedRankingPageSize === 'all' ? 'all' : (parseInt(savedRankingPageSize, 10) || 50);
+        window.rankingPageSize = savedRankingPageSize === 'all' ? 100 : Math.min(100,parseInt(savedRankingPageSize,10)||50);
         let lastRankingSearchTerm = '';
         let lastRankingExamFilter = '';
         let lastRankingTeacherFilter = '';
@@ -15349,14 +15393,10 @@ CẤU TRÚC JSON:
         let lastRankingClassFilter = '';
 
         window.changeRankingPageSize = function(sizeVal) {
-            if (sizeVal === 'all') {
-                window.rankingPageSize = 'all';
-                localStorage.setItem('ranking_page_size', 'all');
-            } else {
-                const sz = parseInt(sizeVal, 10) || 50;
-                window.rankingPageSize = sz;
-                localStorage.setItem('ranking_page_size', String(sz));
-            }
+            if(sizeVal==='all')showToast('Danh sách giới hạn 100 dòng/trang; dùng chức năng Xuất để lấy toàn bộ dữ liệu.','info');
+            const sz=Math.min(100,Math.max(1,parseInt(sizeVal,10)||100));
+            window.rankingPageSize=sz;
+            localStorage.setItem('ranking_page_size',String(sz));
             window.rankingCurrentPage = 1;
             if(isAdminLoggedIn||isTeacherLoggedIn){resultsLoaded=false;void loadAllResults();}else renderRanking();
             const table = document.getElementById('ranking-container-desktop') || document.getElementById('tab-ranking');
@@ -15668,6 +15708,8 @@ CẤU TRÚC JSON:
             }
 
             let filteredResults = [...results];
+            const serverPagedRanking=(isAdmin||isTeacher)&&rankingServerTotal!==null;
+            if(!serverPagedRanking){
             if (teacherFilter) filteredResults = filteredResults.filter(r=>matchesRankingTeacher(r,teacherFilter));
             
             // Giáo viên chỉ xem được kết quả thi của các đề mình tạo HOẶC được chia sẻ kết quả VÀ chỉ xem được kết quả của học sinh thuộc các lớp mình được phân công
@@ -15739,7 +15781,8 @@ CẤU TRÚC JSON:
                 );
             }
 
-            // Populate all ranking filter dropdowns
+            } // End legacy client filtering. Server pages were filtered before LIMIT.
+            // Populate global filter choices from tiny, permission-scoped metadata.
             populateRankingFilters();
 
             // Sắp xếp linh hoạt theo cột được chọn
@@ -15747,7 +15790,7 @@ CẤU TRÚC JSON:
             const sortDir = window.rankingSortDirection || 'asc';
             const dirMultiplier = sortDir === 'asc' ? 1 : -1;
 
-            const sortedResults = filteredResults.sort((a, b) => {
+            const sortedResults = serverPagedRanking ? filteredResults : filteredResults.sort((a, b) => {
                 let cmp = 0;
                 if (sortCol === 'score') {
                     cmp = (Number(a.score) || 0) - (Number(b.score) || 0);
