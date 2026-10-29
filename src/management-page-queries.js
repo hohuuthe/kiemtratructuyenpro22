@@ -95,3 +95,18 @@ export function managementFacetQuery(baseQuery,column){
     (from.includes(' WHERE ')?' AND ':' WHERE ')+condition+' ORDER BY value LIMIT 1000',
     args:baseQuery.countArgs};
 }
+
+/** Small, role-scoped filter metadata; never return full account/result records. */
+export function resultsFacetQuery(actor) {
+  const p={page:1,limit:50,search:'',exam:'',unit:'',className:'',teacher:'',sort:'rank',direction:'ASC'};
+  const scoped=resultsPageQuery(p,actor);
+  const suffix=scoped.countSQL.slice('SELECT COUNT(*) AS total'.length);
+  return {sql:'SELECT DISTINCT r.exam_name AS exam, r.lop AS class_name, r.don_vi AS unit'+suffix+
+    ' ORDER BY 1,2,3 LIMIT 5000',args:scoped.countArgs};
+}
+export function accountsFacetQueries() {
+  const base=' FROM accounts a LEFT JOIN users u ON u.id=COALESCE(a.user_id,a.id)';
+  const cols=['u.target_audience','u.donvi','u.lop'];
+  return cols.map(col=> 'SELECT DISTINCT NULLIF(TRIM('+col+"),'') AS value"+base+
+    ' WHERE NULLIF(TRIM('+col+"),'') IS NOT NULL ORDER BY value LIMIT 2000");
+}
