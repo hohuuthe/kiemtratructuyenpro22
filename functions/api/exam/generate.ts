@@ -1,3 +1,4 @@
+import { EXAM_QUESTION_INVENTORY_SQL, validateExamQuestionInventory, checkExamStartWindow } from '../../../src/exam-question-readiness.js';
 import { signJWT, verifyAuthSession, getDynamicSecret, getDatabase } from './utils';
 import {makeGradeSessionConfig, accessCodeMatches} from './security';
 
@@ -321,6 +322,27 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             }
         }
 
+        // Security gate: enforce schedule and inventory BEFORE SELECT * FROM questions.
+        if (!isAdmin && !isTeacher) {
+            const windowCheck = checkExamStartWindow(dbExam);
+            if (!windowCheck.ready) return new Response(JSON.stringify(windowCheck), {status:403,headers:corsHeaders});
+        }
+        if (!dbExam) return new Response(JSON.stringify({error:'Cấu hình đề thi không tồn tại.'}),{status:404,headers:corsHeaders});
+        let readiness;
+        try {
+            const inventory = await db.prepare(EXAM_QUESTION_INVENTORY_SQL)
+                .bind(String(effectiveTeacherId), String(effectiveTeacherId), String(effectiveTeacherId)).all();
+            readiness = validateExamQuestionInventory(inventory.results || [], {
+                selectedLessons: finalSelectedLessons, countsDetail: finalCountsDetail,
+                count41: targetCount41, countTF4: targetCountTF4, countSQ: targetCountSQ, countTL: targetCountTL
+            });
+        } catch(e) {
+            console.error('Preflight inventory check failed:',e);
+            return new Response(JSON.stringify({code:'EXAM_QUESTION_CHECK_UNAVAILABLE',error:'Không thể xác thực số lượng câu hỏi.'}),{status:503,headers:corsHeaders});
+        }
+        if (!readiness.ready) return new Response(JSON.stringify(readiness),{status:409,headers:corsHeaders});
+        if (body.preflightOnly === true) return new Response(JSON.stringify({ready:true, totalQuestions:readiness.totalQuestions}),{status:200,headers:corsHeaders});
+
         // Chuẩn hóa và đối sánh bài học chính xác tuyệt đối 100%
         const normalizeLesson = (l: any): string => {
             if (!l) return '';
@@ -386,10 +408,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                 ).bind(String(effectiveTeacherId), String(effectiveTeacherId), String(effectiveTeacherId)).all();
                 allQuestions = results || [];
             }
-            if (!allQuestions || allQuestions.length === 0) {
-                const { results } = await db.prepare('SELECT * FROM questions').all();
-                allQuestions = results || [];
-            }
+            // Fail closed: never select another teacher's question bank.
         } catch(err: any) {
             return new Response(JSON.stringify({ error: 'Lỗi truy vấn ngân hàng câu hỏi: ' + err.message }), { status: 500, headers: corsHeaders });
         }
