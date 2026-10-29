@@ -195,7 +195,7 @@
              <svg class="w-3.5 h-3.5 md:w-4 md:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"></path></svg>
              <span class="hidden sm:inline">Toàn màn hình</span><span class="sm:hidden text-[10px]">Toàn MH</span>
            </button>
-           <button onclick="submitExam()" class="group relative px-3 py-1.5 md:px-4 md:py-2 bg-gradient-to-r from-rose-500 to-red-600 text-white font-black text-xs md:text-sm rounded-lg hover:from-rose-600 hover:to-red-700 transition-all shadow-md hover:shadow-xl hover:-translate-y-0.5 overflow-hidden">
+           <button id="exam-submit-button" onclick="submitExam()" class="group relative px-3 py-1.5 md:px-4 md:py-2 bg-gradient-to-r from-rose-500 to-red-600 text-white font-black text-xs md:text-sm rounded-lg hover:from-rose-600 hover:to-red-700 transition-all shadow-md hover:shadow-xl hover:-translate-y-0.5 overflow-hidden">
           <span class="relative z-10 flex items-center gap-2">
             <svg class="w-4 h-4 md:w-5 md:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
             <span>Nộp bài</span>
@@ -271,6 +271,10 @@
            <span class="hidden xs:inline">Câu trước</span>
             <span class="xs:hidden">Trước</span>
        </button> 
+       <button id="exam-scroll-to-submit" type="button" onclick="window.scrollToExamSubmitButton()" aria-label="Lên trên đến nút Nộp bài" title="Lên trên đến nút Nộp bài" class="hidden lg:flex group flex-none basis-[calc((100%-32px)/7)] min-w-0 max-w-[calc((100%-32px)/7)] items-center justify-center gap-1 px-2 py-3 md:py-3.5 text-sm font-bold text-emerald-700 bg-emerald-50 border-2 border-emerald-200 rounded-xl hover:bg-emerald-100 hover:border-emerald-400 transition-all shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600">
+         <svg class="w-4 h-4 shrink-0" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 19V5m0 0l-6 6m6-6l6 6"></path></svg>
+         <span class="hidden xl:inline">Lên trên</span>
+       </button>
        <button onclick="nextQuestion()" class="group flex-1 px-4 md:px-8 py-3 md:py-3.5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold rounded-xl hover:from-indigo-700 hover:to-purple-700 transition-all flex items-center justify-center gap-2 shadow-md hover:shadow-lg hover:-translate-y-0.5 text-sm md:text-base"> 
            <span class="hidden xs:inline">Câu sau</span>
             <span class="xs:hidden">Sau</span>
