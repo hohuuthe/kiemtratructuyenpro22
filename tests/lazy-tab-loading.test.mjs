@@ -78,15 +78,18 @@ test('tab navigation parses without duplicate lexical declarations', async () =>
 });
 
 test('only user preferences may persist, never admin AI configuration', () => {
-  assert.doesNotMatch(main, /localStorage\\.setItem\\(['"]appSettings['"]/);
-  assert.doesNotMatch(main, /localStorage\\.getItem\\(['"]appSettings['"]/);
-  assert.match(main, /localStorage\\.removeItem\\(['"]appSettings['"]\\)/);
+  assert.ok(!main.includes("localStorage.setItem('appSettings'"));
+  assert.ok(!main.includes("localStorage.getItem('appSettings'"));
+  assert.ok(main.includes("localStorage.removeItem('appSettings'"));
+  assert.ok(!main.includes("localStorage.setItem('appSettings'"));
+  assert.ok(!main.includes("localStorage.getItem('appSettings'"));
+  assert.ok(main.includes("localStorage.removeItem('appSettings'"));
 });
 
 test('authorized tab alias is normalized before comparing stale responses', () => {
   const start = main.indexOf('function switchTab(tabName)');
   const end = main.indexOf('const tabExam =', start);
   const code = main.slice(start, end);
-  assert.match(code, /requestedTab=tabName; \\/\\/ Guard/);
+  assert.ok(code.includes('requestedTab=tabName; // Guard'));
   assert.equal((code.match(/const protectedTabs/g) || []).length, 1);
 });
