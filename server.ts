@@ -1,4 +1,4 @@
-import {QUESTION_CREATOR_JOIN_SQL,QUESTION_CREATOR_NAME_SQL} from './src/question-creator-identity.js';
+import {QUESTION_CREATOR_JOIN_SQL,QUESTION_CREATOR_NAME_SQL,QUESTION_CREATOR_USERNAME_SQL} from './src/question-creator-identity.js';
 import {EXAM_CREATOR_JOIN_SQL,EXAM_CREATOR_NAME_SQL} from './src/exam-creator-identity.js';
 import {parseManagementPage,accountsPageQuery,resultsPageQuery,resolveTeacherManagementScope,accountsFacetQueries,resultsFacetQuery} from './src/management-page-queries.js';
 import {isExamOwner,redactExamForPublic,examAccessChallenge,isProtectedExamForUser,protectedExamPreview,accessCodeMatches} from './functions/api/exam/security';
@@ -2418,7 +2418,7 @@ async function startServer() {
 
       const paginationClause = limit > 0 ? ` LIMIT ${limit} OFFSET ${offset}` : '';
 
-      let query = "SELECT q.*, "+QUESTION_CREATOR_NAME_SQL+" AS creator_name FROM questions q "+QUESTION_CREATOR_JOIN_SQL;
+      let query = "SELECT q.*, "+QUESTION_CREATOR_NAME_SQL+" AS creator_name, "+QUESTION_CREATOR_USERNAME_SQL+" AS creator_username FROM questions q "+QUESTION_CREATOR_JOIN_SQL;
       const params: any[] = [];
       if (!isAdmin) {
         query += " WHERE q.creator_id = ?";
@@ -2445,6 +2445,8 @@ async function startServer() {
           creator_id: readQ.creator_id,
           creator_name: q.creator_name || '',
           creatorName: q.creator_name || '',
+          creator_username: q.creator_username || '',
+          creatorUsername: q.creator_username || '',
           created_at: readQ.created_at,
           updated_at: readQ.updated_at
         };
