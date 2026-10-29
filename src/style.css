@@ -1016,3 +1016,20 @@ html.kttt-modal-open, body.kttt-modal-open { overflow: hidden !important; oversc
     min-width: 0;
   }
 }
+
+
+/* Fixed, readable review typography across desktop and mobile only.
+   Keep global student exam preferences unchanged. */
+.exam-detail-review .exam-detail-question.responsive-q-text{
+  font-size:16px!important;line-height:1.6!important;
+}
+.exam-detail-review .exam-detail-option .responsive-a-text{
+  font-size:15px!important;line-height:1.6!important;
+}
+.exam-detail-review .exam-detail-answer,
+.exam-detail-review .exam-detail-item-body > div:not(.exam-detail-question):not(.exam-detail-options) {
+  font-size:15px;line-height:1.6;
+}
+.exam-detail-review .katex,.exam-detail-review mjx-container{
+  font-size:1em!important;
+}
