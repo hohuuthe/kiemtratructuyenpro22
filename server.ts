@@ -1,3 +1,4 @@
+import { EXAM_QUESTION_INVENTORY_SQL, validateExamQuestionInventory, checkExamStartWindow } from './src/exam-question-readiness.js';
 import {isExamOwner,redactExamForPublic,examAccessChallenge,isProtectedExamForUser,protectedExamPreview,accessCodeMatches} from './functions/api/exam/security';
 import {listDocumentLinks,createDocumentLink,updateDocumentLink,deleteDocumentLink,DocumentLinkServiceError} from './src/document-links-service.js';
 import { accountSessionMaterial, isAccountEnabled, isUnexpiredAccountToken } from './src/security-session';
@@ -4398,6 +4399,28 @@ async function getServerSecret(): Promise<string> {
               }
           }
 
+          // Validate schedule and metadata before querying any question content.
+          if (!isAdmin && !isTeacher) {
+              const windowCheck = checkExamStartWindow(dbExam);
+              if (!windowCheck.ready) return res.status(403).json(windowCheck);
+          }
+          if (!dbExam) return res.status(404).json({error:'Cấu hình đề thi không tồn tại.'});
+          let readiness;
+          try {
+              const inventory = await executeSqlQuery(EXAM_QUESTION_INVENTORY_SQL, [
+                  String(effectiveTeacherId), String(effectiveTeacherId), String(effectiveTeacherId)
+              ]);
+              readiness = validateExamQuestionInventory(inventory.results || [], {
+                  selectedLessons: finalSelectedLessons, countsDetail: finalCountsDetail,
+                  count41: targetCount41, countTF4: targetCountTF4, countSQ: targetCountSQ, countTL: targetCountTL
+              });
+          } catch (e) {
+              console.error('Preflight inventory check failed:',e);
+              return res.status(503).json({code:'EXAM_QUESTION_CHECK_UNAVAILABLE',error:'Không thể xác thực số lượng câu hỏi.'});
+          }
+          if (!readiness.ready) return res.status(409).json(readiness);
+          if (req.body.preflightOnly === true) return res.json({ready:true,totalQuestions:readiness.totalQuestions});
+
           // Chuẩn hóa và đối sánh bài học chính xác tuyệt đối 100%
           const normalizeLesson = (l: any): string => {
               if (!l) return '';
@@ -4464,10 +4487,7 @@ async function getServerSecret(): Promise<string> {
                   );
                   allQuestions = res.results || [];
               }
-              if (!allQuestions || allQuestions.length === 0) {
-                  const res = await executeSqlQuery('SELECT * FROM questions');
-                  allQuestions = res.results || [];
-              }
+            // Fail closed: never select another teacher's question bank.
           } catch(err: any) {
               return res.status(500).json({ error: 'Lỗi truy vấn ngân hàng câu hỏi: ' + err.message });
           }
