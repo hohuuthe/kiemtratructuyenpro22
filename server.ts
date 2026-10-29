@@ -1,3 +1,4 @@
+import {parseManagementPage,accountsPageQuery,resultsPageQuery} from './src/management-page-queries.js';
 import {isExamOwner,redactExamForPublic,examAccessChallenge,isProtectedExamForUser,protectedExamPreview,accessCodeMatches} from './functions/api/exam/security';
 import {listDocumentLinks,createDocumentLink,updateDocumentLink,deleteDocumentLink,DocumentLinkServiceError} from './src/document-links-service.js';
 import { accountSessionMaterial, isAccountEnabled, isUnexpiredAccountToken } from './src/security-session';
@@ -801,6 +802,35 @@ async function startServer() {
   // Chỉ quản lý thông tin tài khoản đăng nhập
   // ==========================================
   
+  // Bounded management pages are read-only, scoped to the authenticated role.
+  app.get('/api/accounts-page',async(req,res)=>{
+    try {
+      const auth=req.headers.authorization||'';
+      if(!auth.startsWith('Bearer '))return res.status(401).json({error:'Yêu cầu đăng nhập Admin.'});
+      const actor=verifyJWTSync(auth.slice(7),await getServerSecret());
+      if(!checkIsAdmin(actor))return res.status(403).json({error:'Không có quyền quản lý tài khoản.'});
+      const page=parseManagementPage('https://local.invalid'+req.originalUrl),q=accountsPageQuery(page);
+      const count=await executeSqlQuery(q.countSQL,q.countArgs);
+      const data=await executeSqlQuery(q.rowsSQL,q.rowsArgs);
+      const total=Number(count.results?.[0]?.total||0);
+      return res.json({data:data.results||[],total,page:page.page,limit:page.limit,has_more:page.page*page.limit<total,error:null});
+    }catch(e){return res.status(500).json({error:'Không thể tải trang tài khoản.'});}
+  });
+  app.get('/api/results-page',async(req,res)=>{
+    try{
+      const auth=req.headers.authorization||'';
+      if(!auth.startsWith('Bearer '))return res.status(401).json({error:'Yêu cầu đăng nhập.'});
+      const actor=verifyJWTSync(auth.slice(7),await getServerSecret());
+      if(!actor||!checkIsTeacherOrAdmin(actor))return res.status(403).json({error:'Không có quyền xem kết quả.'});
+      const page=parseManagementPage('https://local.invalid'+req.originalUrl);
+      const q=resultsPageQuery(page,{...actor,role:checkIsAdmin(actor)?'admin':'teacher'});
+      const count=await executeSqlQuery(q.countSQL,q.countArgs);
+      const data=await executeSqlQuery(q.rowsSQL,q.rowsArgs);
+      const total=Number(count.results?.[0]?.total||0);
+      return res.json({data:data.results||[],total,page:page.page,limit:page.limit,has_more:page.page*page.limit<total,error:null});
+    }catch(e){return res.status(500).json({error:'Không thể tải trang kết quả.'});}
+  });
+
   // 1. Lấy danh sách tài khoản
   app.get("/api/accounts", async (req, res) => {
     try {
