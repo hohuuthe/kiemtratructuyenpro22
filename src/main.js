@@ -16732,6 +16732,46 @@ CẤU TRÚC JSON:
             const searchTerm = (document.getElementById('ranking-search')?.value || '').toLowerCase().trim();
 
             let exportResults = [...results];
+            if(isAdmin||isTeacher){
+              try{
+                // Explicit export: retrieve every matching row, not just the visible page.
+                const generation=authDataGeneration,uid=String(currentUser?.id||'');
+                const query=new URLSearchParams({limit:'100',search:searchTerm,exam:examFilter,
+                  teacher:teacherFilter,unit:unitFilter,class:classFilter,sort:'rank',direction:'asc'});
+                const rows=[],seen=new Set();let count=null;
+                for(let page=1;page<=1000;page++){
+                  if(generation!==authDataGeneration||uid!==String(currentUser?.id||''))
+                    throw Error('Phiên đăng nhập đã thay đổi. Vui lòng xuất lại.');
+                  query.set('page',String(page));
+                  const response=await fetch('/api/results-page?'+query,{
+                    headers:{Authorization:'Bearer '+(localStorage.getItem('auth_token')||'')},cache:'no-store'
+                  });
+                  if(!response.ok)throw Error('Lỗi tải trang kết quả: HTTP '+response.status);
+                  const json=await response.json();
+                  if(!Array.isArray(json.data)||!Number.isFinite(Number(json.total)))
+                    throw Error('Trang dữ liệu xuất không hợp lệ.');
+                  if(count===null)count=Number(json.total);
+                  if(Number(json.total)!==count)throw Error('Kết quả thay đổi trong lúc xuất. Vui lòng thử lại.');
+                  for(const raw of json.data){
+                    if(!raw?.id||seen.has(String(raw.id)))throw Error('Bản ghi xuất bị trùng hoặc thiếu ID.');
+                    seen.add(String(raw.id));rows.push(raw);
+                  }
+                  if(rows.length>=count)break;
+                  if(!json.data.length||page===1000)throw Error('Chưa nhận đủ kết quả. Không xuất file thiếu dữ liệu.');
+                }
+                if(rows.length!==count)throw Error('Số kết quả xuất không khớp tổng của máy chủ.');
+                exportResults=rows.map(r=>({
+                  id:r.id,studentName:r.student_name,studentClass:r.student_class,lop:r.lop||'',
+                  donvi:r.don_vi||r.student_class||'',score:Number(r.score)||0,
+                  correctCount:r.correct_count,totalQuestions:r.total_questions,timeTaken:r.time_taken,
+                  examName:r.exam_name,examId:r.exam_id,examCreatorId:r.exam_creator_id||'',
+                  loaiThiSinh:r.loai_thi_sinh,aiGradingSummary:r.ai_grading_summary,timestamp:r.created_at
+                }));
+              }catch(e){
+                console.error('Full result export failed:',e);
+                showToast('Không thể xuất toàn bộ kết quả: '+(e?.message||e),'error');return;
+              }
+            }else{
             if (teacherFilter) exportResults = exportResults.filter(r=>matchesRankingTeacher(r,teacherFilter));
             
             // Giáo viên chỉ export kết quả của đề mình tạo hoặc đề đã được mở khóa qua mã chia sẻ
@@ -16772,6 +16812,7 @@ CẤU TRÚC JSON:
                 );
             }
 
+            } // Only non-paged legacy results are filtered locally.
             if (exportResults.length === 0) {
                 showToast('Không có kết quả để export!', 'warning');
                 return;
