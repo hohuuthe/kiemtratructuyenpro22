@@ -1882,7 +1882,7 @@ async function startServer() {
     }
   }
   app.get('/api/documents',(req,res)=>documentApiReply(req,res,
-    actor=>listDocumentLinks(documentDb,actor,{manage:req.query.manage==='1'})));
+    actor=>listDocumentLinks(documentDb,actor,{manage:req.query.manage==='1',includeReadable:req.query.manage==='1'&&req.query.includeReadable==='1'})));
   app.post('/api/documents',(req,res)=>documentApiReply(req,res,
     actor=>createDocumentLink(documentDb,actor,req.body),true));
   app.put('/api/documents',(req,res)=>documentApiReply(req,res,
