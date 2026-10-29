@@ -131,3 +131,24 @@ test('documents tab requests combined library after selection and both APIs forw
  assert.match(cf,/includeReadable:manage&&/);
  assert.match(express,/includeReadable:req\.query\.manage==='1'&&/);
 });
+
+test('owner-only document cannot be deleted by another admin',async()=>{
+ const privateDb={
+  async first(sql,args){return {id:args[0],id_nguoi_tao:'teacher-A',doi_tuong_truy_cap_nhieu:['owner']};},
+  async run(){throw Error('Unauthorized deletion must never reach database');}
+ };
+ await assert.rejects(
+   ()=>deleteDocumentLink(privateDb,{id:'admin-B',role:'admin'},'private-document'),
+   {status:403}
+ );
+});
+test('expired shared document link is redacted in management response',async()=>{
+ const expired={...base,id:'shared-expired',id_nguoi_tao:'teacher-B',
+   doi_tuong_truy_cap_nhieu:['authenticated'],thoi_gian_het_han:'2020-01-01T00:00:00Z',
+   duong_link:'https://example.org/private-expired'};
+ const dbMock={all:async()=>[expired]};
+ const rows=await listDocumentLinks(dbMock,actor,{manage:true,includeReadable:true});
+ assert.equal(rows.length,1);
+ assert.equal(rows[0].co_quyen_xem,false);
+ assert.equal(rows[0].duong_link,'');
+});
