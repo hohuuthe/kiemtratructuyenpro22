@@ -5641,11 +5641,11 @@ if (contentType && contentType.includes("application/json")) {
 
                 let modeBadge = '';
                 if (mode === 'Đề cho đơn vị' || mode === 'Đề thi cho đơn vị') {
-                    modeBadge = `<span class="px-2.5 py-1 bg-amber-100 text-amber-800 text-xs font-semibold rounded-full border border-amber-200">Đề cho đơn vị</span>`;
+                    modeBadge = `<span class="inline-block whitespace-nowrap px-1.5 py-1 bg-amber-100 text-amber-800 text-[10px] leading-4 font-semibold rounded-full border border-amber-200">Đề cho đơn vị</span>`;
                 } else if (mode === 'Đề có mã bảo mật') {
-                    modeBadge = `<span class="px-2.5 py-1 bg-rose-100 text-rose-800 text-xs font-semibold rounded-full border border-rose-200">🔒 Có mật khẩu</span>`;
+                    modeBadge = `<span class="inline-block whitespace-nowrap px-1.5 py-1 bg-rose-100 text-rose-800 text-[10px] leading-4 font-semibold rounded-full border border-rose-200">Có mật khẩu</span>`;
                 } else {
-                    modeBadge = `<span class="px-2.5 py-1 bg-emerald-100 text-emerald-800 text-xs font-semibold rounded-full border border-emerald-200">🌐 Công khai</span>`;
+                    modeBadge = `<span class="inline-block whitespace-nowrap px-1.5 py-1 bg-emerald-100 text-emerald-800 text-[10px] leading-4 font-semibold rounded-full border border-emerald-200">Công khai</span>`;
                 }
 
                 let lopBadge = '';
@@ -5715,7 +5715,7 @@ if (contentType && contentType.includes("application/json")) {
                             <span class="text-xs font-semibold">${escapeHTML(creator)}</span>
                         </td>
                         <td class="exam-config-created-cell text-center">${creationHtml}</td>
-                        <td class="break-words">${modeBadge}</td>
+                        <td class="whitespace-nowrap">${modeBadge}</td>
                         <td class="exam-config-scope-column align-middle">${lopBadge}</td>
                         <td class="py-3 px-3 text-center text-xs text-gray-700 whitespace-nowrap font-medium">${time} phút</td>
                         <td class="text-center text-xs font-semibold text-purple-700">
