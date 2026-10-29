@@ -15987,7 +15987,7 @@ CẤU TRÚC JSON:
                     return `
                     <tr class="border-b hover:bg-gray-50 text-[15px]">
                         <td class="px-1.5 py-1.5 text-center">
-                            ${canDelete ? `<input type="checkbox" class="ranking-checkbox w-4 h-4 rounded border-gray-300 cursor-pointer" value="${r.id}" ${isChecked} onchange="onRankingCheckboxChange(this)">` : '<span title="Bạn không có quyền xóa kết quả thi này (Chỉ người tạo đề mới có quyền)" class="text-gray-400 opacity-50 cursor-help font-bold text-xs select-none">KHÔNG QUYỀN</span>'}
+                            ${canDelete ? `<input type="checkbox" class="ranking-checkbox w-4 h-4 rounded border-gray-300 cursor-pointer" value="${r.id}" ${isChecked} onchange="onRankingCheckboxChange(this)">` : '<span title="Bạn không có quyền xóa kết quả thi này (Chỉ người tạo đề mới có quyền)" aria-label="Không có quyền xóa kết quả này" class="text-gray-400 opacity-70 cursor-help text-xs select-none">🔒</span>'}
                         </td>
                         <td class="px-2 py-1.5 whitespace-nowrap">
                             <span class="text-xl">${medalIcon}</span>
@@ -15995,17 +15995,17 @@ CẤU TRÚC JSON:
                         </td>
                         <td class="px-2 py-1.5 whitespace-nowrap">
                             <span class="px-2 py-0.5 rounded-full text-xs font-bold ${(r.loaiThiSinh && r.loaiThiSinh !== 'Tự do') ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'}">
-                                ${r.loaiThiSinh || 'Tự do'}
+                                ${escapeHTML(r.loaiThiSinh || 'Tự do')}
                             </span>
                         </td>
-                        <td class="px-3 py-1.5 font-semibold text-gray-800">
+                        <td class="px-3 py-1.5 font-semibold text-gray-800" title="${escapeHTML(r.studentName)}">
                             <div>${escapeHTML(r.studentName)}</div>
                             ${r.cheatWarningCount > 0 ? `<div class="inline-flex items-center gap-1 text-[11px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 mt-0.5" title="Thí sinh có vi phạm thoát toàn màn hình / chuyển tab"><span class="text-amber-500">⚠️</span> Vi phạm: ${r.cheatWarningCount} lần</div>` : ''}
                         </td>
                         <td class="px-2 py-1.5 text-center whitespace-nowrap">
                             ${r.lop ? `<span class="inline-block px-2.5 py-0.5 font-bold text-xs rounded-md bg-purple-50 text-purple-700 border border-purple-200">${escapeHTML(r.lop)}</span>` : '<span class="text-gray-400 text-xs">-</span>'}
                         </td>
-                        <td class="px-3 py-1.5 text-gray-700 whitespace-nowrap text-sm font-medium">
+                        <td class="px-3 py-1.5 text-gray-700 whitespace-nowrap text-sm font-medium" title="${escapeHTML(r.donvi || r.studentClass || '-')}">
                             ${escapeHTML(r.donvi || r.studentClass || '-')}
                         </td>
                         <td class="px-2 py-1.5 text-center whitespace-nowrap">
@@ -16015,17 +16015,17 @@ CẤU TRÚC JSON:
                         <td class="px-2 py-1.5 text-center text-gray-600 whitespace-nowrap">${formatTime(r.timeTaken)}</td>
                         <td class="px-2 py-1.5 text-center whitespace-nowrap">
                             ${r.aiGradingSummary ? 
-                                `<span class="px-2 py-0.5 rounded-full text-xs font-bold ${r.aiGradingSummary.includes('Lỗi') ? 'bg-red-100 text-purple-700' : 'bg-purple-100 text-purple-700'}">${r.aiGradingSummary}</span>` : 
+                                `<span class="px-2 py-0.5 rounded-full text-xs font-bold ${r.aiGradingSummary.includes('Lỗi') ? 'bg-red-100 text-purple-700' : 'bg-purple-100 text-purple-700'}" title="${escapeHTML(r.aiGradingSummary)}">${escapeHTML(r.aiGradingSummary)}</span>` : 
                                 '<span class="text-gray-400 text-xs">-</span>'
                             }
                         </td>
                         <td class="px-3 py-1.5 text-gray-700 text-[15px] leading-tight">
-                            <div class="font-bold text-gray-800">${escapeHTML(r.examName)}</div>
+                            <div class="font-bold text-gray-800" title="${escapeHTML(r.examName)}">${escapeHTML(r.examName)}</div>
                             <div class="italic text-[13px] text-purple-600 mt-0.5">Người tạo: ${escapeHTML(examCreatorDisplayName(r,accountsMap,currentUser))}</div>
                             <div class="text-[13px] text-gray-500 mt-0.5">${window.formatVNTime(r.timestamp)}</div>
                         </td>
                         <td class="px-2 py-1.5 text-center whitespace-nowrap">
-                            <div class="flex items-center justify-center gap-1.5">
+                            <div class="ranking-result-actions flex items-center justify-center gap-1.5">
                                 <button 
                                     onclick="showExamDetail('${r.id}')" 
                                     class="px-2.5 py-1 bg-blue-50 text-blue-600 hover:bg-blue-100 hover:text-blue-700 border border-blue-200 rounded-lg transition text-xs font-semibold flex items-center gap-1 cursor-pointer shadow-2xs active:scale-95"

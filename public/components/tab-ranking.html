@@ -48,7 +48,7 @@
         </div>
       </div>
     </section>
-    <div id="ranking-admin-panel" class="bg-white rounded-2xl shadow-xl p-3 md:p-5 mb-4">
+    <div id="ranking-admin-panel" class="bg-white rounded-2xl shadow-xl p-3 md:p-5 mb-4 w-full min-w-0">
       <!-- Header & Hàng nút: Tải lại kết quả + Báo cáo + Export Excel -->
       <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 mb-4 pb-3 border-b border-gray-100">
         <h2 class="text-lg sm:text-xl font-bold text-gray-800 flex items-center gap-2">
@@ -163,8 +163,22 @@
       </div>
 
       <!-- Bảng Desktop -->
-      <div id="ranking-container-desktop" class="hidden md:block overflow-x-auto">
-       <table class="w-full text-[15px]">
+      <div id="ranking-container-desktop" class="hidden lg:block w-full min-w-0">
+       <table class="ranking-results-table w-full" aria-label="Bảng quản lý kết quả">
+         <colgroup>
+           <col style="width: 3.3%">
+           <col style="width: 4.4%">
+           <col style="width: 7.1%">
+           <col style="width: 12.8%">
+           <col style="width: 5.8%">
+           <col style="width: 10.4%">
+           <col style="width: 5.5%">
+           <col style="width: 6.3%">
+           <col style="width: 6%">
+           <col style="width: 10.5%">
+           <col style="width: 18.9%">
+           <col style="width: 9%">
+         </colgroup>
         <thead>
          <tr class="bg-gradient-to-r from-purple-500 to-pink-500 text-white text-base select-none">
           <th class="px-1.5 py-1.5 text-center rounded-tl-lg w-10">
@@ -189,7 +203,7 @@
       </div>
 
       <!-- Thanh chọn nhanh trên Mobile -->
-      <div class="md:hidden flex items-center justify-between px-2 py-1.5 mb-2 bg-purple-50/70 rounded-xl border border-purple-100">
+      <div class="lg:hidden flex items-center justify-between px-2 py-1.5 mb-2 bg-purple-50/70 rounded-xl border border-purple-100">
         <label class="flex items-center gap-2 text-xs font-bold text-purple-900 cursor-pointer select-none">
           <input type="checkbox" id="ranking-select-all-mobile" onchange="toggleAllRankingCheckboxes(this.checked)" class="w-4 h-4 rounded text-purple-600 border-gray-300">
           <span>Chọn tất cả trang này</span>
@@ -198,7 +212,7 @@
       </div>
 
       <!-- Danh sách dạng Card trên Mobile -->
-      <div id="ranking-container-mobile" class="md:hidden space-y-4 px-1"></div>
+      <div id="ranking-container-mobile" class="lg:hidden space-y-4 px-1"></div>
 
       <!-- Thanh phân trang linh hoạt chuyên nghiệp -->
       <div id="ranking-pagination" class="mt-4 pt-3 border-t border-gray-100 flex flex-wrap items-center justify-between gap-3 px-2 text-sm text-gray-700"></div>
