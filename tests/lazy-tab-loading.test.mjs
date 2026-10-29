@@ -49,3 +49,17 @@ test('lazy tab loader and role-based access guard remain present', () => {
   assert.ok(main.includes('authDataGeneration'));
   assert.ok(main.includes('async function ensureStudentTeacherDirectory()'));
 });
+
+
+test('settings tab downloads protected configuration only when opened',()=>{
+  assert.match(main,/async function ensureAdminSettingsLoaded\(\)/);
+  assert.match(main,/tabName === 'settings'[\s\S]{0,140}ensureAdminSettingsLoaded\(\)/);
+});
+test('student directory is fetched on interaction, not opening exam',()=>{
+  assert.match(main,/select\.addEventListener\('focus',load\)/);
+  assert.match(main,/select\.addEventListener\('pointerdown',load\)/);
+  assert.doesNotMatch(main,/tabName === 'exam'\) \{\s*if\(!isAdminLoggedIn&&!isTeacherLoggedIn\)void ensureStudentTeacherDirectory/);
+});
+test('late tab response does not navigate after user chooses another tab',()=>{
+  assert.match(main,/generation===authDataGeneration&&requestedTab===tabName/);
+});
