@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {parseManagementPage,accountsPageQuery,resultsPageQuery} from '../src/management-page-queries.js';
+import {parseManagementPage,accountsPageQuery,resultsPageQuery,resolveTeacherManagementScope} from '../src/management-page-queries.js';
 import {readFileSync} from 'node:fs';
 test('page requests are bounded and do not trust role or tenant query params',()=>{
  const p=parseManagementPage('https://host/api/accounts-page?page=2&limit=9000&tenant=evil');
@@ -31,4 +31,20 @@ test('Cloudflare and Express expose the same paginated routes',()=>{
   assert.match(readFileSync('functions/api/'+route+'.ts','utf8'),/parseManagementPage/);
  }
  assert.match(main,/resultsLoaded=false;void loadAllResults\(\)/);
+});
+
+test('teacher assignments are verified against profile school and scoped into query',async()=>{
+ const actor={id:'teacherA',user_id:'profileA',role:'teacher'};
+ const seen=[];
+ const verified=await resolveTeacherManagementScope(actor,async(sql,args)=>{
+   seen.push([sql,args]);
+   if(sql.includes('FROM users'))return [{donvi:'School A'}];
+   return [{class_name:'12A',donvi:'School A'},{class_name:'12B',donvi:'Other School'}];
+ });
+ assert.deepEqual(verified.assignedScopes,[{className:'12A',unit:'School A'}]);
+ const q=resultsPageQuery(parseManagementPage('https://h/api/results-page'),verified);
+ assert.match(q.rowsSQL,/class_name|r\.lop/);
+ assert.ok(q.rowsArgs.includes('12A'));
+ assert.ok(!q.rowsArgs.includes('12B'));
+ assert.equal(seen.length,2);
 });
