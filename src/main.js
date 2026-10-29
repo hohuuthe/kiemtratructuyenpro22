@@ -3256,8 +3256,32 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
         }
         window.fetchAllResultsChunked = fetchAllResultsChunked;
 
+        let rankingServerTotal=null,rankingLoadSeq=0;
         async function loadAllResults(force = false, retryCount = 0, silent = false, onProgress = null) {
             if (resultsLoaded && !force) return;
+            if (isAdminLoggedIn || isTeacherLoggedIn) {
+                const seq=++rankingLoadSeq,generation=authDataGeneration,uid=String(currentUser?.id||'');
+                const args=new URLSearchParams({page:String(window.rankingCurrentPage||1),limit:String(window.rankingPageSize==='all'?50:Math.min(100,Number(window.rankingPageSize)||50)),
+                  search:document.getElementById('ranking-search')?.value||'',
+                  exam:document.getElementById('ranking-exam-filter')?.value||'',
+                  teacher:isAdminLoggedIn?(document.getElementById('ranking-teacher-filter')?.value||''):'',
+                  unit:document.getElementById('ranking-unit-filter')?.value||'',
+                  class:document.getElementById('ranking-class-filter')?.value||''});
+                try{
+                    const response=await fetch('/api/results-page?'+args,{headers:{Authorization:'Bearer '+(localStorage.getItem('auth_token')||'')},cache:'no-store'});
+                    if(!response.ok)throw Error('HTTP '+response.status);
+                    const payload=await response.json();
+                    if(!Array.isArray(payload.data))throw Error('Trang kết quả không hợp lệ');
+                    if(seq!==rankingLoadSeq||generation!==authDataGeneration||uid!==String(currentUser?.id||''))return;
+                    rankingServerTotal=Number(payload.total||0);
+                    results=payload.data.map(r=>({id:r.id,userId:r.user_id||'',studentName:r.student_name,studentClass:r.student_class,
+                      lop:r.lop||'',donvi:r.don_vi||r.student_class||'',score:Number(r.score)||0,correctCount:r.correct_count,
+                      totalQuestions:r.total_questions,timeTaken:r.time_taken,examName:r.exam_name,examId:r.exam_id,
+                      examCreatorId:r.exam_creator_id||'',details:[],timestamp:r.created_at,
+                      loaiThiSinh:r.loai_thi_sinh,cheatWarningCount:Number(r.cheat_warning_count)||0,aiGradingSummary:r.ai_grading_summary}));
+                    resultsLoaded=true;renderRanking();return;
+                }catch(e){if(seq===rankingLoadSeq)showToast('Không tải được trang kết quả: '+e.message,'error');return;}
+            }
             const generation = authDataGeneration;
             const account = String(currentUser?.id || '');
             try {
@@ -15325,7 +15349,7 @@ CẤU TRÚC JSON:
                 localStorage.setItem('ranking_page_size', String(sz));
             }
             window.rankingCurrentPage = 1;
-            renderRanking();
+            if(isAdminLoggedIn||isTeacherLoggedIn){resultsLoaded=false;void loadAllResults();}else renderRanking();
             const table = document.getElementById('ranking-container-desktop') || document.getElementById('tab-ranking');
             if (table) {
                 table.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -15502,7 +15526,7 @@ CẤU TRÚC JSON:
 
         window.changeRankingPage = function(page) {
             window.rankingCurrentPage = Math.max(1, parseInt(page, 10) || 1);
-            renderRanking();
+            if(isAdminLoggedIn||isTeacherLoggedIn){resultsLoaded=false;void loadAllResults();}else renderRanking();
             const table = document.getElementById('ranking-container-desktop');
             if (table) {
                 table.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -15783,8 +15807,8 @@ CẤU TRÚC JSON:
             window.currentFilteredRankingResults = sortedResults;
 
             // Tính toán phân trang linh hoạt, hỗ trợ tùy chọn 'all' và các mức số dòng
-            const totalItems = sortedResults.length;
-            const isAll = window.rankingPageSize === 'all';
+            const totalItems = (isAdmin || isTeacher) && rankingServerTotal!==null ? rankingServerTotal : sortedResults.length;
+            const isAll = window.rankingPageSize === 'all' && !(isAdmin||isTeacher);
             const pageSize = isAll ? Math.max(1, totalItems) : (parseInt(window.rankingPageSize, 10) || 50);
             const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
 
@@ -15797,7 +15821,7 @@ CẤU TRÚC JSON:
 
             const startIndex = isAll ? 0 : (window.rankingCurrentPage - 1) * pageSize;
             const endIndex = isAll ? totalItems : Math.min(startIndex + pageSize, totalItems);
-            const pageResults = sortedResults.slice(startIndex, endIndex);
+            const pageResults = (isAdmin || isTeacher) && rankingServerTotal!==null ? sortedResults : sortedResults.slice(startIndex, endIndex);
 
             const mobileCountText = document.getElementById('ranking-mobile-count-text');
             if (mobileCountText) {
