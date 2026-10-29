@@ -30,7 +30,7 @@ test('Admin dropdown lists only unique creators of available questions and resol
  assert.deepEqual(opts.map(o=>o.id).sort(),['teacher-a','teacher-abc','teacher-b']);
  assert.match(opts.find(o=>o.id==='teacher-a').label,/gva/);
  assert.match(opts.find(o=>o.id==='teacher-b').label,/gvb/);
- assert.match(opts.find(o=>o.id==='teacher-abc').label,/teacher-abc/);
+ assert.equal(opts.find(o=>o.id==='teacher-abc').label,'Chưa có tên giáo viên');
  assert.equal(new Set(opts.map(o=>o.label)).size,opts.length);
  assert.equal(questionTeacherOptions(questions,accounts,{id:'teacher-a'},false).length,0);
 });
@@ -39,7 +39,7 @@ test('Display names can contain HTML but will only become DOM option text',()=>{
  assert.equal(opts[0].label,'<img src=x onerror=alert(1)>');
  const src=readFileSync('src/main.js','utf8');
  assert.match(src,/select\.add\(new Option\(entry\.label, entry\.id\)\)/);
- assert.match(src,/escapeHTML\(accountsMap\[questionCreatorId\(q\)\]/);
+ assert.match(src,/questionAuthorDisplayName\(q,accountsMap,currentUser\)/);
 });
 test('UI uses the teacher filter in all dependent bank operations and resets selection on change',()=>{
  const src=readFileSync('src/main.js','utf8');
@@ -63,7 +63,7 @@ test('UI uses the teacher filter in all dependent bank operations and resets sel
 test('Server remains the source of authorization: teacher questions are server-scoped',()=>{
  const cf=readFileSync('functions/api/questions.ts','utf8');
  const node=readFileSync('server.ts','utf8');
- assert.match(cf,/if \(!isAdmin\) \{\s*query \+= " WHERE creator_id = \?"/);
+ assert.match(cf,/if \(!isAdmin\) \{\s*query \+= " WHERE q.creator_id = \?"/);
  assert.match(node,/WHERE creator_id = \?/);
  assert.doesNotMatch(readFileSync('src/question-teacher-filter.js','utf8'),/fetch\(|delete\s+from/i);
 });
