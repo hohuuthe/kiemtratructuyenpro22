@@ -7586,63 +7586,43 @@ if (contentType && contentType.includes("application/json")) {
         }
         
         window._verifyQuestionsSeq = 0;
+        // Do not download all metadata for each selected exam. Authorization,
+        // question inventory, and quota are checked by the backend preflight.
         window.verifyExamQuestionsOnServer = async function(examData) {
-            const currentVerifySeq = ++window._verifyQuestionsSeq;
+            const seq = ++window._verifyQuestionsSeq;
             window.examAvailableCounts = null;
-            if (!examData || !examData.creator_id) return;
-
+            window.examAvailabilityVerified = false;
+            if (!examData?.id || !examData?.creator_id) return;
+            const name = document.getElementById('guest_data_1')?.value?.trim() || '';
+            // Student can fill their name after selecting the exam; startExam
+            // always performs the same server gate before receiving questions.
+            if (!name) return;
+            const lop = (document.getElementById('guest_data_lop') || document.getElementById('guest_data_2'))?.value?.trim() || '';
+            const donvi = document.getElementById('guest_data_donvi')?.value?.trim() || '';
+            const token = localStorage.getItem('auth_token') || '';
             try {
-                // Chỉ lấy type, level, lesson. Siêu nhẹ, bảo mật tuyệt đối không tải đáp án/nội dung
-                const res = await fetch(`/api/questions?metaOnly=true&teacherId=${encodeURIComponent(examData.creator_id)}`);
-                if (currentVerifySeq !== window._verifyQuestionsSeq) return;
-                if (!res.ok) throw new Error('Không thể tải metadata câu hỏi');
-                let resJson;
-                const contentType = res.headers.get("content-type");
-                if (contentType && contentType.includes("application/json")) {
-                    resJson = await res.json();
-                } else {
-                    throw new Error("Server returned non-JSON response (likely 502/504 during restart). Status: " + res.status);
+                const response = await fetchExamStartResponse(fetch, '/api/exam/generate', {
+                    method:'POST', cache:'no-store',
+                    headers:{'Content-Type':'application/json', ...(token ? {Authorization:'Bearer '+token}:{})},
+                    body:JSON.stringify({
+                        preflightOnly:true, teacherId:examData.creator_id, examId:examData.id,
+                        examName:examData.name, examAccessCode:window._studentExamAccessCode||'',
+                        studentName:name, studentLop:lop, studentDonvi:donvi,
+                        studentClass:lop && donvi ? lop+' - '+donvi : lop||donvi,
+                        userLop:currentUser?.lop||lop, userDonvi:currentUser?.donvi||donvi
+                    })
+                });
+                if (seq !== window._verifyQuestionsSeq || String(document.getElementById('student-exam-name-filter')?.value||'') !== String(examData.id)) return;
+                window.examAvailabilityVerified = response.ok && response.body?.ready === true;
+                window.examPreflightResponse = response.body || null;
+                if (!window.examAvailabilityVerified) {
+                    window.examAvailableCounts = null;
                 }
-                const data = resJson.data || [];
-                
-                let counts = {};
-                const rawFilter = examData.selected_lessons || examData.selectedLessons || [];
-                const lessonFilter = (Array.isArray(rawFilter) ? rawFilter : [rawFilter])
-                    .map(l => String(l || '').trim().toLowerCase().replace(/\s+/g, ' '))
-                    .filter(Boolean);
-                const allowedSet = new Set(lessonFilter);
-
-                const normType = (type) => {
-                    const t = String(type || '').trim().toLowerCase();
-                    if (t === '4-1' || t === 'trac_nghiem' || t === 'mcq') return '4-1';
-                    if (t === 'tf4' || t === 'dung_sai' || t === 'true_false') return 'TF4';
-                    if (t === 'sq' || t === 'tra_loi_ngan' || t === 'short_answer') return 'SQ';
-                    if (t === 'tl' || t === 'tu_luan' || t === 'essay') return 'TL';
-                    return type;
-                };
-                const normLevel = (lvl) => {
-                    const l = String(lvl || '').trim().toUpperCase();
-                    if (l === 'NB' || l === 'TH' || l === 'VD') return l;
-                    return 'NB';
-                };
-                
-                if (data && Array.isArray(data)) {
-                    for (let q of data) {
-                        const qLesson = String(q.lesson || '').trim().toLowerCase().replace(/\s+/g, ' ');
-                        // CHỈ ĐẾM CÂU HỎI KHI BÀI HỌC THỰC SỰ NẰM TRONG BÀI ĐÃ CHỌN CỦA ĐỀ THI
-                        if (allowedSet.size > 0 && allowedSet.has(qLesson)) {
-                            const key = normType(q.type) + '-' + normLevel(q.level);
-                            counts[key] = (counts[key] || 0) + 1;
-                        }
-                    }
-                }
-                if (currentVerifySeq === window._verifyQuestionsSeq) {
-                    window.examAvailableCounts = counts;
-                    updateCurrentExamInfo();
-                }
-            } catch(e) {
-                if (currentVerifySeq !== window._verifyQuestionsSeq) return;
-                console.error("Error verifying exam questions on server:", e);
+                updateCurrentExamInfo();
+            } catch (err) {
+                if (seq !== window._verifyQuestionsSeq) return;
+                window.examAvailabilityVerified = false;
+                console.warn('Exam readiness check unavailable:', err);
             }
         };
 
@@ -7713,27 +7693,16 @@ if (contentType && contentType.includes("application/json")) {
                     return allowedSet.has(qLesson);
                 };
                 
-                // NẾU CÓ DỮ LIỆU ĐÃ ĐẾM XÁC THỰC TỪ SERVER CHO HỌC SINH -> ƯU TIÊN DÙNG SỐ LIỆU NÀY
-                if (window.examAvailableCounts && studentTeacher && studentExam) {
-                    getCount = (type, level) => window.examAvailableCounts[type + '-' + level] || 0;
+                // Never infer student readiness from a local question cache.
+                if (studentTeacher && studentExam) {
+                    isEnough = window.examAvailabilityVerified === true;
                 } else {
-                    const normType = (t) => {
-                        const s = String(t || '').trim().toLowerCase();
-                        if (s === '4-1' || s === 'trac_nghiem' || s === 'mcq') return '4-1';
-                        if (s === 'tf4' || s === 'dung_sai' || s === 'true_false') return 'TF4';
-                        if (s === 'sq' || s === 'tra_loi_ngan' || s === 'short_answer') return 'SQ';
-                        if (s === 'tl' || s === 'tu_luan' || s === 'essay') return 'TL';
-                        return t;
-                    };
-                    const normLevel = (lvl) => {
-                        const l = String(lvl || '').trim().toUpperCase();
-                        if (l === 'NB' || l === 'TH' || l === 'VD') return l;
-                        return 'NB';
-                    };
-                    getCount = (type, level) => filteredQuestions.filter(q => normType(q.type) === type && normLevel(q.level) === level && filterByLesson(q)).length;
+                    const normalized = q => String(q || '').trim().toUpperCase();
+                    getCount = (type, level) => filteredQuestions.filter(q =>
+                        normalized(q.type) === normalized(type) &&
+                        normalized(q.level) === normalized(level) && filterByLesson(q)).length;
+                    isEnough = checkExamQuestionsAvailability(examConfig, getCount);
                 }
-                
-                isEnough = checkExamQuestionsAvailability(examConfig, getCount);
             }
 
             // 2. Cập nhật chi tiết các thẻ chỉ số trên giao diện học sinh khi đã chọn đề
