@@ -1539,11 +1539,11 @@ Trả về kết quả dưới dạng JSON Array, mỗi phần tử tương ứn
                 try { updateStats(); } catch (e) { console.warn('updateStats init error:', e); }
                 try { updateCurrentExamInfo(); } catch (e) { console.warn('updateCurrentExamInfo init error:', e); }
                 try { renderRanking(); } catch (e) { console.warn('renderRanking init error:', e); }
-                try { renderAccounts(); } catch (e) { console.warn('renderAccounts init error:', e); }
+                // Accounts render on tab selection.
                 try { loadSettings(); } catch (e) { console.warn('loadSettings init error:', e); }
                 try { applyDoiTuongConfig(); } catch (e) { console.warn('applyDoiTuongConfig init error:', e); }
                 try { initElementSDK(); } catch (e) { console.warn('initElementSDK init error:', e); }
-                try { await initExamPanel(); } catch (e) { console.warn('initExamPanel init error:', e); }
+                // Exam editor renders on tab selection.
                 try { await checkLicense(); } catch (err) { console.warn('License check error:', err); }
 
                 // Tự động cập nhật thông tin đề thi mỗi 30 giây
@@ -1552,7 +1552,7 @@ Trả về kết quả dưới dạng JSON Array, mỗi phần tử tương ứn
                 }, 30000);
 
                 // Lazy load questions
-                loadQuestions();
+                // Do not prefetch questions.
                 
                 // Mặc định hiển thị tab phù hợp theo vai trò đăng nhập
                 try {
@@ -2228,12 +2228,9 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             }
 
             resetMyStudentResults();
+            publicTeachersLoaded=false;publicTeacherPromise=null;
             // Nạp lại dữ liệu theo quyền hạn tài khoản đăng nhập đồng thời (Song song, không tuần tự)
-            const loadTasks = [loadData()];
-            if (isAdminLoggedIn || isTeacherLoggedIn) {
-                loadTasks.push(loadQuestions(true));
-            }
-            await Promise.all(loadTasks);
+            await loadData();
 
             if (isAdminLoggedIn || isTeacherLoggedIn) {
                 updateQuestionTeacherFilter();
@@ -2285,9 +2282,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 if (elCreator) elCreator.value = currentUser.full_name;
 
                 // Load danh sách tên đề thi của giáo viên này (Admin không nạp trước)
-                if (!isAdminLoggedIn) {
-                    await updateExamNamesList(false);
-                }
+                // Exam listing loads on selecting an Exams tab.
 
                 // KHÔNG TỰ ĐỘNG LOAD ĐỀ THI MỚI NHẤT TRONG TAB QUẢN LÝ
                 // Luôn để ô chọn câu hỏi hoặc đề thi mặc định là "Chọn đề thi có sẵn" để giáo viên tự chọn
@@ -2328,6 +2323,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                     document.querySelector('[data-tab="teacher-assignment"]')?.classList.add('hidden');
                 }
             } else {
+                switchTab('exam');
                 // If not admin and not teacher, hide protected tabs
                 document.querySelector('[data-tab="accounts"]')?.classList.add('hidden');
                 document.querySelector('[data-tab="users"]')?.classList.add('hidden');
@@ -2530,6 +2526,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             }
 
             resetMyStudentResults();
+            publicTeachersLoaded=false;publicTeacherPromise=null;
             // Xóa sạch dữ liệu trong bộ nhớ để bảo mật tuyệt đối
             if (typeof questions !== 'undefined') questions.length = 0;
             if (typeof exams !== 'undefined') exams.length = 0;
@@ -3565,322 +3562,52 @@ if (contentType && contentType.includes("application/json")) {
             }
         };
 
-        async function loadData() {
-            try {
-                console.time('loadData');
-                
-                // Reset metadata mappings to ensure no cross-contamination
-                examToCreatorMap = {};
-                examIdToCreatorMap = {};
-                window.examNameToIdMap = {};
-                window.examToSharedResultsMap = {}; // Thêm ánh xạ mới cho quyền xem kết quả
-                
-                let rRes = { error: null, data: [] };
-                let accRes = { error: null, data: [] };
-                let ecRes = { error: null, data: [] };
-                let sRes = { error: null, data: null };
-                let qCountRes = { count: 0 };
-                let rCountRes = { count: 0 };
-                
-                if (!currentUser) {
-                    console.log('Optimized loadData for Guest/Student (Not logged in)');
-                    // Fetch exam configs, app settings, and public teacher accounts in parallel
-                    const [ecResult, sResult, accResult] = await Promise.all([
-                        fetch('/api/exams').then(res => res.json()).catch(() => ({error: 'Lỗi', data: []})),
-                        fetch('/api/settings', { headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('auth_token') || '') } }).then(res => res.json()).catch(() => ({error: 'Lỗi', data: null})),
-                        fetch('/api/accounts').then(res => res.json()).catch(() => ({error: 'Lỗi', data: []}))
-                    ]);
-                    
-                    ecRes = ecResult;
-                    sRes = sResult;
-                    accRes = accResult;
-                    
-                    if (!accRes.error && accRes.data) {
-                        accounts = accRes.data;
-                        accounts.forEach(acc => {
-                            if (acc.id) accountsMap[acc.id] = acc.full_name || acc.username;
-                        });
-                    } else {
-                        accounts = [];
-                    }
-
-                    if (!ecRes.error && ecRes.data) {
-                        const idsFromExams = (ecRes.data || []).map(e => e.creator_id || e.creatorId).filter(id => id);
-                        const idsFromAll = ecRes.allCreatorIds || (ecResult && ecResult.allCreatorIds) || window.allExamCreatorIds || [];
-                        if (ecRes.allCreatorIds) window.allExamCreatorIds = ecRes.allCreatorIds;
-                        examConfigCreatorIds = [...new Set([...idsFromExams, ...idsFromAll])];
-                        ecRes.data.forEach(e => {
-                            if (e.name) {
-                                if (e.creator_id) {
-                                    examToCreatorMap[e.name] = e.creator_id;
-                                    if (e.id) examIdToCreatorMap[String(e.id)] = e.creator_id;
-                                }
-                                if (e.id) window.examNameToIdMap[e.name] = e.id;
-                                window.examToSharedResultsMap[e.name] = (e.is_shared_results === true || e.is_shared_results === 1 || e.is_shared_results === 'true');
-                            }
-                        });
-                    }
-
-                    results = [];
-                    questionsLoaded = false;
-                    resultsLoaded = false;
-                    examsLoaded = false;
-                    
-                    if (!sRes.error && sRes.data) {
-                        const sData = sRes.data;
-                        appSettings = {
-                            ...appSettings,
-                            showResultsDetails: sData.show_results_details,
-                            allowRankingDetails: sData.allow_ranking_details,
-                            showDeleteSelectedRanking: sData.show_delete_selected_ranking,
-                            immediateFeedback: sData.immediate_feedback,
-                            sqCaseSensitive: sData.sq_case_sensitive,
-                            sqPunctuationSensitive: sData.sq_punctuation_sensitive,
-                            questionFontSize: sData.question_font_size,
-                            answerFontSize: sData.answer_font_size,
-                            displayMode: sData.display_mode,
-                            appTitle: sData.app_title || appSettings.appTitle,
-                            authorInfo: (sData.author_info && !sData.author_info.includes("Ban Quản Trị") && !sData.author_info.includes("Được tạo bởi") && sData.author_info.includes("Hồ Hữu Thế")) ? sData.author_info : "Phát triển bởi: Hồ Hữu Thế - 0935 078 895",
-                            aiPrompt: sData.ai_prompt || appSettings.aiPrompt,
-                            aiAppraisePrompt: sData.ai_appraise_prompt || appSettings.aiAppraisePrompt,
-                            aiGradingKey: sData.ai_grading_key || appSettings.aiGradingKey,
-                            qrCodeUrl: sData.qr_code_url || ''
-                        };
-                        window.appSettings = appSettings;
-                        localStorage.setItem('appSettings', JSON.stringify(appSettings));
-                        if (appSettings.appTitle === "ỨNG DỤNG KIỂM TRA TRẮC NGHIỆM - PRO V1.0" || appSettings.appTitle === "KIỂM TRA TRẮC NGHIỆM HHT PRO V1.0" || appSettings.appTitle === "Hệ Thống Khảo Sát & Đánh Giá Năng Lực Trực Tuyến" || appSettings.appTitle === "Hệ thống khảo sát & đánh giá năng lực trực tuyến" || appSettings.appTitle === "PHẦN MỀM KIỂM TRA TRẮC NGHIỆM" || appSettings.appTitle === "PHẦN MỀM KIỂM TRA TRỰC TUYẾN") {
-                            appSettings.appTitle = "HỆ THỐNG KIỂM TRA TRỰC TUYẾN";
-                        }
-                    }
-                    
-                    const userPrefs = localStorage.getItem('userPreferences');
-                    if (userPrefs) {
-                        try {
-                            const parsedPrefs = JSON.parse(userPrefs);
-                            appSettings = { ...appSettings, ...parsedPrefs };
-                        } catch (e) {
-                            console.error('Error parsing user preferences:', e);
-                        }
-                    }
-                    
-                    updateStudentTeacherFilter();
-                    updateExamTeacherFilter();
-                    updateCurrentExamInfo();
-                    console.timeEnd('loadData');
-                    return;
-                } else if (isAdminLoggedIn) {
-                    console.log('⚡ Lazy mode for Admin: Skipping large database tables queries during loadData');
-                    const { data: sData, error: sErr } = await fetch('/api/settings', { headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('auth_token') || '') } }).then(res => res.json()).catch(() => ({error: 'Lỗi', data: null}));
-                    if (!sErr && sData) {
-                        appSettings = {
-                            ...appSettings, 
-                            showResultsDetails: sData.show_results_details, 
-                            allowRankingDetails: sData.allow_ranking_details, 
-                            showDeleteSelectedRanking: sData.show_delete_selected_ranking, 
-                            immediateFeedback: sData.immediate_feedback, 
-                            sqCaseSensitive: sData.sq_case_sensitive, 
-                            aiEnabled: sData.ai_enabled || false,
-                            aiGradingPrompt: sData.ai_grading_prompt || '',
-                            aiModelName: sData.ai_model_name || 'gemini-1.5-flash',
-                            appTitle: sData.app_title || 'HỆ THỐNG KIỂM TRA TRỰC TUYẾN',
-                            appSlogan: sData.app_slogan || 'Sử dụng công nghệ AI chấm điểm tự luận',
-                            logoUrl: sData.logo_url || '',
-                            qrCodeUrl: sData.qr_code_url || ''
-                        };
-                        
-                        if (appSettings.appTitle === "Hệ Thống Khảo Sát & Đánh Giá Năng Lực Trực Tuyến" || appSettings.appTitle === "Hệ thống khảo sát & đánh giá năng lực trực tuyến" || appSettings.appTitle === "PHẦN MỀM KIỂM TRA TRẮC NGHIỆM") {
-                            appSettings.appTitle = "HỆ THỐNG KIỂM TRA TRỰC TUYẾN";
-                        }
-                    }
-
-                    // Load accounts for mappings (authors, etc)
-                    const accResult = await fetch('/api/accounts', { headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('auth_token') || '') } }).then(res => res.json()).catch(() => ({error: 'Lỗi', data: null}));
-                    if (!accResult.error && accResult.data) {
-                        accounts = accResult.data;
-                        accounts.forEach(acc => {
-                            if (acc.id) accountsMap[acc.id] = acc.full_name || acc.username;
-                        });
-                    } else {
-                        accounts = [];
-                    }
-
-                    // Load exam configs for mappings
-                    const ecResJson = await fetch('/api/exams', { headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('auth_token') || '') } }).then(res => res.json()).catch(() => ({ data: [] }));
-                    const ecData = ecResJson.data || [];
-                    if (ecData) {
-                        const idsFromExams = (ecData || []).map(e => e.creator_id || e.creatorId).filter(id => id);
-                        const idsFromAll = ecResJson.allCreatorIds || window.allExamCreatorIds || [];
-                        if (ecResJson.allCreatorIds) window.allExamCreatorIds = ecResJson.allCreatorIds;
-                        examConfigCreatorIds = [...new Set([...idsFromExams, ...idsFromAll])];
-                        ecData.forEach(e => {
-                            if (e.name) {
-                                if (e.creator_id) {
-                                    examToCreatorMap[e.name] = e.creator_id;
-                                    if (e.id) examIdToCreatorMap[String(e.id)] = e.creator_id;
-                                }
-                                if (e.id) window.examNameToIdMap[e.name] = e.id;
-                                window.examToSharedResultsMap[e.name] = (e.is_shared_results === true || e.is_shared_results === 1 || e.is_shared_results === 'true');
-                            }
-                        });
-                    }
-
-                    results = [];
-                    questionsLoaded = false;
-                    resultsLoaded = false;
-                    examsLoaded = false;
-                    
-                    updateStudentTeacherFilter();
-                    updateExamTeacherFilter();
-                    updateCurrentExamInfo();
-                    console.timeEnd('loadData');
-                    return;
-                } else {
-                    console.log('Full loadData for logged-in user:', currentUser.username);
-                    const token = localStorage.getItem('auth_token') || '';
-                    const ecResJson = await fetch('/api/exams', { headers: { 'Authorization': 'Bearer ' + token } }).then(res => res.json()).catch(() => ({ data: [] }));
-                    const ecData = ecResJson.data || [];
-                    const ecResult = { data: ecData, allCreatorIds: ecResJson.allCreatorIds, error: null };
-
-                    // No legacy, cross-user results payload is requested for students.
-                    // Their personal history is loaded only on opening QL Kết quả.
-                    const resultsQuery = Promise.resolve({ data: [] });
-                    
-                    const qCountPromise = fetch('/api/questions?count=true', { headers: { 'Authorization': 'Bearer ' + token } }).then(res => res.json()).catch(() => ({ count: 0 }));
-                    const rCountPromise = fetch('/api/results?count=true', { headers: { 'Authorization': 'Bearer ' + token } }).then(res => res.json()).catch(() => ({ count: 0 }));
-                    
-                    const accountsQuery = Promise.resolve({ data: [] });
-
-                    const [rResult, accResult, sResult, qCountResult, rCountResult] = await Promise.all([
-                        resultsQuery,
-                        accountsQuery,
-                        fetch('/api/settings', { headers: { 'Authorization': 'Bearer ' + token } }).then(res => res.json()).catch(() => ({error: 'Lỗi', data: null})),
-                        qCountPromise,
-                        rCountPromise
-                    ]);
-                    
-                    rRes = rResult;
-                    accRes = accResult;
-                    ecRes = ecResult;
-                    sRes = sResult;
-                    qCountRes = qCountResult;
-                    rCountRes = rCountResult;
-                }
-
-                // 1. Process Question Count for Stats
-                if (qCountRes && qCountRes.count !== null && qCountRes.count !== undefined) {
-                    window.initialQuestionCount = qCountRes.count;
-                }
-
-                // 2. Process Result Count for Stats
-                if (rCountRes && rCountRes.count !== null && rCountRes.count !== undefined) {
-                    window.initialResultCount = rCountRes.count;
-                }
-
-                // 2. Process Results
-                if (!rRes.error && rRes.data) {
-                    results = rRes.data.map(r => ({
-                        id: r.id, studentName: r.student_name, studentClass: r.student_class, score: parseFloat(r.score), correctCount: r.correct_count, totalQuestions: r.total_questions, timeTaken: r.time_taken, examName: r.exam_name, examId: r.exam_id, details: r.details || [], timestamp: r.created_at, loaiThiSinh: r.loai_thi_sinh, cheatWarningCount: Number(r.cheat_warning_count ?? r.cheatWarningCount ?? 0) || 0, aiGradingSummary: r.ai_grading_summary
-                    }));
-                } else {
-                    results = [];
-                }
-
-                // 3. Process Accounts
-                if (!accRes.error && accRes.data) {
-                    accounts = accRes.data;
-                    // Tạo bản đồ ánh xạ ID -> Tên
-                    accounts.forEach(acc => {
-                        if (acc.id) accountsMap[acc.id] = acc.full_name || acc.username;
-                    });
-                }
-
-                // 4. Process Exam Configs
-                if (!ecRes.error && ecRes.data) {
-                    const idsFromExams = ecRes.data.map(e => e.creator_id || e.creatorId).filter(id => id);
-                    const idsFromAll = ecRes.allCreatorIds || (typeof ecResJson !== 'undefined' ? ecResJson.allCreatorIds : []) || window.allExamCreatorIds || [];
-                    if (ecRes.allCreatorIds) window.allExamCreatorIds = ecRes.allCreatorIds;
-                    if (typeof ecResJson !== 'undefined' && ecResJson.allCreatorIds) window.allExamCreatorIds = ecResJson.allCreatorIds;
-                    examConfigCreatorIds = [...new Set([...idsFromExams, ...idsFromAll])];
-                    ecRes.data.forEach(e => {
-                        if (e.name) {
-                            if (e.creator_id) {
-                                examToCreatorMap[e.name] = e.creator_id;
-                                if (e.id) {
-                                    examIdToCreatorMap[String(e.id)] = e.creator_id;
-                                }
-                            }
-                            if (e.id) {
-                                window.examNameToIdMap[e.name] = e.id;
-                            }
-                            // Lưu trạng thái chia sẻ kết quả
-                            window.examToSharedResultsMap[e.name] = (e.is_shared_results === true || e.is_shared_results === 1 || e.is_shared_results === 'true');
-                        }
-                    });
-                }
-
-                // 5. Process Settings
-                const localSettings = localStorage.getItem('appSettings');
-                if (localSettings) {
-                    try {
-                        const parsedSettings = JSON.parse(localSettings);
-                        appSettings = { ...appSettings, ...parsedSettings };
-                    } catch (e) {
-                        console.error('Error parsing local settings:', e);
-                    }
-                }
-                
-                // Always update with fresh settings from the database if request succeeded
-                if (!sRes.error && sRes.data) {
-                    const sData = sRes.data;
-                    appSettings = {
-                        ...appSettings, 
-                        showResultsDetails: sData.show_results_details, 
-                        allowRankingDetails: sData.allow_ranking_details, 
-                        showDeleteSelectedRanking: sData.show_delete_selected_ranking, 
-                        immediateFeedback: sData.immediate_feedback, 
-                        sqCaseSensitive: sData.sq_case_sensitive, 
-                        sqPunctuationSensitive: sData.sq_punctuation_sensitive, 
-                        questionFontSize: sData.question_font_size, 
-                        answerFontSize: sData.answer_font_size, 
-                        displayMode: sData.display_mode, 
-                        appTitle: sData.app_title || appSettings.appTitle, 
-                        authorInfo: (sData.author_info && !sData.author_info.includes("Ban Quản Trị") && !sData.author_info.includes("Được tạo bởi") && sData.author_info.includes("Hồ Hữu Thế")) ? sData.author_info : "Phát triển bởi: Hồ Hữu Thế - 0935 078 895", 
-                        aiPrompt: sData.ai_prompt || appSettings.aiPrompt, 
-                        aiAppraisePrompt: sData.ai_appraise_prompt || appSettings.aiAppraisePrompt,
-                        aiGradingKey: sData.ai_grading_key || appSettings.aiGradingKey,
-                        qrCodeUrl: sData.qr_code_url || appSettings.qrCodeUrl || ''
-                    };
-                    
-                    if (appSettings.appTitle === "ỨNG DỤNG KIỂM TRA TRẮC NGHIỆM - PRO V1.0" || appSettings.appTitle === "KIỂM TRA TRẮC NGHIỆM HHT PRO V1.0" || appSettings.appTitle === "Hệ Thống Khảo Sát & Đánh Giá Năng Lực Trực Tuyến" || appSettings.appTitle === "Hệ thống khảo sát & đánh giá năng lực trực tuyến" || appSettings.appTitle === "PHẦN MỀM KIỂM TRA TRẮC NGHIỆM" || appSettings.appTitle === "PHẦN MỀM KIỂM TRA TRỰC TUYẾN") {
-                        appSettings.appTitle = "HỆ THỐNG KIỂM TRA TRỰC TUYẾN";
-                    }
-                    localStorage.setItem('appSettings', JSON.stringify(appSettings));
-                }
-                
-                // Khôi phục cấu hình cá nhân của người dùng (nếu có) để đè lên cấu hình mặc định từ DB
-                const userPrefs = localStorage.getItem('userPreferences');
-                if (userPrefs) {
-                    try {
-                        const parsedPrefs = JSON.parse(userPrefs);
-                        appSettings = { ...appSettings, ...parsedPrefs };
-                    } catch (e) {
-                        console.error('Error parsing user preferences:', e);
-                    }
-                }
-                
-                updateStudentTeacherFilter();
-                updateExamTeacherFilter();
-                updateCurrentExamInfo();
-                
-                console.timeEnd('loadData');
-            } catch (e) {
-                
-if (e && e.message && e.message.includes('hạn mức')) {
-    // quota error handled via UI
-} else {
-    console.error('Error loading data:', e);
-}
-            }
+        // Minimal public display settings; no role-specific tab data.
+        let bootstrapLoaded=false,bootstrapPromise=null;
+        async function loadData(){
+          if(bootstrapLoaded)return;
+          if(bootstrapPromise)return bootstrapPromise;
+          bootstrapPromise=(async()=>{
+            try{
+              const r=await fetch('/api/bootstrap',{cache:'no-store'});
+              if(!r.ok)throw Error('Bootstrap HTTP '+r.status);
+              const body=await r.json(),d=body.data;
+              if(!d)throw Error('Invalid bootstrap');
+              appSettings={...appSettings,appTitle:d.app_title||appSettings.appTitle,
+                authorInfo:d.author_info||appSettings.authorInfo,
+                questionFontSize:d.question_font_size??appSettings.questionFontSize,
+                answerFontSize:d.answer_font_size??appSettings.answerFontSize,
+                displayMode:d.display_mode||appSettings.displayMode,
+                showResultsDetails:d.show_results_details,allowRankingDetails:d.allow_ranking_details,
+                immediateFeedback:d.immediate_feedback,sqCaseSensitive:d.sq_case_sensitive,
+                sqPunctuationSensitive:d.sq_punctuation_sensitive,qrCodeUrl:d.qr_code_url||''};
+              try{const p=JSON.parse(localStorage.getItem('userPreferences')||'{}');
+                for(const k of ['questionFontSize','answerFontSize','displayMode'])
+                  if(p[k]!==undefined)appSettings[k]=p[k]
+              }catch{}
+              window.appSettings=appSettings;bootstrapLoaded=true;refreshAppHeaderTitle();
+            }catch(e){console.warn('Minimal bootstrap unavailable',e)}
+          })();
+          try{await bootstrapPromise}finally{bootstrapPromise=null}
+        }
+        let publicTeachersLoaded=false,publicTeacherPromise=null;
+        async function ensureStudentTeacherDirectory(){
+          if(isAdminLoggedIn||isTeacherLoggedIn||publicTeachersLoaded)return;
+          if(publicTeacherPromise)return publicTeacherPromise;
+          const generation=authDataGeneration,id=String(currentUser?.id||'');
+          publicTeacherPromise=(async()=>{
+            try{
+              const r=await fetch('/api/exam-teachers',{cache:'no-store'});
+              if(!r.ok)throw Error('Teacher directory HTTP '+r.status);
+              const body=await r.json();
+              if(!Array.isArray(body.data))throw Error('Invalid teacher directory');
+              if(generation!==authDataGeneration||id!==String(currentUser?.id||'')||isAdminLoggedIn||isTeacherLoggedIn)return;
+              accounts=body.data;accountsMap={};
+              accounts.forEach(a=>{if(a.id)accountsMap[a.id]=a.full_name});
+              publicTeachersLoaded=true;updateStudentTeacherFilter();
+            }catch(e){console.warn('Teacher directory unavailable',e)}
+          })();
+          try{await publicTeacherPromise}finally{publicTeacherPromise=null}
         }
 
         function generateUUID() {
@@ -4130,7 +3857,18 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
         // ==================== TAB NAVIGATION ====================
         window.switchTab = switchTab;
         function switchTab(tabName) {
-            console.log('switchTab called:', tabName);
+            console.log('switchTab called:',tabName);
+            const protectedTabs=['questions','exams','exam-editor','accounts','users','settings','ranking','teacher-assignment'];
+            const adminTabs=['accounts','settings','teacher-assignment'];
+            if(protectedTabs.includes(tabName)&&!(
+              isAdminLoggedIn||(isTeacherLoggedIn&&!adminTabs.includes(tabName))||
+              (tabName==='ranking'&&Boolean(currentUser)))){showAdminLoginModal();return}
+            if(tabName==='exam'&&(isAdminLoggedIn||isTeacherLoggedIn))tabName='exams';
+            const placeholder=document.getElementById('tab-'+tabName);
+            if(placeholder&&placeholder.dataset.componentLoaded!=='true'&&placeholder.children.length===0){
+              void ensureTabComponent(tabName).then(ok=>{if(ok)switchTab(tabName)});
+              return;
+            }
             
             const tabExam = document.getElementById('tab-exam');
             const examInterface = document.getElementById('exam-interface');
@@ -4158,6 +3896,7 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
 
             // TRƯỜNG HỢP: Quay lại tab Làm bài
             if (tabName === 'exam') {
+                if(!isAdminLoggedIn&&!isTeacherLoggedIn)void ensureStudentTeacherDirectory();
                 // Nếu đang hiển thị kết quả hoặc bài thi đã bị hủy/chưa bắt đầu
                 if (isShowingResults || !isExamInProgress) {
                     resetExam();
@@ -4263,10 +4002,7 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
             }
             
             // Tải lại thống kê mỗi lần mở QL Đề thi; số lượt làm có thể thay đổi khi học sinh nộp bài.
-            if (tabName === 'exams') {
-                if (examsLoaded) renderExamConfigsTable(); // Draw cached list while waiting for fresh counts.
-                updateExamNamesList(true);
-            }
+            if (tabName === 'exams' && examsLoaded) renderExamConfigsTable();
 
             if (tabName === 'questions' || tabName === 'exam-editor') {
                 if (!questionsLoaded) {
@@ -5461,22 +5197,8 @@ if (contentType && contentType.includes("application/json")) {
                 select.remove(1);
             }
             
-            // Nếu chưa có accounts, nạp ngay danh sách tài khoản từ API
-            if (!accounts || accounts.length === 0) {
-                const token = localStorage.getItem('auth_token') || '';
-                fetch('/api/accounts', { headers: token ? { 'Authorization': 'Bearer ' + token } : {} })
-                    .then(r => r.json())
-                    .then(res => {
-                        if (res && res.data && Array.isArray(res.data) && res.data.length > 0) {
-                            accounts = res.data;
-                            accounts.forEach(acc => {
-                                if (acc.id) accountsMap[acc.id] = acc.full_name || acc.username;
-                            });
-                            updateStudentTeacherFilter();
-                        }
-                    })
-                    .catch(() => {});
-            }
+            // No network I/O from student selector; directory is loaded on exam tab.
+            if(!accounts)accounts=[];
             
             const creatorIds = [...new Set([...(window.allExamCreatorIds || []), ...(examConfigCreatorIds || [])])].map(String);
             
@@ -22232,16 +21954,31 @@ CẤU TRÚC JSON:
                 console.warn('Lỗi làm mới danh sách sau khi import:', err);
             }
         };
+        const tabComponentPromises=new Map();
+        async function ensureTabComponent(name){
+          const id='tab-'+name,p=document.getElementById(id);
+          if(!p)return false;
+          if(p.dataset.componentLoaded==='true'||p.children.length>0)return true;
+          if(tabComponentPromises.has(name))return tabComponentPromises.get(name);
+          const request=(async()=>{
+            try{
+              const r=await fetch('/components/'+id+'.html');
+              if(!r.ok)throw Error('Component HTTP '+r.status);
+              const t=document.createElement('template');t.innerHTML=(await r.text()).trim();
+              const element=t.content.firstElementChild;
+              if(!element||element.id!==id)throw Error('Invalid component');
+              element.dataset.componentLoaded='true';p.replaceWith(element);return true;
+            }catch(err){console.error('Cannot load tab',err);showToast('Không thể mở tab. Vui lòng thử lại.','error');return false}
+            finally{tabComponentPromises.delete(name)}
+          })();
+          tabComponentPromises.set(name,request);return request;
+        }
         let componentsLoadedFlag = false;
         async function loadAppComponents() {
             if (componentsLoadedFlag) return;
             componentsLoadedFlag = true;
 
-            const components = [
-                'modal-container', 'tab-exam', 'tab-questions', 'tab-exams', 'tab-exam-editor',
-                'tab-teacher-assignment', 'tab-accounts', 'tab-users', 'tab-ranking', 'tab-settings', 'tab-documents', 'tab-help',
-                'toast-container-center', 'toast-container-right', 'account-modal', 'user-modal'
-            ];
+            const components=['modal-container','tab-exam','tab-help','toast-container-center','toast-container-right'];
             
             const loadOne = async (comp, retries = 2) => {
                 const el = document.getElementById(comp);
@@ -22265,6 +22002,7 @@ CẤU TRÚC JSON:
                                         firstChild.classList.remove('active');
                                         firstChild.classList.add('hidden');
                                     }
+                                    firstChild.dataset.componentLoaded='true';
                                     el.replaceWith(firstChild);
                                     if (comp === 'modal-container' && !document.getElementById('modal-content')) {
                                         const fallbackContent = document.createElement('div');
@@ -22286,14 +22024,7 @@ CẤU TRÚC JSON:
 
             // Load all components in parallel for fast and reliable startup
             await Promise.all(components.map(comp => loadOne(comp)));
-            if (document.getElementById('documents-table-body')) {
-                connectDocumentLinks();
-                const documentsActive = document.getElementById('tab-documents')?.classList.contains('active');
-                if (documentsActive || window.__documentsTabRequested) {
-                    window.__documentsTabRequested = false;
-                    initDocumentLinks(currentUser);
-                }
-            }
+            // Document data only loads on opening the Documents tab.
 
             if (window.isAdminLoggedIn || window.isTeacherLoggedIn) {
                 document.getElementById('tab-exam')?.classList.remove('active');
