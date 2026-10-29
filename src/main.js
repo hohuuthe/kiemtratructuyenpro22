@@ -16949,6 +16949,7 @@ CẤU TRÚC JSON:
         // ==================== ACCOUNTS MANAGEMENT ====================
         window.accountsCurrentPage = 1;
         window.accountsPageSize = 50;
+        let accountsTotalServer = null;
         window.lastAccountsFilterKey = '';
 
         function populateAccountsFilters() {
@@ -17065,6 +17066,7 @@ CẤU TRÚC JSON:
 
         window.filterAccounts = function filterAccounts() {
             window.accountsCurrentPage = 1;
+            if(isAdminLoggedIn)accountsLoaded=false;
             renderAccounts();
         };
 
@@ -17079,6 +17081,7 @@ CẤU TRÚC JSON:
             if (classSelect) classSelect.value = '';
             window.accountsCurrentPage = 1;
             window.lastAccountsFilterKey = '';
+            if(isAdminLoggedIn)accountsLoaded=false;
             renderAccounts();
         };
 
@@ -17227,7 +17230,7 @@ CẤU TRÚC JSON:
 
         window.changeAccountsPage = function changeAccountsPage(page) {
             window.accountsCurrentPage = Math.max(1, parseInt(page, 10) || 1);
-            renderAccounts();
+            if(isAdminLoggedIn){accountsLoaded=false;void renderAccounts();}else renderAccounts();
             const tabAcc = document.getElementById('tab-accounts');
             if (tabAcc) {
                 tabAcc.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -17417,7 +17420,22 @@ CẤU TRÚC JSON:
             const countDisplay = document.getElementById('accounts-count');
             if (!tbody && !cardContainer) return;
             
-            if ((isAdminLoggedIn || isTeacherLoggedIn) && !accountsLoaded) {
+            if (isAdminLoggedIn && !accountsLoaded) {
+                try {
+                    const p = new URLSearchParams({page:String(window.accountsCurrentPage||1),limit:String(window.accountsPageSize||50),
+                      search:document.getElementById('accounts-search')?.value||'',
+                      audience:document.getElementById('accounts-audience-filter')?.value||'',
+                      unit:document.getElementById('accounts-unit-filter')?.value||'',
+                      class:document.getElementById('accounts-class-filter')?.value||''});
+                    const response=await fetch('/api/accounts-page?'+p,{headers:{Authorization:'Bearer '+(localStorage.getItem('auth_token')||'')},cache:'no-store'});
+                    if(!response.ok)throw Error('HTTP '+response.status);
+                    const payload=await response.json();
+                    if(!Array.isArray(payload.data))throw Error('Trang tài khoản không hợp lệ');
+                    accounts=payload.data;window.accounts=accounts;
+                    accountsTotalServer=Number(payload.total||0);
+                    accountsLoaded=true;
+                }catch(e){console.error('Không tải được trang tài khoản:',e);return showToast('Không thể tải trang tài khoản: '+e.message,'error');}
+            } else if ((isAdminLoggedIn || isTeacherLoggedIn) && !accountsLoaded) {
                 const updateLoadingUI = (count, page, isDone = false) => {
                     const msg = isDone
                         ? `✅ Đã tải xong ${count.toLocaleString('vi-VN')} tài khoản. Đang xử lý hiển thị...`
@@ -17544,7 +17562,7 @@ CẤU TRÚC JSON:
                 return;
             }
 
-            const totalItems = filteredAccounts.length;
+            const totalItems = isAdminLoggedIn && accountsTotalServer !== null ? accountsTotalServer : filteredAccounts.length;
             const pageSize = window.accountsPageSize || 50;
             const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
 
@@ -17557,7 +17575,7 @@ CẤU TRÚC JSON:
 
             const startIndex = (window.accountsCurrentPage - 1) * pageSize;
             const endIndex = Math.min(startIndex + pageSize, totalItems);
-            const pageAccounts = filteredAccounts.slice(startIndex, endIndex);
+            const pageAccounts = isAdminLoggedIn && accountsTotalServer !== null ? filteredAccounts : filteredAccounts.slice(startIndex, endIndex);
 
             const rowsHtml = pageAccounts.map((acc, i) => {
                 const globalIndex = startIndex + i + 1;
