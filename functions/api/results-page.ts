@@ -1,5 +1,5 @@
 import {verifyAuthSession,getDynamicSecret,getDatabase,checkIsAdmin,checkIsTeacherOrAdmin} from './exam/utils';
-import {parseManagementPage,resultsPageQuery} from '../../src/management-page-queries.js';
+import {parseManagementPage,resultsPageQuery,resolveTeacherManagementScope} from '../../src/management-page-queries.js';
 const headers={'Content-Type':'application/json; charset=utf-8','Cache-Control':'private, no-store'};
 export const onRequestGet:PagesFunction=async context=>{
  try{
@@ -7,7 +7,9 @@ export const onRequestGet:PagesFunction=async context=>{
   if(!token.startsWith('Bearer '))return Response.json({error:'Yêu cầu đăng nhập.'},{status:401,headers});
   const actor=await verifyAuthSession(token.slice(7),await getDynamicSecret(db,context.env?.JWT_SECRET),db);
   if(!actor||!checkIsTeacherOrAdmin(actor))return Response.json({error:'Không có quyền xem kết quả.'},{status:403,headers});
-  const page=parseManagementPage(context.request.url),q=resultsPageQuery(page,{...actor,role:checkIsAdmin(actor)?'admin':'teacher'});
+  const page=parseManagementPage(context.request.url);
+  const verified=await resolveTeacherManagementScope({...actor,role:checkIsAdmin(actor)?'admin':'teacher'},async(sql,args)=>(await db.prepare(sql).bind(...args).all()).results||[]);
+  const q=resultsPageQuery(page,verified);
   const count=await db.prepare(q.countSQL).bind(...q.countArgs).first();
   const {results}=await db.prepare(q.rowsSQL).bind(...q.rowsArgs).all();
   const total=Number(count?.total||0);
