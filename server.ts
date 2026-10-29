@@ -1,3 +1,4 @@
+import {QUESTION_CREATOR_JOIN_SQL,QUESTION_CREATOR_NAME_SQL} from './src/question-creator-identity.js';
 import {EXAM_CREATOR_JOIN_SQL,EXAM_CREATOR_NAME_SQL} from './src/exam-creator-identity.js';
 import {parseManagementPage,accountsPageQuery,resultsPageQuery,resolveTeacherManagementScope,accountsFacetQueries,resultsFacetQuery} from './src/management-page-queries.js';
 import {isExamOwner,redactExamForPublic,examAccessChallenge,isProtectedExamForUser,protectedExamPreview,accessCodeMatches} from './functions/api/exam/security';
@@ -2417,16 +2418,16 @@ async function startServer() {
 
       const paginationClause = limit > 0 ? ` LIMIT ${limit} OFFSET ${offset}` : '';
 
-      let query = "SELECT * FROM questions";
+      let query = "SELECT q.*, "+QUESTION_CREATOR_NAME_SQL+" AS creator_name FROM questions q "+QUESTION_CREATOR_JOIN_SQL;
       const params: any[] = [];
       if (!isAdmin) {
-        query += " WHERE creator_id = ?";
+        query += " WHERE q.creator_id = ?";
         params.push(targetTeacherId);
       } else if (teacherIdParam) {
-        query += " WHERE creator_id = ?";
+        query += " WHERE q.creator_id = ?";
         params.push(teacherIdParam);
       }
-      query += ` ORDER BY lesson ASC, type ASC, id ASC${paginationClause}`;
+      query += ` ORDER BY q.lesson ASC, q.type ASC, q.id ASC${paginationClause}`;
 
       const { results } = await executeSqlQuery(query, params);
       const mapped = (results || []).map((q: any) => {
@@ -2442,6 +2443,8 @@ async function startServer() {
           image: readQ.image || '',
           creatorId: readQ.creator_id,
           creator_id: readQ.creator_id,
+          creator_name: q.creator_name || '',
+          creatorName: q.creator_name || '',
           created_at: readQ.created_at,
           updated_at: readQ.updated_at
         };
