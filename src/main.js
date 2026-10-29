@@ -3266,7 +3266,8 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                   exam:document.getElementById('ranking-exam-filter')?.value||'',
                   teacher:isAdminLoggedIn?(document.getElementById('ranking-teacher-filter')?.value||''):'',
                   unit:document.getElementById('ranking-unit-filter')?.value||'',
-                  class:document.getElementById('ranking-class-filter')?.value||''});
+                  class:document.getElementById('ranking-class-filter')?.value||'',
+                  sort:window.rankingSortColumn||'rank',direction:window.rankingSortDirection||'asc'});
                 try{
                     const response=await fetch('/api/results-page?'+args,{headers:{Authorization:'Bearer '+(localStorage.getItem('auth_token')||'')},cache:'no-store'});
                     if(!response.ok)throw Error('HTTP '+response.status);
@@ -17571,9 +17572,10 @@ CẤU TRÚC JSON:
 
             if (countDisplay) {
                 const hasActiveFilter = Boolean(searchTerm || audienceFilter || unitFilter || classFilter);
+                const countView=isAdminLoggedIn&&accountsTotalServer!==null?accountsTotalServer:filteredAccounts.length;
                 countDisplay.textContent = hasActiveFilter 
-                    ? `Kết quả lọc: ${filteredAccounts.length} / ${(accounts || []).length} tài khoản` 
-                    : `Tổng: ${filteredAccounts.length} tài khoản`;
+                    ? `Kết quả lọc: ${countView} tài khoản` 
+                    : `Tổng: ${countView} tài khoản`;
             }
             
             if (filteredAccounts.length === 0) {
@@ -18378,7 +18380,7 @@ CẤU TRÚC JSON:
             try {
                 let dataToExport = accounts;
                 // Nếu danh sách rỗng hoặc chưa nạp đầy đủ (chưa qua chunked load: !accountsLoaded)
-                if (!dataToExport || dataToExport.length === 0 || !accountsLoaded) {
+                if (!dataToExport || dataToExport.length === 0 || !accountsLoaded || (isAdminLoggedIn && accountsTotalServer!==null && accounts.length<accountsTotalServer)) {
                     const token = localStorage.getItem('auth_token') || '';
                     if (token) {
                         try {
