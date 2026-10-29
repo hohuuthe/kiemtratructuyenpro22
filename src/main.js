@@ -17578,6 +17578,15 @@ CẤU TRÚC JSON:
                     if(payload.facets)accountsFilterFacets=payload.facets;
                     accountsTotalServer=Number(payload.total||0);
                     accountsLoaded=true;
+                    // Record the filter used by this successful server page. Without
+                    // this, the render pass mistakes its first response for a filter
+                    // change and downloads exactly the same page a second time.
+                    window.lastAccountsFilterKey = [
+                      (p.get('search')||'').toLowerCase().trim(),
+                      (p.get('audience')||'').trim(),
+                      (p.get('unit')||'').trim(),
+                      (p.get('class')||'').trim()
+                    ].join('::');
                 }catch(e){console.error('Không tải được trang tài khoản:',e);return showToast('Không thể tải trang tài khoản: '+e.message,'error');}
             } else if ((isAdminLoggedIn || isTeacherLoggedIn) && !accountsLoaded) {
                 const updateLoadingUI = (count, page, isDone = false) => {
