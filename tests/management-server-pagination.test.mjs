@@ -48,3 +48,10 @@ test('teacher assignments are verified against profile school and scoped into qu
  assert.ok(!q.rowsArgs.includes('12B'));
  assert.equal(seen.length,2);
 });
+
+test('school filter never substitutes student class as institution',()=>{
+ const q=resultsPageQuery(parseManagementPage('https://h/api/results-page?unit=School%20A'),{id:'admin',role:'admin'});
+ assert.match(q.rowsSQL,/COALESCE\(r\.don_vi/);
+ assert.doesNotMatch(q.rowsSQL,/COALESCE\(NULLIF\(r\.don_vi,' '\),r\.student_class/);
+ assert.deepEqual(q.countArgs,['School A']);
+});
