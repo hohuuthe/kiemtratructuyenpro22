@@ -1,3 +1,4 @@
+import {buildRankingResultsDeletion,RankingResultDeleteError} from '../../src/ranking-result-delete-policy.js';
 import { verifyAuthSession, getDynamicSecret, getDatabase } from './exam/utils';
 import { processExamResultsDeletion } from '../../src/exam-results-delete-service';
 import { listExamResultsDeletionTargets } from '../../src/exam-results-targets-service';
@@ -436,71 +437,34 @@ export const onRequestPut: PagesFunction<Env> = async (context) => {
   }
 };
 
-// DELETE /api/results - Xóa kết quả bài thi
-export const onRequestDelete: PagesFunction<Env> = async (context) => {
-  const db = getDatabase(context);
-  const { request, env } = context;
-  const url = new URL(request.url);
-  const SECRET = await getDynamicSecret(db, env.JWT_SECRET);
-  const authHeader = request.headers.get('Authorization');
-  let user: any = null;
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    const token = authHeader.substring(7);
-    user = await verifyAuthSession(token, SECRET, db);
-  }
-
-  const roleLower = String(user?.role || '').toLowerCase();
-  const audienceLower = String(user?.target_audience || '').toLowerCase();
-  const isAdmin = user && (roleLower === 'admin' || audienceLower === 'quản trị viên' || audienceLower === 'admin');
-  const isTeacher = user && !isAdmin && (roleLower === 'teacher' || roleLower === 'giáo viên' || audienceLower === 'giáo viên');
-
-  if (!isAdmin && !isTeacher) {
-    return new Response(JSON.stringify({ error: "Chỉ giáo viên hoặc admin mới có quyền xóa kết quả thi" }), { status: 403, headers: corsHeaders });
-  }
-
+// DELETE /api/results — atomic, role-scoped deletion by exact result IDs
+export const onRequestDelete: PagesFunction<Env> = async context => {
+  const headers={...corsHeaders,'Cache-Control':'no-store'};
+  const reply=(body:any,status=200)=>new Response(JSON.stringify(body),{status,headers});
   try {
-    let ids: string[] = [];
-    const idParam = url.searchParams.get('id');
-    const clearAll = url.searchParams.get('clearAll') === 'true';
-
-    if (clearAll) {
-      if (!isAdmin) {
-        return new Response(JSON.stringify({ error: "Chỉ quản trị viên mới có quyền xóa toàn bộ kết quả" }), { status: 403, headers: corsHeaders });
-      }
-      await db.prepare("DELETE FROM results").run();
-      return new Response(JSON.stringify({ success: true, message: "Đã xóa toàn bộ kết quả", error: null }), { status: 200, headers: corsHeaders });
+    const bearer=context.request.headers.get('Authorization')||'';
+    if(!bearer.startsWith('Bearer '))return reply({error:'Phiên đăng nhập không hợp lệ'},401);
+    const db=getDatabase(context);
+    const user=await verifyAuthSession(bearer.slice(7),await getDynamicSecret(db,context.env.JWT_SECRET),db);
+    if(!user)return reply({error:'Phiên đăng nhập không hợp lệ'},401);
+    const url=new URL(context.request.url);
+    if(url.searchParams.get('clearAll')==='true'){
+      if(String(user.role||'').toLowerCase()!=='admin')return reply({error:'Chỉ quản trị viên có quyền xóa toàn bộ'},403);
+      await db.prepare('DELETE FROM results').run();
+      return reply({success:true,error:null});
     }
-
-    if (idParam) {
-      ids = [idParam];
-    } else {
-      const body: any = await request.json().catch(() => ({}));
-      if (Array.isArray(body?.ids)) ids = body.ids;
-      else if (body?.id) ids = [body.id];
-    }
-
-    if (ids.length === 0) {
-      return new Response(JSON.stringify({ error: "Thiếu ID kết quả cần xóa" }), { status: 400, headers: corsHeaders });
-    }
-
-    for (const id of ids) {
-      if (isAdmin) {
-        await db.prepare("DELETE FROM results WHERE id = ?").bind(id).run();
-      } else {
-        // Giáo viên chỉ xóa kết quả của đề do mình tạo
-        const { results: checkRows } = await db.prepare(
-          "SELECT r.id FROM results r JOIN exam_configs e ON r.exam_id = e.id WHERE r.id = ? AND e.creator_id = ?"
-        ).bind(id, user.id).all();
-        if (checkRows && checkRows.length > 0) {
-          await db.prepare("DELETE FROM results WHERE id = ?").bind(id).run();
-        }
-      }
-    }
-
-    return new Response(JSON.stringify({ success: true, message: `Đã xóa ${ids.length} kết quả`, error: null }), { status: 200, headers: corsHeaders });
-  } catch (e: any) {
-    console.error("DELETE /api/results error:", e);
-    return new Response(JSON.stringify({ error: e.message || 'Lỗi server' }), { status: 500, headers: corsHeaders });
+    const body:any=await context.request.json().catch(()=>({}));
+    const ids=url.searchParams.get('id')?[url.searchParams.get('id')]:
+      Array.isArray(body.ids)?body.ids:body.id?[body.id]:[];
+    const operation=buildRankingResultsDeletion(ids,user);
+    const response=await db.prepare(operation.sql).bind(...operation.params).run();
+    const deleted=Number(response?.meta?.changes||0);
+    if(deleted!==operation.count)return reply({error:'Không thể xác nhận quyền sở hữu hoặc dữ liệu đã thay đổi. Không xóa kết quả.',code:'RESULT_SCOPE_CHANGED'},409);
+    return reply({success:true,deletedCount:deleted,error:null});
+  }catch(e:any){
+    if(e instanceof RankingResultDeleteError)return reply({error:e.message,code:e.code},e.status);
+    console.error('DELETE results error',e);
+    return reply({error:'Không thể xóa kết quả. Vui lòng kiểm tra lại.'},500);
   }
 };
 
