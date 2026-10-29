@@ -1,3 +1,4 @@
+import {buildRankingResultsDeletion,RankingResultDeleteError} from './src/ranking-result-delete-policy.js';
 import {QUESTION_CREATOR_JOIN_SQL,QUESTION_CREATOR_NAME_SQL,QUESTION_CREATOR_USERNAME_SQL} from './src/question-creator-identity.js';
 import {EXAM_CREATOR_JOIN_SQL,EXAM_CREATOR_NAME_SQL} from './src/exam-creator-identity.js';
 import {parseManagementPage,accountsPageQuery,resultsPageQuery,resolveTeacherManagementScope,accountsFacetQueries,resultsFacetQuery} from './src/management-page-queries.js';
@@ -3044,76 +3045,26 @@ async function startServer() {
     }
   });
 
-  app.delete("/api/results", async (req, res) => {
+  app.delete("/api/results", async(req,res)=>{
     try {
-      const authHeader = req.headers.authorization;
-      if (!authHeader || !authHeader.startsWith("Bearer ")) return res.status(401).json({ error: "Unauthorized" });
-      const user = verifyJWTSync(authHeader.substring(7), await getServerSecret());
-      if (!user) return res.status(401).json({ error: "Phiên đăng nhập không hợp lệ" });
-
-      const isAdmin = checkIsAdmin(user);
-      const isTeacher = checkIsTeacherOrAdmin(user);
-      if (!isTeacher) return res.status(403).json({ error: "Chỉ giáo viên hoặc admin mới có quyền xóa kết quả" });
-
-      const clearAll = req.query.clearAll === 'true';
-      if (clearAll) {
-        if (!isAdmin) return res.status(403).json({ error: "Chỉ quản trị viên mới có quyền xóa toàn bộ kết quả" });
-        await executeSqlQuery("DELETE FROM results", []);
-        return res.json({ success: true, message: "Đã xóa toàn bộ kết quả", error: null });
+      const header=req.headers.authorization||'';
+      if(!header.startsWith('Bearer '))return res.status(401).json({error:'Phiên đăng nhập không hợp lệ'});
+      const user=verifyJWTSync(header.slice(7),await getServerSecret());
+      if(!user)return res.status(401).json({error:'Phiên đăng nhập không hợp lệ'});
+      if(req.query.clearAll==='true'){
+        if(!checkIsAdmin(user))return res.status(403).json({error:'Chỉ quản trị viên được xóa tất cả'});
+        await executeSqlQuery('DELETE FROM results',[]);
+        return res.json({success:true,error:null});
       }
-
-      let ids: string[] = [];
-      const idParam = req.query.id as string;
-      if (idParam) ids = [idParam];
-      else if (Array.isArray(req.body?.ids)) ids = req.body.ids;
-      else if (req.body?.id) ids = [req.body.id];
-
-      ids = ids.map(id => String(id).trim()).filter(Boolean);
-
-      if (ids.length === 0) return res.status(400).json({ error: "Thiếu ID kết quả cần xóa" });
-
-      let deletedCount = 0;
-      if (isAdmin) {
-        for (let i = 0; i < ids.length; i += 100) {
-          const chunk = ids.slice(i, i + 100);
-          const placeholders = chunk.map(() => '?').join(',');
-          const delRes = await executeSqlQuery(`DELETE FROM results WHERE id IN (${placeholders})`, chunk);
-          deletedCount += (delRes.changes || chunk.length);
-        }
-      } else {
-        const teacherIdentifiers = [
-          String(user.id || ''),
-          String(user.user_id || ''),
-          String(user.username || '')
-        ].filter(Boolean);
-
-        for (let i = 0; i < ids.length; i += 100) {
-          const chunk = ids.slice(i, i + 100);
-          for (const id of chunk) {
-            const delRes = await executeSqlQuery(
-              `DELETE FROM results WHERE CAST(id AS TEXT) = ? AND (
-                 CAST(exam_id AS TEXT) IN (SELECT CAST(id AS TEXT) FROM exam_configs WHERE creator_id = ? OR creator_id = ? OR creator_id = ?)
-
-               )`,
-              [
-                id,
-                teacherIdentifiers[0] || '', teacherIdentifiers[1] || '', teacherIdentifiers[2] || ''
-              ]
-            );
-            if (delRes && delRes.changes) {
-              deletedCount += delRes.changes;
-            }
-          }
-        }
-      }
-
-      return res.json({ success: true, message: `Đã xóa ${deletedCount} kết quả`, error: null });
-    } catch (e: any) {
-      if (e && e.message && e.message.includes("hạn mức dữ liệu")) {
-        return res.status(400).json({ error: e.message });
-      }
-      console.error("DELETE /api/results error::", e);
-      return res.status(500).json({ error: e.message || 'Lỗi server khi xóa dữ liệu kết quả' });
+      const ids=req.query.id?[String(req.query.id)]:Array.isArray(req.body?.ids)?req.body.ids:req.body?.id?[req.body.id]:[];
+      const operation=buildRankingResultsDeletion(ids,user);
+      const response=await executeSqlQuery(operation.sql,operation.params);
+      if(Number(response.changes)!==operation.count)return res.status(409).json({error:'Không xác nhận được quyền hoặc dữ liệu đã thay đổi, chưa xóa kết quả.',code:'RESULT_SCOPE_CHANGED'});
+      return res.json({success:true,deletedCount:response.changes,error:null});
+    }catch(err:any){
+      if(err instanceof RankingResultDeleteError)return res.status(err.status).json({error:err.message,code:err.code});
+      console.error('Result deletion failed',err);
+      return res.status(500).json({error:'Không thể xóa kết quả.'});
     }
   });
 
