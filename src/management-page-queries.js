@@ -23,7 +23,7 @@ export function accountsPageQuery(page) {
   const eq=(column,value)=>{if(value){conditions.push('LOWER(TRIM('+column+')) = LOWER(TRIM(?))');args.push(value);}};
   eq('u.target_audience',page.audience);eq('u.donvi',page.unit);eq('u.lop',page.className);
   if(page.search){
-    const cols=['a.id','a.user_id','a.username','u.full_name','u.phone_number','u.donvi','u.lop','u.target_audience'];
+    const cols=['a.id','a.user_id','a.username','u.full_name','u.phone_number','u.donvi','u.lop','u.target_audience','u.occupation'];
     conditions.push('('+cols.map(c=>'COALESCE('+c+",'') ILIKE ?").join(' OR ')+')');
     args.push(...cols.map(()=>'%'+page.search.replace(/[\\%_]/g,c=>'\\'+c)+'%'));
   }
@@ -63,7 +63,7 @@ export function resultsPageQuery(page, actor) {
     timeTaken:'r.time_taken',studentName:'r.student_name',loaiThiSinh:'r.loai_thi_sinh',
     lop:'r.lop',donvi:'r.don_vi',aiGrading:'r.ai_grading_summary',examName:'r.exam_name'};
   const selected=Object.hasOwn(sortColumns,page.sort)?page.sort:'rank';
-  const order=selected==='rank'?'r.score DESC,r.time_taken ASC':sortColumns[selected]+' '+page.direction;
+  const order=selected==='rank'?(page.direction==='DESC'?'r.score ASC,r.time_taken DESC':'r.score DESC,r.time_taken ASC'):sortColumns[selected]+' '+page.direction;
   return {countSQL:'SELECT COUNT(*) AS total'+from+where,countArgs:args,
     rowsSQL:'SELECT '+projection+from+where+' ORDER BY '+order+',r.id DESC LIMIT ? OFFSET ?',
     rowsArgs:[...args,page.limit,(page.page-1)*page.limit]};
