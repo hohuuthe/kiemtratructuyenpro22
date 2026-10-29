@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {listDocumentLinks,createDocumentLink,updateDocumentLink,deleteDocumentLink,DocumentLinkServiceError} from '../src/document-links-service.js';
+import {listDocumentLinks,listDocumentLinksPage,parseDocumentLinkPage,createDocumentLink,updateDocumentLink,deleteDocumentLink,DocumentLinkServiceError} from '../src/document-links-service.js';
 const actor={id:'teacher-A',role:'teacher'};
 const base={id:'doc-1',tieu_de:'Tài liệu ôn tập',duong_link:'https://example.org/file',doi_tuong_duoc_truy_cap:'student',hoat_dong:1,mo_ta:'Bài 1',danh_muc:'Tin học'};
 const calls=[];
@@ -151,4 +151,34 @@ test('expired shared document link is redacted in management response',async()=>
  assert.equal(rows.length,1);
  assert.equal(rows[0].co_quyen_xem,false);
  assert.equal(rows[0].duong_link,'');
+});
+
+test('document pages are bounded and invalid parameters rejected',()=>{
+ assert.equal(parseDocumentLinkPage('https://h/api/documents?paged=1&limit=999&page=3').limit,100);
+ assert.equal(parseDocumentLinkPage('https://h/api/documents?paged=1&limit=999&page=3').page,3);
+ assert.throws(()=>parseDocumentLinkPage('https://h/api/documents?page=-2'),{status:400});
+ assert.throws(()=>parseDocumentLinkPage('https://h/api/documents?audience=admin%27'),{status:400});
+});
+test('paginated SQL scopes before count and applies search before limit',async()=>{
+ const calls=[];
+ const dbMock={
+  first:async(sql,args)=>{calls.push({sql,args});return {total:'53'};},
+  all:async(sql,args)=>{calls.push({sql,args});return [];}
+ };
+ const reply=await listDocumentLinksPage(dbMock,actor,{manage:true,includeReadable:true,page:2,limit:10,search:'Tin',audience:'teacher'});
+ assert.equal(reply.total,53);assert.equal(reply.page,2);assert.equal(reply.limit,10);assert.equal(reply.has_more,true);
+ assert.match(calls[0].sql,/id_nguoi_tao = \?/);
+ assert.match(calls[0].sql,/POSITION\(LOWER\(\?\)/);
+ assert.match(calls[0].sql,/doi_tuong_truy_cap_nhieu @> ARRAY\[\?\]/);
+ assert.ok(!calls[0].sql.includes('LIMIT'));
+ assert.match(calls[1].sql,/LIMIT \? OFFSET \?/);
+ assert.deepEqual(calls[1].args.slice(-2),[10,10]);
+ assert.deepEqual(calls[1].args.slice(0,-2),calls[0].args);
+});
+test('admin paginated scope excludes private owner-only records before count',async()=>{
+ let sql='';
+ const dbMock={first:async(q)=>{sql=q;return {total:0}},all:async()=>[]};
+ await listDocumentLinksPage(dbMock,{id:'admin-B',role:'admin'},{manage:true});
+ assert.match(sql,/NOT \(doi_tuong_truy_cap_nhieu @> ARRAY\['owner'\]/);
+ assert.match(sql,/OR id_nguoi_tao = \?/);
 });
