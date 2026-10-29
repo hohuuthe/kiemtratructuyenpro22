@@ -1,3 +1,4 @@
+import {EXAM_CREATOR_JOIN_SQL,EXAM_CREATOR_NAME_SQL} from '../../src/exam-creator-identity.js';
 import { verifyAuthSession, getDynamicSecret, checkIsAdmin, checkIsTeacherOrAdmin, getDatabase } from './exam/utils';
 import { isExamOwner, redactExamForPublic, examAccessChallenge, isProtectedExamForUser, protectedExamPreview } from './exam/security';
 import { canManageExamConfig, examConfigGuardedDeleteStatement } from '../../src/exam-config-deletion-policy';
@@ -162,8 +163,8 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
       : isTeacher
         ? ", CASE WHEN ec.creator_id IN (?, ?) THEN (SELECT COUNT(*) FROM results r WHERE r.exam_id = ec.id) ELSE NULL END AS attempt_count"
         : "";
-    let query = "SELECT ec.*, u.donvi AS teacher_donvi" + attemptCountProjection +
-      " FROM exam_configs ec LEFT JOIN users u ON ec.creator_id = u.id";
+    let query = "SELECT ec.*, creator_profile.donvi AS teacher_donvi, "+EXAM_CREATOR_NAME_SQL+" AS creator_name" + attemptCountProjection +
+      " FROM exam_configs ec " + EXAM_CREATOR_JOIN_SQL;
     const params: any[] = isTeacher ? [user.id, user.user_id || user.id] : [];
 
     if (teacherIdParam && (isAdmin || !isTeacher)) {
@@ -182,6 +183,8 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     const mappedResults = (results || []).map(mapRowRead).map((row: any) => ({
       ...row,
       teacher_donvi: row.teacher_donvi || '',
+      creator_name: row.creator_name || '',
+      creatorName: row.creator_name || '',
       target_lop: row.target_lop || row.lop || '',
       lop: row.target_lop || row.lop || '',
       time: row.time_limit,

@@ -1,3 +1,4 @@
+import {EXAM_CREATOR_JOIN_SQL, EXAM_CREATOR_NAME_SQL} from './exam-creator-identity.js';
 // One bounded page for management tables. Filters are applied before LIMIT/OFFSET.
 // Do not accept caller-provided tenant IDs or role-based SQL clauses.
 export function parseManagementPage(url) {
@@ -58,7 +59,7 @@ export function resultsPageQuery(page, actor) {
     args.push(...cols.map(()=>'%'+page.search.replace(/[\\%_]/g,c=>'\\'+c)+'%'));}
   const where=predicates.length?' WHERE '+predicates.join(' AND '):'';
   const from=' FROM results r';
-  const projection='r.id,r.user_id,r.student_name,r.student_class,r.score,r.correct_count,r.total_questions,r.time_taken,r.exam_name,r.exam_id,r.created_at,r.loai_thi_sinh,r.cheat_warning_count,r.ai_grading_summary,r.lop,r.don_vi,(SELECT ec.creator_id FROM exam_configs ec WHERE ec.id=r.exam_id LIMIT 1) AS exam_creator_id';
+  const projection='r.id,r.user_id,r.student_name,r.student_class,r.score,r.correct_count,r.total_questions,r.time_taken,r.exam_name,r.exam_id,r.created_at,r.loai_thi_sinh,r.cheat_warning_count,r.ai_grading_summary,r.lop,r.don_vi,(SELECT ec.creator_id FROM exam_configs ec WHERE ec.id=r.exam_id LIMIT 1) AS exam_creator_id, (SELECT '+EXAM_CREATOR_NAME_SQL+' FROM exam_configs ec '+EXAM_CREATOR_JOIN_SQL+' WHERE ec.id=r.exam_id LIMIT 1) AS exam_creator_name';
   const sortColumns={rank:'r.score DESC,r.time_taken ASC',score:'r.score',correctCount:'r.correct_count',
     timeTaken:'r.time_taken',studentName:'r.student_name',loaiThiSinh:'r.loai_thi_sinh',
     lop:'r.lop',donvi:'r.don_vi',aiGrading:'r.ai_grading_summary',examName:'r.exam_name'};

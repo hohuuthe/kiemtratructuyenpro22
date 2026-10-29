@@ -1,3 +1,5 @@
+import {questionAuthorDisplayName} from './question-creator-identity.js';
+import {examCreatorDisplayName} from './exam-creator-identity.js';
 import {connectDocumentLinks,initDocumentLinks,resetDocumentLinks} from './document-links-ui.js';
 import {readBrowserGeminiKeys,saveBrowserGeminiKeys,prioritizeGradingKeys,splitGeminiKeys} from './essay-browser-ai-keys.js';
 import { configureExamAccessCodeInput } from './exam-access-code-input.js';
@@ -3154,7 +3156,9 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                         id: q.id, type: q.type, level: q.level, lesson: q.lesson,
                         content: q.content, options: q.options || {}, answer: q.answer,
                         image: q.image || '', created_at: q.created_at || null,
-                        creatorId: q.creatorId || q.creator_id
+                        creatorId: q.creatorId || q.creator_id,
+                        creatorName: q.creatorName || q.creator_name || '',
+                        creatorUsername: q.creatorUsername || q.creator_username || ''
                     }));
                     questionsLoaded = true;
                     updateQuestionTeacherFilter();
@@ -3292,7 +3296,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                     results=payload.data.map(r=>({id:r.id,userId:r.user_id||'',studentName:r.student_name,studentClass:r.student_class,
                       lop:r.lop||'',donvi:r.don_vi||r.student_class||'',score:Number(r.score)||0,correctCount:r.correct_count,
                       totalQuestions:r.total_questions,timeTaken:r.time_taken,examName:r.exam_name,examId:r.exam_id,
-                      examCreatorId:r.exam_creator_id||'',details:[],timestamp:r.created_at,
+                      examCreatorId:r.exam_creator_id||'',examCreatorName:r.exam_creator_name||'',details:[],timestamp:r.created_at,
                       loaiThiSinh:r.loai_thi_sinh,cheatWarningCount:Number(r.cheat_warning_count)||0,aiGradingSummary:r.ai_grading_summary}));
                     resultsLoaded=true;renderRanking();return;
                 }catch(e){if(seq===rankingLoadSeq)showToast('Không tải được trang kết quả: '+e.message,'error');return;}
@@ -3338,7 +3342,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                             timeTaken: r.time_taken, 
                             examName: r.exam_name, 
                             examId: r.exam_id,
-                            examCreatorId: r.exam_creator_id == null ? '' : String(r.exam_creator_id), 
+                            examCreatorId: r.exam_creator_id == null ? '' : String(r.exam_creator_id), examCreatorName:r.exam_creator_name||'', 
                             details: r.details || [], 
                             timestamp: r.created_at, 
                             loaiThiSinh: r.loai_thi_sinh, 
@@ -5642,7 +5646,7 @@ if (contentType && contentType.includes("application/json")) {
                 const featuresHtml = features.length > 0 ? `<div class="flex flex-wrap gap-1 justify-center">${features.join('')}</div>` : '<span class="text-gray-300">-</span>';
 
                 const escapedName = escapeHTML(item.name || 'Không tên');
-                const creator = item.creatorName || item.creator_name || accountsMap[item.creator_id || item.creatorId] || 'Hệ thống';
+                const creator = examCreatorDisplayName(item,accountsMap,currentUser);
                 const isCreator = currentUser && (isAdminLoggedIn || (isTeacherLoggedIn && [currentUser.id, currentUser.user_id].filter(Boolean).some(ownerId => String(item.creator_id || item.creatorId) === String(ownerId))));
                 // created_at is the immutable creation instant, NOT updated_at or the exam code.
                 const creation = formatExamCreatedAtVN(item.created_at ?? item.createdAt);
@@ -8436,7 +8440,7 @@ if (contentType && contentType.includes("application/json")) {
                                         </span></u>
                                         ${q.creatorId ? `<span class="inline-flex items-center px-1.5 py-0.5 bg-yellow-50 text-yellow-800 text-[9px] md:text-xs font-bold rounded-md border border-yellow-200/50 shadow-xs truncate max-w-full">
                                             <svg class="w-2.5 h-2.5 mr-1 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
-                                            ${accounts.find(a => a.id === q.creatorId)?.full_name || 'Không xác định'}
+                                            ${questionAuthorDisplayName(q,accountsMap,currentUser)}
                                         </span></u>` : ''}
                                     </div>
                                     <button onclick="switchTab('exam')" title="Quay về Bảng điều khiển câu hỏi" class="flex-shrink-0 p-1.5 md:px-3 md:py-1.5 bg-white text-emerald-600 rounded-xl hover:bg-emerald-50 transition-all shadow-sm border border-emerald-100 flex items-center gap-1.5 text-[10px] md:text-xs font-black hover:scale-105">
@@ -8509,7 +8513,7 @@ if (contentType && contentType.includes("application/json")) {
                                     </span></u>
                                     ${q.creatorId ? `<span class="inline-flex items-center px-1.5 py-0.5 bg-indigo-50 text-indigo-800 text-xs md:text-sm font-bold rounded-md border border-indigo-200 shadow-xs truncate max-w-full">
                                         <svg class="w-3 h-3 mr-1.5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
-                                        ${accounts.find(a => a.id === q.creatorId)?.full_name || 'Không xác định'}
+                                        ${questionAuthorDisplayName(q,accountsMap,currentUser)}
                                     </span></u>` : ''}
                                 </div>
                                 <button onclick="switchTab('exam')" title="Quay về Bảng điều khiển câu hỏi" class="hidden md:flex flex-shrink-0 p-2 md:px-3 md:py-1.5 bg-white text-emerald-600 rounded-xl hover:bg-emerald-50 transition-all shadow-sm border border-emerald-100 items-center gap-1.5 text-[10px] md:text-xs font-black">
@@ -9806,7 +9810,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                                     <span class="px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-xs font-semibold">${d.question.type}</span></u>
                                     <span class="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs font-semibold">${d.question.level || 'NB'}</span></u>
                                     <span class="px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs font-semibold">${escapeHTML(d.question.lesson) || 'Chung'}</span></u>
-                                    ${d.question.creatorId ? `<span class="px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded text-xs font-semibold">Tác giả: ${accounts.find(a => a.id === d.question.creatorId)?.full_name || 'Không xác định'}</span></u>` : ''}
+                                    ${d.question.creatorId ? `<span class="px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded text-xs font-semibold">Tác giả: ${questionAuthorDisplayName(d.question,accountsMap,currentUser)}</span></u>` : ''}
                                 </div>
                                 <p class="font-semibold text-gray-800 text-sm md:text-base lg:text-lg mb-2 break-words">Câu ${i + 1}: ${formatContent(d.question.content)}</p>
                                 ${d.question.image ? `<img src="${d.question.image}" class="max-w-full h-auto mb-2 rounded border shadow-sm cursor-zoom-in hover:scale-[1.01] transition-transform" style="max-height: 250px; object-fit: contain;" onclick="zoomImage(this.src)">` : ''}
@@ -10566,7 +10570,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                                 <span class="px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-xs font-semibold">${q.type}</span>
                                 <span class="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs font-semibold">${q.level || 'NB'}</span>
                                 <span class="px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs font-semibold">${escapeHTML(q.lesson) || 'Chung'}</span>
-                                ${questionCreatorId(q) ? `<span class="px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded text-xs font-semibold truncate max-w-[130px] sm:max-w-none">Tác giả: ${escapeHTML(accountsMap[questionCreatorId(q)] || (String(currentUser?.id) === questionCreatorId(q) ? currentUser?.full_name : '') || 'Không xác định')}</span>` : ''}
+                                ${questionCreatorId(q) ? `<span class="px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded text-xs font-semibold truncate max-w-[130px] sm:max-w-none">Tác giả: ${escapeHTML(questionAuthorDisplayName(q,accountsMap,currentUser))}</span>` : ''}
                             </div>
                             <!-- Nút thao tác Sửa / Xóa luôn hiển thị rõ ràng trên cả mobile và desktop -->
                             <div class="flex items-center gap-1.5 ml-auto shrink-0">
@@ -15932,7 +15936,7 @@ CẤU TRÚC JSON:
                         </td>
                         <td class="px-3 py-1.5 text-gray-700 text-[15px] leading-tight">
                             <div class="font-bold text-gray-800">${escapeHTML(r.examName)}</div>
-                            <div class="italic text-[13px] text-purple-600 mt-0.5">Người tạo: ${accountsMap[examToCreatorMap[r.examName]] || r.examCreator || 'Không xác định'}</div>
+                            <div class="italic text-[13px] text-purple-600 mt-0.5">Người tạo: ${escapeHTML(examCreatorDisplayName(r,accountsMap,currentUser))}</div>
                             <div class="text-[13px] text-gray-500 mt-0.5">${window.formatVNTime(r.timestamp)}</div>
                         </td>
                         <td class="px-2 py-1.5 text-center whitespace-nowrap">
@@ -16023,7 +16027,7 @@ CẤU TRÚC JSON:
                         <div class="border-t border-dashed border-gray-200 pt-3 flex flex-col gap-2">
                             <div class="text-sm">
                                 <p><span class="font-bold text-gray-700">Đề:</span> <span class="text-gray-600 italic">${escapeHTML(r.examName)}</span></p>
-                                <p><span class="font-bold text-gray-700">Người tạo:</span> <span class="text-purple-600 font-medium">${accountsMap[examToCreatorMap[r.examName]] || r.examCreator || 'Không xác định'}</span></p>
+                                <p><span class="font-bold text-gray-700">Người tạo:</span> <span class="text-purple-600 font-medium">${escapeHTML(examCreatorDisplayName(r,accountsMap,currentUser))}</span></p>
                             </div>
                             <div class="flex flex-wrap items-center justify-end gap-2 mt-1">
                                 <button 
@@ -16764,7 +16768,7 @@ CẤU TRÚC JSON:
                   id:r.id,studentName:r.student_name,studentClass:r.student_class,lop:r.lop||'',
                   donvi:r.don_vi||r.student_class||'',score:Number(r.score)||0,
                   correctCount:r.correct_count,totalQuestions:r.total_questions,timeTaken:r.time_taken,
-                  examName:r.exam_name,examId:r.exam_id,examCreatorId:r.exam_creator_id||'',
+                  examName:r.exam_name,examId:r.exam_id,examCreatorId:r.exam_creator_id||'',examCreatorName:r.exam_creator_name||'',
                   loaiThiSinh:r.loai_thi_sinh,aiGradingSummary:r.ai_grading_summary,timestamp:r.created_at
                 }));
               }catch(e){
@@ -16873,7 +16877,7 @@ CẤU TRÚC JSON:
 
                 sortedResults.forEach((r, i) => {
                     const creatorId = examToCreatorMap[r.examName];
-                    const teacherName = accountsMap[creatorId] || r.examCreator || (examConfig ? examConfig.creatorName : ho_ten_khach_hang);
+                    const teacherName = examCreatorDisplayName(r,accountsMap,currentUser);
                     const row = worksheet.addRow([
                         i + 1, r.loaiThiSinh || 'Tự do', r.studentName, r.lop || '-', r.donvi || r.studentClass || '-', parseFloat((Number(r.score) || 0).toFixed(1)),
                         r.correctCount, r.totalQuestions, r.timeTaken, r.aiGradingSummary || '-', r.examName, teacherName,

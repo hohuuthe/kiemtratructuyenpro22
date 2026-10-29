@@ -1,3 +1,5 @@
+import {QUESTION_CREATOR_JOIN_SQL,QUESTION_CREATOR_NAME_SQL,QUESTION_CREATOR_USERNAME_SQL} from './src/question-creator-identity.js';
+import {EXAM_CREATOR_JOIN_SQL,EXAM_CREATOR_NAME_SQL} from './src/exam-creator-identity.js';
 import {parseManagementPage,accountsPageQuery,resultsPageQuery,resolveTeacherManagementScope,accountsFacetQueries,resultsFacetQuery} from './src/management-page-queries.js';
 import {isExamOwner,redactExamForPublic,examAccessChallenge,isProtectedExamForUser,protectedExamPreview,accessCodeMatches} from './functions/api/exam/security';
 import {listDocumentLinks,listDocumentLinksPage,parseDocumentLinkPage,createDocumentLink,updateDocumentLink,deleteDocumentLink,DocumentLinkServiceError} from './src/document-links-service.js';
@@ -2036,7 +2038,7 @@ async function startServer() {
         : isTeacher
           ? ", CASE WHEN ec.creator_id IN (?, ?) THEN (SELECT COUNT(*) FROM results r WHERE r.exam_id = ec.id) ELSE NULL END AS attempt_count"
           : "";
-      let query = "SELECT ec.id, ec.name, ec.creator_id, ec.chedodethi, ec.mabaomatdethi, ec.target_lop, ec.lop, ec.target_donvi, ec.donvi, ec.time_limit, ec.count_41, ec.count_tf4, ec.count_sq, ec.count_tl, ec.points_41, ec.points_tf4, ec.points_sq, ec.points_tl, ec.selected_lessons, ec.counts_detail, ec.access_control, ec.tf4_scoring_mode, ec.tf4_points, ec.is_shared_results, ec.max_cheat_warnings, ec.tg_bd, ec.tg_kt, ec.ai_prompt, ec.immediate_feedback, ec.show_score, ec.show_details, ec.sq_case_sensitive, ec.sq_punctuation_sensitive, ec.auto_grade_essay, ec.tieu_de_bai_thi, ec.created_at, ec.updated_at, u.donvi AS teacher_donvi, u.full_name AS creator_name" + attemptCountProjection + " FROM exam_configs ec LEFT JOIN users u ON ec.creator_id = u.id";
+      let query = "SELECT ec.id, ec.name, ec.creator_id, ec.chedodethi, ec.mabaomatdethi, ec.target_lop, ec.lop, ec.target_donvi, ec.donvi, ec.time_limit, ec.count_41, ec.count_tf4, ec.count_sq, ec.count_tl, ec.points_41, ec.points_tf4, ec.points_sq, ec.points_tl, ec.selected_lessons, ec.counts_detail, ec.access_control, ec.tf4_scoring_mode, ec.tf4_points, ec.is_shared_results, ec.max_cheat_warnings, ec.tg_bd, ec.tg_kt, ec.ai_prompt, ec.immediate_feedback, ec.show_score, ec.show_details, ec.sq_case_sensitive, ec.sq_punctuation_sensitive, ec.auto_grade_essay, ec.tieu_de_bai_thi, ec.created_at, ec.updated_at, creator_profile.donvi AS teacher_donvi, "+EXAM_CREATOR_NAME_SQL+" AS creator_name" + attemptCountProjection + " FROM exam_configs ec " + EXAM_CREATOR_JOIN_SQL;
       const params: any[] = isTeacher ? [user.id, user.user_id || user.id] : [];
       if (teacherIdParam) {
         query += " WHERE (ec.creator_id = ? OR ec.creator_id IN (SELECT user_id FROM accounts WHERE id = ?) OR ec.creator_id IN (SELECT id FROM accounts WHERE user_id = ?))";
@@ -2416,16 +2418,16 @@ async function startServer() {
 
       const paginationClause = limit > 0 ? ` LIMIT ${limit} OFFSET ${offset}` : '';
 
-      let query = "SELECT * FROM questions";
+      let query = "SELECT q.*, "+QUESTION_CREATOR_NAME_SQL+" AS creator_name, "+QUESTION_CREATOR_USERNAME_SQL+" AS creator_username FROM questions q "+QUESTION_CREATOR_JOIN_SQL;
       const params: any[] = [];
       if (!isAdmin) {
-        query += " WHERE creator_id = ?";
+        query += " WHERE q.creator_id = ?";
         params.push(targetTeacherId);
       } else if (teacherIdParam) {
-        query += " WHERE creator_id = ?";
+        query += " WHERE q.creator_id = ?";
         params.push(teacherIdParam);
       }
-      query += ` ORDER BY lesson ASC, type ASC, id ASC${paginationClause}`;
+      query += ` ORDER BY q.lesson ASC, q.type ASC, q.id ASC${paginationClause}`;
 
       const { results } = await executeSqlQuery(query, params);
       const mapped = (results || []).map((q: any) => {
@@ -2441,6 +2443,10 @@ async function startServer() {
           image: readQ.image || '',
           creatorId: readQ.creator_id,
           creator_id: readQ.creator_id,
+          creator_name: q.creator_name || '',
+          creatorName: q.creator_name || '',
+          creator_username: q.creator_username || '',
+          creatorUsername: q.creator_username || '',
           created_at: readQ.created_at,
           updated_at: readQ.updated_at
         };
