@@ -105,6 +105,20 @@ test('All is present even when there are no records and must not hide profiles w
     assert.match(source, /const hasActiveFilter = Boolean\(searchTerm \|\| audienceFilter \|\| unitFilter \|\| classFilter\)/);
 });
 
+test('Admin reset restores the All value and exports keep audience filters optional', () => {
+    const resetStart = source.indexOf('window.resetUsersFilters = function resetUsersFilters()');
+    const resetEnd = source.indexOf('function renderUsersPagination(', resetStart);
+    assert.ok(resetStart > 0 && resetEnd > resetStart);
+    const reset = source.slice(resetStart, resetEnd);
+    assert.match(reset, /if \(audSelect\) audSelect\.value = '';/);
+    assert.match(source, /if \(audienceFilter && userAudience\.toLowerCase\(\) !== audienceFilter\.toLowerCase\(\)\) return false;/);
+    const { audience, populate } = setupFilter(users);
+    populate();
+    audience.value = '';
+    populate();
+    assert.equal(audience.value, '');
+});
+
 test('Teachers stay locked to school students, including when All is offered to admin', () => {
     const { audience, populate } = setupFilter(users, true);
     populate();
