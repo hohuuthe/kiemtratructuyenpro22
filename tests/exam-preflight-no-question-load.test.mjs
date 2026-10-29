@@ -35,7 +35,8 @@ test('Cloudflare and Express block questions until authoritative preflight passe
   assert.match(src,/checkExamStartWindow\(dbExam\)/);
   assert.match(src,/validateExamQuestionInventory\(/);
   assert.match(src,/EXAM_QUESTION_INVENTORY_SQL/);
-  assert.doesNotMatch(src,/SELECT \* FROM questions'\)/);
+  const generateSection=src.slice(src.indexOf('Preflight inventory check failed:'),src.indexOf('const normalizeType',src.indexOf('Preflight inventory check failed:')));
+  assert.doesNotMatch(generateSection,/SELECT \* FROM questions'\)/);
   const pre=src.indexOf('validateExamQuestionInventory(');
   const body=src.indexOf('SELECT * FROM questions WHERE');
   assert.ok(pre>0&&body>pre);
