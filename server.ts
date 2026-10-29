@@ -1,4 +1,4 @@
-import {parseManagementPage,accountsPageQuery,resultsPageQuery} from './src/management-page-queries.js';
+import {parseManagementPage,accountsPageQuery,resultsPageQuery,resolveTeacherManagementScope} from './src/management-page-queries.js';
 import {isExamOwner,redactExamForPublic,examAccessChallenge,isProtectedExamForUser,protectedExamPreview,accessCodeMatches} from './functions/api/exam/security';
 import {listDocumentLinks,createDocumentLink,updateDocumentLink,deleteDocumentLink,DocumentLinkServiceError} from './src/document-links-service.js';
 import { accountSessionMaterial, isAccountEnabled, isUnexpiredAccountToken } from './src/security-session';
@@ -823,7 +823,8 @@ async function startServer() {
       const actor=verifyJWTSync(auth.slice(7),await getServerSecret());
       if(!actor||!checkIsTeacherOrAdmin(actor))return res.status(403).json({error:'Không có quyền xem kết quả.'});
       const page=parseManagementPage('https://local.invalid'+req.originalUrl);
-      const q=resultsPageQuery(page,{...actor,role:checkIsAdmin(actor)?'admin':'teacher'});
+      const verified=await resolveTeacherManagementScope({...actor,role:checkIsAdmin(actor)?'admin':'teacher'},async(sql,args)=>(await executeSqlQuery(sql,args)).results||[]);
+      const q=resultsPageQuery(page,verified);
       const count=await executeSqlQuery(q.countSQL,q.countArgs);
       const data=await executeSqlQuery(q.rowsSQL,q.rowsArgs);
       const total=Number(count.results?.[0]?.total||0);
