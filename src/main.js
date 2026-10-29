@@ -16309,9 +16309,9 @@ CẤU TRÚC JSON:
                             const userResponse = userAnswers[opt];
                             const isMatch = isCorrectStatement === userResponse;
                             const colorClass = isMatch ? 'text-green-700' : 'text-red-600';
-                            userAnsHtml.push(`<span class="${}colorClass}">${}opt}: ${}userResponse ? 'Đ' : 'S'}</span>`);
+                            userAnsHtml.push(`<span class="${colorClass}">${opt}: ${userResponse ? 'Đ' : 'S'}</span>`);
                         } else {
-                            userAnsHtml.push(`<span class="text-gray-500">${}opt}: Chưa trả lời</span>`);
+                            userAnsHtml.push(`<span class="text-gray-500">${opt}: Chưa trả lời</span>`);
                         }
                     });
 
@@ -16328,7 +16328,7 @@ CẤU TRÚC JSON:
                         studentColor: userAnsColor,
                     });
                     if (d.question.options && d.question.options.answerImage) {
-                        answerDisplay += `<img src="${}d.question.options.answerImage}" class="mt-1 max-w-[200px] h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage(this.src)">`;
+                        answerDisplay += `<img src="${d.question.options.answerImage}" class="mt-1 max-w-[200px] h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage(this.src)">`;
                     }
                 } else if (d.question.type === 'TL') {
                     const studentAnsText = (typeof d.userAnswer === 'object' && d.userAnswer !== null) ? (d.userAnswer.text || '') : (d.userAnswer || '');
