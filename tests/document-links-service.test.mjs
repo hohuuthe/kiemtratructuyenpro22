@@ -104,3 +104,30 @@ test('owner-only listing SQL restricts rows and protects direct URL exposure',as
  assert.deepEqual(ownRows.map(x=>x.id),['owner-A']);
  await assert.rejects(()=>updateDocumentLink(privateDb,{id:'admin-A',role:'admin'},base),{status:403});
 });
+
+test('teacher library includes shared readable rows but preserves owner-only editing',async()=>{
+ const observed=[];
+ const own={...base,id:'own',id_nguoi_tao:'teacher-A',doi_tuong_truy_cap_nhieu:['student'],co_quyen_quan_ly:false};
+ const shared={...base,id:'shared',id_nguoi_tao:'teacher-B',doi_tuong_duoc_truy_cap:'authenticated',doi_tuong_truy_cap_nhieu:['authenticated'],co_quyen_quan_ly:false};
+ const privateOther={...base,id:'private',id_nguoi_tao:'teacher-B',doi_tuong_truy_cap_nhieu:['owner']};
+ const mock={all:async(sql,args)=>{observed.push({sql,args});return [own,shared,privateOther];}};
+ const rows=await listDocumentLinks(mock,actor,{manage:true,includeReadable:true});
+ assert.match(observed[0].sql,/id_nguoi_tao = \?/);
+ assert.match(observed[0].sql,/doi_tuong_truy_cap_nhieu && ARRAY/);
+ assert.deepEqual(observed[0].args,['teacher-A','public','authenticated','teacher']);
+ assert.deepEqual(rows.map(x=>x.id),['own','shared']);
+ assert.deepEqual(rows.map(x=>x.co_quyen_quan_ly),[true,false]);
+ assert.deepEqual(rows.map(x=>x.co_quyen_xem),[true,true]);
+ const ownOnly=await listDocumentLinks(mock,actor,{manage:true});
+ assert.deepEqual(observed[1].args,['teacher-A']);
+ assert.doesNotMatch(observed[1].sql,/doi_tuong_truy_cap_nhieu && ARRAY/);
+ assert.deepEqual(ownOnly.map(x=>x.id),['own','shared']);
+});
+test('documents tab requests combined library after selection and both APIs forward flag',()=>{
+ const ui=readFileSync('src/document-links-ui.js','utf8');
+ const cf=readFileSync('functions/api/documents.ts','utf8');
+ const express=readFileSync('server.ts','utf8');
+ assert.match(ui,/manage=1&includeReadable=1/);
+ assert.match(cf,/includeReadable:manage&&/);
+ assert.match(express,/includeReadable:req\.query\.manage==='1'&&/);
+});
