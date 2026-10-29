@@ -7308,6 +7308,8 @@ if (contentType && contentType.includes("application/json")) {
                 questionBankRevision++;
             }
             window.examAvailableCounts = null;
+            window.examAvailabilityVerified = false;
+            ++window._verifyQuestionsSeq;
             
             // Reset trạng thái bài thi về ban đầu nếu đang ở tab làm bài
             if (typeof resetExam === 'function') {
@@ -7487,6 +7489,8 @@ if (contentType && contentType.includes("application/json")) {
                 questionBankRevision++;
             }
             window.examAvailableCounts = null;
+            window.examAvailabilityVerified = false;
+            ++window._verifyQuestionsSeq;
             
             if (typeof resetExam === 'function') {
                 resetExam();
@@ -7766,7 +7770,9 @@ if (contentType && contentType.includes("application/json")) {
                 if (elStatus) {
                     const countDetails = `Chi tiết kiểm tra:\nTổng: ${total}\n[4-1] NB cần ${examConfig.count41NB || 0}, TH cần ${examConfig.count41TH || 0}, VD cần ${examConfig.count41VD || 0}\n[TF4] NB cần ${examConfig.countTF4NB || 0}, TH cần ${examConfig.countTF4TH || 0}, VD cần ${examConfig.countTF4VD || 0}\n[SQ] NB cần ${examConfig.countSQNB || 0}, TH cần ${examConfig.countSQTH || 0}, VD cần ${examConfig.countSQVD || 0}\n[TL] NB cần ${examConfig.countTLNB || 0}, TH cần ${examConfig.countTLTH || 0}, VD cần ${examConfig.countTLVD || 0}`;
                     if (total > 0) {
-                        if (!isEnough) {
+                        if (studentTeacher && studentExam && !window.examAvailabilityVerified) {
+                            elStatus.textContent = 'ℹ️ Điều kiện đề thi sẽ được kiểm tra trên máy chủ trước khi tải câu hỏi';
+                        } else if (!isEnough) {
                             elStatus.innerHTML = `<span class="text-rose-700 bg-rose-100 px-2.5 py-1 rounded-lg font-bold flex items-center gap-1 cursor-help" title="${countDetails}">❌ Kho chưa đủ câu</span>`;
                         } else {
                             elStatus.innerHTML = `<span class="text-emerald-700 bg-emerald-100 px-2.5 py-1 rounded-lg font-bold flex items-center gap-1">✅ Đáp ứng đủ ${total} câu</span>`;
@@ -7780,7 +7786,7 @@ if (contentType && contentType.includes("application/json")) {
             // KHOÁ / MỞ KHOÁ NÚT BẮT ĐẦU DỰA VÀO ĐIỀU KIỆN ĐỀ THI
             const startBtn = document.querySelector('button[onclick="startExam(this)"]') || document.querySelector('button[onclick*="startExam"]');
             if (startBtn) {
-                if (hasStudentSelectedExam && total > 0 && isEnough) {
+                if (hasStudentSelectedExam && total > 0) {
                     startBtn.disabled = false;
                     startBtn.classList.remove('opacity-50', 'cursor-not-allowed');
                 } else {
