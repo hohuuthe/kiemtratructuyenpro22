@@ -23,6 +23,7 @@ import './pwa-manager.js';
 import './teacher-assignment.js';
 import { typesetScientificMath } from './scientific-formula-typeset.js';
 import { renderExamDetailQuestion, renderExamDetailOptions, renderExamReviewMath, normalizeExamReviewDetails } from './exam-detail-formula-renderer.js';
+import { examDetailStudentAnswerColor, renderExamDetailAnswerSummary } from './exam-detail-answer-summary.js';
 import { renderStudentResultCards, filterStudentResultPage, studentResultPageStats, buildStudentResultDetailMarkup, bindStudentResultDetail } from './student-results-ui.js';
 import { attachScientificEditorPreviews } from './scientific-formula-editor-preview.js';
 import JSZip from 'jszip';
@@ -16284,50 +16285,51 @@ CẤU TRÚC JSON:
                     statusClass = 'bg-purple-50 border-red-300';
                     statusIcon = '❌';
                 }
-                // Render each stored option with the exact KaTeX/MathJax pipeline of the student exam.
-                // This is a read-only presentation change; no answer or scoring data is mutated.
+                // Preserve the same formula renderer and scoring values; change only the review layout.
                 const optionsHtml = renderExamDetailOptions(d.question, d.userAnswer, d.correctAnswer, 15);
-                const scoreDisplay = `<p class="text-base font-semibold mt-1">Điểm đạt được: ${(Number(d.score) || 0).toFixed(2)}</p>`;
-                const userAnsColor = d.isCorrect ? 'text-green-600' : (!isAnswered ? 'text-yellow-600' : 'text-purple-600');
+                const userAnsColor = examDetailStudentAnswerColor(d.isCorrect, isAnswered);
 
                 let answerDisplay = '';
                 if (d.question.type === '4-1') {
-                    answerDisplay = `
-                        <div class="text-sm md:text-base break-words mt-1">Đáp án của học sinh: <div class="exam-detail-answer inline-block font-bold ${userAnsColor}">${renderExamReviewMath(d.userAnswer) || 'Chưa trả lời'}</div></div>
-                        <div class="text-sm md:text-base break-words mt-1">Đáp án đúng: <div class="exam-detail-answer inline-block font-bold text-green-700">${renderExamReviewMath(d.correctAnswer)}</div></div>
-                        ${scoreDisplay}
-                    `;
+                    answerDisplay = renderExamDetailAnswerSummary({
+                        studentAnswerHtml: renderExamReviewMath(d.userAnswer) || 'Chưa trả lời',
+                        correctAnswerHtml: renderExamReviewMath(d.correctAnswer),
+                        score: d.score,
+                        studentColor: userAnsColor,
+                    });
                 } else if (d.question.type === 'TF4') {
-                    // Older results may carry an alternative TF4 answer separator
-                    // or a missing question.answer; never abort the entire modal.
+                    // Score may be partial: color each statement individually rather than the whole answer.
                     const answerKey = String(d.correctAnswer ?? d.question.answer ?? '');
                     const correctAnswers = answerKey.split(/[&,;]/).map(part => part.trim()).filter(Boolean);
                     const userAnswers = d.userAnswer || {};
-                    let userAnsHtml = [];
+                    const userAnsHtml = [];
                     ['A', 'B', 'C', 'D'].forEach(opt => {
                         if (userAnswers[opt] !== undefined) {
                             const isCorrectStatement = correctAnswers.includes(opt);
                             const userResponse = userAnswers[opt];
                             const isMatch = isCorrectStatement === userResponse;
-                            const colorClass = isMatch ? 'text-green-600' : 'text-purple-600';
-                            userAnsHtml.push(`<span class="${colorClass}">${opt}: ${userResponse ? 'Đ' : 'S'}</span>`);
+                            const colorClass = isMatch ? 'text-green-700' : 'text-red-600';
+                            userAnsHtml.push(`<span class="${}colorClass}">${}opt}: ${}userResponse ? 'Đ' : 'S'}</span>`);
                         } else {
-                            userAnsHtml.push(`<span class="text-black">${opt}: Chưa trả lời</span>`);
+                            userAnsHtml.push(`<span class="text-gray-500">${}opt}: Chưa trả lời</span>`);
                         }
                     });
 
-                    answerDisplay = `
-                        <p class="text-sm md:text-base break-words mt-1">Đáp án của bạn: <span class="font-bold">${userAnsHtml.join(', ')}</span></p>
-                        <p class="text-sm md:text-base break-words mt-1">Đáp án đúng: <span class="font-bold text-green-600">${escapeHTML(d.correctAnswer)} (chỉ các phát biểu đúng)</span></p>
-                        ${scoreDisplay}
-                    `;
+                    answerDisplay = renderExamDetailAnswerSummary({
+                        studentAnswerHtml: userAnsHtml.join(', '),
+                        correctAnswerHtml: escapeHTML(answerKey),
+                        score: d.score,
+                    });
                 } else if (d.question.type === 'SQ') {
-                    answerDisplay = `
-                        <div class="text-sm md:text-base break-words mt-1">Đáp án của học sinh: <div class="exam-detail-answer inline-block font-bold ${userAnsColor}">${formatContent(d.userAnswer) || 'Chưa trả lời'}</div></div>
-                        <div class="text-sm md:text-base break-words mt-1">Đáp án đúng: <div class="exam-detail-answer inline-block font-bold text-green-700">${formatContent(d.correctAnswer)}</div></div>
-                        ${(d.question.options && d.question.options.answerImage) ? `<img src="${d.question.options.answerImage}" class="mt-1 max-w-[200px] h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage(this.src)">` : ''}
-                        ${scoreDisplay}
-                    `;
+                    answerDisplay = renderExamDetailAnswerSummary({
+                        studentAnswerHtml: formatContent(d.userAnswer) || 'Chưa trả lời',
+                        correctAnswerHtml: formatContent(d.correctAnswer),
+                        score: d.score,
+                        studentColor: userAnsColor,
+                    });
+                    if (d.question.options && d.question.options.answerImage) {
+                        answerDisplay += `<img src="${}d.question.options.answerImage}" class="mt-1 max-w-[200px] h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage(this.src)">`;
+                    }
                 } else if (d.question.type === 'TL') {
                     const studentAnsText = (typeof d.userAnswer === 'object' && d.userAnswer !== null) ? (d.userAnswer.text || '') : (d.userAnswer || '');
                     const studentAnsImage = (typeof d.userAnswer === 'object' && d.userAnswer !== null) ? (d.userAnswer.image || '') : '';
