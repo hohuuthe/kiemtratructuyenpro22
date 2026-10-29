@@ -1925,6 +1925,7 @@ async function startServer() {
     try {
       const actor = await documentActor(req);
       const data = await action(actor);
+      if(req.method==='GET'&&req.path==='/api/documents'&&req.query.paged==='1')return res.json({...data,error:null});
       return res.status(created?201:200).json({data,error:null});
     } catch (e: any) {
       return res.status(e instanceof DocumentLinkServiceError ? e.status : 500)
