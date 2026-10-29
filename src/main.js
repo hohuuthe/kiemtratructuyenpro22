@@ -3157,7 +3157,8 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                         content: q.content, options: q.options || {}, answer: q.answer,
                         image: q.image || '', created_at: q.created_at || null,
                         creatorId: q.creatorId || q.creator_id,
-                        creatorName: q.creatorName || q.creator_name || ''
+                        creatorName: q.creatorName || q.creator_name || '',
+                        creatorUsername: q.creatorUsername || q.creator_username || ''
                     }));
                     questionsLoaded = true;
                     updateQuestionTeacherFilter();
