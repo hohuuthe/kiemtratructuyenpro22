@@ -7,7 +7,7 @@
  */
 import {
   DOCUMENT_AUDIENCES, canManageDocument, documentActorRole, documentOwnerId, documentAudienceValues,
-  normalizeDocumentLinkInput, DocumentLinkInputError
+  normalizeDocumentLinkInput, DocumentLinkInputError, canViewDocument
 } from './document-link-policy.js';
 
 export class DocumentLinkServiceError extends Error {
@@ -36,15 +36,24 @@ const cleanPayload=(payload)=>{
 function requireEditor(actor){
   if(!canManageDocument(actor))deny(403,'Chỉ quản trị viên và giáo viên được quản lý liên kết tài liệu.');
 }
-export async function listDocumentLinks(db, actor, {manage=false}={}){
+export async function listDocumentLinks(db, actor, {manage=false,includeReadable=false}={}){
   const role=documentActorRole(actor);
   if(manage)requireEditor(actor);
   const params=[];
   let query='SELECT '+(manage?managementColumns:readerColumns)+' FROM quan_ly_tai_lieu WHERE 1=1';
   if(manage){
     if(role!=='admin'){
-      query+=' AND id_nguoi_tao = ?';
+      // Teachers may manage only their own documents. The library view also
+      // includes active documents shared with their role, but never grants edit.
+      query+=' AND (id_nguoi_tao = ?';
       params.push(documentOwnerId(actor));
+      if(includeReadable && role==='teacher'){
+        query+=' OR (hoat_dong = 1 AND (thoi_gian_het_han IS NULL OR thoi_gian_het_han > CURRENT_TIMESTAMP)';
+        query+=" AND NOT (doi_tuong_truy_cap_nhieu @> ARRAY['owner']::TEXT[])";
+        query+=' AND doi_tuong_truy_cap_nhieu && ARRAY['+eligible.teacher.map(()=>'?').join(',')+']::TEXT[])';
+        params.push(...eligible.teacher);
+      }
+      query+=')';
     }
   } else {
     query+=' AND hoat_dong = 1 AND (thoi_gian_het_han IS NULL OR thoi_gian_het_han > CURRENT_TIMESTAMP)';
@@ -62,12 +71,15 @@ export async function listDocumentLinks(db, actor, {manage=false}={}){
   if (manage) return (rows||[]).filter(row=>!documentAudienceValues(row).includes('owner') || documentOwnerId(actor)===String(row.id_nguoi_tao||'')).map(row=>{
     const canReadOwnerOnly = !documentAudienceValues(row).includes('owner') ||
       documentOwnerId(actor) === String(row.id_nguoi_tao || '');
+    const canEdit = canManageDocument(actor,row);
     return {
       ...row,
-      // Admin can still manage records but cannot see an owner's private URL.
+      // Shared documents are read-only; never disclose management audit details
+      // or owner-only links to another teacher or administrator.
+      id_nguoi_cap_nhat: canEdit ? row.id_nguoi_cap_nhat : undefined,
       duong_link: canReadOwnerOnly ? row.duong_link : '',
-      co_quyen_quan_ly: canManageDocument(actor,row),
-      co_quyen_xem: canReadOwnerOnly
+      co_quyen_quan_ly: canEdit,
+      co_quyen_xem: canEdit || canViewDocument(actor,row)
     };
   });
   return rows||[];
