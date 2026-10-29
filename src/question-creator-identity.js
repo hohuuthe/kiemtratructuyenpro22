@@ -13,6 +13,10 @@ export const QUESTION_CREATOR_NAME_SQL =
   " NULLIF(BTRIM(author_account.username), '')," +
   " (SELECT NULLIF(BTRIM(a.username), '') FROM accounts a WHERE a.user_id = q.creator_id ORDER BY a.id LIMIT 1), '')";
 
+export const QUESTION_CREATOR_USERNAME_SQL =
+  "COALESCE(NULLIF(BTRIM(author_account.username), '')," +
+  " (SELECT NULLIF(BTRIM(a.username), '') FROM accounts a WHERE a.user_id = q.creator_id ORDER BY a.id LIMIT 1), '')";
+
 const clean = value => typeof value === 'string' ? value.trim() : '';
 const idOf = question => clean(question?.creatorId ?? question?.creator_id);
 
@@ -21,8 +25,13 @@ export function verifiedQuestionAuthorName(question) {
   return clean(question?.creator_name) || clean(question?.creatorName) || '';
 }
 
+/** Username is already resolved by the server; do not download all accounts. */
+export function verifiedQuestionAuthorUsername(question) {
+  return clean(question?.creator_username) || clean(question?.creatorUsername) || '';
+}
+
 export function questionAuthorDisplayName(question, accountsById = {}, currentUser = null) {
-  const verified = verifiedQuestionAuthorName(question);
+  const verified = verifiedQuestionAuthorName(question) || verifiedQuestionAuthorUsername(question);
   if (verified) return verified;
   const id = idOf(question);
   if (!id) return 'Chưa có mã tác giả';
