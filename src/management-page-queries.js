@@ -39,14 +39,20 @@ export function resultsPageQuery(page, actor) {
   const isAdmin=String(actor.role||'').toLowerCase()==='admin';
   const predicates=[],args=[];
   if(!isAdmin){
-    // Teacher is scoped to the same exams whose creator matches account/profile.
-    predicates.push('EXISTS (SELECT 1 FROM exam_configs ec WHERE ec.id=r.exam_id AND ec.creator_id IN (?,?))');
-    args.push(String(actor.id),String(actor.user_id||actor.id));
+    // Only server-verified account/profile IDs and class/unit assignments may expand scope.
+    const owned='EXISTS (SELECT 1 FROM exam_configs ec WHERE ec.id=r.exam_id AND ec.creator_id IN (?,?))';
+    const permitted=[owned];args.push(String(actor.id),String(actor.user_id||actor.id));
+    for(const entry of (Array.isArray(actor.assignedScopes)?actor.assignedScopes:[]).slice(0,150)){
+      if(!entry?.className||!entry?.unit)continue;
+      permitted.push("(LOWER(TRIM(r.lop))=LOWER(TRIM(?)) AND LOWER(TRIM(r.don_vi))=LOWER(TRIM(?)))");
+      args.push(String(entry.className),String(entry.unit));
+    }
+    predicates.push('('+permitted.join(' OR ')+')');
   }
   if(page.exam){predicates.push('r.exam_name=?');args.push(page.exam);}
   if(page.unit){predicates.push('LOWER(TRIM(COALESCE(NULLIF(r.don_vi,\'\'),r.student_class,\'\')))=LOWER(TRIM(?))');args.push(page.unit);}
   if(page.className){predicates.push('LOWER(TRIM(COALESCE(NULLIF(r.lop,\'\'),r.student_class,\'\')))=LOWER(TRIM(?))');args.push(page.className);}
-  if(page.teacher && isAdmin){predicates.push('EXISTS (SELECT 1 FROM exam_configs ec WHERE ec.id=r.exam_id AND ec.creator_id=?)');args.push(page.teacher);}
+  if(page.teacher && isAdmin){predicates.push('EXISTS (SELECT 1 FROM exam_configs ec WHERE ec.id=r.exam_id AND (ec.creator_id=? OR ec.creator_id IN (SELECT a.user_id FROM accounts a WHERE a.id=?) OR ec.creator_id IN (SELECT a.id FROM accounts a WHERE a.user_id=?)))');args.push(page.teacher,page.teacher,page.teacher);}
   if(page.search){const cols=['r.student_name','r.student_class','r.exam_name','r.don_vi','r.lop','r.loai_thi_sinh'];
     predicates.push('('+cols.map(c=>'COALESCE('+c+",'') ILIKE ?").join(' OR ')+')');
     args.push(...cols.map(()=>'%'+page.search.replace(/[\\%_]/g,c=>'\\'+c)+'%'));}
@@ -61,4 +67,31 @@ export function resultsPageQuery(page, actor) {
   return {countSQL:'SELECT COUNT(*) AS total'+from+where,countArgs:args,
     rowsSQL:'SELECT '+projection+from+where+' ORDER BY '+order+',r.id DESC LIMIT ? OFFSET ?',
     rowsArgs:[...args,page.limit,(page.page-1)*page.limit]};
+}
+
+export async function resolveTeacherManagementScope(actor,readRows){
+  if(String(actor?.role||'').toLowerCase()==='admin')return {...actor,assignedScopes:[]};
+  const id=String(actor?.id||''),profile=String(actor?.user_id||id);
+  if(!id)throw Error('Invalid authenticated teacher');
+  const base={...actor,role:'teacher',assignedScopes:[]};
+  // Never trust school or class claims supplied through a query parameter or stale JWT.
+  const users=await readRows('SELECT donvi FROM users WHERE id = ? OR id = ? LIMIT 2',[profile,id]);
+  const school=String((users||[]).find(x=>String(x?.donvi||'').trim())?.donvi||'').trim();
+  if(!school)return base;
+  const assignments=await readRows('SELECT class_name,donvi FROM teacher_classes WHERE teacher_id = ? OR teacher_id = ?',[id,profile]);
+  const unique=new Map();
+  for(const row of assignments||[]){
+    const className=String(row?.class_name||'').trim(),unit=String(row?.donvi||'').trim();
+    if(!className||!unit||unit.toLocaleLowerCase('vi')!==school.toLocaleLowerCase('vi'))continue;
+    unique.set(className.toLocaleLowerCase('vi')+'|'+unit.toLocaleLowerCase('vi'),{className,unit});
+  }
+  return {...base,assignedScopes:[...unique.values()].slice(0,150)};
+}
+export function managementFacetQuery(baseQuery,column){
+  if(!/^r\.(exam_name|lop|don_vi)$/.test(column))throw Error('Invalid facet column');
+  const from=baseQuery.countSQL.slice('SELECT COUNT(*) AS total'.length);
+  const condition='NULLIF(TRIM('+column+"),'') IS NOT NULL";
+  return {sql:'SELECT DISTINCT NULLIF(TRIM('+column+"),'') AS value"+from+
+    (from.includes(' WHERE ')?' AND ':' WHERE ')+condition+' ORDER BY value LIMIT 1000',
+    args:baseQuery.countArgs};
 }
