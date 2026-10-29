@@ -2,6 +2,7 @@ import {connectDocumentLinks,initDocumentLinks,resetDocumentLinks} from './docum
 import {readBrowserGeminiKeys,saveBrowserGeminiKeys,prioritizeGradingKeys,splitGeminiKeys} from './essay-browser-ai-keys.js';
 import { configureExamAccessCodeInput } from './exam-access-code-input.js';
 import { parseExamAttemptLimitError, buildExamAttemptLimitModal, buildExamReadyModal, fetchExamStartResponse } from './student-exam-start-guard.js';
+import { scrollExamSubmitIntoView } from './exam-scroll-to-submit.js';
 
 import 'katex/dist/katex.min.css';
 import { renderRoleHelp, attachRoleHelpInteractions, resetRoleHelpCache } from './help-center.js';
@@ -8320,6 +8321,11 @@ if (contentType && contentType.includes("application/json")) {
                 shuffledOptions: (q.type === '4-1' || q.type === 'TF4') ? shuffle(['A', 'B', 'C', 'D']) : null
             }));
         }
+
+        window.scrollToExamSubmitButton = function scrollToExamSubmitButton() {
+            if (window.innerWidth < 1024 || document.fullscreenElement !== document.getElementById('exam-interface')) return;
+            scrollExamSubmitIntoView(document.getElementById('exam-interface'));
+        };
 
         window.scrollToTimerHeader = function scrollToTimerHeader() {
             const header = document.getElementById('exam-interface');
