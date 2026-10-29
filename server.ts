@@ -1,6 +1,6 @@
 import {parseManagementPage,accountsPageQuery,resultsPageQuery,resolveTeacherManagementScope,accountsFacetQueries,resultsFacetQuery} from './src/management-page-queries.js';
 import {isExamOwner,redactExamForPublic,examAccessChallenge,isProtectedExamForUser,protectedExamPreview,accessCodeMatches} from './functions/api/exam/security';
-import {listDocumentLinks,createDocumentLink,updateDocumentLink,deleteDocumentLink,DocumentLinkServiceError} from './src/document-links-service.js';
+import {listDocumentLinks,listDocumentLinksPage,parseDocumentLinkPage,createDocumentLink,updateDocumentLink,deleteDocumentLink,DocumentLinkServiceError} from './src/document-links-service.js';
 import { accountSessionMaterial, isAccountEnabled, isUnexpiredAccountToken } from './src/security-session';
 import { resolveTenantFromHostname } from './src/tenant-host-map';
 import crypto from 'crypto';
@@ -1932,7 +1932,9 @@ async function startServer() {
     }
   }
   app.get('/api/documents',(req,res)=>documentApiReply(req,res,
-    actor=>listDocumentLinks(documentDb,actor,{manage:req.query.manage==='1',includeReadable:req.query.manage==='1'&&req.query.includeReadable==='1'})));
+    actor=>req.query.paged==='1'
+      ? listDocumentLinksPage(documentDb,actor,{...parseDocumentLinkPage(req.originalUrl),manage:req.query.manage==='1',includeReadable:req.query.manage==='1'&&req.query.includeReadable==='1'})
+      : listDocumentLinks(documentDb,actor,{manage:req.query.manage==='1',includeReadable:req.query.manage==='1'&&req.query.includeReadable==='1'})));
   app.post('/api/documents',(req,res)=>documentApiReply(req,res,
     actor=>createDocumentLink(documentDb,actor,req.body),true));
   app.put('/api/documents',(req,res)=>documentApiReply(req,res,
