@@ -1,3 +1,4 @@
+import {canDeleteRankingResult} from './ranking-result-delete-policy.js';
 import {questionAuthorDisplayName} from './question-creator-identity.js';
 import {examCreatorDisplayName} from './exam-creator-identity.js';
 import {connectDocumentLinks,initDocumentLinks,resetDocumentLinks} from './document-links-ui.js';
@@ -3751,6 +3752,8 @@ if (contentType && contentType.includes("application/json")) {
                         window.lastResultsError = errText;
                         return false;
                     }
+                    const count=Number(resJson.deletedCount);
+                    if(!Number.isSafeInteger(count)||count!==deletedIds.length){window.lastResultsError='Máy chủ chưa xác nhận đã xóa đủ kết quả';return false;}
                     resultsLoaded = false;
                     return true;
                 }
@@ -9847,7 +9850,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                     <h2 class="text-lg font-bold text-gray-800 mb-0">Kết quả bài thi</h2>
                     <p class="text-xl font-bold text-blue-600 mb-0">${escapeHTML(result.studentName)} - ${escapeHTML(result.studentClass)}</p>
                     <p class="text-base font-bold text-purple-600">${escapeHTML(result.examName)}</p>
-                    <p class="text-[11px] font-semibold text-gray-600 italic mt-0.5">Người tạo đề thi: <span class="text-purple-600">${escapeHTML(accountsMap[examToCreatorMap[result.examName]] || result.examCreator || ho_ten_khach_hang)}</span></u></p>
+                    <p class="text-[11px] font-semibold text-gray-600 italic mt-0.5">Người tạo đề thi: <span class="text-purple-600">${escapeHTML(escapeHTML(examCreatorDisplayName(result,accountsMap,currentUser)))}</span></u></p>
                     ${tlWarningHTML}
                 </div>
                 <div class="grid grid-cols-2 md:grid-cols-3 gap-2 md:gap-3 mb-4">
@@ -15895,8 +15898,7 @@ CẤU TRÚC JSON:
                     const medalIcon = isMedal ? medals[i] : '';
 
                     // QUY TẮC SỐNG CÒN: Chỉ người tạo mới được xóa
-                    const isCreator = currentUser && String(examToCreatorMap[r.examName]) === String(currentUser.id);
-                    const canDelete = isAdmin || (isTeacher && isCreator);
+                    const canDelete = canDeleteRankingResult(r,currentUser,isAdmin,isTeacher);
                     const isChecked = selectedRankingResults.has(r.id) ? 'checked' : '';
                     
                     return `
@@ -15970,8 +15972,7 @@ CẤU TRÚC JSON:
                     const isMedal = window.rankingCurrentPage === 1 && i < 3;
 
                     // QUY TẮC SỐNG CÒN: Chỉ người tạo mới được xóa
-                    const isCreator = currentUser && String(examToCreatorMap[r.examName]) === String(currentUser.id);
-                    const canDelete = isAdmin || (isTeacher && isCreator);
+                    const canDelete = canDeleteRankingResult(r,currentUser,isAdmin,isTeacher);
                     const isChecked = selectedRankingResults.has(r.id) ? 'checked' : '';
                     
                     return `
@@ -16197,7 +16198,7 @@ CẤU TRÚC JSON:
                 }
                 // Render each stored option with the exact KaTeX/MathJax pipeline of the student exam.
                 // This is a read-only presentation change; no answer or scoring data is mutated.
-                const optionsHtml = renderExamDetailOptions(d.question, d.userAnswer, d.correctAnswer, appSettings.answerFontSize || 20);
+                const optionsHtml = renderExamDetailOptions(d.question, d.userAnswer, d.correctAnswer, 15);
                 const scoreDisplay = `<p class="text-base font-semibold mt-1">Điểm đạt được: ${(Number(d.score) || 0).toFixed(2)}</p>`;
                 const userAnsColor = d.isCorrect ? 'text-green-600' : (!isAnswered ? 'text-yellow-600' : 'text-purple-600');
 
@@ -16289,7 +16290,7 @@ CẤU TRÚC JSON:
                         <div class="flex items-start gap-2">
                             <span class="text-2xl flex-shrink-0">${statusIcon}</span>
                             <div class="exam-detail-item-body flex-1 min-w-0">
-                                ${renderExamDetailQuestion(d.question, i, appSettings.questionFontSize || 24)}
+                                ${renderExamDetailQuestion(d.question, i, 16)}
                                 ${d.question.image ? `<img src="${d.question.image}" class="max-w-full h-auto mb-2 rounded border shadow-sm cursor-zoom-in hover:scale-[1.01] transition-transform" style="max-height: 250px; object-fit: contain;" onclick="zoomImage(this.src)">` : ''}
                                 ${optionsHtml}
                                 ${answerDisplay}
@@ -16527,8 +16528,7 @@ CẤU TRÚC JSON:
 
             let countAdded = 0;
             targetResults.forEach(r => {
-                const isCreator = currentUser && String(examToCreatorMap[r.examName]) === String(currentUser.id);
-                const canDelete = isAdmin || (isTeacher && isCreator);
+                const canDelete = canDeleteRankingResult(r,currentUser,isAdmin,isTeacher);
                 if (canDelete) {
                     selectedRankingResults.add(r.id);
                     countAdded++;
@@ -16553,7 +16553,7 @@ CẤU TRÚC JSON:
                 const unauthorized = idsToDelete.filter(id => {
                     const result = results.find(r => r.id === id);
                     if (!result) return false;
-                    return String(examToCreatorMap[result.examName]) !== String(currentUser.id);
+                    return !canDeleteRankingResult(result,currentUser,isAdmin,isTeacher);
                 });
                 
                 if (unauthorized.length > 0) {
@@ -16616,8 +16616,7 @@ CẤU TRÚC JSON:
 
             const isAdmin = isAdminLoggedIn;
             const isTeacher = isTeacherLoggedIn && !isAdmin;
-            const isCreator = currentUser && String(examToCreatorMap[result.examName]) === String(currentUser.id);
-            const canDelete = isAdmin || (isTeacher && isCreator);
+            const canDelete = canDeleteRankingResult(result,currentUser,isAdmin,isTeacher);
 
             if (!canDelete) {
                 showToast('❌ Bạn không có quyền xóa kết quả thi này!', 'error');
