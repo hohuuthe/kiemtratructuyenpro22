@@ -4124,6 +4124,19 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
                 return;
             }
             if (tabName === 'ranking') {
+                if (isAdminLoggedIn || isTeacherLoggedIn) {
+                    const session = authDataGeneration + ':' + String(currentUser?.id || '');
+                    if (rankingFacetSession !== session) {
+                        // Purge previous account's exam names BEFORE the first
+                        // ranking render, even when resultsLoaded was true.
+                        rankingFacetSession = session;
+                        rankingFacetCache = null;
+                        rankingServerTotal = null;
+                        rankingLastQueryKey = '';
+                        resultsLoaded = false;
+                        results = [];
+                    }
+                }
                 document.getElementById('ranking-shared-results-control')?.classList.toggle(
                     'hidden', isTeacherLoggedIn && !isAdminLoggedIn);
                 document.getElementById('ranking-student-panel')?.classList.add('hidden');

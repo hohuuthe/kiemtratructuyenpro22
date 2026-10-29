@@ -112,6 +112,8 @@ test('Cloudflare and Express share strict gates and frontend has no unlocked-nam
   assert.match(markup,/id="ranking-shared-results-control"/);
   assert.match(ui,/if \(isTeacherLoggedIn && !isAdminLoggedIn\) \{[\s\S]*?rankingFacetCache\.exams/);
   assert.match(ui,/if \(isTeacher\) filteredResults = \[\];/);
+  assert.match(ui,/if \(rankingFacetSession !== session\) \{[\s\S]*?resultsLoaded = false;[\s\S]*?results = \[\];/);
+  assert.match(ui,/if \(force && managementActor\) rankingFacetCache = null/);
   const options=ui.slice(ui.indexOf('function populateRankingExamFilter()'),ui.indexOf('let rankingUnitSelectionInitialized'));
   assert.doesNotMatch(options,/isUnlocked|unlockedExamIds/);
   assert.match(ui,/window\.loadSharedResultsByCode = async function\(\) \{[\s\S]*?if \(isTeacherLoggedIn && !isAdminLoggedIn\)/);
