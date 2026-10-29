@@ -4389,6 +4389,7 @@ async function getServerSecret(): Promise<string> {
                   }
               } catch(err) {
                   console.error("Lỗi kiểm tra số lần làm bài:", err);
+                   return res.status(503).json({code:'EXAM_ATTEMPT_CHECK_UNAVAILABLE',error:'Không thể kiểm tra lượt thi. Vui lòng thử lại.'});
               }
 
               if (attemptCount >= maxAttemptsVal) {
