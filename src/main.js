@@ -19320,17 +19320,22 @@ CẤU TRÚC JSON:
                     audSelect.title = 'Lọc người dùng theo đối tượng';
                     const currentVal = audSelect.value;
                     const sorted = Array.from(audiences).filter(Boolean).sort((a, b) => a.localeCompare(b, 'vi'));
-                    let needsUpdate = audSelect.options.length !== sorted.length;
+                    // For admin, the empty value means all audiences, including records
+                    // with no audience value. The teacher restriction below stays locked.
+                    const allAudienceLabel = '-- Tất cả đối tượng --';
+                    let needsUpdate = audSelect.options.length !== sorted.length + 1 ||
+                        audSelect.options[0]?.value !== '' ||
+                        audSelect.options[0]?.textContent !== allAudienceLabel;
                     if (!needsUpdate) {
                         for (let i = 0; i < sorted.length; i++) {
-                            if (audSelect.options[i]?.value !== sorted[i]) {
+                            if (audSelect.options[i + 1]?.value !== sorted[i]) {
                                 needsUpdate = true;
                                 break;
                             }
                         }
                     }
                     if (needsUpdate) {
-                        audSelect.innerHTML = '';
+                        audSelect.innerHTML = '<option value="">-- Tất cả đối tượng --</option>';
                         sorted.forEach(val => {
                             const opt = document.createElement('option');
                             opt.value = val;
@@ -19338,6 +19343,7 @@ CẤU TRÚC JSON:
                             if (val === currentVal) opt.selected = true;
                             audSelect.appendChild(opt);
                         });
+                        if (!sorted.includes(currentVal)) audSelect.value = '';
                     }
                 }
             }
