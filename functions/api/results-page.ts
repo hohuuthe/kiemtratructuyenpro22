@@ -1,5 +1,5 @@
 import {verifyAuthSession,getDynamicSecret,getDatabase,checkIsAdmin,checkIsTeacherOrAdmin} from './exam/utils';
-import {parseManagementPage,resultsPageQuery,resolveTeacherManagementScope} from '../../src/management-page-queries.js';
+import {parseManagementPage,resultsPageQuery,resolveTeacherManagementScope,resultsFacetQuery} from '../../src/management-page-queries.js';
 const headers={'Content-Type':'application/json; charset=utf-8','Cache-Control':'private, no-store'};
 export const onRequestGet:PagesFunction=async context=>{
  try{
@@ -13,6 +13,16 @@ export const onRequestGet:PagesFunction=async context=>{
   const count=await db.prepare(q.countSQL).bind(...q.countArgs).first();
   const {results}=await db.prepare(q.rowsSQL).bind(...q.rowsArgs).all();
   const total=Number(count?.total||0);
-  return Response.json({data:results||[],total,page:page.page,limit:page.limit,has_more:page.page*page.limit<total,error:null},{headers});
+  let facets=null;
+  if(new URL(context.request.url).searchParams.get('facets')==='1') {
+    const query=resultsFacetQuery(verified);
+    const rows=await db.prepare(query.sql).bind(...query.args).all();
+    facets={rows:rows.results||[]};
+    if(verified.role==='admin') {
+      const teachers=await db.prepare(`SELECT a.id,a.username,u.full_name FROM accounts a LEFT JOIN users u ON u.id=COALESCE(a.user_id,a.id) WHERE LOWER(a.role) IN ('teacher','giáo viên') OR LOWER(u.target_audience)='giáo viên' ORDER BY u.full_name,a.username LIMIT 500`).all();
+      facets.teachers=(teachers.results||[]).map(x=>({id:x.id,label:x.full_name||x.username||x.id}));
+    }
+  }
+  return Response.json({data:results||[],total,page:page.page,limit:page.limit,has_more:page.page*page.limit<total,facets,error:null},{headers});
  }catch(e){return Response.json({error:'Không thể tải trang kết quả.'},{status:500,headers});}
 };
