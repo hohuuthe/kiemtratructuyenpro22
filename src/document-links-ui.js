@@ -65,7 +65,7 @@ async function load(){
  const seq=++generation;const token=localStorage.getItem('auth_token')||'';
  const useManage=manage&&!!token;
  const body=$('documents-table-body');if(body)body.innerHTML='<tr><td colspan="9" class="text-center p-8 text-slate-500">Đang tải tài liệu...</td></tr>';const mobile=$('documents-mobile-list');if(mobile)mobile.innerHTML='<div class="rounded-2xl border border-slate-200 bg-slate-50 p-6 text-center text-slate-500 text-sm" role="status">Đang tải danh sách tài liệu...</div>';
- try{const result=await request('GET','/api/documents'+(useManage?'?manage=1':''));if(seq!==generation)return;list=Array.isArray(result.data)?result.data:[];render();}
+ try{const result=await request('GET','/api/documents'+(useManage?'?manage=1&includeReadable=1':''));if(seq!==generation)return;list=Array.isArray(result.data)?result.data:[];render();}
  catch(e){if(seq!==generation)return;list=[];render();status(e.message,true);}
 }
 export function resetDocumentLinks(){generation++;list=[];actor=null;manage=false;close();const body=$('documents-table-body');if(body)body.replaceChildren();const mobile=$('documents-mobile-list');if(mobile)mobile.replaceChildren();}
