@@ -7,7 +7,7 @@
  */
 import {
   DOCUMENT_AUDIENCES, canManageDocument, documentActorRole, documentOwnerId, documentAudienceValues,
-  normalizeDocumentLinkInput, DocumentLinkInputError
+  normalizeDocumentLinkInput, DocumentLinkInputError, canViewDocument
 } from './document-link-policy.js';
 
 export class DocumentLinkServiceError extends Error {
@@ -36,15 +36,24 @@ const cleanPayload=(payload)=>{
 function requireEditor(actor){
   if(!canManageDocument(actor))deny(403,'Chỉ quản trị viên và giáo viên được quản lý liên kết tài liệu.');
 }
-export async function listDocumentLinks(db, actor, {manage=false}={}){
+export async function listDocumentLinks(db, actor, {manage=false,includeReadable=false}={}){
   const role=documentActorRole(actor);
   if(manage)requireEditor(actor);
   const params=[];
   let query='SELECT '+(manage?managementColumns:readerColumns)+' FROM quan_ly_tai_lieu WHERE 1=1';
   if(manage){
     if(role!=='admin'){
-      query+=' AND id_nguoi_tao = ?';
+      // Teachers may manage only their own documents. The library view also
+      // includes active documents shared with their role, but never grants edit.
+      query+=' AND (id_nguoi_tao = ?';
       params.push(documentOwnerId(actor));
+      if(includeReadable && role==='teacher'){
+        query+=' OR (hoat_dong = 1 AND (thoi_gian_het_han IS NULL OR thoi_gian_het_han > CURRENT_TIMESTAMP)';
+        query+=" AND NOT (doi_tuong_truy_cap_nhieu @> ARRAY['owner']::TEXT[])";
+        query+=' AND doi_tuong_truy_cap_nhieu && ARRAY['+eligible.teacher.map(()=>'?').join(',')+']::TEXT[])';
+        params.push(...eligible.teacher);
+      }
+      query+=')';
     }
   } else {
     query+=' AND hoat_dong = 1 AND (thoi_gian_het_han IS NULL OR thoi_gian_het_han > CURRENT_TIMESTAMP)';
@@ -62,16 +71,90 @@ export async function listDocumentLinks(db, actor, {manage=false}={}){
   if (manage) return (rows||[]).filter(row=>!documentAudienceValues(row).includes('owner') || documentOwnerId(actor)===String(row.id_nguoi_tao||'')).map(row=>{
     const canReadOwnerOnly = !documentAudienceValues(row).includes('owner') ||
       documentOwnerId(actor) === String(row.id_nguoi_tao || '');
+    const canEdit = canManageDocument(actor,row);
     return {
       ...row,
-      // Admin can still manage records but cannot see an owner's private URL.
-      duong_link: canReadOwnerOnly ? row.duong_link : '',
-      co_quyen_quan_ly: canManageDocument(actor,row),
-      co_quyen_xem: canReadOwnerOnly
+      // Shared documents are read-only; never disclose management audit details
+      // or owner-only links to another teacher or administrator.
+      id_nguoi_cap_nhat: canEdit ? row.id_nguoi_cap_nhat : undefined,
+      duong_link: (canEdit || canViewDocument(actor,row)) && canReadOwnerOnly ? row.duong_link : '',
+      co_quyen_quan_ly: canEdit,
+      co_quyen_xem: canEdit || canViewDocument(actor,row)
     };
   });
   return rows||[];
 }
+
+/**
+ * Page-based listing used by both HTTP runtimes. The permission predicate is
+ * evaluated in SQL BEFORE the count, filtering and LIMIT/OFFSET: even the
+ * total cannot disclose private document counts.
+ */
+export function parseDocumentLinkPage(url){
+  const p=new URL(url,'https://local.invalid').searchParams;
+  const integer=(name,fallback,max)=>{
+    const raw=p.get(name);
+    if(raw===null)return fallback;
+    if(!/^[1-9]\d*$/.test(raw))deny(400,'Tham số '+name+' không hợp lệ.');
+    return Math.min(max,Number(raw));
+  };
+  const audience=(p.get('audience')||'').trim();
+  if(audience&&!Object.hasOwn(DOCUMENT_AUDIENCES,audience))deny(400,'Đối tượng lọc không hợp lệ.');
+  return {page:integer('page',1,100000),limit:integer('limit',50,100),
+    search:(p.get('search')||'').trim().slice(0,120),audience};
+}
+export async function listDocumentLinksPage(db,actor,{manage=false,includeReadable=false,page=1,limit=50,search='',audience=''}={}){
+  const role=documentActorRole(actor),owner=documentOwnerId(actor);
+  if(manage)requireEditor(actor);
+  if(!Number.isSafeInteger(page)||page<1||page>100000||!Number.isSafeInteger(limit)||limit<1||limit>100)
+    deny(400,'Thông số phân trang không hợp lệ.');
+  if(audience&&!Object.hasOwn(DOCUMENT_AUDIENCES,audience))deny(400,'Đối tượng lọc không hợp lệ.');
+  const params=[];
+  let scope=' FROM quan_ly_tai_lieu WHERE 1=1';
+  const ownerArray="doi_tuong_truy_cap_nhieu @> ARRAY['owner']::TEXT[]";
+  if(manage){
+    if(role==='admin'){
+      // Admin may manage ordinary documents, but "Chính chủ" is invisible
+      // and unmanageable unless admin is its actual creator.
+      scope+=' AND (NOT ('+ownerArray+') OR id_nguoi_tao = ?)';
+      params.push(owner);
+    }else{
+      scope+=' AND (id_nguoi_tao = ?';params.push(owner);
+      if(includeReadable&&role==='teacher'){
+        scope+=' OR (hoat_dong = 1 AND (thoi_gian_het_han IS NULL OR thoi_gian_het_han > CURRENT_TIMESTAMP)';
+        scope+=' AND NOT ('+ownerArray+') AND doi_tuong_truy_cap_nhieu && ARRAY[?,?,?]::TEXT[])';
+        params.push(...eligible.teacher);
+      }
+      scope+=')';
+    }
+  }else{
+    scope+=' AND hoat_dong = 1 AND (thoi_gian_het_han IS NULL OR thoi_gian_het_han > CURRENT_TIMESTAMP)';
+    const allowed=eligible[role]||eligible.guest;
+    scope+=' AND ((NOT ('+ownerArray+') AND doi_tuong_truy_cap_nhieu && ARRAY['+allowed.map(()=>'?').join(',')+']::TEXT[])';
+    params.push(...allowed);
+    if(owner){scope+=' OR ('+ownerArray+' AND id_nguoi_tao = ?)';params.push(owner);}
+    scope+=')';
+  }
+  if(audience){scope+=' AND doi_tuong_truy_cap_nhieu @> ARRAY[?]::TEXT[]';params.push(audience);}
+  if(search){
+    const fields=['tieu_de','mo_ta','danh_muc','duong_link'];
+    scope+=' AND ('+fields.map(field=>'POSITION(LOWER(?) IN LOWER(COALESCE('+field+",''))) > 0").join(' OR ')+')';
+    params.push(...fields.map(()=>search.slice(0,120)));
+  }
+  const totalRow=await db.first('SELECT COUNT(*) AS total'+scope,params);
+  const total=Number(totalRow?.total||0);
+  const rows=await db.all('SELECT '+(manage?managementColumns:readerColumns)+scope+
+    ' ORDER BY thoi_gian_tao DESC NULLS LAST,id DESC LIMIT ? OFFSET ?',
+    [...params,limit,(page-1)*limit]);
+  const data=manage?(rows||[]).map(row=>{
+    const canEdit=canManageDocument(actor,row);
+    const canRead=canEdit||canViewDocument(actor,row);
+    return {...row,id_nguoi_cap_nhat:canEdit?row.id_nguoi_cap_nhat:undefined,
+      duong_link:canRead?row.duong_link:'',co_quyen_quan_ly:canEdit,co_quyen_xem:canRead};
+  }):rows||[];
+  return {data,total,page,limit,has_more:page*limit<total};
+}
+
 export async function createDocumentLink(db,actor,payload,makeId=()=>crypto.randomUUID()){
   requireEditor(actor);
   const value=cleanPayload(payload);
@@ -105,8 +188,10 @@ export async function updateDocumentLink(db,actor,payload){
 export async function deleteDocumentLink(db,actor,idInput){
   requireEditor(actor);
   const id=cleanId(idInput);
-  const existing=await db.first('SELECT id,id_nguoi_tao FROM quan_ly_tai_lieu WHERE id = ?',[id]);
+  const existing=await db.first('SELECT id,id_nguoi_tao,doi_tuong_truy_cap_nhieu FROM quan_ly_tai_lieu WHERE id = ?',[id]);
   if(!existing)deny(404,'Không tìm thấy tài liệu cần xóa.');
+  if(documentAudienceValues(existing).includes('owner') && String(existing.id_nguoi_tao)!==documentOwnerId(actor))
+    deny(403,'Chỉ người đăng được xóa liên kết Chính chủ.');
   if(!canManageDocument(actor,existing))deny(403,'Bạn không có quyền xóa tài liệu này.');
   const isAdmin=documentActorRole(actor)==='admin';
   const params=isAdmin?[id]:[id,documentOwnerId(actor)];

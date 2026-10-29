@@ -3,16 +3,18 @@ const $=id=>document.getElementById(id);
 const clean=t=>String(t??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const active=v=>v===1||v===true||v==='1';
 const safeLink=value=>{try{const u=new URL(value);return u.protocol==='https:'&&!u.username&&!u.password?u.href:'';}catch{return '';}};
-let list=[],actor=null,manage=false,generation=0;
+let list=[],actor=null,manage=false,generation=0,docPage=1,docTotal=0,docPageSize=50;
 function status(message,error=false){const el=$('documents-feedback');if(!el)return;el.textContent=message;el.classList.remove('hidden');el.className='text-sm rounded-lg p-3 '+(error?'bg-rose-50 text-rose-800':'bg-emerald-50 text-emerald-800');}
 function dateLabel(iso){if(!iso)return 'Không giới hạn';const d=new Date(iso);return Number.isNaN(d.getTime())?'Không hợp lệ':d.toLocaleString('vi-VN',{timeZone:'Asia/Ho_Chi_Minh',hour:'2-digit',minute:'2-digit',day:'2-digit',month:'2-digit',year:'numeric'});}
 function expirationLocal(iso){if(!iso)return '';const d=new Date(iso);return Number.isNaN(d.getTime())?'':new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Ho_Chi_Minh',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(d).replace(' ','T');}
 function render(){
  const body=$('documents-table-body');if(!body)return;
- const q=($('documents-search')?.value||'').trim().toLocaleLowerCase('vi');
- const audience=$('documents-audience-filter')?.value||'';
+ const q='';
+ const audience='';
  const rows=list.filter(r=>(!audience||documentAudienceValues(r).includes(audience))&&(!q||[r.tieu_de,r.duong_link,r.mo_ta,r.danh_muc].join(' ').toLocaleLowerCase('vi').includes(q)));
- $('documents-total').textContent=rows.length+' tài liệu';
+ $('documents-total').textContent=docTotal+' tài liệu';
+ const paging=$('documents-pagination');
+ if(paging){const pages=Math.max(1,Math.ceil(docTotal/docPageSize));paging.textContent='';const prev=document.createElement('button');prev.type='button';prev.textContent='‹ Trước';prev.disabled=docPage<=1;prev.className='rounded-lg border px-3 py-2 disabled:opacity-40';prev.addEventListener('click',()=>{docPage--;load()});const info=document.createElement('span');info.textContent='Trang '+docPage+' / '+pages;const next=document.createElement('button');next.type='button';next.textContent='Sau ›';next.disabled=docPage>=pages;next.className='rounded-lg border px-3 py-2 disabled:opacity-40';next.addEventListener('click',()=>{docPage++;load()});paging.append(prev,info,next);}
  body.innerHTML=rows.length?rows.map((r,i)=>{
  const expires=!!r.thoi_gian_het_han&&Date.parse(r.thoi_gian_het_han)<=Date.now();
  const inactive=!active(r.hoat_dong);
@@ -27,7 +29,7 @@ function render(){
   const audiences=documentAudienceValues(r).map(a=>DOCUMENT_AUDIENCES[a]).join(' · ');
   const expired=!!r.thoi_gian_het_han&&Date.parse(r.thoi_gian_het_han)<=Date.now();
   const state=expired?'Hết hạn':!active(r.hoat_dong)?'Đã tắt':'Đang mở';
-  const safeUrl=safeLink(r.duong_link);
+  const safeUrl=r.co_quyen_xem===false?'':safeLink(r.duong_link);
   return '<article class="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-3 min-w-0">'+
    '<div class="flex justify-between gap-3 items-start"><h3 class="font-bold text-slate-900 text-base break-words min-w-0">'+clean(r.tieu_de)+'</h3><span class="shrink-0 rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold">'+clean(state)+'</span></div>'+
    '<p class="text-sm text-slate-600 whitespace-pre-line break-words">'+clean(r.mo_ta||'Chưa có mô tả')+'</p>'+
@@ -65,10 +67,10 @@ async function load(){
  const seq=++generation;const token=localStorage.getItem('auth_token')||'';
  const useManage=manage&&!!token;
  const body=$('documents-table-body');if(body)body.innerHTML='<tr><td colspan="9" class="text-center p-8 text-slate-500">Đang tải tài liệu...</td></tr>';const mobile=$('documents-mobile-list');if(mobile)mobile.innerHTML='<div class="rounded-2xl border border-slate-200 bg-slate-50 p-6 text-center text-slate-500 text-sm" role="status">Đang tải danh sách tài liệu...</div>';
- try{const result=await request('GET','/api/documents'+(useManage?'?manage=1':''));if(seq!==generation)return;list=Array.isArray(result.data)?result.data:[];render();}
+ try{const params=new URLSearchParams({paged:'1',page:String(docPage),limit:String(docPageSize),search:$('documents-search')?.value||'',audience:$('documents-audience-filter')?.value||''});if(useManage){params.set('manage','1');params.set('includeReadable','1')}const result=await request('GET','/api/documents?'+params);if(seq!==generation)return;list=Array.isArray(result.data)?result.data:[];docTotal=Number(result.total)||0;render();}
  catch(e){if(seq!==generation)return;list=[];render();status(e.message,true);}
 }
-export function resetDocumentLinks(){generation++;list=[];actor=null;manage=false;close();const body=$('documents-table-body');if(body)body.replaceChildren();const mobile=$('documents-mobile-list');if(mobile)mobile.replaceChildren();}
+export function resetDocumentLinks(){generation++;list=[];actor=null;manage=false;docPage=1;docTotal=0;close();const body=$('documents-table-body');if(body)body.replaceChildren();const mobile=$('documents-mobile-list');if(mobile)mobile.replaceChildren();}
 export function initDocumentLinks(user){
  actor=user||null;manage=canManageDocument(actor);
  $('documents-new')?.classList.toggle('hidden',!manage);
@@ -81,8 +83,8 @@ export function connectDocumentLinks(){
  wired=true;
  $('documents-new')?.addEventListener('click',()=>modal());
  $('documents-reload')?.addEventListener('click',()=>load());
- $('documents-search')?.addEventListener('input',render);
- $('documents-audience-filter')?.addEventListener('change',render);
+ let searchTimer=null;$('documents-search')?.addEventListener('input',()=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>{docPage=1;load()},250)});
+ $('documents-audience-filter')?.addEventListener('change',()=>{docPage=1;load()});
  $('documents-audiences')?.addEventListener('change',e=>{const target=e.target;if(target?.name!=='doi_tuong_truy_cap_nhieu')return;const items=[...$('documents-audiences').querySelectorAll('[name="doi_tuong_truy_cap_nhieu"]')];if(target.value==='owner'&&target.checked)items.forEach(box=>{if(box!==target)box.checked=false;});else if(target.checked)items.forEach(box=>{if(box.value==='owner')box.checked=false;});items.forEach(box=>{box.disabled=items.some(x=>x.value==='owner'&&x.checked)&&box.value!=='owner';});});
  $('documents-cancel')?.addEventListener('click',close);
  $('documents-cancel-top')?.addEventListener('click',close);
