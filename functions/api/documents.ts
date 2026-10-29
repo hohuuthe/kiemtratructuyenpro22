@@ -1,6 +1,6 @@
 import {verifyAuthSession,getDynamicSecret,getDatabase} from './exam/utils';
 import {ensureDocumentLinkSchema} from '../../src/document-links-schema.js';
-import {listDocumentLinks,createDocumentLink,updateDocumentLink,deleteDocumentLink,DocumentLinkServiceError} from '../../src/document-links-service.js';
+import {listDocumentLinks,listDocumentLinksPage,parseDocumentLinkPage,createDocumentLink,updateDocumentLink,deleteDocumentLink,DocumentLinkServiceError} from '../../src/document-links-service.js';
 const headers={'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'};
 const reply=(data,status=200)=>new Response(JSON.stringify(data),{status,headers});
 async function state(context:any){
@@ -28,7 +28,12 @@ export const onRequestGet:PagesFunction=async context=>{
   const {db,user,invalid}=await state(context);
   if(invalid)return reply({error:'Phiên đăng nhập không hợp lệ.'},401);
   const manage=new URL(context.request.url).searchParams.get('manage')==='1';
-  return reply({data:await listDocumentLinks(adapter(db),user,{manage,includeReadable:manage&&new URL(context.request.url).searchParams.get('includeReadable')==='1'}),error:null});
+  const includeReadable=manage&&new URL(context.request.url).searchParams.get('includeReadable')==='1';
+  if(new URL(context.request.url).searchParams.get('paged')==='1'){
+   const page=parseDocumentLinkPage(context.request.url);
+   return reply({...await listDocumentLinksPage(adapter(db),user,{manage,includeReadable,...page}),error:null});
+  }
+  return reply({data:await listDocumentLinks(adapter(db),user,{manage,includeReadable}),error:null});
  }catch(e){return failure(e);}
 };
 export const onRequestPost:PagesFunction=async context=>{
