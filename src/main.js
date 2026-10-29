@@ -16985,7 +16985,7 @@ CẤU TRÚC JSON:
         // ==================== ACCOUNTS MANAGEMENT ====================
         window.accountsCurrentPage = 1;
         window.accountsPageSize = 50;
-        let accountsTotalServer = null;
+        let accountsTotalServer = null,accountsPageRequestSeq=0;
         window.lastAccountsFilterKey = '';
 
         function populateAccountsFilters() {
@@ -17457,6 +17457,7 @@ CẤU TRÚC JSON:
             if (!tbody && !cardContainer) return;
             
             if (isAdminLoggedIn && !accountsLoaded) {
+                const seq=++accountsPageRequestSeq,generation=authDataGeneration,uid=String(currentUser?.id||'');
                 try {
                     const p = new URLSearchParams({page:String(window.accountsCurrentPage||1),limit:String(window.accountsPageSize||50),
                       search:document.getElementById('accounts-search')?.value||'',
@@ -17467,6 +17468,7 @@ CẤU TRÚC JSON:
                     if(!response.ok)throw Error('HTTP '+response.status);
                     const payload=await response.json();
                     if(!Array.isArray(payload.data))throw Error('Trang tài khoản không hợp lệ');
+                    if(seq!==accountsPageRequestSeq||generation!==authDataGeneration||uid!==String(currentUser?.id||''))return;
                     accounts=payload.data;window.accounts=accounts;
                     accountsTotalServer=Number(payload.total||0);
                     accountsLoaded=true;
