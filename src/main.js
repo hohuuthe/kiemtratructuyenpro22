@@ -3256,11 +3256,18 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
         }
         window.fetchAllResultsChunked = fetchAllResultsChunked;
 
-        let rankingServerTotal=null,rankingLoadSeq=0;
+        let rankingServerTotal=null,rankingLoadSeq=0,rankingLastQueryKey='';
+        function rankingQueryKey(){
+            return JSON.stringify([window.rankingCurrentPage||1,window.rankingPageSize||50,
+              document.getElementById('ranking-search')?.value||'',document.getElementById('ranking-exam-filter')?.value||'',
+              document.getElementById('ranking-teacher-filter')?.value||'',document.getElementById('ranking-unit-filter')?.value||'',
+              document.getElementById('ranking-class-filter')?.value||'',window.rankingSortColumn||'rank',window.rankingSortDirection||'asc']);
+        }
         async function loadAllResults(force = false, retryCount = 0, silent = false, onProgress = null) {
             if (resultsLoaded && !force) return;
             if (isAdminLoggedIn || isTeacherLoggedIn) {
                 const seq=++rankingLoadSeq,generation=authDataGeneration,uid=String(currentUser?.id||'');
+                const key=rankingQueryKey();
                 const args=new URLSearchParams({page:String(window.rankingCurrentPage||1),limit:String(window.rankingPageSize==='all'?50:Math.min(100,Number(window.rankingPageSize)||50)),
                   search:document.getElementById('ranking-search')?.value||'',
                   exam:document.getElementById('ranking-exam-filter')?.value||'',
@@ -3275,6 +3282,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                     if(!Array.isArray(payload.data))throw Error('Trang kết quả không hợp lệ');
                     if(seq!==rankingLoadSeq||generation!==authDataGeneration||uid!==String(currentUser?.id||''))return;
                     rankingServerTotal=Number(payload.total||0);
+                    rankingLastQueryKey=key;
                     results=payload.data.map(r=>({id:r.id,userId:r.user_id||'',studentName:r.student_name,studentClass:r.student_class,
                       lop:r.lop||'',donvi:r.don_vi||r.student_class||'',score:Number(r.score)||0,correctCount:r.correct_count,
                       totalQuestions:r.total_questions,timeTaken:r.time_taken,examName:r.exam_name,examId:r.exam_id,
@@ -15625,6 +15633,9 @@ CẤU TRÚC JSON:
 
         function renderRanking() {
             syncAdminTeacherFilterVisibility();
+            if((isAdminLoggedIn||isTeacherLoggedIn)&&resultsLoaded&&rankingLastQueryKey!==rankingQueryKey()){
+                resultsLoaded=false;window.rankingCurrentPage=1;void loadAllResults();return;
+            }
             // Kiểm tra quyền truy cập (Học sinh không được xem)
             const isAdmin = isAdminLoggedIn;
             const isTeacher = isTeacherLoggedIn && !isAdmin;
@@ -17805,47 +17816,12 @@ CẤU TRÚC JSON:
 
         // ==================== HÀM TIỆN ÍCH QUẢN LÝ TÀI KHOẢN & NGƯỜI DÙNG ====================
         window.refreshAccountsData = async function() {
+            if (!isAdminLoggedIn) return;
+            accountsLoaded=false;
             try {
-                const tbody = document.getElementById('accounts-table-body');
-                const cardContainer = document.getElementById('accounts-card-container');
-                const countDisplay = document.getElementById('accounts-count');
-
-                const updateLoadingUI = (count, page, isDone = false) => {
-                    const msg = isDone
-                        ? `✅ Đã tải xong ${count.toLocaleString('vi-VN')} tài khoản. Đang cập nhật bảng...`
-                        : (count > 0 
-                            ? `⏳ Đang tải dữ liệu tài khoản theo từng đợt... (Đợt ${page}: Đã tải ${count.toLocaleString('vi-VN')} tài khoản)`
-                            : `⏳ Đang tải toàn bộ danh sách tài khoản từ CSDL...`);
-                    if (tbody) tbody.innerHTML = `<tr><td colspan="8" class="text-center py-8 text-purple-600 font-medium">${msg}</td></tr>`;
-                    if (cardContainer) cardContainer.innerHTML = `<div class="text-center py-8 text-purple-600 font-medium">${msg}</div>`;
-                    if (countDisplay) countDisplay.textContent = count > 0 ? `Đang tải: ${count.toLocaleString('vi-VN')}...` : 'Đang tải...';
-                };
-
-                updateLoadingUI(0, 1);
-
-                const fetchFn = (typeof fetchAllAccountsChunked === 'function') ? fetchAllAccountsChunked : (window.fetchAllAccountsChunked || null);
-                let allAccounts = [];
-                if (typeof fetchFn === 'function') {
-                    allAccounts = await fetchFn((count, page, isDone) => updateLoadingUI(count, page, isDone));
-                } else {
-                    const token = localStorage.getItem('auth_token') || '';
-                    const res = await fetch('/api/accounts?limit=all', { headers: { 'Authorization': 'Bearer ' + token } });
-                    const resJson = await res.json();
-                    allAccounts = resJson?.data || [];
-                }
-
-                accounts = allAccounts || [];
-                window.accounts = accounts;
-                accounts.forEach(acc => {
-                    if (acc.id) accountsMap[acc.id] = acc.full_name || acc.username;
-                });
-                accountsLoaded = true;
-                if (typeof renderAccounts === 'function') await renderAccounts();
-                showToast(`✅ Đã tải thành công toàn bộ ${accounts.length.toLocaleString('vi-VN')} tài khoản!`, 'success');
-            } catch (e) {
-                console.error('Error refreshing accounts:', e);
-                showToast('❌ Có lỗi khi tải lại danh sách tài khoản: ' + (e.message || ''), 'error');
-            }
+                await renderAccounts();
+                showToast('Đã làm mới trang tài khoản đang xem.','success');
+            } catch(e) {showToast('Không tải được trang tài khoản: '+(e?.message||e),'error');}
         };
 
         window.refreshUsersData = async function() {
