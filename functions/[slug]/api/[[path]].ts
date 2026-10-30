@@ -86,7 +86,7 @@ export const onRequest: PagesFunction = async (context: any) => {
     module = found[1] === 'accounts' ? accountId : userId;
     params = {...params,id: decodeURIComponent(found[2])};
   }
-  const handler = module['onRequest' + method.slice(0,1) + method.slice(1).toLowerCase().replace(/^./, (v: string) => v.toUpperCase())]
+  const handler = module['onRequest' + method.charAt(0) + method.slice(1).toLowerCase()]
     || module.onRequest;
   if (typeof handler !== 'function') return new Response('Method not allowed', {status:405});
   // Do not rewrite the trusted request URL: its /slug path is the database identity.
