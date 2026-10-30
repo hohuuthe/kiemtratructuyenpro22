@@ -8,7 +8,7 @@ import {spawnSync} from 'node:child_process';
 const evidence='public/word-import-build-evidence.json';
 fs.rmSync(evidence,{force:true});
 function run(command,args){
-    const r=spawnSync(command,args,{encoding:'utf8',maxBuffer:32*1024*1024,timeout:300000,env:{...process.env,WORD_IMPORT_FULL_TESTS:'1'}});
+    const r=spawnSync(command,args,{encoding:'utf8',maxBuffer:32*1024*1024,timeout:600000,env:{...process.env,WORD_IMPORT_FULL_TESTS:'1'}});
     if(r.stdout)process.stdout.write(r.stdout);
     if(r.stderr)process.stderr.write(r.stderr);
     if(r.error)throw r.error;
@@ -18,7 +18,10 @@ function run(command,args){
 run(process.platform==='win32'?'npm.cmd':'npm',['run','lint']);
 const tests=fs.readdirSync('tests').filter(f=>/^word-.*\.test\.mjs$/.test(f)||['scientific-formula-tokenizer.test.mjs','question-bank-word-export.test.mjs','question-bank-fraction-regression.test.mjs'].includes(f)).sort().map(f=>'tests/'+f);
 if(!tests.includes('tests/word-mathtype-regression.test.mjs'))throw new Error('MathType regression suite missing');
-const output=run(process.execPath,['--import','tsx','--test','--test-reporter=tap',...tests]);
+// Running all Word suites in parallel can exhaust the memory available to Pages build workers.
+// Preserve the complete coverage while running test files sequentially.
+console.log('Word import release gate: running',tests.length,'test files sequentially');
+const output=run(process.execPath,['--import','tsx','--test','--test-concurrency=1','--test-reporter=tap',...tests]);
 const total=[...output.matchAll(/^# tests (\d+)\s*$/gm)].at(-1)?.[1];
 const passed=[...output.matchAll(/^# pass (\d+)\s*$/gm)].at(-1)?.[1];
 const failed=[...output.matchAll(/^# fail (\d+)\s*$/gm)].at(-1)?.[1];
