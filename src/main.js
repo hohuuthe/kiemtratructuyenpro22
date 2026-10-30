@@ -33,7 +33,7 @@ import { buildQuestionBankExportInventory, buildQuestionBankExportPlan } from '.
 import { generateQuestionBankDocx } from './question-bank-docx-generator.ts';
 import { beginQuestionBankWordSavePicker, writeQuestionBankWordFile, createQuestionBankWordDownload } from './question-bank-word-download.js';
 import { inspectScientificDocx, WORD_IMPORT_ENGINE_VERSION } from './word-omml-reader.js';
-import { parseWordUnderlinedOptionLines } from './word-underline-answers.js';
+import { parseWordUnderlinedOptionLines, parseWordBoldOptionLines } from './word-underline-answers.js';
 import { verifyImportedWordQuestions, checkWordImportBeforeSave, correctImportedWordEquation, normalizeWordImportAnswer } from './word-import-verification.js';
 import { splitScientificContent } from './scientific-formula-tokenizer.js';
 import { buildRankingUnitOptions } from './ranking-unit-filter.js';
@@ -11545,7 +11545,7 @@ D. Phát biểu SAI</pre>
                                     <p class="text-xs text-gray-600 mt-1">Câu tự luận ngắn [SQ] và tự luận [TL] vẫn dùng dòng <code class="bg-amber-100 px-1.5 py-0.5 rounded text-amber-800 font-mono text-[11px]">Đáp án: ...</code> như tab mặc định.</p>
                                 </div>
                                 <div class="mt-3 p-2.5 bg-amber-50 rounded-xl text-xs text-amber-700 font-medium border border-amber-100">
-                                    💡 <b>Mẹo:</b> Có thể in đậm toàn bộ nội dung đáp án hoặc chỉ in đậm chữ cái đầu (A, B, C, D).
+                                    💡 <b>Mẹo:</b> Chỉ in đậm chữ cái hoặc toàn bộ nội dung phương án đúng. Không in đậm cả 4 nhãn A–D để đánh dấu đáp án; nếu cần in đậm để nhấn mạnh một phần nội dung hoặc có Equation Word, hãy ghi thêm dòng <b>Đáp án: ...</b> để xác nhận. Có thể in đậm toàn bộ nội dung đáp án hoặc chỉ in đậm chữ cái đầu (A, B, C, D).
                                 </div>
                             </div>
                         </div>
@@ -11664,7 +11664,7 @@ D. Phát biểu SAI</pre>
                 const sourceSha256 = Array.from(new Uint8Array(digest)).map(x=>x.toString(16).padStart(2,'0')).join('');
                 const documentReport = await inspectScientificDocx(arrayBuffer);
                 // Underline mode must use source WordprocessingML, preserving formatting provenance.
-                const useOriginalXml = answerFormat === 'underline' || documentReport.formulas.length>0 || documentReport.issues.length>0;
+                const useOriginalXml = answerFormat === 'underline' || answerFormat === 'bold' || documentReport.formulas.length>0 || documentReport.issues.length>0;
                 wordImportVerification = null;
                 wordImportFileMeta = {fileName:file.name,sourceSha256,report:documentReport};
 
@@ -11672,76 +11672,8 @@ D. Phát biểu SAI</pre>
                 updateProgress('Bắt đầu giải nén & chuyển đổi định dạng tài liệu...', 40);
                 await new Promise(resolve => setTimeout(resolve, 300));
 
-                // Underline markers now come from the native Word reader, never rewritten document XML.
-                if (answerFormat === 'bold' && window.JSZip) {
-                    try {
-                        const zip = await JSZip.loadAsync(arrayBuffer);
-                        if (zip.file("word/document.xml")) {
-                            let xmlStr = await zip.file("word/document.xml").async("string");
-                            
-                            const parser = new DOMParser();
-                            const xmlDoc = parser.parseFromString(xmlStr, "application/xml");
-                            
-                            const checkMarking = (node, tagType) => {
-                                if (!node) return false;
-                                const val = node.getAttribute("w:val");
-                                if (tagType === 'u') return !val || (val !== 'none');
-                                if (tagType === 'b') return !val || (val !== '0' && val !== 'false' && val !== 'none'); // bold defaults to true if present
-                                return false;
-                            };
-
-                            const tagName = answerFormat === 'underline' ? 'w:u' : 'w:b';
-                            const openTag = answerFormat === 'underline' ? '[[U]]' : '[[B]]';
-                            const closeTag = answerFormat === 'underline' ? '[[/U]]' : '[[/B]]';
-
-                            const paragraphs = xmlDoc.getElementsByTagName("w:p");
-                            for (let p = 0; p < paragraphs.length; p++) {
-                                const para = paragraphs[p];
-                                let pIsMarked = false;
-
-                                const pPrs = para.getElementsByTagName("w:pPr");
-                                if (pPrs.length > 0) {
-                                    const pPrTag = pPrs[0].getElementsByTagName(tagName);
-                                    if (pPrTag.length > 0 && checkMarking(pPrTag[0], tagName.split(':')[1])) {
-                                        pIsMarked = true;
-                                    }
-                                }
-
-                                const runs = para.getElementsByTagName("w:r");
-                                for (let i = 0; i < runs.length; i++) {
-                                    const run = runs[i];
-                                    let runIsMarked = pIsMarked;
-
-                                    if (!runIsMarked) {
-                                        const rPrs = run.getElementsByTagName("w:rPr");
-                                        if (rPrs.length > 0) {
-                                            const rPrTag = rPrs[0].getElementsByTagName(tagName);
-                                            if (rPrTag.length > 0 && checkMarking(rPrTag[0], tagName.split(':')[1])) {
-                                                runIsMarked = true;
-                                            }
-                                        }
-                                    }
-                                    
-                                    if (runIsMarked) {
-                                        const tNodes = run.getElementsByTagName("w:t");
-                                        for (let j = 0; j < tNodes.length; j++) {
-                                            if (tNodes[j].textContent && tNodes[j].textContent.trim().length > 0) {
-                                                tNodes[j].textContent = openTag + tNodes[j].textContent + closeTag;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            
-                            const serializer = new XMLSerializer();
-                            const newXmlStr = serializer.serializeToString(xmlDoc);
-                            zip.file("word/document.xml", newXmlStr);
-                            arrayBuffer = await zip.generateAsync({type: "arraybuffer"});
-                        }
-                    } catch (e) {
-                        console.error('JSZip marker map error', e);
-                    }
-                }
+                // Never rewrite source DOCX to inject formatting tokens. The verified
+                // OOXML reader is authoritative for underline, bold, and Word Equation.
 
                 const options = {
                     styleMap: [
@@ -12593,31 +12525,35 @@ D. Phát biểu SAI</pre>
                     const activeTag = answerFormat === 'underline' ? '[[U]]' : '[[B]]';
                     
                     let underlineAnalysis = null;
-                    if (answerFormat === 'underline' && (type === '4-1' || type === 'TF4')) {
-                        underlineAnalysis = parseWordUnderlinedOptionLines(lines, i, type);
-                        i = underlineAnalysis.nextIndex;
+                    let boldAnalysis = null;
+                    if ((answerFormat === 'underline' || answerFormat === 'bold') &&
+                        (type === '4-1' || type === 'TF4')) {
+                        const analysis = answerFormat === 'underline'
+                            ? parseWordUnderlinedOptionLines(lines, i, type)
+                            : parseWordBoldOptionLines(lines, i, type);
+                        if (answerFormat === 'underline') underlineAnalysis = analysis;
+                        else boldAnalysis = analysis;
+                        i = analysis.nextIndex;
                         for (const letter of ['A','B','C','D']) {
-                            const option=underlineAnalysis.options[letter];
+                            const option=analysis.options[letter];
                             if (option.present) question.options[letter]={
                                 text:option.text.trim() || (option.image ? '(Xem hình ảnh)' : ''),
                                 image:option.image || ''
                             };
                         }
-                        if (underlineAnalysis.stemText) question.content += '\n' + underlineAnalysis.stemText;
-                        if (underlineAnalysis.stemImage) {
+                        if (analysis.stemText) question.content += '\n' + analysis.stemText;
+                        if (analysis.stemImage) {
                             if (question.image) errors.push({
                                 type:'ambiguous_image',line:startLine,text:'Câu '+questionNumber,
-                                message:'Thân câu hỏi có nhiều ảnh; cần tách vị trí ảnh trong Word.'
+                                message:'Thân câu hỏi có nhiều ảnh, cần xác minh vị trí trong Word.'
                             });
-                            else question.image=underlineAnalysis.stemImage;
+                            else question.image=analysis.stemImage;
                         }
-                        markedOptionsFound=underlineAnalysis.marked;
-                        for (const problem of underlineAnalysis.issues) {
-                            errors.push({
-                                type:'underline_source',line:startLine,text:'Câu '+questionNumber,
-                                message:'Nhận dạng gạch chân: '+problem
-                            });
-                        }
+                        markedOptionsFound=analysis.marked;
+                        for (const problem of analysis.issues) errors.push({
+                            type:'marked_source',line:startLine,text:'Câu '+questionNumber,
+                            message:'Nhận diện '+(answerFormat==='bold'?'in đậm':'gạch chân')+': '+problem
+                        });
                     } else if (type === '4-1' || type === 'TF4') {
                         let currentOpt = null;
                         
@@ -12790,13 +12726,13 @@ D. Phát biểu SAI</pre>
                             let ans = answerMatch[1].trim();
                             if (ans && (type === '4-1' || type === 'TF4')) {
                                 explicitAnswerPresent = true;
-                                if (answerFormat === 'underline' && markedOptionsFound.length > 0 && question.answer) {
+                                if ((answerFormat === 'underline' || answerFormat === 'bold') && markedOptionsFound.length > 0 && question.answer) {
                                     const explicit = normalizeWordImportAnswer(type, ans);
                                     const detected = normalizeWordImportAnswer(type, question.answer);
                                     if (!explicit.ok || !detected.ok || explicit.value !== detected.value) {
                                         errors.push({
                                             type:'ambiguous_answer',line:startLine,text:'Câu '+questionNumber,
-                                            message:'Đáp án gạch chân ('+question.answer+') mâu thuẫn với dòng Đáp án: '+ans+'. Không tự ghi đè hoặc chọn thay.'
+                                            message:'Đáp án '+(answerFormat==='bold'?'in đậm':'gạch chân')+' ('+question.answer+') mâu thuẫn với dòng Đáp án: '+ans+'. Không tự ghi đè hoặc chọn thay.'
                                         });
                                     }
                                 }
@@ -12809,15 +12745,22 @@ D. Phát biểu SAI</pre>
                                 i++;
                             }
                             
-                            if (answerFormat === 'default' || ((answerFormat === 'underline' || answerFormat === 'bold') && markedOptionsFound.length === 0) || (type !== '4-1' && type !== 'TF4')) {
-                                if (type === '4-1') {
-                                    const charMatch = ans.match(/^[A-D]/i);
-                                    question.answer = charMatch ? charMatch[0].toUpperCase() : '';
+                            if (answerFormat === 'default' ||
+                                ((answerFormat === 'underline' || answerFormat === 'bold') && markedOptionsFound.length === 0) ||
+                                (type !== '4-1' && type !== 'TF4')) {
+                                if ((type==='4-1' || type==='TF4') && answerFormat!=='default') {
+                                    const verdict=normalizeWordImportAnswer(type,ans);
+                                    if (!verdict.ok) errors.push({
+                                        type:'invalid_answer',line:startLine,text:'Câu '+questionNumber,
+                                        message:'Dòng Đáp án: không hợp lệ: '+verdict.reason
+                                    });
+                                    else question.answer=verdict.value;
+                                } else if (type === '4-1') {
+                                    const charMatch=ans.match(/^[A-D]/i);
+                                    question.answer=charMatch ? charMatch[0].toUpperCase() : '';
                                 } else if (type === 'TF4') {
-                                    question.answer = ans.trim().toUpperCase();
-                                } else {
-                                    question.answer = ans;
-                                }
+                                    question.answer=ans.trim().toUpperCase();
+                                } else question.answer=ans;
                             }
                             if (ansImage) {
                                 if (!question.options) question.options = {};
@@ -12844,6 +12787,22 @@ D. Phát biểu SAI</pre>
                                 type:'ambiguous_answer',line:startLine,text:'Câu '+questionNumber,
                                 message:'Chỉ gạch chân một phần nội dung ('+underlineAnalysis.partialOnly.join(', ')+'); hãy gạch chân chữ cái hoặc toàn bộ đáp án, hoặc ghi dòng Đáp án: để xác nhận.'
                             });
+                        }
+                    }
+                    if (answerFormat === 'bold' && boldAnalysis) {
+                        // Ambiguous visual emphasis is never accepted as an inferred key.
+                        // A valid explicit "Đáp án:" line may resolve styling ambiguity;
+                        // a conflicting explicit answer is rejected above.
+                        if (!explicitAnswerPresent) {
+                            for (const reason of boldAnalysis.ambiguities) errors.push({
+                                type:'ambiguous_answer',line:startLine,text:'Câu '+questionNumber,
+                                message:'Đáp án IN ĐẬM chưa rõ: '+reason
+                            });
+                            if (!boldAnalysis.marked.length && boldAnalysis.partialOnly.length)
+                                errors.push({
+                                    type:'ambiguous_answer',line:startLine,text:'Câu '+questionNumber,
+                                    message:'Chỉ in đậm một phần nội dung ('+boldAnalysis.partialOnly.join(', ')+'). In đậm chữ cái hoặc toàn bộ phương án đúng, hoặc thêm Đáp án:.'
+                                });
                         }
                     }
                     if (!answerFound || !question.answer) {

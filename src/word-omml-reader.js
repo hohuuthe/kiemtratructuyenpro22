@@ -495,75 +495,85 @@ function countEmbeddedObjects(body) {
  * Unknown or cyclic style references block import instead of guessing the answer.
  */
 function createWordTextStyleResolver(stylesDoc, issues) {
-    const styleRoot = stylesDoc ? firstDesc(stylesDoc,'styles') : null;
-    const definitions=new Map(),cache=new Map(),warned=new Set();
-    const warn = message=>{
-        if(!warned.has(message)){warned.add(message);issues.push({kind:'style',reason:message});}
+    const styleRoot=stylesDoc ? firstDesc(stylesDoc,'styles') : null;
+    const definitions=new Map(),chainCache=new Map(),warned=new Set();
+    const warn=message=>{
+        if(!warned.has(message)){ warned.add(message); issues.push({kind:'style',reason:message}); }
     };
-    for(const node of children(styleRoot,'style')) {
+    for(const node of children(styleRoot,'style')){
         const id=attr(node,'styleId');
-        if(id)definitions.set(id,{type:attr(node,'type'),basedOn:attr(child(node,'basedOn'),'val'),rPr:child(node,'rPr')});
+        if(id)definitions.set(id,{
+            type:attr(node,'type') || 'paragraph',
+            basedOn:attr(child(node,'basedOn'),'val'),
+            rPr:child(node,'rPr')
+        });
     }
-    const defaults=child(child(firstDesc(styleRoot,'docDefaults'),'rPrDefault'),'rPr');
-    function properties(rPr) {
+    function properties(rPr){
         const result={};
         if(!rPr)return result;
-        const u=child(rPr,'u');
-        if(u) {
-            const val=String(attr(u,'val')||'single').toLowerCase();
-            const disabled=['none','false','off','0'];
-            const enabled=['single','words','double','thick','dotted','dottedheavy','dash','dashedheavy',
-                'dashlong','dashlongheavy','dotdash','dashdotheavy','dotdotdash','dashdotdotheavy',
-                'wave','wavyheavy','wavydouble'];
-            if(disabled.includes(val))result.underline=false;
-            else if(enabled.includes(val))result.underline=true;
-            else warn('Kiểu gạch chân Word chưa được hỗ trợ: '+val);
+        const underline=child(rPr,'u');
+        if(underline){
+            const value=String(attr(underline,'val')??'single').toLowerCase();
+            const allowed=['single','words','double','thick','dotted','dottedheavy',
+                'dash','dashedheavy','dashlong','dashlongheavy','dotdash',
+                'dashdotheavy','dotdotdash','dashdotdotheavy','wave','wavyheavy','wavydouble'];
+            if(['none','false','off','0'].includes(value))result.underline=false;
+            else if(allowed.includes(value))result.underline=true;
+            else warn('Chưa hỗ trợ kiểu gạch chân Word: '+value);
         }
         const b=child(rPr,'b');
-        if(b) {
-            const val=String(attr(b,'val')??'true').toLowerCase();
-            if(['true','on','1',''].includes(val))result.bold=true;
-            else if(['false','off','0'].includes(val))result.bold=false;
-            else warn('Kiểu chữ đậm Word chưa được hỗ trợ: '+val);
+        if(b){
+            const value=String(attr(b,'val')??'true').toLowerCase();
+            if(['true','on','1',''].includes(value))result.bold=true;
+            else if(['false','off','0'].includes(value))result.bold=false;
+            else warn('Chưa hỗ trợ giá trị w:b trong Word: '+value);
         }
+        // w:bCs applies to complex scripts, not a general replacement for w:b.
+        if(child(rPr,'bCs')&&!b)
+            warn('Word chỉ có w:bCs (chữ phức hợp) mà thiếu w:b; không suy đoán đáp án in đậm.');
         const position=attr(child(rPr,'vertAlign'),'val');
-        if(position) {
+        if(position){
             if(['subscript','superscript','baseline'].includes(position))result.position=position;
-            else warn('Kiểu vị trí chữ Word chưa được hỗ trợ: '+position);
+            else warn('Chưa hỗ trợ thuộc tính vị trí chữ Word: '+position);
         }
         return result;
     }
-    function resolveStyle(id,type,seen=new Set()) {
-        if(!id)return {};
+    function styleChain(id,type,seen=new Set()){
+        if(!id)return [];
         const key=type+':'+id;
-        if(cache.has(key))return cache.get(key);
-        const item=definitions.get(id);
-        if(!item || item.type!==type) {
-            warn('Không xác minh được Word '+type+' style: '+id);
-            return {};
+        if(chainCache.has(key))return chainCache.get(key);
+        const style=definitions.get(id);
+        if(!style||style.type!==type){
+            warn('Không xác minh được kiểu Word '+type+': '+id);
+            return [];
         }
-        if(seen.has(key)) {
-            warn('Chu trình dựa trên Word style: '+id);
-            return {};
+        if(seen.has(key)){
+            warn('Chu trình kế thừa Word style: '+id);
+            return [];
         }
         seen.add(key);
-        const inherited=resolveStyle(item.basedOn,type,seen);
-        const result={...inherited,...properties(item.rPr)};
+        const chain=[...styleChain(style.basedOn,type,seen),properties(style.rPr)];
         seen.delete(key);
-        cache.set(key,result);
-        return result;
+        chainCache.set(key,chain);
+        return chain;
     }
-    const documentDefaults=properties(defaults);
+    const defaults=properties(child(child(firstDesc(styleRoot,'docDefaults'),'rPrDefault'),'rPr'));
     return (paragraph,run)=>{
-        const pStyle=attr(child(child(paragraph,'pPr'),'pStyle'),'val');
         const runProps=child(run,'rPr');
+        const paragraphStyle=attr(child(child(paragraph,'pPr'),'pStyle'),'val');
         const charStyle=attr(child(runProps,'rStyle'),'val');
-        return {
-            ...documentDefaults,
-            ...resolveStyle(pStyle,'paragraph'),
-            ...resolveStyle(charStyle,'character'),
-            ...properties(runProps)
-        };
+        const current={...defaults};
+        // Word style w:b is a TOGGLE: repeated bold in the basedOn chain
+        // reverses the inherited state. Direct run w:b is an absolute override.
+        for(const style of [
+            ...styleChain(paragraphStyle,'paragraph'),
+            ...styleChain(charStyle,'character')
+        ]){
+            if(style.bold===true)current.bold=!Boolean(current.bold);
+            if(Object.hasOwn(style,'underline'))current.underline=style.underline;
+            if(Object.hasOwn(style,'position'))current.position=style.position;
+        }
+        return {...current,...properties(runProps)};
     };
 }
 
