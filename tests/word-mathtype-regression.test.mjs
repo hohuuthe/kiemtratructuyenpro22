@@ -83,6 +83,112 @@ test('A cached WMF with a different equation stays in review, never silently app
     assert.ok(r.formulas[0].originalOmml.includes('originalOle='));
 
 });
+test('All 41 equations import together with a stale option D preview without lost tokens',async()=>{
+    // In the actual question document the cached preview of the 11th OLE
+    // is 0,05. whereas its stale native OLE retains (-1;5).
+    const visual=Buffer.from(packed.conflictingPreviewMtefBase64,'base64');
+    const r=await inspectScientificDocx(await docx(corpus,{previewOverride:visual}));
+    assert.equal(r.formulas.length,41);
+    assert.equal(r.formulas.filter(f=>f.status==='parsed').length,41);
+    assert.equal(r.formulas[10].latex,'0,05.');
+    assert.equal(r.formulas.filter(f=>f.sourcePreference==='wmf').length,1);
+    assert.equal(r.issues.filter(i=>i.kind==='formula-notice').length,1);
+    const {verifyImportedWordQuestions,checkWordImportBeforeSave}=await import('../src/word-import-verification.js');
+    const q=r.formulas.map((f,i)=>({id:'import-all-'+i,type:'TL',level:'NB',content:f.token,answer:'1',options:{}}));
+    const report=verifyImportedWordQuestions(q,r);
+    assert.equal(report.stats.verifiedFormulaObjects,41);
+    assert.equal(report.stats.pendingQuestions,0);
+    assert.equal(report.documentIssues.length,0);
+    assert.equal(checkWordImportBeforeSave(report.questions,report.documentIssues).ok,true);
+    assert.equal(report.questions[10].content,'$0,05.
+    const r=await inspectScientificDocx(await docx([corpus[0]],{progId:'Excel.Sheet.12'}));
+    assert.equal(r.formulas[0].status,'review');
+});
+test('Legacy Equation.3 and native OMML remain supported beside MathType',async()=>{
+    const omml='<w:p><m:oMath><m:f><m:num><m:r><m:t>a</m:t></m:r></m:num><m:den><m:r><m:t>b</m:t></m:r></m:den></m:f></m:oMath></w:p>';
+    const r=await inspectScientificDocx(await docx([corpus[0]],{progId:'Equation.3',omml}));
+    assert.deepEqual(r.formulas.map(f=>f.sourceType),['mathtype','omml']);assert.equal(r.formulas[1].latex,'\\frac{a}{b}');assert.deepEqual(r.issues,[]);
+});
+test('Pending Word IDs are literal text, while real math stays math',()=>{
+    const token='__WMATH_000004__';
+    for(const s of [token,'$'+token+'$','\\('+token+'\\)', 'A. '+token]){
+        const result=splitScientificContent(s);assert.ok(result.every(t=>t.type==='text'));assert.equal(result.map(t=>t.value).join(''),s);
+    }
+    const mixed=splitScientificContent('$x_1+y^2$ '+token);assert.equal(mixed[0].type,'math');assert.equal(mixed[0].value,'x_1+y^2');assert.match(mixed[1].value,/__WMATH_/);
+    assert.equal(splitScientificContent('x_1+y^2')[0].type,'math');
+});
+test('Every truncated real MTEF source fails closed',()=>{
+    for(const c of corpus){const raw=bytes(c);for(let n=0;n<raw.length;n++)assert.throws(()=>convertMtefV5ToLatex(raw.subarray(0,n)),'source '+c.number+' truncated at '+n);}
+});
+test('Unknown records, trailing data, fake WMF chunks and resource excess fail closed',()=>{
+    const raw=bytes(corpus[0]);assert.throws(()=>convertMtefV5ToLatex(Buffer.concat([raw,Buffer.from([0])])));
+    assert.throws(()=>convertMtefV5ToLatex(Buffer.alloc(96*1024+1)));
+    const image=wmf(raw);assert.throws(()=>readMathTypeWmfSource(image.subarray(0,image.length-1)));
+    const broken=Buffer.from(image);broken.writeUInt32LE(0xffffffff,18);assert.throws(()=>readMathTypeWmfSource(broken));
+    const invalid=Buffer.from(raw);invalid[0]=3;assert.throws(()=>convertMtefV5ToLatex(invalid),/phi\u00ean b\u1ea3n 5/);
+});
+
+if(process.env.WORD_IMPORT_FULL_TESTS==='1'){
+    const {verifyImportedWordQuestions,validateWordFormulaSourceForImport,checkWordImportBeforeSave}=await import('../src/word-import-verification.js');
+    test('All 41 native equations pass the actual KaTeX, editable Word and independent server-source gates',async()=>{
+        const r=await inspectScientificDocx(await docx(corpus));
+        const q=r.formulas.map((f,i)=>({id:'mathtype-regression-'+i,type:'TL',level:'NB',content:f.token,answer:'1',options:{}}));
+        const result=verifyImportedWordQuestions(q,r);
+        assert.equal(result.stats.verifiedFormulaObjects,41,JSON.stringify(result.questions.map(q=>q.__wordImportIssues)));
+        assert.equal(checkWordImportBeforeSave(result.questions,result.documentIssues).ok,true);
+        for(const q of result.questions)for(const s of q.__wordFormulaSources)assert.equal(validateWordFormulaSourceForImport(s).ok,true);
+    });
+    test('A conflicting option remains blocked with its actual source reason, not a bogus KaTeX underscore error',async()=>{
+        const r=await inspectScientificDocx(await docx([corpus[10]],{previewOverride:Buffer.from(packed.conflictingPreviewMtefBase64,'base64')}));
+        const q={id:'mathtype-source-conflict',type:'4-1',level:'NB',content:'Source review',answer:'A',options:{A:'1',B:'2',C:r.formulas[0].token,D:'4'}};
+        const result=verifyImportedWordQuestions([q],r);
+        assert.deepEqual(result.questions[0].__wordImportIssues,[]);
+        assert.equal(result.questions[0].options.C,'$0,05.
+    });
+}
+
+test('Latin Word text with w:bCs only does not invent bold formatting or block MathType import',async()=>{
+    const zip=new JSZip();
+    const wordNs='http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+    zip.file('word/document.xml','<w:document xmlns:w="'+wordNs+'"><w:body><w:p><w:r><w:rPr><w:bCs/></w:rPr><w:t>Quy tròn số và đáp án A.</w:t></w:r></w:p></w:body></w:document>');
+    const report=await inspectScientificDocx(await zip.generateAsync({type:'uint8array'}));
+    assert.equal(report.lines[0].text,'Quy tròn số và đáp án A.');
+    assert.deepEqual(report.issues,[]);
+});
+test('Complex-script Word text with w:bCs only retains an explicit verification warning',async()=>{
+    const zip=new JSZip();
+    const wordNs='http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+    zip.file('word/document.xml','<w:document xmlns:w="'+wordNs+'"><w:body><w:p><w:r><w:rPr><w:bCs/></w:rPr><w:t>العربية</w:t></w:r></w:p></w:body></w:document>');
+    const report=await inspectScientificDocx(await zip.generateAsync({type:'uint8array'}));
+    assert.equal(report.lines[0].text,'العربية');
+    assert.ok(report.issues.some(i=>i.kind==='style' && i.reason.includes('w:bCs')));
+});
+);
+        assert.equal(result.stats.verifiedFormulaObjects,1);
+        assert.equal(checkWordImportBeforeSave(result.questions,result.documentIssues).ok,true);
+        assert.ok(r.issues.some(i=>i.kind==='formula-notice' && i.reason.includes('OLE')));
+        assert.equal(validateWordFormulaSourceForImport(result.questions[0].__wordFormulaSources[0]).ok,true);
+    });
+}
+
+test('Latin Word text with w:bCs only does not invent bold formatting or block MathType import',async()=>{
+    const zip=new JSZip();
+    const wordNs='http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+    zip.file('word/document.xml','<w:document xmlns:w="'+wordNs+'"><w:body><w:p><w:r><w:rPr><w:bCs/></w:rPr><w:t>Quy tròn số và đáp án A.</w:t></w:r></w:p></w:body></w:document>');
+    const report=await inspectScientificDocx(await zip.generateAsync({type:'uint8array'}));
+    assert.equal(report.lines[0].text,'Quy tròn số và đáp án A.');
+    assert.deepEqual(report.issues,[]);
+});
+test('Complex-script Word text with w:bCs only retains an explicit verification warning',async()=>{
+    const zip=new JSZip();
+    const wordNs='http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+    zip.file('word/document.xml','<w:document xmlns:w="'+wordNs+'"><w:body><w:p><w:r><w:rPr><w:bCs/></w:rPr><w:t>العربية</w:t></w:r></w:p></w:body></w:document>');
+    const report=await inspectScientificDocx(await zip.generateAsync({type:'uint8array'}));
+    assert.equal(report.lines[0].text,'العربية');
+    assert.ok(report.issues.some(i=>i.kind==='style' && i.reason.includes('w:bCs')));
+});
+);
+});
 test('Other embedded application objects remain unsupported even with a readable MTEF payload',async()=>{
     const r=await inspectScientificDocx(await docx([corpus[0]],{progId:'Excel.Sheet.12'}));
     assert.equal(r.formulas[0].status,'review');
