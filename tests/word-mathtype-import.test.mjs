@@ -49,3 +49,12 @@ test('Relationship cannot be external or outside embeddings folder',async()=>{
   z.file('word/_rels/document.xml.rels','<Relationships><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/oleObject" TargetMode="External" Target="https://evil.invalid/ole.bin"/></Relationships>');
   await assert.rejects(readMathTypeRelationship(z,'rId3'),/không phải OLE nội bộ/);
 });
+
+test('MTEF font record IDs use variable-width unsigned indexes without corrupting following records',()=>{
+  const source=Uint8Array.from([...mtHeader,8,255,1,1,0,1,0,2,0,133,120,0,0,0]);
+  assert.equal(convertMtefV5ToLatex(source),'x');
+});
+test('MTEF font definition indexes use variable width and preserve following line records',()=>{
+  const source=Uint8Array.from([...mtHeader,17,255,0,1,65,0,1,0,2,0,133,120,0,0,0]);
+  assert.equal(convertMtefV5ToLatex(source),'x');
+});
