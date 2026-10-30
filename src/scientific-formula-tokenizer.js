@@ -63,9 +63,11 @@ function isCurrencyStart(source, index) {
   if (nextDollar >= 0 && /^\d+(?:[.,]\d+)*$/.test(mathCandidate.trim())) return false;
   return !/[=^_+*<>]/.test(mathCandidate);
 }
+// Pending Word equation IDs are provenance, never LaTeX subscripts.
+const hasWordFormulaPlaceholder = text => /__WMATH_[0-9]{6}__/.test(text);
 function looksLikeStandaloneMath(text) {
   const t = text.trim();
-  if (!t) return false;
+  if (!t || hasWordFormulaPlaceholder(t)) return false;
   if (/[À-ỹ]/u.test(t) && !/\\(?:text|mathrm|operatorname|ce|pu)\s*\{/.test(t)) return false;
   if (/<[a-z/!][^>]*>/i.test(t)) return false;
   const hasOperator = /[=^_<>≤≥≠≈∑∫√±×÷]|\\(?:frac|dfrac|tfrac|cfrac|sqrt|sum|prod|int|iint|iiint|lim|ce|pu|begin|text|mathrm|vec|mathbb|left|right|sin|cos|tan|log|ln|pm|geq|leq|to|rightarrow|overline|overrightarrow|times|cdot|alpha|beta|gamma|Delta|pi|infty|perp|parallel|land|lor|neg|mathcal|mathsf|mathfrak|overset|underbrace|hat|hbar|nabla|partial)\b/.test(t);
@@ -83,7 +85,8 @@ export function splitScientificContent(sourceInput) {
   const segments = [];
   let text = '';
   const pushText = () => { if (text) segments.push({ type: 'text', value: text }); text = ''; };
-  const pushMath = (body, display) => {
+  const pushMath = (body, display, original = body) => {
+    if (hasWordFormulaPlaceholder(body)) { text += original; return; }
     pushText();
     segments.push({ type: 'math', value: body, display: !!display });
   };
@@ -108,7 +111,7 @@ export function splitScientificContent(sourceInput) {
       const mark = display ? '$$' : '$';
       const end = findMathEnd(source,i+mark.length,mark,!display);
       if (end > i+mark.length && source.slice(i+mark.length,end).trim()) {
-        pushMath(source.slice(i+mark.length,end),display);
+        pushMath(source.slice(i+mark.length,end),display,source.slice(i,end+mark.length));
         i=end+mark.length;
         continue;
       }
@@ -120,7 +123,7 @@ export function splitScientificContent(sourceInput) {
         if (!source.startsWith(open,i)) continue;
         const end=findMathEnd(source,i+open.length,close,false);
         if (end !== -1 && source.slice(i+open.length,end).trim()) {
-          pushMath(source.slice(i+open.length,end),display);
+          pushMath(source.slice(i+open.length,end),display,source.slice(i,end+close.length));
           i=end+close.length;
           did=true;
         }
