@@ -7,7 +7,7 @@ import {convertMtefV5ToLatex,readMathTypeOleStream,encodeMathTypeSource,verifyMa
 
 const prefix='<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"><w:body>';
 const suffix='</w:body></w:document>';
-const mtHeader=[5,0,0,0,0,0,0];
+const mtHeader=[5,1,0,4,0,0,0];
 const line=chars=>Uint8Array.from([...mtHeader,1,0,...chars.flatMap(x=>[2,0,133,x.charCodeAt(0),0]),0,0]);
 async function fixture(block) {
   const z=new JSZip();
@@ -57,4 +57,8 @@ test('MTEF font record IDs use variable-width unsigned indexes without corruptin
 test('MTEF font definition indexes use variable width and preserve following line records',()=>{
   const source=Uint8Array.from([...mtHeader,17,255,0,1,65,0,1,0,2,0,133,120,0,0,0]);
   assert.equal(convertMtefV5ToLatex(source),'x');
+});
+
+test('MTEF version 5 requires a valid producer version in header',()=>{
+  assert.throws(()=>convertMtefV5ToLatex(Uint8Array.from([5,1,0,0,0,0,0,1,0,2,0,133,120,0,0,0])),/header MTEF/);
 });
