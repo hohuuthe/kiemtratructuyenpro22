@@ -529,9 +529,10 @@ function createWordTextStyleResolver(stylesDoc, issues) {
             else if(['false','off','0'].includes(value))result.bold=false;
             else warn('Chưa hỗ trợ giá trị w:b trong Word: '+value);
         }
-        // w:bCs applies to complex scripts, not a general replacement for w:b.
-        if(child(rPr,'bCs')&&!b)
-            warn('Word chỉ có w:bCs (chữ phức hợp) mà thiếu w:b; không suy đoán đáp án in đậm.');
+        // w:bCs controls only complex-script glyphs. For Latin/Vietnamese
+        // text it is NOT an alternative to w:b and must not block import.
+        // Carry provenance to the actual text run before raising a warning.
+        if(child(rPr,'bCs')&&!b)result.complexScriptBoldOnly=true;
         const position=attr(child(rPr,'vertAlign'),'val');
         if(position){
             if(['subscript','superscript','baseline'].includes(position))result.position=position;
@@ -573,8 +574,14 @@ function createWordTextStyleResolver(stylesDoc, issues) {
             if(style.bold===true)current.bold=!Boolean(current.bold);
             if(Object.hasOwn(style,'underline'))current.underline=style.underline;
             if(Object.hasOwn(style,'position'))current.position=style.position;
+            if(Object.hasOwn(style,'complexScriptBoldOnly'))current.complexScriptBoldOnly=style.complexScriptBoldOnly;
         }
-        return {...current,...properties(runProps)};
+        const effective={...current,...properties(runProps)};
+        if(effective.complexScriptBoldOnly && !effective.bold &&
+            /[\u0590-\u08ff\u0900-\u0dff\u0e00-\u0eff]/u.test(textOf(run))) {
+            warn('Word chỉ có w:bCs (chữ phức hợp) mà thiếu w:b; cần kiểm chứng chữ in đậm của đoạn văn bản phức hợp.');
+        }
+        return effective;
     };
 }
 
