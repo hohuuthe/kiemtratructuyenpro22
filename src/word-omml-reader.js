@@ -5,6 +5,7 @@
  * Unsupported structures are kept in the review queue; never guessed.
  */
 import JSZip from 'jszip';
+import {readMathTypeRelationship} from './word-mathtype-reader.js';
 import { DOMParser, XMLSerializer } from '@xmldom/xmldom';
 
 export const WORD_IMPORT_ENGINE_VERSION = 'word-omml-1.3';
@@ -613,6 +614,28 @@ export async function inspectScientificDocx(arrayBuffer) {
         if (status === 'review') issues.push({ kind:'formula', token, reason });
         return token;
     };
+    const addMathType = async node => {
+        const xml=serializer.serializeToString(node);
+        const nested=descendants(node,'OLEObject');
+        const ole=nameOf(node)==='OLEObject'?node:nested[0];
+        const token='__WMATH_'+String(formulas.length+1).padStart(6,'0')+'__';
+        if(!ole || (nested.length>1 && nameOf(node)!=='OLEObject')) {
+            return addUnsupported('Đối tượng OLE MathType có nhiều cấu trúc chưa xác minh',xml);
+        }
+        const progId=attr(ole,'ProgID')||'';
+        if(!/^(?:Equation\.3|MathType\..*)$/i.test(progId)){
+            return addUnsupported('Đối tượng OLE không phải MathType được hỗ trợ',xml);
+        }
+        try {
+            const id=attr(ole,'id');
+            const converted=await readMathTypeRelationship(zip,id);
+            formulas.push({token,sourceType:'mathtype',originalOmml:converted.sourceXml,
+                latex:converted.latex,status:'parsed',reason:'',engineVersion:WORD_IMPORT_ENGINE_VERSION});
+            return token;
+        } catch(error) {
+            return addUnsupported('MathType OLE cần đối chiếu: '+String(error?.message||error),xml);
+        }
+    };
     const addUnsupported = (reason, xml) => {
         const token = '__WMATH_' + String(formulas.length + 1).padStart(6,'0') + '__';
         formulas.push({ token, sourceType:'embedded', originalOmml:xml, latex:'', status:'review', reason, engineVersion:WORD_IMPORT_ENGINE_VERSION });
@@ -668,15 +691,20 @@ export async function inspectScientificDocx(arrayBuffer) {
             }
             if (k==='tab') { parts.push('\t'); return; }
             if (k==='br' || k==='cr') { parts.push('\n'); return; }
-            if (k==='drawing' || k==='pict') {
-                const image=await loadImage(n);
-                if(image) images.push(image);
+            if(k==='object' || k==='OLEObject') {
+                parts.push(await addMathType(n));
                 return;
             }
-            if(k==='object' || k==='OLEObject') {
-                // Old Equation Editor / MathType OLE source cannot be assumed
-                // equivalent to the bitmap preview.
-                parts.push(addUnsupported('Đối tượng MathType/Equation Editor cũ cần chuyển đổi hoặc xác minh thủ công', serializer.serializeToString(n)));
+            if (k==='drawing' || k==='pict') {
+                // Word MathType commonly stores a bitmap/WMF preview beside
+                // the OLE source. Never import that preview as another image.
+                if(descendants(n,'OLEObject').length) {
+                    parts.push(await addMathType(n));
+                    return;
+                }
+                if(k==='pict' && descendants(n,'OLEObject').length) return;
+                const image=await loadImage(n);
+                if(image) images.push(image);
                 return;
             }
             if (k==='del' || k==='delText') {
