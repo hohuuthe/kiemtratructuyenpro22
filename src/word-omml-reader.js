@@ -637,7 +637,10 @@ export async function inspectScientificDocx(arrayBuffer) {
             const id=attr(ole,'id');
             const converted=await readMathTypeRelationship(zip,id,rels.get(attr(firstDesc(node,'imagedata'),'id')));
             formulas.push({token,sourceType:'mathtype',originalOmml:converted.sourceXml,
-                latex:converted.latex,status:'parsed',reason:'',engineVersion:WORD_IMPORT_ENGINE_VERSION});
+                latex:converted.latex,status:'parsed',reason:'',
+                sourcePreference:converted.sourcePreference||'ole',
+                engineVersion:WORD_IMPORT_ENGINE_VERSION});
+            if(converted.notice)issues.push({kind:'formula-notice',token,reason:converted.notice});
             return token;
         } catch(error) {
             return addUnsupported('MathType OLE cần đối chiếu: '+String(error?.message||error),xml);
