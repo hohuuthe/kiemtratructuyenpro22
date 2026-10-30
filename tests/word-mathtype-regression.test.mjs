@@ -123,3 +123,20 @@ if(process.env.WORD_IMPORT_FULL_TESTS==='1'){
         assert.equal(result.questions[0].options.C,r.formulas[0].token);
     });
 }
+
+test('Latin Word text with w:bCs only does not invent bold formatting or block MathType import',async()=>{
+    const zip=new JSZip();
+    const wordNs='http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+    zip.file('word/document.xml','<w:document xmlns:w="'+wordNs+'"><w:body><w:p><w:r><w:rPr><w:bCs/></w:rPr><w:t>Quy tròn số và đáp án A.</w:t></w:r></w:p></w:body></w:document>');
+    const report=await inspectScientificDocx(await zip.generateAsync({type:'uint8array'}));
+    assert.equal(report.lines[0].text,'Quy tròn số và đáp án A.');
+    assert.deepEqual(report.issues,[]);
+});
+test('Complex-script Word text with w:bCs only retains an explicit verification warning',async()=>{
+    const zip=new JSZip();
+    const wordNs='http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+    zip.file('word/document.xml','<w:document xmlns:w="'+wordNs+'"><w:body><w:p><w:r><w:rPr><w:bCs/></w:rPr><w:t>العربية</w:t></w:r></w:p></w:body></w:document>');
+    const report=await inspectScientificDocx(await zip.generateAsync({type:'uint8array'}));
+    assert.equal(report.lines[0].text,'العربية');
+    assert.ok(report.issues.some(i=>i.kind==='style' && i.reason.includes('w:bCs')));
+});
