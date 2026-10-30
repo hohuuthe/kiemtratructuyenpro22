@@ -16,7 +16,14 @@ function run(command,args){
     return r.stdout||'';
 }
 run(process.platform==='win32'?'npm.cmd':'npm',['run','lint']);
-const tests=fs.readdirSync('tests').filter(f=>/^word-.*\.test\.mjs$/.test(f)||['scientific-formula-tokenizer.test.mjs','question-bank-word-export.test.mjs','question-bank-fraction-regression.test.mjs'].includes(f)).sort().map(f=>'tests/'+f);
+// Targeted production path: native-source parser, verified import and legacy Office Math.
+// The broader Word/export suite remains in the GitHub Actions regression workflow.
+const tests=[
+    'tests/word-mathtype-regression.test.mjs',
+    'tests/word-mathtype-import.test.mjs',
+    'tests/word-import-omml.test.mjs',
+    'tests/scientific-formula-tokenizer.test.mjs'
+];
 if(!tests.includes('tests/word-mathtype-regression.test.mjs'))throw new Error('MathType regression suite missing');
 // Running all Word suites in parallel can exhaust the memory available to Pages build workers.
 // Preserve the complete coverage while running test files sequentially.
