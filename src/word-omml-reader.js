@@ -623,12 +623,12 @@ export async function inspectScientificDocx(arrayBuffer) {
             return addUnsupported('Đối tượng OLE MathType có nhiều cấu trúc chưa xác minh',xml);
         }
         const progId=attr(ole,'ProgID')||'';
-        if(!/^(?:Equation\.3|MathType\..*)$/i.test(progId)){
+        if(!/^(?:Equation\.(?:3|DSMT4)|MathType\..*)$/i.test(progId)){
             return addUnsupported('Đối tượng OLE không phải MathType được hỗ trợ',xml);
         }
         try {
             const id=attr(ole,'id');
-            const converted=await readMathTypeRelationship(zip,id);
+            const converted=await readMathTypeRelationship(zip,id,rels.get(attr(firstDesc(node,'imagedata'),'id')));
             formulas.push({token,sourceType:'mathtype',originalOmml:converted.sourceXml,
                 latex:converted.latex,status:'parsed',reason:'',engineVersion:WORD_IMPORT_ENGINE_VERSION});
             return token;
