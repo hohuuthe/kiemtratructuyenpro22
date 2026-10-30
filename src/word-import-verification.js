@@ -4,6 +4,7 @@
  * All selected questions must be verified BEFORE the DB transaction begins.
  */
 import katex from 'katex';
+import {verifyMathTypeSource} from './word-mathtype-reader.js';
 import 'katex/dist/contrib/mhchem.js';
 import { Math as WordMath } from 'docx/math';
 import { DOMParser } from '@xmldom/xmldom';
@@ -132,10 +133,14 @@ export function validateWordFormulaSourceForImport(source) {
     }
     const verdict=validateScientificLatexForImport(source.latex);
     if (!verdict.ok) return verdict;
-    if (!['omml','embedded'].includes(source.sourceType) ||
+    if (!['omml','embedded','mathtype'].includes(source.sourceType) ||
         typeof source.sourceOmml!=='string' || !source.sourceOmml.trim() ||
         source.sourceOmml.length>150000 || /<!DOCTYPE|<!ENTITY/i.test(source.sourceOmml)) {
         return {ok:false,reason:'Nguồn Equation gốc bị thiếu hoặc không hợp lệ'};
+    }
+    if(source.sourceType==='mathtype') {
+        try {verifyMathTypeSource(source.sourceOmml,source.latex,source.status);return {ok:true};}
+        catch(error) {return {ok:false,reason:'Không xác minh được nguồn MathType: '+String(error?.message||error).slice(0,180)};}
     }
     try {
         const errors=[];
