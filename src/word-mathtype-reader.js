@@ -143,21 +143,41 @@ function decodeBase64(text){
 }
 
 /** Ephemeral provenance for the existing verified-import API; no schema change. */
-export function encodeMathTypeSource(mtef){
+export function encodeMathTypeSource(mtef, originalOle=null){
     const bytes=asBytes(mtef);
     if(bytes.length>MAX_MTEF_BYTES)invalid('MTEF quá lớn');
-    return '<mt:equation xmlns:mt="'+MATH_NS+'" version="5">'+encodeBase64(bytes)+'</mt:equation>';
+    const selected=encodeBase64(bytes);
+    // When the native OLE is stale, preserve BOTH sources. The displayed
+    // WMF MTEF is the equation the teacher actually sees in Word.
+    const alternative=originalOle===null?'':encodeBase64(asBytes(originalOle));
+    const provenance=originalOle===null?'':' source="wmf" originalOle="'+alternative+'"';
+    const xml='<mt:equation xmlns:mt="'+MATH_NS+'" version="5"'+provenance+'>'+selected+'</mt:equation>';
+    if(xml.length>150000)invalid('Hai nguồn MathType vượt giới hạn xác minh; cần kiểm tra thủ công');
+    return xml;
 }
 export function verifyMathTypeSource(xml,latex,status) {
     const root=parseXml(xml);
-    if(root.localName!=='equation'||root.namespaceURI!==MATH_NS||root.attributes.length!==2||
-        root.getAttribute('version')!=='5'||root.childNodes.length!==1||root.firstChild.nodeType!==3)
+    const visibleSource=root?.getAttribute('source')||null;
+    const hasAlternative=visibleSource!==null;
+    if(root.localName!=='equation'||root.namespaceURI!==MATH_NS||
+       root.getAttribute('version')!=='5'||
+       root.attributes.length!==(hasAlternative?4:2)||
+       (hasAlternative && (visibleSource!=='wmf'||!root.getAttribute('originalOle')))||
+       root.childNodes.length!==1||root.firstChild.nodeType!==3)
         invalid('nguồn MathType MTEF không đúng định dạng');
-    const original=decodeBase64(root.textContent);
-    // Independently re-run decoding on the server for automatic approval.
-    if(status==='verified'&&convertMtefV5ToLatex(original)!==String(latex).trim())
-        invalid('LaTeX không khớp với nguồn MathType MTEF');
+    const selected=decodeBase64(root.textContent);
     if(status!=='verified'&&status!=='manual_verified')invalid('chưa duyệt công thức MathType');
+    // Both native OLE and cached WMF remain independently auditable.
+    // Server never approves a forged mismatched-source provenance.
+    if(hasAlternative){
+        const originalOle=decodeBase64(root.getAttribute('originalOle'));
+        const oleLatex=convertMtefV5ToLatex(originalOle);
+        const visibleLatex=convertMtefV5ToLatex(selected);
+        if(oleLatex===visibleLatex)invalid('không tồn tại khác biệt MathType OLE/WMF để ưu tiên WMF');
+    }
+    // Independently re-run decoding on the server for automatic approval.
+    if(status==='verified'&&convertMtefV5ToLatex(selected)!==String(latex).trim())
+        invalid('LaTeX không khớp với nguồn MathType MTEF');
     return true;
 }
 
@@ -193,8 +213,19 @@ export async function readMathTypeRelationship(zip,id,previewPath=null) {
         if(Number(previewEntry._data?.uncompressedSize||0)>MAX_OLE_BYTES)invalid('MathType preview is too large');
         const preview=readMathTypeWmfSource(await previewEntry.async('uint8array'));
         const previewLatex=preview ? convertMtefV5ToLatex(preview) : null;
-        if(previewLatex!==null && previewLatex!==latex)
-            invalid('MathType OLE/WMF kh\u00f4ng kh\u1edbp: OLE='+latex.slice(0,180)+'; WMF='+previewLatex.slice(0,180)+'. C\u1ea7n m\u1edf l\u1ea1i c\u00f4ng th\u1ee9c trong MathType v\u00e0 l\u01b0u \u0111\u1ed3ng b\u1ed9, ho\u1eb7c \u0111\u1ed1i chi\u1ebfu th\u1ee7 c\u00f4ng.');
+        if(previewLatex!==null && previewLatex!==latex) {
+            // A DOCX displays the WMF, not the editable native OLE stream.
+            // When the two disagree, import exactly the source of the visible
+            // equation, retain the OLE bytes for server-side verification and
+            // report a non-blocking notice. Never guess from pixels / OCR.
+            return {
+                mtef:preview, latex:previewLatex,
+                sourceXml:encodeMathTypeSource(preview,mtef),
+                sourcePreference:'wmf',
+                notice:'MathType có hai nguồn khác nhau; đã nhập theo phần hiển thị Word (WMF: '+
+                   previewLatex.slice(0,140)+'). Nguồn OLE gốc: '+latex.slice(0,140)+'.'
+            };
+        }
     }
-    return {mtef,latex,sourceXml:encodeMathTypeSource(mtef)};
+    return {mtef,latex,sourceXml:encodeMathTypeSource(mtef),sourcePreference:'ole',notice:''};
 }
