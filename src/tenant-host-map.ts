@@ -34,6 +34,51 @@ export function resolveTenantFromHostname(hostname: string, env: any): string {
   throw new Error('Hostname is not registered in TENANT_HOST_MAP');
 }
 
+/**
+ * URL path tenants are permitted on the default app hostname only.
+ * They are selected from the first URL segment, never from client-supplied
+ * headers, Referer, cookies or query strings. Host-mapped installations
+ * remain pinned to their own hostname tenant.
+ */
+export type TenantSelection = {
+  slug: string;
+  source: 'path' | 'hostname' | 'default';
+  prefix: string;
+};
+
+const PUBLIC_ROOT_SEGMENTS = new Set([
+  'api', 'assets', 'static', 'src', 'fonts', 'images', 'img', 'css', 'js',
+  'favicon.ico', 'favicon.png', 'robots.txt', 'manifest.json', 'sw.js',
+  'index.html', 'pwa-192x192.png', 'pwa-512x512.png', 'sitemap.xml',
+  '_routes.json', '_headers', '_redirects'
+]);
+
+export function resolveTenantRoutingFromRequest(request: { url: string }, env: any): TenantSelection {
+  const url = new URL(request.url);
+  const hostTenant = resolveTenantFromHostname(url.hostname, env);
+  const firstSegment = url.pathname.split('/')[1] || '';
+
+  // Static assets and direct /api/* calls belong to the hostname tenant.
+  // Direct /api requests on the default host always use the default database.
+  if (!firstSegment || PUBLIC_ROOT_SEGMENTS.has(firstSegment.toLowerCase()) || firstSegment.includes('.')) {
+    return { slug: hostTenant, source: hostTenant === 'default' ? 'default' : 'hostname', prefix: '' };
+  }
+
+  // Never let a tenant path override a tenant already pinned to a hostname.
+  if (hostTenant !== 'default') {
+    return { slug: hostTenant, source: 'hostname', prefix: '' };
+  }
+
+  // Encoded slashes, invalid characters, reserved aliases and path traversal
+  // must not become dynamic environment variable names.
+  if (!/^[a-zA-Z0-9_-]{1,64}$/.test(firstSegment) ||
+      firstSegment === 'default' || firstSegment === 'root') {
+    throw new Error('Invalid tenant path slug');
+  }
+
+  return { slug: firstSegment, source: 'path', prefix: '/' + firstSegment };
+}
+
 export function resolveTenantFromRequest(request: { url: string }, env: any): string {
-  return resolveTenantFromHostname(new URL(request.url).hostname, env);
+  return resolveTenantRoutingFromRequest(request, env).slug;
 }

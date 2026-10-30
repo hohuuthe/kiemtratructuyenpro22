@@ -49,6 +49,8 @@ jobs:
         run: node --import tsx --test tests/security-session-runtime.test.ts
       - name: Tenant / revocation / CAS integration contracts
         run: node --import tsx --test tests/security-tenant-integration.test.ts
+      - name: URL slug Cloudflare binding and tenant routing tests
+        run: node --import tsx --test tests/path-slug-cloudflare-routing.test.ts
       - name: TypeScript check
         run: npm run lint
       - name: Production build

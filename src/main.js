@@ -76,19 +76,12 @@ if (typeof window !== 'undefined') {
         try {
             if (!window.location) return '';
             
-            // 1. Kiểm tra query param ?tenant= hoặc ?slug=
-            const urlParams = new URLSearchParams(window.location.search);
-            const qTenant = urlParams.get('tenant') || urlParams.get('slug');
-            if (qTenant && qTenant.trim()) {
-                return qTenant.trim();
-            }
-
             // 2. Phân tích đường dẫn path ví dụ /kiemtra1
             const pathSegments = window.location.pathname.split('/').filter(s => s && s.trim().length > 0 && s !== 'index.html');
             if (pathSegments.length > 0) {
                 const firstSeg = pathSegments[0].trim();
-                const systemPaths = ['api', 'assets', 'static', 'favicon.ico', 'robots.txt', 'sitemap.xml', 'manifest.json', 'sw.js'];
-                if (!systemPaths.includes(firstSeg.toLowerCase())) {
+                const systemPaths = ['api', 'assets', 'static', 'src', 'css', 'js', 'fonts', 'images', 'img', 'favicon.ico', 'favicon.png', 'robots.txt', 'sitemap.xml', 'manifest.json', 'sw.js', 'index.html', 'pwa-192x192.png', 'pwa-512x512.png'];
+                if (!systemPaths.includes(firstSeg.toLowerCase()) && /^[a-zA-Z0-9_-]{1,64}$/.test(firstSeg) && firstSeg !== 'default' && firstSeg !== 'root') {
                     return firstSeg;
                 }
             }
@@ -99,6 +92,19 @@ if (typeof window !== 'undefined') {
     window.getTenantSlugFromUrl = getTenantSlugFromUrl;
     window.__CURRENT_TENANT_SLUG = getTenantSlugFromUrl();
 
+    function isTenantApiResource(resource) {
+        try {
+            const value = resource instanceof Request ? resource.url : String(resource);
+            const url = new URL(value, window.location.origin);
+            return url.origin === window.location.origin && url.pathname.startsWith('/api/');
+        } catch { return false; }
+    }
+    // Scope login credentials and sessions by path tenant; tenants on the same
+    // hostname must never silently share a previously saved login.
+    window.tenantStorageKey = function(key) {
+        const slug = window.__CURRENT_TENANT_SLUG || '';
+        return slug ? 'tenant:' + slug + ':' + key : key;
+    };
     // Global Fetch Interceptor: Tự động đính kèm Header X-Tenant-Slug cho toàn bộ API calls
     const originalWindowFetch = (typeof window !== 'undefined' && window.fetch) ? window.fetch.bind(window) : fetch;
     const patchedFetch = async function(resource, init) {
@@ -130,6 +136,23 @@ if (typeof window !== 'undefined') {
                 init.headers = headers;
                 if (resource instanceof Request) {
                     resource = new Request(resource, { headers });
+                }
+            }
+        }
+        // Always route APIs through the URL prefix, so Cloudflare independently
+        // derives the tenant from the request path, not from a spoofable header.
+        if (slug && isTenantApiResource(resource)) {
+            if (typeof resource === 'string') {
+                const url = new URL(resource, window.location.origin);
+                if (url.origin === window.location.origin && url.pathname.startsWith('/api/')) {
+                    url.pathname = '/' + slug + url.pathname;
+                    resource = url.pathname + url.search + url.hash;
+                }
+            } else if (resource instanceof Request) {
+                const url = new URL(resource.url);
+                if (url.origin === window.location.origin && url.pathname.startsWith('/api/')) {
+                    url.pathname = '/' + slug + url.pathname;
+                    resource = new Request(url.toString(), resource);
                 }
             }
         }
@@ -269,7 +292,7 @@ window.ensureExcelJSReady = ensureExcelJSReady;
                         if (!apiKeys || apiKeys.length === 0) {
                             throw new Error("Vui lòng nhập Gemini API Key của bạn để tiếp tục!");
                         }
-                        const aiAuthToken = localStorage.getItem('auth_token') || '';
+                        const aiAuthToken = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
 
                         const modelsToTry = [
                             model || "gemini-3.8-flash",
@@ -1521,7 +1544,7 @@ Trả về kết quả dưới dạng JSON Array, mỗi phần tử tương ứn
                 console.log('Initializing application components...');
                 
                 // Kiểm tra và tự động đăng nhập nếu đã lưu (Làm sớm để tránh flicker)
-                if (localStorage.getItem('is_auto_login') === 'true') {
+                if (localStorage.getItem(window.tenantStorageKey('is_auto_login')) === 'true') {
                     console.log('Attempting auto-login...');
                     try {
                         await adminLogin(true);
@@ -1778,9 +1801,9 @@ Trả về kết quả dưới dạng JSON Array, mỗi phần tử tương ứn
             }, 100);
         }
         function showAdminLoginModal() {
-            const savedUsername = localStorage.getItem('remember_username') || '';
-            const savedPassword = localStorage.getItem('remember_password') || '';
-            const isRemembered = localStorage.getItem('is_auto_login') !== 'false' ? 'checked' : '';
+            const savedUsername = localStorage.getItem(window.tenantStorageKey('remember_username')) || '';
+            const savedPassword = localStorage.getItem(window.tenantStorageKey('remember_password')) || '';
+            const isRemembered = localStorage.getItem(window.tenantStorageKey('is_auto_login')) !== 'false' ? 'checked' : '';
 
             const modalContent = `
                 <div class="p-8 text-center w-full mx-auto">
@@ -2062,8 +2085,8 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             const rememberCheckbox = document.getElementById('login-remember');
             const submitBtn = document.getElementById('login-submit-btn');
 
-            const username = usernameInput ? usernameInput.value.trim() : (isAutoLogin ? localStorage.getItem('remember_username') : '');
-            const password = passwordInput ? passwordInput.value : (isAutoLogin ? localStorage.getItem('remember_password') : '');
+            const username = usernameInput ? usernameInput.value.trim() : (isAutoLogin ? localStorage.getItem(window.tenantStorageKey('remember_username')) : '');
+            const password = passwordInput ? passwordInput.value : (isAutoLogin ? localStorage.getItem(window.tenantStorageKey('remember_password')) : '');
             
             if (!username || !password) {
                 if (!isAutoLogin) showToast('Vui lòng nhập đầy đủ tên đăng nhập và mật khẩu!', 'error');
@@ -2128,11 +2151,11 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 }
 
                 // Luôn lưu lại thông tin đăng nhập thành công vào localStorage để tự động login lần sau
-                localStorage.setItem('remember_username', username);
-                localStorage.setItem('remember_password', password);
-                localStorage.setItem('is_auto_login', 'true');
+                localStorage.setItem(window.tenantStorageKey('remember_username'), username);
+                localStorage.setItem(window.tenantStorageKey('remember_password'), password);
+                localStorage.setItem(window.tenantStorageKey('is_auto_login'), 'true');
 
-                if (token) localStorage.setItem('auth_token', token);
+                if (token) localStorage.setItem(window.tenantStorageKey('auth_token'), token);
                 currentUser = data;
                 window.currentUser = currentUser;
                 const roleLower = String(data.role || '').toLowerCase();
@@ -2509,7 +2532,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
         window.adminLogout = adminLogout;
         async function adminLogout() {
             closeModal();
-            localStorage.removeItem('auth_token');
+            localStorage.removeItem(window.tenantStorageKey('auth_token'));
             isAdminLoggedIn = false;
             isTeacherLoggedIn = false;
             currentUser = null;
@@ -2601,7 +2624,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             updateThemeForRole();
             
             // Chỉ xóa cờ tự động đăng nhập khi người dùng chủ động đăng xuất
-            localStorage.setItem('is_auto_login', 'false');
+            localStorage.setItem(window.tenantStorageKey('is_auto_login'), 'false');
             
             // Ẩn auth status, hiện nút login
             document.getElementById('auth-status')?.classList.add('hidden');
@@ -2717,7 +2740,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
           if(adminSettingsPromise)return adminSettingsPromise;
           const generation=authDataGeneration;
           adminSettingsPromise=(async()=>{
-            const token=localStorage.getItem('auth_token')||'';
+            const token=localStorage.getItem(window.tenantStorageKey('auth_token'))||'';
             const response=await fetch('/api/settings',{headers:{Authorization:'Bearer '+token},cache:'no-store'});
             if(!response.ok)throw Error('Không tải được cấu hình quản trị: HTTP '+response.status);
             const json=await response.json();
@@ -3073,13 +3096,13 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
         }
 
         async function fetchAllQuestionsChunked(onProgress) {
-            const token = localStorage.getItem('auth_token') || '';
+            const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
             if (!token) throw new Error('Phiên đăng nhập không hợp lệ. Vui lòng đăng nhập lại.');
             const generation = authDataGeneration;
             const userId = String(currentUser?.id || '');
             const verifySession = () => {
                 if (generation !== authDataGeneration || userId !== String(currentUser?.id || '') ||
-                    token !== (localStorage.getItem('auth_token') || '')) {
+                    token !== (localStorage.getItem(window.tenantStorageKey('auth_token')) || '')) {
                     throw new Error('Phiên đăng nhập đã thay đổi trong khi tải câu hỏi.');
                 }
             };
@@ -3195,10 +3218,10 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
         }
 
         async function fetchAllResultsChunked(onProgress) {
-            let token = localStorage.getItem('auth_token') || '';
-            if (!token && localStorage.getItem('is_auto_login') === 'true') {
-                const savedU = localStorage.getItem('remember_username');
-                const savedP = localStorage.getItem('remember_password');
+            let token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
+            if (!token && localStorage.getItem(window.tenantStorageKey('is_auto_login')) === 'true') {
+                const savedU = localStorage.getItem(window.tenantStorageKey('remember_username'));
+                const savedP = localStorage.getItem(window.tenantStorageKey('remember_password'));
                 if (savedU && savedP) {
                     try {
                         const authRes = await fetch('/api/auth/login', {
@@ -3209,7 +3232,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                         const authJson = await authRes.json();
                         if (authJson && authJson.token) {
                             token = authJson.token;
-                            localStorage.setItem('auth_token', token);
+                            localStorage.setItem(window.tenantStorageKey('auth_token'), token);
                         }
                     } catch (e) {}
                 }
@@ -3299,7 +3322,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                   sort:window.rankingSortColumn||'rank',direction:window.rankingSortDirection||'asc'});
                 if(!rankingFacetCache)args.set('facets','1');
                 try{
-                    const response=await fetch('/api/results-page?'+args,{headers:{Authorization:'Bearer '+(localStorage.getItem('auth_token')||'')},cache:'no-store'});
+                    const response=await fetch('/api/results-page?'+args,{headers:{Authorization:'Bearer '+(localStorage.getItem(window.tenantStorageKey('auth_token'))||'')},cache:'no-store'});
                     if(!response.ok)throw Error('HTTP '+response.status);
                     const payload=await response.json();
                     if(!Array.isArray(payload.data))throw Error('Trang kết quả không hợp lệ');
@@ -3445,7 +3468,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             const list = document.getElementById('ranking-student-list');
             if (list) { list.textContent = 'Đang tải kết quả cá nhân...'; list.setAttribute('aria-busy', 'true'); }
             try {
-                const token = localStorage.getItem('auth_token') || '';
+                const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
                 if (!token) throw new Error('Phiên đăng nhập không hợp lệ');
                 const offset = Math.max(0, Number(page) || 0) * myStudentPageSize;
                 const response = await fetch('/api/results/me?limit=30&offset=' + offset, {
@@ -3478,7 +3501,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             const expectedAccount = String(currentUser.id || '');
             const seq = myStudentRequestSeq;
             try {
-                const token = localStorage.getItem('auth_token') || '';
+                const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
                 if (!token) throw new Error('Phiên đăng nhập không hợp lệ');
                 const response = await fetch('/api/results/me?id=' + encodeURIComponent(id), {
                     headers: { Authorization: 'Bearer ' + token }, cache: 'no-store'
@@ -3592,7 +3615,7 @@ if (contentType && contentType.includes("application/json")) {
                 }
                 
                 // Fetch result của đề thi đã mở khóa qua /api/results
-                const token = localStorage.getItem('auth_token') || '';
+                const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
                 const resResults = await fetch(`/api/results?examId=${encodeURIComponent(code)}`, {
                     headers: { 'Authorization': 'Bearer ' + token }
                 });
@@ -3708,7 +3731,7 @@ if (contentType && contentType.includes("application/json")) {
         }
 
         async function saveQuestionsToDB(newQuestions = null, deletedIds = null) {
-            const token = localStorage.getItem('auth_token') || '';
+            const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
             if (!token) throw new Error('Phiên đăng nhập đã hết hạn');
             const payload = {};
             if (newQuestions?.length) payload.questions = newQuestions.map(q => {
@@ -3734,11 +3757,11 @@ if (contentType && contentType.includes("application/json")) {
         async function saveResultsToDB(newResult = null, deletedIds = null) {
             try {
                 window.lastResultsError = null;
-                let token = localStorage.getItem('auth_token') || '';
+                let token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
                 
-                if (!token && localStorage.getItem('is_auto_login') === 'true') {
-                    const savedU = localStorage.getItem('remember_username');
-                    const savedP = localStorage.getItem('remember_password');
+                if (!token && localStorage.getItem(window.tenantStorageKey('is_auto_login')) === 'true') {
+                    const savedU = localStorage.getItem(window.tenantStorageKey('remember_username'));
+                    const savedP = localStorage.getItem(window.tenantStorageKey('remember_password'));
                     if (savedU && savedP) {
                         try {
                             const authRes = await fetch('/api/auth/login', {
@@ -3749,7 +3772,7 @@ if (contentType && contentType.includes("application/json")) {
                             const authJson = await authRes.json();
                             if (authJson && authJson.token) {
                                 token = authJson.token;
-                                localStorage.setItem('auth_token', token);
+                                localStorage.setItem(window.tenantStorageKey('auth_token'), token);
                             }
                         } catch (e) {}
                     }
@@ -3786,7 +3809,7 @@ if (contentType && contentType.includes("application/json")) {
 
         async function saveExamConfigToDB(draft, expected) {
             try {
-                const token = localStorage.getItem('auth_token') || '';
+                const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
                 if (!token) return 'error';
                 console.log('🚀 Bắt đầu lưu cấu hình đề thi:', draft.name);
 
@@ -3895,7 +3918,7 @@ if (contentType && contentType.includes("application/json")) {
                 // Nếu là Admin thì đồng thời đồng bộ lên database
                 if (isAdminLoggedIn) {
                     try {
-                        const token = localStorage.getItem('auth_token');
+                        const token = localStorage.getItem(window.tenantStorageKey('auth_token'));
                         const res = await fetch('/api/settings', {
                             method: 'PUT',
                             headers: { 
@@ -4148,7 +4171,7 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
                     // Tải danh sách đề thi để định vị người tạo & phục vụ bộ lọc
                     loadPromise = (async () => {
                         try {
-                            const token = localStorage.getItem('auth_token') || '';
+                            const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
                             const res = await fetch('/api/exams', { headers: { 'Authorization': 'Bearer ' + token } });
                             let resJson;
 const contentType = res.headers.get("content-type");
@@ -4455,7 +4478,7 @@ if (contentType && contentType.includes("application/json")) {
             }
             const currentSelection = select.value;
 
-            const token = localStorage.getItem('auth_token') || '';
+            const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
             const isAdmin = isAdminLoggedIn;
             const isTeacher = isTeacherLoggedIn && !isAdmin;
 
@@ -5829,7 +5852,7 @@ if (contentType && contentType.includes("application/json")) {
             const userLoadIntent = ++examUserLoadIntentSeq;
             const selectEl = document.getElementById('exam-config-name');
             try {
-                const token = localStorage.getItem('auth_token') || '';
+                const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
                 const res = await fetch(`/api/exams?id=${encodeURIComponent(selectedId)}`, {
                     headers: token ? { 'Authorization': 'Bearer ' + token } : {}
                 });
@@ -5880,7 +5903,7 @@ if (contentType && contentType.includes("application/json")) {
 
             if (!targetExam) {
                 try {
-                    const token = localStorage.getItem('auth_token') || '';
+                    const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
                     const res = await fetch(`/api/exams?id=${encodeURIComponent(targetExamId)}`, {
                         headers: token ? { 'Authorization': 'Bearer ' + token } : {}
                     });
@@ -6122,7 +6145,7 @@ if (contentType && contentType.includes("application/json")) {
             await new Promise(resolve => setTimeout(resolve, 60));
 
             try {
-                const token = localStorage.getItem('auth_token') || '';
+                const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
                 let useClientFallback = false;
                 let downloaded = false;
 
@@ -6241,7 +6264,7 @@ if (contentType && contentType.includes("application/json")) {
 
             // Nếu không có trong bộ nhớ, truy vấn API /api/exams
             if (!targetExam) {
-                const token = localStorage.getItem('auth_token') || '';
+                const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
                 try {
                     const res = await fetch(`/api/exams?id=${encodeURIComponent(targetExamId)}`, {
                         headers: token ? { 'Authorization': 'Bearer ' + token } : {}
@@ -6349,7 +6372,7 @@ if (contentType && contentType.includes("application/json")) {
             // 2. Nạp toàn bộ ngân hàng câu hỏi
             let allQuestions = (questions && questions.length > 0) ? questions : (window.allQuestionsList || window.questionsList || []);
             if (!allQuestions || allQuestions.length === 0) {
-                const token = localStorage.getItem('auth_token') || '';
+                const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
                 try {
                     const qRes = await fetch('/api/questions', { headers: token ? { 'Authorization': 'Bearer ' + token } : {} });
                     if (qRes.ok) {
@@ -6589,7 +6612,7 @@ if (contentType && contentType.includes("application/json")) {
         }
 
         async function fetchAllExamsChunked(onProgress) {
-            const token = localStorage.getItem('auth_token') || '';
+            const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
             const chunkSize = 1000;
             let offset = 0;
             let allExams = [];
@@ -6706,7 +6729,7 @@ if (contentType && contentType.includes("application/json")) {
             }
             const generation = authDataGeneration;
             const accountId = String(currentUser.id);
-            const token = localStorage.getItem('auth_token') || '';
+            const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
             const sameSession = () => generation === authDataGeneration &&
                 accountId === String(currentUser?.id || '') &&
                 (isAdminLoggedIn || isTeacherLoggedIn);
@@ -6825,7 +6848,7 @@ if (contentType && contentType.includes("application/json")) {
             
             showConfirmModal(`Bạn có chắc chắn muốn xóa đề thi "${name}" không?`, async () => {
                 try {
-                    const token = localStorage.getItem('auth_token') || '';
+                    const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
                     const res = await fetch(`/api/exams?id=${encodeURIComponent(selectedId)}`, {
                         method: 'DELETE',
                         headers: { 'Authorization': 'Bearer ' + token }
@@ -6873,7 +6896,7 @@ if (contentType && contentType.includes("application/json")) {
             const name = selectEl.options[selectEl.selectedIndex]?.dataset.name || "Đề thi";
             
             try {
-                const token = localStorage.getItem('auth_token') || '';
+                const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
                 const res = await fetch(`/api/exams?id=${encodeURIComponent(selectedId)}`, {
                     headers: { 'Authorization': 'Bearer ' + token }
                 });
@@ -7210,7 +7233,7 @@ if (contentType && contentType.includes("application/json")) {
             try {
                 // QUY TẮC SỐNG CÒN: Chỉ lấy đề thi do CHÍNH giáo viên này tạo ra
                 // Tuyệt đối không cho phép chia sẻ đề thi ở Tab này
-                const token = localStorage.getItem('auth_token') || '';
+                const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
                 const res = await fetch(`/api/exams?teacherId=${encodeURIComponent(teacherId)}`, {
                     headers: token ? { 'Authorization': 'Bearer ' + token } : {}
                 });
@@ -7386,7 +7409,7 @@ if (contentType && contentType.includes("application/json")) {
             try {
                 let data = null;
                 try {
-                    const token = localStorage.getItem('auth_token') || '';
+                    const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
                     // TẢI TRỰC TIẾP CHÍNH XÁC THEO ID DUY NHẤT CỦA ĐỀ THI
                     const detailRes = await fetch(`/api/exams?id=${encodeURIComponent(selectedExamId)}`, {
                         headers: token ? { 'Authorization': 'Bearer ' + token } : {}
@@ -7802,7 +7825,7 @@ if (contentType && contentType.includes("application/json")) {
                     if(busy)return;
                     busy=true;confirm.disabled=true;
                     try{
-                        const token=localStorage.getItem('auth_token')||'';
+                        const token=localStorage.getItem(window.tenantStorageKey('auth_token'))||'';
                         const response=await fetch(`/api/exams?id=${encodeURIComponent(examId)}`,{
                             headers:{...(token?{'Authorization':'Bearer '+token}:{}),'X-Exam-Access-Code':code},cache:'no-store'
                         });
@@ -7912,7 +7935,7 @@ if (contentType && contentType.includes("application/json")) {
 
                 // KHẮC PHỤC LỖI TẢI NHẦM ĐỀ: Đồng bộ tuyệt đối giữa examConfig trong bộ nhớ và đề được chọn
                 if (!examConfig || !examConfig.id || String(examConfig.id) !== String(selectedExamId)) {
-                    const token = localStorage.getItem('auth_token') || '';
+                    const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
                     const detailRes = await fetchExamStartResponse(fetch, `/api/exams?id=${encodeURIComponent(selectedExamId)}`, {
                         headers: token ? { 'Authorization': 'Bearer ' + token } : {}, cache: 'no-store'
                     });
@@ -8044,7 +8067,7 @@ if (contentType && contentType.includes("application/json")) {
                     examAccessCode: window._studentExamAccessCode || ''
                 };
                 
-                const authToken = localStorage.getItem('auth_token') || '';
+                const authToken = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
                 const reqHeaders = { 'Content-Type': 'application/json' };
                 if (authToken) {
                     reqHeaders['Authorization'] = 'Bearer ' + authToken;
@@ -9529,7 +9552,7 @@ if (contentType && contentType.includes("application/json")) {
             const studentAnswers = currentExam.questions.map((q, i) => currentExam.answers[i]);
 
             try {
-                const gradeAuthToken = localStorage.getItem('auth_token') || '';
+                const gradeAuthToken = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
                 const gradeHeaders = { 'Content-Type': 'application/json' };
                 if (gradeAuthToken) {
                     gradeHeaders['Authorization'] = 'Bearer ' + gradeAuthToken;
@@ -10164,7 +10187,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             const lesson = document.getElementById('question-lesson-filter')?.value || '';
             if (!lesson) return showToast('Hãy chọn một bài cụ thể, không chọn Tất cả bài.', 'warning');
             if (isAdminLoggedIn && getSelectedQuestionTeacherId()) return showToast('Hãy chọn Tất cả giáo viên trước khi xóa theo bài để tránh xóa nhầm dữ liệu.', 'warning');
-            const token=localStorage.getItem('auth_token') || '';
+            const token=localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
             const generation=authDataGeneration;
             const account=String(currentUser?.id||'');
             const button=document.getElementById('btn-delete-question-lesson');
@@ -10943,7 +10966,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             let compressed = base64Str;
             try {
                 compressed = await compressImage(base64Str);
-                const uploadToken = localStorage.getItem('auth_token') || (typeof window !== 'undefined' && window.currentExamToken) || '';
+                const uploadToken = localStorage.getItem(window.tenantStorageKey('auth_token')) || (typeof window !== 'undefined' && window.currentExamToken) || '';
                 const response = await fetch('/api/upload-image', {
                     method: 'POST',
                     headers: { 
@@ -12327,7 +12350,7 @@ D. Phát biểu SAI</pre>
                         method:'POST',
                         headers:{
                             'Content-Type':'application/json',
-                            'Authorization':'Bearer '+(localStorage.getItem('auth_token')||'')
+                            'Authorization':'Bearer '+(localStorage.getItem(window.tenantStorageKey('auth_token'))||'')
                         },
                         body:JSON.stringify({base64:source,wordImportContentAddressed:true})
                     });
@@ -12363,7 +12386,7 @@ D. Phát biểu SAI</pre>
                     method:'POST',
                     headers:{
                         'Content-Type':'application/json',
-                        'Authorization':'Bearer '+(localStorage.getItem('auth_token')||'')
+                        'Authorization':'Bearer '+(localStorage.getItem(window.tenantStorageKey('auth_token'))||'')
                     },
                     body:JSON.stringify({
                         batchId:crypto.randomUUID(),
@@ -13076,7 +13099,7 @@ D. Phát biểu SAI</pre>
 
         async function loadVerifiedQuestionBankWordInventory() {
             if (!currentUser?.id) throw new Error('Vui lòng đăng nhập lại tài khoản giáo viên.');
-            const token = localStorage.getItem('auth_token') || '';
+            const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
             if (!token) throw new Error('Thiếu phiên đăng nhập để xác minh ngân hàng câu hỏi.');
 
             // Always fetch fresh database data, not a search-filtered page or
@@ -13796,7 +13819,7 @@ D. Phát biểu SAI</pre>
             }
             // Refresh accounts to get newly registered ones
             try {
-                const { data } = await fetch('/api/accounts', { headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('auth_token') || '') } }).then(res => res.json()).catch(() => ({error: 'Lỗi', data: null}));
+                const { data } = await fetch('/api/accounts', { headers: { 'Authorization': 'Bearer ' + (localStorage.getItem(window.tenantStorageKey('auth_token')) || '') } }).then(res => res.json()).catch(() => ({error: 'Lỗi', data: null}));
                 if (generation !== authDataGeneration) return;
                 if (data) {
                     accounts = data;
@@ -14846,7 +14869,7 @@ D. Phát biểu SAI</pre>
                     // Kiểm tra trùng tên đề thi trong CSDL của chính giáo viên này (bao gồm cả chuẩn hóa chữ hoa/thường)
                     if (currentUser) {
                         try {
-                            const token = currentUser.token || localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token') || '';
+                            const token = currentUser.token || localStorage.getItem(window.tenantStorageKey('auth_token')) || sessionStorage.getItem('auth_token') || '';
                             const res = await fetch('/api/exams', {
                                 headers: token ? { 'Authorization': `Bearer ${token}` } : {}
                             });
@@ -15168,7 +15191,7 @@ if (contentType && contentType.includes("application/json")) {
             }
 
             try {
-                const token = localStorage.getItem('auth_token') || '';
+                const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
                 const finalRoundedScore = parseFloat((Number(newTotalScore) || 0).toFixed(1));
                 const response = await fetch('/api/results', {
                     method: 'PUT',
@@ -15210,7 +15233,7 @@ if (contentType && contentType.includes("application/json")) {
             if (examConfig && examConfig.name === name && examConfig.aiGradingKey) return examConfig;
 
             try {
-                const token = currentUser?.token || localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token') || '';
+                const token = currentUser?.token || localStorage.getItem(window.tenantStorageKey('auth_token')) || sessionStorage.getItem('auth_token') || '';
                 const res = await fetch('/api/exams', {
                     headers: token ? { 'Authorization': `Bearer ${token}` } : {}
                 });
@@ -15754,7 +15777,7 @@ CẤU TRÚC JSON:
             const button = document.getElementById('btn-delete-exam-ranking-results');
             if (button) button.disabled = true;
             try {
-                const token = localStorage.getItem('auth_token') || '';
+                const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
                 const response = await fetch('/api/results/deletion-targets', {
                     method: 'POST', cache: 'no-store',
                     headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token},
@@ -16174,7 +16197,7 @@ CẤU TRÚC JSON:
                 const btn = document.activeElement;
                 if(btn) { btn.disabled = true; btn.innerHTML = '⏳ Đang tải...'; }
                 try {
-                    const token = localStorage.getItem('auth_token') || '';
+                    const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
                     const response = await fetch(`/api/results?id=${encodeURIComponent(resultId)}`, {
                         headers: { 'Authorization': 'Bearer ' + token }
                     });
@@ -16853,7 +16876,7 @@ CẤU TRÚC JSON:
                     throw Error('Phiên đăng nhập đã thay đổi. Vui lòng xuất lại.');
                   query.set('page',String(page));
                   const response=await fetch('/api/results-page?'+query,{
-                    headers:{Authorization:'Bearer '+(localStorage.getItem('auth_token')||'')},cache:'no-store'
+                    headers:{Authorization:'Bearer '+(localStorage.getItem(window.tenantStorageKey('auth_token'))||'')},cache:'no-store'
                   });
                   if(!response.ok)throw Error('Lỗi tải trang kết quả: HTTP '+response.status);
                   const json=await response.json();
@@ -17570,7 +17593,7 @@ CẤU TRÚC JSON:
             showConfirmModal(`Bạn có chắc chắn muốn xóa ${count} tài khoản đăng nhập đã chọn?${adminNote}<br><span class="text-xs text-gray-500 font-normal">Lưu ý: Hồ sơ người dùng liên kết bên tab Hồ sơ người dùng sẽ vẫn được giữ nguyên an toàn.</span>`, async () => {
                 const idsToDelete = nonAdminList.map(a => a.id);
                 try {
-                    const token = localStorage.getItem('auth_token') || '';
+                    const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
                     let successCount = 0;
                     let failCount = 0;
                     
@@ -17612,7 +17635,7 @@ CẤU TRÚC JSON:
         };
 
         async function fetchAllAccountsChunked(onProgress) {
-            const token = localStorage.getItem('auth_token') || '';
+            const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
             const chunkSize = 1000;
             let offset = 0;
             let allAccounts = [];
@@ -17678,7 +17701,7 @@ CẤU TRÚC JSON:
                       unit:document.getElementById('accounts-unit-filter')?.value||'',
                       class:document.getElementById('accounts-class-filter')?.value||''});
                     if(!accountsFilterFacets)p.set('facets','1');
-                    const response=await fetch('/api/accounts-page?'+p,{headers:{Authorization:'Bearer '+(localStorage.getItem('auth_token')||'')},cache:'no-store'});
+                    const response=await fetch('/api/accounts-page?'+p,{headers:{Authorization:'Bearer '+(localStorage.getItem(window.tenantStorageKey('auth_token'))||'')},cache:'no-store'});
                     if(!response.ok)throw Error('HTTP '+response.status);
                     const payload=await response.json();
                     if(!Array.isArray(payload.data))throw Error('Trang tài khoản không hợp lệ');
@@ -17724,7 +17747,7 @@ CẤU TRÚC JSON:
                 } catch (e) {
                      console.error('Error on-demand chunked loading accounts:', e);
                      try {
-                         const token = localStorage.getItem('auth_token') || '';
+                         const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
                          const fallbackRes = await fetch('/api/accounts', { headers: { 'Authorization': 'Bearer ' + token } }).then(r => r.json()).catch(() => null);
                          if (fallbackRes && Array.isArray(fallbackRes.data)) {
                              accounts = fallbackRes.data;
@@ -18079,7 +18102,7 @@ CẤU TRÚC JSON:
                 if (typeof fetchFn === 'function') {
                     allUsers = await fetchFn((count, page, isDone) => updateLoadingUI(count, page, isDone));
                 } else {
-                    const token = localStorage.getItem('auth_token') || '';
+                    const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
                     const res = await fetch('/api/users?limit=all', { headers: { 'Authorization': 'Bearer ' + token } });
                     const resJson = await res.json();
                     allUsers = resJson?.data || [];
@@ -18250,7 +18273,7 @@ CẤU TRÚC JSON:
             
             if (!window.usersList || window.usersList.length === 0) {
                 try {
-                    const token = localStorage.getItem('auth_token') || '';
+                    const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
                     const res = await fetch('/api/users', { headers: { 'Authorization': 'Bearer ' + token } });
                     const resJson = await res.json();
                     if (resJson.data && Array.isArray(resJson.data)) {
@@ -18495,7 +18518,7 @@ CẤU TRÚC JSON:
             }
 
             try {
-                const token = localStorage.getItem('auth_token') || '';
+                const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
                 let url = '/api/accounts';
                 let method = 'POST';
                 if (id) {
@@ -18554,7 +18577,7 @@ CẤU TRÚC JSON:
 
             showConfirmModal(`Bạn có chắc chắn muốn xóa tài khoản đăng nhập "@${acc.username}"? (Lưu ý: Hồ sơ người dùng liên kết bên tab Người dùng sẽ vẫn được giữ nguyên)`, async () => {
                 try {
-                    const token = localStorage.getItem('auth_token') || '';
+                    const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
                     const response = await fetch('/api/accounts/' + acc.id, {
                         method: 'DELETE',
                         headers: { 'Authorization': 'Bearer ' + token }
@@ -18600,7 +18623,7 @@ CẤU TRÚC JSON:
                         if(generation!==authDataGeneration||uid!==String(currentUser?.id||''))throw Error('Phiên đăng nhập thay đổi khi xuất.');
                         query.set('page',String(page));
                         const response=await fetch('/api/accounts-page?'+query,{
-                            headers:{Authorization:'Bearer '+(localStorage.getItem('auth_token')||'')},cache:'no-store'
+                            headers:{Authorization:'Bearer '+(localStorage.getItem(window.tenantStorageKey('auth_token'))||'')},cache:'no-store'
                         });
                         if(!response.ok)throw Error('Lỗi tải tài khoản: HTTP '+response.status);
                         const json=await response.json();
@@ -19177,7 +19200,7 @@ CẤU TRÚC JSON:
                 return;
             }
 
-            const token = localStorage.getItem('auth_token') || '';
+            const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
             const confirmBtn = document.getElementById('btn-confirm-import-accounts');
             if (confirmBtn) {
                 confirmBtn.disabled = true;
@@ -19711,7 +19734,7 @@ CẤU TRÚC JSON:
             showConfirmModal(`Bạn có chắc chắn muốn xóa ${count} hồ sơ người dùng đã chọn? Toàn bộ tài khoản đăng nhập liên kết với các hồ sơ này sẽ tự động bị xóa.${adminNote}`, async () => {
                 const idsToDelete = nonAdminIds;
                 try {
-                    const token = localStorage.getItem('auth_token') || '';
+                    const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
                     let successCount = 0;
                     let failCount = 0;
                     
@@ -19986,7 +20009,7 @@ CẤU TRÚC JSON:
             }
 
             try {
-                const token = localStorage.getItem('auth_token') || '';
+                const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
                 const response = await fetch('/api/accounts', {
                     method: 'POST',
                     headers: {
@@ -20175,7 +20198,7 @@ CẤU TRÚC JSON:
         };
 
         async function fetchAllUsersChunked(onProgress) {
-            const token = localStorage.getItem('auth_token') || '';
+            const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
             const chunkSize = 1000;
             let offset = 0;
             let allUsers = [];
@@ -20242,7 +20265,7 @@ CẤU TRÚC JSON:
                 updateLoadingUI(0, 1);
                 
                 try {
-                    const token = localStorage.getItem('auth_token') || '';
+                    const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
                     const [allUsers, accJson] = await Promise.all([
                         fetchAllUsersChunked((count, page, isDone) => updateLoadingUI(count, page, isDone)),
                         (!accounts || accounts.length === 0) ? fetch('/api/accounts', { headers: { 'Authorization': 'Bearer ' + token } }).then(r => r.json()).catch(() => null) : Promise.resolve(null)
@@ -20262,7 +20285,7 @@ CẤU TRÚC JSON:
                 } catch (e) {
                      console.error('Error on-demand chunked loading users:', e);
                      try {
-                         const token = localStorage.getItem('auth_token') || '';
+                         const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
                          const fallbackRes = await fetch('/api/users', { headers: { 'Authorization': 'Bearer ' + token } }).then(r => r.json()).catch(() => null);
                          if (fallbackRes && Array.isArray(fallbackRes.data)) {
                              usersList = fallbackRes.data;
@@ -20803,7 +20826,7 @@ CẤU TRÚC JSON:
             modal.classList.remove('hidden');
 
             try {
-                const token = localStorage.getItem('auth_token') || '';
+                const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
                 const queryUrl = `/api/teacher-classes?teacher_id=${encodeURIComponent(teacherId)}&donvi=${encodeURIComponent(donvi || '')}`;
                 const res = await fetch(queryUrl, {
                     headers: { 'Authorization': 'Bearer ' + token }
@@ -21004,7 +21027,7 @@ CẤU TRÚC JSON:
                         subject: x.subject || ''
                     }));
 
-                const token = localStorage.getItem('auth_token') || '';
+                const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
                 const res = await fetch('/api/teacher-classes', {
                     method: 'POST',
                     headers: {
@@ -21067,7 +21090,7 @@ CẤU TRÚC JSON:
                 myClasses = currentUser.assigned_classes;
             } else if (currentUser && (isTeacherLoggedIn || isAdminLoggedIn)) {
                 try {
-                    const token = localStorage.getItem('auth_token') || '';
+                    const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
                     const res = await fetch(`/api/teacher-classes?teacher_id=${encodeURIComponent(currentUser.user_id || currentUser.id)}`, {
                         headers: { 'Authorization': 'Bearer ' + token }
                     });
@@ -21423,7 +21446,7 @@ CẤU TRÚC JSON:
             }
 
             try {
-                const token = localStorage.getItem('auth_token') || '';
+                const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
                 let url = '/api/users';
                 let method = 'POST';
                 if (id) {
@@ -21486,7 +21509,7 @@ CẤU TRÚC JSON:
 
             showConfirmModal(`Bạn có chắc chắn muốn xóa hồ sơ người dùng "${usr.full_name || 'này'}"? Toàn bộ tài khoản đăng nhập gắn với người dùng này sẽ tự động bị xóa.`, async () => {
                 try {
-                    const token = localStorage.getItem('auth_token') || '';
+                    const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
                     const response = await fetch('/api/users/' + id, {
                         method: 'DELETE',
                         headers: { 'Authorization': 'Bearer ' + token }
@@ -21529,7 +21552,7 @@ CẤU TRÚC JSON:
             try {
                 let dataToExport = (usersList && usersList.length > 0) ? usersList : accounts;
                 if (!dataToExport || dataToExport.length === 0) {
-                    const token = localStorage.getItem('auth_token') || '';
+                    const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
                     if (token) {
                         try {
                             const fetchFn = (typeof fetchAllUsersChunked === 'function') ? fetchAllUsersChunked : (window.fetchAllUsersChunked || null);
@@ -21566,7 +21589,7 @@ CẤU TRÚC JSON:
 
                 // Nạp danh sách tài khoản nếu chưa có để tra cứu cột Tài khoản liên kết
                 if (!accounts || accounts.length === 0) {
-                    const token = localStorage.getItem('auth_token') || '';
+                    const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
                     if (token) {
                         try {
                             const accRes = await fetch('/api/accounts', { headers: { 'Authorization': 'Bearer ' + token } });
@@ -22193,7 +22216,7 @@ CẤU TRÚC JSON:
                 return;
             }
 
-            const token = localStorage.getItem('auth_token') || '';
+            const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
             const confirmBtn = document.getElementById('btn-confirm-import-users');
             if (confirmBtn) {
                 confirmBtn.disabled = true;
@@ -22559,7 +22582,7 @@ CẤU TRÚC JSON:
                 }
 
                 try {
-                    const token = localStorage.getItem('auth_token') || '';
+                    const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
                     
                     // 1. Tải ảnh lên Cloudflare R2 thông qua API /api/upload-image
                     const uploadRes = await fetch('/api/upload-image', {
@@ -22639,7 +22662,7 @@ CẤU TRÚC JSON:
             }
 
             try {
-                const token = localStorage.getItem('auth_token') || '';
+                const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
                 const settingsRes = await fetch('/api/settings', {
                     method: 'PUT',
                     headers: {
@@ -23814,7 +23837,7 @@ CẤU TRÚC JSON:
                 return;
             }
 
-            const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || (window.currentUser && window.currentUser.token) || '';
+            const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || localStorage.getItem('token') || (window.currentUser && window.currentUser.token) || '';
 
             try {
                 // Fetch the latest data to make report 100% accurate
@@ -24775,7 +24798,7 @@ CẤU TRÚC JSON:
 
             if (!confirmed) return;
 
-            const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || (window.currentUser && window.currentUser.token) || '';
+            const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || localStorage.getItem('token') || (window.currentUser && window.currentUser.token) || '';
             try {
                 const res = await fetch('/api/results', {
                     method: 'DELETE',

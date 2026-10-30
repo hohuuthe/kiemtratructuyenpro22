@@ -45,13 +45,17 @@ export function isConfigured(key: keyof typeof BACKEND_CONFIG): boolean {
 /**
  * Phân giải chuỗi kết nối CSDL theo đúng slug hoặc fallback về mặc định cho Node.js server
  */
-export function getTenantDatabaseConfig(slug?: string): { url: string; source: string; slug: string } {
+export function getTenantDatabaseConfig(slug?: string, options: { exactOnly?: boolean } = {}): { url: string; source: string; slug: string } {
   const cleanSlug = (slug || '').trim();
   if (!cleanSlug || cleanSlug === 'default' || cleanSlug === 'root') {
     const defaultUrl = getConfig('NEON_DATABASE_URL') || process.env.NEON_DATABASE_URL || process.env.DATABASE_URL || '';
     return { url: defaultUrl.trim(), source: 'NEON_DATABASE_URL', slug: '' };
   }
 
+  if (options.exactOnly) {
+    const v = Object.prototype.hasOwnProperty.call(process.env,cleanSlug) ? process.env[cleanSlug] : undefined;
+    return v && v.trim() ? {url:v.trim(),source:cleanSlug,slug:cleanSlug} : {url:'',source:'NOT_FOUND',slug:cleanSlug};
+  }
   // 1. Tên biến 100% trùng khớp nguyên bản với slug (ví dụ kiemtra1)
   if (process.env[cleanSlug] && process.env[cleanSlug]!.trim().length > 0) {
     return { url: process.env[cleanSlug]!.trim(), source: cleanSlug, slug: cleanSlug };
