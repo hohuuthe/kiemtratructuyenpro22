@@ -1,4 +1,5 @@
 import { getEffectiveDb } from './neon-adapter';
+import { resolveTenantRoutingFromRequest } from '../../src/tenant-host-map';
 
 interface Env {
   NEON_DATABASE_URL?: string;
@@ -16,7 +17,9 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     'Content-Type': 'application/json'
   };
 
-  const slug = request.headers.get('x-tenant-slug') || '';
+  // Report only the server-resolved tenant; never echo a spoofed client header.
+  const tenantSelection = resolveTenantRoutingFromRequest(request, env);
+  const slug = tenantSelection.slug;
   let dbStatus = "UNKNOWN";
   let dbError = null;
   let userCount = 0;

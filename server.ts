@@ -5,7 +5,7 @@ import {parseManagementPage,accountsPageQuery,resultsPageQuery,resolveTeacherMan
 import {isExamOwner,redactExamForPublic,examAccessChallenge,isProtectedExamForUser,protectedExamPreview,accessCodeMatches} from './functions/api/exam/security';
 import {listDocumentLinks,listDocumentLinksPage,parseDocumentLinkPage,createDocumentLink,updateDocumentLink,deleteDocumentLink,DocumentLinkServiceError} from './src/document-links-service.js';
 import { accountSessionMaterial, isAccountEnabled, isUnexpiredAccountToken } from './src/security-session';
-import { resolveTenantFromHostname } from './src/tenant-host-map';
+import { resolveTenantRoutingFromRequest } from './src/tenant-host-map';
 import crypto from 'crypto';
 import express from "express";
 import rateLimit from "express-rate-limit";
@@ -163,29 +163,29 @@ async function startServer() {
     keyGenerator: getRealIp
   });
 
-  // Áp dụng Middleware xác định Tenant / Cơ sở dữ liệu theo Slug
+  // Trusted URL-path tenant routing. Never derive a database from request headers.
   app.use((req, res, next) => {
-    let slug = '';
+    let route;
     try {
-      // Only the server-recognized request hostname can pick the database.
-      slug = resolveTenantFromHostname(req.hostname || 'localhost', process.env);
+      const host = req.hostname || 'localhost';
+      route = resolveTenantRoutingFromRequest({url: 'https://' + host + req.originalUrl},process.env);
     } catch {
-      return res.status(421).json({ error: 'Hostname chưa được khai báo trong TENANT_HOST_MAP' });
+      return res.status(421).json({error:'Tên miền hoặc slug chưa hợp lệ'});
     }
-    const { url: databaseUrl } = getTenantDatabaseConfig(slug);
-
-    if (slug && (!databaseUrl || databaseUrl.trim().length === 0)) {
-      if (req.path.startsWith('/api/')) {
-        return res.status(503).json({
-          error: "Không thể kết nối tới Cơ sở dữ liệu, xin vui lòng liên hệ với quản trị hệ thống.",
-          db_not_configured: true
-        });
-      }
+    const slug = route.slug;
+    const {url: databaseUrl} = getTenantDatabaseConfig(slug,{exactOnly:route.source==='path'});
+    if (!databaseUrl || !/^postgres(?:ql)?:\/\//i.test(databaseUrl)) {
+      if (req.originalUrl.includes('/api/')) return res.status(503).json({
+        error:'Không thể kết nối tới Cơ sở dữ liệu, xin vui lòng liên hệ với quản trị hệ thống.',
+        db_not_configured:true
+      });
     }
-
-    tenantStorage.run({ tenantSlug: slug, databaseUrl }, () => {
-      next();
-    });
+    // Express routes stay /api/*, while the database identity remains
+    // bound to the original verified tenant path in AsyncLocalStorage.
+    if (route.source==='path' && req.url.startsWith(route.prefix + '/api/')) {
+      req.url=req.url.slice(route.prefix.length);
+    }
+    tenantStorage.run({tenantSlug:slug,databaseUrl},()=>next());
   });
 
   // Áp dụng Rate Limit vào các tuyến API

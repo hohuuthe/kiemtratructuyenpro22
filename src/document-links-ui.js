@@ -57,14 +57,14 @@ function modal(id){
 }
 function close(){ $('documents-modal')?.classList.add('hidden');}
 async function request(method,url,payload){
- const token=localStorage.getItem('auth_token')||'';
+ const token=localStorage.getItem(window.tenantStorageKey ? window.tenantStorageKey('auth_token') : 'auth_token')||'';
  const response=await fetch(url,{method,headers:{...(token?{'Authorization':'Bearer '+token}:{}),...(payload?{'Content-Type':'application/json'}:{})},body:payload?JSON.stringify(payload):undefined,cache:'no-store'});
  const data=await response.json().catch(()=>({error:'Máy chủ không trả dữ liệu JSON hợp lệ.'}));
  if(!response.ok)throw Error(data.error||'Không thể thực hiện thao tác.');
  return data;
 }
 async function load(){
- const seq=++generation;const token=localStorage.getItem('auth_token')||'';
+ const seq=++generation;const token=localStorage.getItem(window.tenantStorageKey ? window.tenantStorageKey('auth_token') : 'auth_token')||'';
  const useManage=manage&&!!token;
  const body=$('documents-table-body');if(body)body.innerHTML='<tr><td colspan="9" class="text-center p-8 text-slate-500">Đang tải tài liệu...</td></tr>';const mobile=$('documents-mobile-list');if(mobile)mobile.innerHTML='<div class="rounded-2xl border border-slate-200 bg-slate-50 p-6 text-center text-slate-500 text-sm" role="status">Đang tải danh sách tài liệu...</div>';
  try{const params=new URLSearchParams({paged:'1',page:String(docPage),limit:String(docPageSize),search:$('documents-search')?.value||'',audience:$('documents-audience-filter')?.value||''});if(useManage){params.set('manage','1');params.set('includeReadable','1')}const result=await request('GET','/api/documents?'+params);if(seq!==generation)return;list=Array.isArray(result.data)?result.data:[];docTotal=Number(result.total)||0;render();}

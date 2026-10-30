@@ -37,7 +37,7 @@
   };
 
   const getAuthToken = () => {
-    return localStorage.getItem('auth_token') || '';
+    return localStorage.getItem(window.tenantStorageKey ? window.tenantStorageKey('auth_token') : 'auth_token') || '';
   };
 
   /**

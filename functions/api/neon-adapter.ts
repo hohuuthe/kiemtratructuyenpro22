@@ -1,4 +1,4 @@
-import { resolveTenantFromRequest } from '../../src/tenant-host-map';
+import { resolveTenantRoutingFromRequest } from '../../src/tenant-host-map';
 import { neon } from '@neondatabase/serverless';
 
 /**
@@ -186,7 +186,7 @@ export const DEFAULT_NEON_URL = "";
  * 1. Không có slug (URL mặc định) -> dùng NEON_DATABASE_URL
  * 2. Có slug (ví dụ 'kiemtra1') -> tìm biến có tên 100% giống slug (ví dụ 'kiemtra1' hoặc 'KIEMTRA1')
  */
-export function getTenantDatabaseUrl(env: any, tenantSlug?: string): { url: string; source: string; slug: string } {
+export function getTenantDatabaseUrl(env: any, tenantSlug?: string, options: { exactOnly?: boolean } = {}): { url: string; source: string; slug: string } {
   const slug = (tenantSlug || '').trim();
 
   // 1. Nếu không có slug (Đường dẫn mặc định) -> Kết nối NEON_DATABASE_URL
@@ -198,6 +198,15 @@ export function getTenantDatabaseUrl(env: any, tenantSlug?: string): { url: stri
       DEFAULT_NEON_URL
     );
     return { url: normalizeDatabaseUrl(defaultUrl), source: 'NEON_DATABASE_URL', slug: '' };
+  }
+
+  // Path routing must read the Cloudflare binding with the EXACT slug name.
+  // No uppercase aliases, no process.env fallback and never the default DB.
+  if (options.exactOnly) {
+    const direct = env && Object.prototype.hasOwnProperty.call(env, slug) ? env[slug] : undefined;
+    if (typeof direct === 'string' && direct.trim())
+      return { url: normalizeDatabaseUrl(direct), source: slug, slug };
+    return { url: '', source: 'NOT_FOUND', slug };
   }
 
   // 2. Nếu đường dẫn có chứa Slug (ví dụ kiemtra1):
@@ -371,14 +380,21 @@ export function getEffectiveDb(envOrContext: any, requestOrSlug?: any): any {
   }
 
   const request = req && typeof req === 'object' ? (req.request || req) : null;
-  const slug = request ? resolveTenantFromRequest(request, env) : 'default';
-  const { url: databaseUrl, source } = getTenantDatabaseUrl(env, slug);
+  const route = request ? resolveTenantRoutingFromRequest(request, env)
+    : { slug: 'default', source: 'default' as const, prefix: '' };
+  const { url: databaseUrl } = getTenantDatabaseUrl(env, route.slug, { exactOnly: route.source === 'path' });
 
   if (!databaseUrl || databaseUrl.trim().length === 0) {
     throw new Error("Không thể kết nối tới Cơ sở dữ liệu, xin vui lòng liên hệ với quản trị hệ thống.");
   }
 
   const cleanUrl = normalizeDatabaseUrl(databaseUrl);
+  // Reject malformed bindings instead of creating an unrelated client.
+  try {
+    const parsed = new URL(cleanUrl);
+    if (!['postgres:', 'postgresql:'].includes(parsed.protocol) || !parsed.hostname || !parsed.pathname || parsed.pathname === '/')
+      throw new Error('invalid');
+  } catch { throw new Error('Database URL binding invalid for requested tenant'); }
 
   if (!tenantShimCache.has(cleanUrl)) {
     const shim = createNeonD1Shim(cleanUrl);
