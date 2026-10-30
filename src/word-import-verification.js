@@ -245,7 +245,7 @@ export function verifyImportedWordQuestions(rawQuestions, documentReport) {
     const repeated=[...tokenUseCounts.entries()].filter(([,n])=>n>1).map(([token])=>token);
     // Formula-specific diagnostics live on the actual question and can be
     // resolved there; document-wide blockers are only structural/media issues.
-    const documentIssues=[...(documentReport?.issues||[]).filter(issue=>issue.kind!=='formula')];
+    const documentIssues=[...(documentReport?.issues||[]).filter(issue=>issue.kind!=='formula' && issue.kind!=='formula-notice')];
     if(unmatched.length)documentIssues.push({kind:'formula',reason:'Công thức Word không được gắn vào câu hỏi: '+unmatched.join(', ')});
     if(repeated.length)documentIssues.push({kind:'structure',reason:'Một Equation Word bị gán cho nhiều câu hỏi/đáp án: '+repeated.join(', ')});
     return {
