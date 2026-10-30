@@ -73,7 +73,15 @@ test('A cached WMF with a different equation stays in review, never silently app
     const native=corpus[10],visual=Buffer.from(packed.conflictingPreviewMtefBase64,'base64');
     assert.equal(convertMtefV5ToLatex(bytes(native)),'(-1;5).');assert.equal(convertMtefV5ToLatex(visual),'0,05.');
     const r=await inspectScientificDocx(await docx([native],{previewOverride:visual}));
-    assert.equal(r.formulas[0].status,'review');assert.match(r.formulas[0].reason,/OLE\/WMF/);assert.equal(r.lines[0].text,r.formulas[0].token);
+    assert.equal(r.formulas[0].status,'parsed');
+    assert.equal(r.formulas[0].latex,'0,05.');
+    assert.equal(r.formulas[0].sourcePreference,'wmf');
+    assert.ok(r.issues.some(i=>i.kind==='formula-notice'&&i.token===r.formulas[0].token));
+    assert.equal(r.lines[0].text,r.formulas[0].token);
+    assert.equal(verifyMathTypeSource(r.formulas[0].originalOmml,'0,05.','verified'),true);
+    assert.throws(()=>verifyMathTypeSource(r.formulas[0].originalOmml,'(-1;5).','verified'));
+    assert.ok(r.formulas[0].originalOmml.includes('originalOle='));
+
 });
 test('Other embedded application objects remain unsupported even with a readable MTEF payload',async()=>{
     const r=await inspectScientificDocx(await docx([corpus[0]],{progId:'Excel.Sheet.12'}));
@@ -117,10 +125,32 @@ if(process.env.WORD_IMPORT_FULL_TESTS==='1'){
         const r=await inspectScientificDocx(await docx([corpus[10]],{previewOverride:Buffer.from(packed.conflictingPreviewMtefBase64,'base64')}));
         const q={id:'mathtype-source-conflict',type:'4-1',level:'NB',content:'Source review',answer:'A',options:{A:'1',B:'2',C:r.formulas[0].token,D:'4'}};
         const result=verifyImportedWordQuestions([q],r);
-        assert.ok(result.questions[0].__wordImportIssues.some(i=>i.reason.includes('OLE/WMF')));
-        assert.ok(!JSON.stringify(result.questions[0].__wordImportIssues).includes('KaTeX'));
-        assert.equal(checkWordImportBeforeSave(result.questions,result.documentIssues).ok,false);
-        assert.equal(result.questions[0].options.C,r.formulas[0].token);
+        assert.deepEqual(result.questions[0].__wordImportIssues,[]);
+        assert.equal(result.questions[0].options.C,'$0,05.
+    });
+}
+
+test('Latin Word text with w:bCs only does not invent bold formatting or block MathType import',async()=>{
+    const zip=new JSZip();
+    const wordNs='http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+    zip.file('word/document.xml','<w:document xmlns:w="'+wordNs+'"><w:body><w:p><w:r><w:rPr><w:bCs/></w:rPr><w:t>Quy tròn số và đáp án A.</w:t></w:r></w:p></w:body></w:document>');
+    const report=await inspectScientificDocx(await zip.generateAsync({type:'uint8array'}));
+    assert.equal(report.lines[0].text,'Quy tròn số và đáp án A.');
+    assert.deepEqual(report.issues,[]);
+});
+test('Complex-script Word text with w:bCs only retains an explicit verification warning',async()=>{
+    const zip=new JSZip();
+    const wordNs='http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+    zip.file('word/document.xml','<w:document xmlns:w="'+wordNs+'"><w:body><w:p><w:r><w:rPr><w:bCs/></w:rPr><w:t>العربية</w:t></w:r></w:p></w:body></w:document>');
+    const report=await inspectScientificDocx(await zip.generateAsync({type:'uint8array'}));
+    assert.equal(report.lines[0].text,'العربية');
+    assert.ok(report.issues.some(i=>i.kind==='style' && i.reason.includes('w:bCs')));
+});
+);
+        assert.equal(result.stats.verifiedFormulaObjects,1);
+        assert.equal(checkWordImportBeforeSave(result.questions,result.documentIssues).ok,true);
+        assert.ok(r.issues.some(i=>i.kind==='formula-notice' && i.reason.includes('OLE')));
+        assert.equal(validateWordFormulaSourceForImport(result.questions[0].__wordFormulaSources[0]).ok,true);
     });
 }
 
