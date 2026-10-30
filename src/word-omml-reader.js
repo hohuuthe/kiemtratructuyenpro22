@@ -7,7 +7,7 @@
 import JSZip from 'jszip';
 import { DOMParser, XMLSerializer } from '@xmldom/xmldom';
 
-export const WORD_IMPORT_ENGINE_VERSION = 'word-omml-1.2';
+export const WORD_IMPORT_ENGINE_VERSION = 'word-omml-1.3';
 export const WORD_FORMULA_TOKEN = /__WMATH_[0-9]{6}__/g;
 const MAX_DOCX_BYTES = 24 * 1024 * 1024;
 const MAX_DECOMPRESSED_BYTES = 80 * 1024 * 1024;
@@ -487,6 +487,86 @@ function countEmbeddedObjects(body) {
  * Returns exact paragraph-ordered text lines, optional images, and formula
  * records with original OMML. Formula tokens are not approved content.
  */
+
+/**
+ * Resolve the effective Word text formatting in OOXML precedence:
+ * document defaults -> basedOn paragraph style -> basedOn character style -> run rPr.
+ * pPr/rPr formats the paragraph mark, NOT every run in that paragraph.
+ * Unknown or cyclic style references block import instead of guessing the answer.
+ */
+function createWordTextStyleResolver(stylesDoc, issues) {
+    const styleRoot = stylesDoc ? firstDesc(stylesDoc,'styles') : null;
+    const definitions=new Map(),cache=new Map(),warned=new Set();
+    const warn = message=>{
+        if(!warned.has(message)){warned.add(message);issues.push({kind:'style',reason:message});}
+    };
+    for(const node of children(styleRoot,'style')) {
+        const id=attr(node,'styleId');
+        if(id)definitions.set(id,{type:attr(node,'type'),basedOn:attr(child(node,'basedOn'),'val'),rPr:child(node,'rPr')});
+    }
+    const defaults=child(child(firstDesc(styleRoot,'docDefaults'),'rPrDefault'),'rPr');
+    function properties(rPr) {
+        const result={};
+        if(!rPr)return result;
+        const u=child(rPr,'u');
+        if(u) {
+            const val=String(attr(u,'val')||'single').toLowerCase();
+            const disabled=['none','false','off','0'];
+            const enabled=['single','words','double','thick','dotted','dottedheavy','dash','dashedheavy',
+                'dashlong','dashlongheavy','dotdash','dashdotheavy','dotdotdash','dashdotdotheavy',
+                'wave','wavyheavy','wavydouble'];
+            if(disabled.includes(val))result.underline=false;
+            else if(enabled.includes(val))result.underline=true;
+            else warn('Kiểu gạch chân Word chưa được hỗ trợ: '+val);
+        }
+        const b=child(rPr,'b');
+        if(b) {
+            const val=String(attr(b,'val')??'true').toLowerCase();
+            if(['true','on','1',''].includes(val))result.bold=true;
+            else if(['false','off','0'].includes(val))result.bold=false;
+            else warn('Kiểu chữ đậm Word chưa được hỗ trợ: '+val);
+        }
+        const position=attr(child(rPr,'vertAlign'),'val');
+        if(position) {
+            if(['subscript','superscript','baseline'].includes(position))result.position=position;
+            else warn('Kiểu vị trí chữ Word chưa được hỗ trợ: '+position);
+        }
+        return result;
+    }
+    function resolveStyle(id,type,seen=new Set()) {
+        if(!id)return {};
+        const key=type+':'+id;
+        if(cache.has(key))return cache.get(key);
+        const item=definitions.get(id);
+        if(!item || item.type!==type) {
+            warn('Không xác minh được Word '+type+' style: '+id);
+            return {};
+        }
+        if(seen.has(key)) {
+            warn('Chu trình dựa trên Word style: '+id);
+            return {};
+        }
+        seen.add(key);
+        const inherited=resolveStyle(item.basedOn,type,seen);
+        const result={...inherited,...properties(item.rPr)};
+        seen.delete(key);
+        cache.set(key,result);
+        return result;
+    }
+    const documentDefaults=properties(defaults);
+    return (paragraph,run)=>{
+        const pStyle=attr(child(child(paragraph,'pPr'),'pStyle'),'val');
+        const runProps=child(run,'rPr');
+        const charStyle=attr(child(runProps,'rStyle'),'val');
+        return {
+            ...documentDefaults,
+            ...resolveStyle(pStyle,'paragraph'),
+            ...resolveStyle(charStyle,'character'),
+            ...properties(runProps)
+        };
+    };
+}
+
 export async function inspectScientificDocx(arrayBuffer) {
     const inputLength = arrayBuffer?.byteLength ?? arrayBuffer?.length ?? 0;
     if (!inputLength || inputLength > MAX_DOCX_BYTES) throw new Error('File DOCX vượt giới hạn 24 MB hoặc rỗng.');
@@ -508,6 +588,9 @@ export async function inspectScientificDocx(arrayBuffer) {
     const rels = await loadRelationships(zip);
     const serializer = new XMLSerializer();
     const formulas = [], issues = [], lines = [];
+    const stylePart=zip.file('word/styles.xml');
+    const styleDoc=stylePart ? parseXml(await stylePart.async('string'),'word/styles.xml') : null;
+    const wordTextStyle=createWordTextStyleResolver(styleDoc,issues);
     let imageCount = 0, paragraphCount = 0;
 
     const addEquation = mathNode => {
@@ -555,18 +638,13 @@ export async function inspectScientificDocx(arrayBuffer) {
         if(descendants(node,'ins').length) issues.push({kind:'revision',reason:'Có nội dung Word Track Changes chưa được chấp nhận trước import.'});
         const parts = [], images = [];
         const mark = n => {
-            const pre = firstDesc(n,'rPr');
-            if (!pre) return { start:'',end:'' };
-            const u = child(pre,'u'), b=child(pre,'b');
-            const underline=u && !['none','false','0'].includes(attr(u,'val'));
-            const bold=b && !['false','0'].includes(attr(b,'val'));
+            const props=wordTextStyle(node,n);
             let start='',end='';
-            if (underline) { start+='[[U]]'; end='[[/U]]'+end; }
-            else if (bold) { start+='[[B]]'; end='[[/B]]'+end; }
-            const position=attr(child(pre,'vertAlign'),'val');
-            if(position==='subscript'||position==='superscript') {
-                const tag=position==='subscript'?'sub':'sup';
-                start+='<'+tag+'>'; end='</'+tag+'>'+end;
+            if(props.underline) {start+='[[U]]';end='[[/U]]'+end;}
+            if(props.bold) {start+='[[B]]';end='[[/B]]'+end;}
+            if(props.position==='subscript'||props.position==='superscript'){
+                const tag=props.position==='subscript'?'sub':'sup';
+                start+='<'+tag+'>';end='</'+tag+'>'+end;
             }
             return {start,end};
         };
@@ -619,7 +697,15 @@ export async function inspectScientificDocx(arrayBuffer) {
         const text=parts.join('').trim();
         if(images.length>1) issues.push({kind:'image',reason:'Đoạn Word có nhiều ảnh cần xác minh vị trí; không tự loại bỏ ảnh.'});
         if(images.length && text) issues.push({kind:'image',reason:'Ảnh nằm cùng đoạn với văn bản; cần tách ảnh khỏi câu hoặc đối chiếu vị trí trước khi lưu.'});
-        if(text || images.length) lines.push({text,image:images[0]||'',images});
+        if(images.length && text.includes('\n'))
+            issues.push({kind:'image',reason:'Đoạn Word có xuống dòng và hình ảnh, vị trí cần xác minh.'});
+        if(images.length){
+            lines.push({text,image:images[0]||'',images});
+        } else {
+            // A Word soft line break separates choice A/B/C/D exactly like Enter.
+            for(const part of text.split(/\r?\n/).map(s=>s.trim()).filter(Boolean))
+                lines.push({text:part,image:'',images:[]});
+        }
     }
     async function parseTable(node) {
         for(const item of elements(node)) {
@@ -633,7 +719,7 @@ export async function inspectScientificDocx(arrayBuffer) {
                     issues.push({kind:'structure',reason:'Cấu trúc ô bảng Word chưa hỗ trợ: '+nameOf(item)});
                 }
             }
-            if(children(row,'tc').length>1) issues.push({kind:'table',reason:'Bảng Word nhiều cột chưa bảo toàn cấu trúc khi chuyển thành câu hỏi; cần xem lại nguồn.'});
+            // Safe multi-cell option rows are checked after their text is reconstructed.
             const columns=[];
             const rowImages=[];
             for(const cell of children(row,'tc')) {
@@ -646,6 +732,12 @@ export async function inspectScientificDocx(arrayBuffer) {
                 rowImages.push(...newLines.flatMap(x=>x.images||[]));
             }
             const text=columns.join('    ').trim();
+            if(columns.length>1) {
+                const eachCellIsOption=columns.every(value=>
+                    /^[A-D]\s*[.):：]/i.test(value.replace(/\[\[\/?(?:U|B)\]\]/g,'').trim()));
+                if(!eachCellIsOption)
+                    issues.push({kind:'table',reason:'Bảng Word nhiều cột có ô không phải phương án A-D; cần xác minh cấu trúc trước khi lưu.'});
+            }
             if(rowImages.length>1) issues.push({kind:'image',reason:'Hàng bảng Word có nhiều ảnh cần kiểm tra vị trí.'});
             if(text || rowImages.length) lines.push({text,image:rowImages[0]||'',images:rowImages});
         }
