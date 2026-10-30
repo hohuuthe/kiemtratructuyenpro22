@@ -122,6 +122,7 @@ class ByteReader {
     constructor(value){this.bytes=asBytes(value);this.position=0;}
     byte(){if(this.position>=this.bytes.length)invalid('MTEF kết thúc đột ngột');return this.bytes[this.position++];}
     word(){const a=this.byte();return a|(this.byte()<<8);}
+    unsigned(){const first=this.byte();return first===255?this.word():first;}
     cstring(){
         let value='';
         for(let i=0;i<256;i++){const code=this.byte();if(!code)return value;value+=String.fromCharCode(code);}
@@ -161,7 +162,7 @@ export function convertMtefV5ToLatex(input) {
     const r=new ByteReader(bytes);
     if(r.byte()!==5)invalid('hiện hỗ trợ tự động MTEF phiên bản 5');
     const platform=r.byte(),product=r.byte(),version=r.byte(),subversion=r.byte();
-    if(platform>2||product>2||version>100||subversion>100)invalid('header MTEF không hợp lệ');
+    if(platform>1||product>1||version<4||version>100||subversion>100)invalid('header MTEF không hợp lệ');
     r.cstring();
     const eqOptions=r.byte();
     if(eqOptions&~1)invalid('tùy chọn đầu MTEF chưa hỗ trợ');
@@ -174,8 +175,8 @@ export function convertMtefV5ToLatex(input) {
             const type=r.byte();
             if(type===0)break;
             if(type===10||type===11||type===12||type===13||type===14)continue;
-            if(type===8){r.byte();r.byte();continue;}
-            if(type===17){r.byte();r.cstring();continue;}
+            if(type===8){r.unsigned();const style=r.byte();if(style>3)invalid('định dạng FONT_STYLE_DEF không hợp lệ');continue;}
+            if(type===17){r.unsigned();r.cstring();continue;}
             if(type===19){r.cstring();continue;}
             if(type===9||type===18||type===15||type===16)
                 invalid('kích thước/màu/cấu hình MTEF cần đối chiếu trước khi tự chuyển đổi');
