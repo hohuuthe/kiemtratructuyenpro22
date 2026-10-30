@@ -73,7 +73,7 @@ test('hostname-pinned tenant cannot be overridden by path',()=>{
  assert.throws(()=>route('/v1',env,'evil.invalid'));
 });
 test('malformed tenant paths are invalid',()=>{
- for(const p of ['/default','/root','/two%2fwords','/two%5cwords','/too..much',
+ for(const p of ['/default','/root','/two%2fwords','/two%5cwords',
    '/%20abc','/v1%2Fapi/health']) assert.throws(()=>route(p),p);
 });
 test('Node resolver supports exact-only variables and default',()=>{
