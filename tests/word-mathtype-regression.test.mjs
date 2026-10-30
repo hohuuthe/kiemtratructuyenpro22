@@ -40,11 +40,11 @@ export function wmf(mtef){
 const wordNs='http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const relNs='http://schemas.openxmlformats.org/officeDocument/2006/relationships';
 const packageNs='http://schemas.openxmlformats.org/package/2006/relationships';
-export async function docx(entries,{progId='Equation.DSMT4',previewOverride=null,omml=''}={}){
+export async function docx(entries,{progId='Equation.DSMT4',previewOverride=null,previewOverrideIndex=0,omml=''}={}){
     const z=new JSZip(),rels=[],paragraphs=[];
     entries.forEach((entry,i)=>{
         const id=i+1,raw=bytes(entry);z.file('word/embeddings/ole'+id+'.bin',ole(raw));
-        z.file('word/media/preview'+id+'.wmf',wmf(previewOverride&&i===0?previewOverride:raw));
+        z.file('word/media/preview'+id+'.wmf',wmf(previewOverride&&i===previewOverrideIndex?previewOverride:raw));
         rels.push(`<Relationship Id="rId${id*2}" Type="${relNs}/oleObject" Target="embeddings/ole${id}.bin"/>`,`<Relationship Id="rId${id*2+1}" Type="${relNs}/image" Target="media/preview${id}.wmf"/>`);
         paragraphs.push(`<w:p><w:r><w:object><v:shape><v:imagedata r:id="rId${id*2+1}"/></v:shape><o:OLEObject ProgID="${progId}" r:id="rId${id*2}"/></w:object></w:r></w:p>`);
     });
@@ -87,7 +87,7 @@ test('All 41 equations import together with a stale option D preview without los
     // In the actual question document the cached preview of the 11th OLE
     // is 0,05. whereas its stale native OLE retains (-1;5).
     const visual=Buffer.from(packed.conflictingPreviewMtefBase64,'base64');
-    const r=await inspectScientificDocx(await docx(corpus,{previewOverride:visual}));
+    const r=await inspectScientificDocx(await docx(corpus,{previewOverride:visual,previewOverrideIndex:10}));
     assert.equal(r.formulas.length,41);
     assert.equal(r.formulas.filter(f=>f.status==='parsed').length,41);
     assert.equal(r.formulas[10].latex,'0,05.');
