@@ -71,3 +71,23 @@ test('MathType Preview export has cancellation, timeout and actionable formula-l
   assert.match(app,/signal: mathTypeSignal/);
   assert.match(app,/signal: mathTypeController\?\.signal/);
 });
+
+
+test('MathType renderer batches MathJax/html2canvas work and keeps a bounded duplicate-preview cache',()=>{
+  const renderer=fs.readFileSync(new URL('../src/word-mathtype-export/preview-browser-mathjax.js',import.meta.url),'utf8');
+  assert.match(renderer,/createBrowserMathTypePreviewBatchRenderer/);
+  assert.match(renderer,/batchLimit\(\)/);
+  assert.match(renderer,/previewCache=new Map\(\)/);
+  assert.match(renderer,/CACHE_MAX_BYTES=24\*1024\*1024/);
+  assert.match(renderer,/await html2canvas\(host/);
+  assert.match(renderer,/cropPng\(sheet/);
+});
+
+test('DOCX converter prepares batch previews before packaging and retains per-formula fallback',()=>{
+  const converter=fs.readFileSync(new URL('../src/word-mathtype-export/docx-converter.js',import.meta.url),'utf8');
+  assert.match(converter,/const renderPreviewBatch=options\.renderPreviewBatch/);
+  assert.match(converter,/preparedPreviews=await Promise\.race/);
+  assert.match(converter,/renderPreviewBatch\(work\.map/);
+  assert.match(converter,/let preview=preparedPreviews\?\.\[i\]\|\|null/);
+  assert.match(converter,/renderPreview\(item\.ast/);
+});
