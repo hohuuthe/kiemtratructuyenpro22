@@ -49,6 +49,7 @@ test('implementation is lazy, bounded and does not push live strokes into Neon',
   const api=fs.readFileSync('functions/api/boards.ts','utf8');
   const join=fs.readFileSync('functions/api/board/join.ts','utf8');
   const worker=fs.readFileSync('workers/interactive-board-worker.js','utf8');
+  const pages=fs.readFileSync('functions/api/board/pages.ts','utf8');
   assert.match(main,/import\('\.\/interactive-board-ui\.js'\)/);
   assert.match(main,/tab === 'boards'/);
   assert.doesNotMatch(main,/^import .*interactive-board-ui/m);
@@ -68,6 +69,10 @@ test('implementation is lazy, bounded and does not push live strokes into Neon',
   assert.match(ui,/\/api\/board\/join/);
   assert.match(ui,/scheduleReconnect/);
   assert.match(ui,/board_deleted/);
+  assert.match(ui,/board\/pages/);
+  assert.match(pages,/canDiscoverBoard/);
+  assert.match(pages,/Mỗi bảng tối đa 20 trang/);
+  assert.match(worker,/board-page-reset/);
   assert.match(ui,/policy_changed/);
   assert.match(worker,/internal\/board-policy/);
   assert.match(worker,/Board policy changed/);
