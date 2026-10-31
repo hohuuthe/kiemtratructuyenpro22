@@ -5,6 +5,18 @@ export async function ensureInteractiveBoardSchema(db: any) {
   const key = String(db.connectionUrl || 'default');
   if (initialized.has(key)) return;
 
+  try {
+    const existing:any = await db.prepare(
+      "SELECT to_regclass('public.interactive_boards') AS boards, to_regclass('public.interactive_board_pages') AS pages"
+    ).first();
+    if (existing?.boards && existing?.pages) {
+      initialized.add(key);
+      return;
+    }
+  } catch (error) {
+    console.warn('[BOARD SCHEMA CHECK]', error);
+  }
+
   const statements = [
     `CREATE TABLE IF NOT EXISTS interactive_boards (
       id TEXT PRIMARY KEY,
