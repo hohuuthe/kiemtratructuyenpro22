@@ -5,9 +5,6 @@ function background(value:any){
   const v=String(value||'white').trim();
   return ['white','grid','lined','dots'].includes(v)?v:'white';
 }
-async function bumpBoard(db:any,id:string){
-  await db.prepare('UPDATE interactive_boards SET revision=revision+1,updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(id).run();
-}
 async function pageCount(db:any,boardId:string){
   const row:any=await db.prepare('SELECT COUNT(*)::int AS total FROM interactive_board_pages WHERE board_id=?').bind(boardId).first();
   return Number(row?.total||0);
@@ -47,7 +44,6 @@ export const onRequestPost: PagesFunction=async(context:any)=>{
     await db.prepare(
       'INSERT INTO interactive_board_pages (id,board_id,page_no,title,background_type,canvas_width,canvas_height,revision,created_at,updated_at) VALUES (?,?,?,?,?,1600,900,1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)'
     ).bind(id,boardId,pageNo,title,background(input.background_type)).run();
-    await bumpBoard(db,boardId);
     const created={id,board_id:boardId,page_no:pageNo,title,background_type:background(input.background_type),canvas_width:1600,canvas_height:900,revision:1};
     try{
       const secret=String(context.env?.BOARD_REALTIME_SECRET||'').trim();
@@ -79,7 +75,6 @@ export const onRequestPut: PagesFunction=async(context:any)=>{
       'UPDATE interactive_board_pages SET title=?,background_type=?,revision=revision+1,updated_at=CURRENT_TIMESTAMP WHERE id=? AND revision=?'
     ).bind(title,bg,pageId,expected).run();
     if(!Number(result.meta?.changes||0))return boardJson({error:'Trang vừa được thay đổi ở thiết bị khác. Vui lòng tải lại.'},409);
-    await bumpBoard(db,String(page.board_id));
     return boardJson({data:await db.prepare('SELECT id,page_no,title,background_type,canvas_width,canvas_height,revision FROM interactive_board_pages WHERE id=?').bind(pageId).first()});
   }catch(error:any){console.error('[BOARD PAGE UPDATE]',error?.message||error);return boardJson({error:error?.message||'Không thể cập nhật trang.'},400);}
 };
@@ -95,7 +90,6 @@ export const onRequestDelete: PagesFunction=async(context:any)=>{
     if(!canManageBoard(user,board,isAdmin))return boardJson({error:'Bạn không có quyền xóa trang.'},403);
     if(await pageCount(db,String(page.board_id))<=1)return boardJson({error:'Bảng phải còn ít nhất một trang.'},409);
     await db.prepare('DELETE FROM interactive_board_pages WHERE id=?').bind(pageId).run();
-    await bumpBoard(db,String(page.board_id));
     try{
       const secret=String(context.env?.BOARD_REALTIME_SECRET||'').trim();
       if(secret&&context.env?.BOARD_REALTIME?.fetch){
