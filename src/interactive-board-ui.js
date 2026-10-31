@@ -358,8 +358,9 @@ function wrapText(ctx,text,x,y,maxWidth,lineHeight){const words=String(text).spl
 function noteText(){return ($('board-note-text')?.value||$('board-note-text-mobile')?.value||'').trim().slice(0,500);}
 function canEdit(){if(snapshotLoading)return false;return room?.board?.can_manage||(!locked&&!userLocked&&room?.board?.student_permission!=='view');}
 function pointerDown(e){
- if(!room||!canEdit())return;const p=logicalPoint(e);canvas().setPointerCapture?.(e.pointerId);
+ if(!room)return;const p=logicalPoint(e);canvas().setPointerCapture?.(e.pointerId);
  if(tool==='pan'){const stage=$('board-stage-scroll');panDrag={clientX:e.clientX,clientY:e.clientY,left:stage?.scrollLeft||0,top:stage?.scrollTop||0};return;}
+ if(!canEdit())return;
  if(tool==='laser'){return;}
  if(tool==='select'){
    const target=hitObject(p);if(!target)return;
@@ -436,6 +437,23 @@ export function connectInteractiveBoards(){
    for(const o of objects.values())if(o.pageId===currentPageId)drawObject(ctx,o);
    out.toBlob(blob=>{if(!blob)return;const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(room?.board?.name||'bang-tuong-tac').replace(/[^\p{L}\p{N}._-]+/gu,'-')+'.png';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);},'image/png');
  });
+ $('board-export-pdf')?.addEventListener('click',exportBoardPdf);
+ $('board-ai')?.addEventListener('click',()=>{if(!room?.board?.can_manage)return;aiResultText='';$('board-ai-result').textContent='Chưa có kết quả.';$('board-ai-insert')?.classList.add('hidden');$('board-ai-modal')?.classList.remove('hidden');});
+ $('board-ai-close')?.addEventListener('click',()=>$('board-ai-modal')?.classList.add('hidden'));
+ $('board-ai-run')?.addEventListener('click',runBoardAi);
+ $('board-ai-insert')?.addEventListener('click',insertAiResult);
+ $('board-template')?.addEventListener('click',()=>{if(room?.board?.can_manage)$('board-template-modal')?.classList.remove('hidden');});
+ $('board-template-close')?.addEventListener('click',()=>$('board-template-modal')?.classList.add('hidden'));
+ $('board-template-modal')?.addEventListener('click',e=>{const btn=e.target.closest('[data-board-template]');if(btn)applyTemplate(btn.dataset.boardTemplate);});
+ $('board-timer')?.addEventListener('click',()=>{if(room?.board?.can_manage)$('board-timer-modal')?.classList.remove('hidden');});
+ $('board-timer-cancel')?.addEventListener('click',()=>$('board-timer-modal')?.classList.add('hidden'));
+ $('board-timer-stop')?.addEventListener('click',()=>{if(room?.board?.can_manage){sendOps([{kind:'timer_stop'}]);$('board-timer-modal')?.classList.add('hidden');}});
+ $('board-timer-form')?.addEventListener('submit',e=>{e.preventDefault();if(!room?.board?.can_manage)return;const fd=new FormData(e.currentTarget),minutes=Math.max(1,Math.min(99,Number(fd.get('minutes'))||5)),label=String(fd.get('label')||'').trim().slice(0,80);sendOps([{kind:'timer_start',durationSec:minutes*60,label}]);$('board-timer-modal')?.classList.add('hidden');});
+ $('board-zoom-in')?.addEventListener('click',()=>setZoom(zoomLevel+.1));
+ $('board-zoom-out')?.addEventListener('click',()=>setZoom(zoomLevel-.1));
+ $('board-zoom-label')?.addEventListener('click',resetView);
+ $('board-fullscreen')?.addEventListener('click',async()=>{const roomEl=$('board-room');try{if(!document.fullscreenElement)await roomEl?.requestFullscreen?.();else await document.exitFullscreen?.();}catch{window.showToast?.('Trình duyệt không cho phép toàn màn hình.','info');}});
+ $('board-stage-scroll')?.addEventListener('wheel',e=>{if(!e.ctrlKey&&!e.metaKey)return;e.preventDefault();setZoom(zoomLevel+(e.deltaY<0?.1:-.1));},{passive:false});
  $('board-lock')?.addEventListener('click',()=>{if(room?.board?.can_manage)sendOps([{kind:locked?'unlock':'lock'}]);});
  $('board-clear')?.addEventListener('click',()=>{if(!room?.board?.can_manage)return;window.showConfirmModal?.('Xóa toàn bộ nội dung đang có trên trang bảng này?',()=>{sendOps([{kind:'clear_page',pageId:currentPageId}]);undoStack=[];redoStack=[];syncHistoryButtons();});});
  $('board-edit-page')?.addEventListener('click',openPageEditor);
