@@ -86,7 +86,6 @@ const BOARD_TEXT_HELP={
  'Bắt đầu':'Bắt đầu đồng hồ đếm ngược với thời gian đã chọn.',
  'Dừng':'Dừng đồng hồ đếm ngược hiện tại.'
 };
-let boardHelpTooltip=null,boardHelpAnchor=null;
 function boardButtonText(btn){return String(btn?.textContent||'').replace(/\s+/g,' ').trim();}
 function resolveBoardButtonHelp(btn){
  if(!btn)return '';
@@ -101,15 +100,10 @@ function resolveBoardButtonHelp(btn){
  if(btn.id==='board-follow-teacher')return followTeacher?'Đang tự theo trang giáo viên; bấm để tắt.':'Đang tự do chuyển trang; bấm để theo giáo viên.';
  return BOARD_BUTTON_HELP[btn.id]||BOARD_TEXT_HELP[boardButtonText(btn)]||(boardButtonText(btn)?'Thực hiện thao tác: '+boardButtonText(btn)+'.':'Thực hiện chức năng của nút này.');
 }
-function ensureBoardHelpTooltip(){
- if(boardHelpTooltip&&document.body.contains(boardHelpTooltip))return boardHelpTooltip;
- const tip=document.createElement('div');tip.id='board-button-tooltip';tip.setAttribute('role','tooltip');
- tip.style.cssText='position:fixed;z-index:500;max-width:290px;padding:7px 10px;border-radius:8px;background:#0f172a;color:#fff;font-size:12px;font-weight:600;line-height:1.35;box-shadow:0 8px 24px rgba(15,23,42,.22);pointer-events:none;opacity:0;visibility:hidden;transition:opacity .12s ease;white-space:normal;';
- document.body.appendChild(tip);boardHelpTooltip=tip;return tip;
-}
 function refreshBoardButtonHelp(root=$('tab-boards')||document){
  root?.querySelectorAll?.('button').forEach(btn=>{
    const help=resolveBoardButtonHelp(btn);if(!help)return;
+   // Chỉ dùng tooltip mặc định của trình duyệt (nền sáng/trắng), không tạo tooltip tùy biến màu đen.
    btn.title=help;btn.setAttribute('aria-description',help);
    const visible=boardButtonText(btn);
    if(!btn.getAttribute('aria-label')&&(!visible||!/[À-ɏ\p{L}\p{N}]/u.test(visible)))btn.setAttribute('aria-label',help);
@@ -118,36 +112,9 @@ function refreshBoardButtonHelp(root=$('tab-boards')||document){
  const width=$('board-width');if(width)width.title='Điều chỉnh độ dày của nét vẽ.';
  const pageSelect=$('board-page-select');if(pageSelect)pageSelect.title='Chọn nhanh trang muốn mở trong bảng.';
 }
-function positionBoardHelp(btn,tip){
- const r=btn.getBoundingClientRect(),gap=8;
- const tr=tip.getBoundingClientRect();
- let left=r.left+r.width/2-tr.width/2;
- left=Math.max(8,Math.min(left,window.innerWidth-tr.width-8));
- let top=r.bottom+gap;
- if(top+tr.height>window.innerHeight-8)top=Math.max(8,r.top-tr.height-gap);
- tip.style.left=Math.round(left)+'px';tip.style.top=Math.round(top)+'px';
-}
-function showBoardButtonHelp(btn){
- const help=resolveBoardButtonHelp(btn);if(!help)return;
- btn.title=help;btn.setAttribute('aria-description',help);
- const tip=ensureBoardHelpTooltip();tip.textContent=help;tip.style.visibility='visible';tip.style.opacity='1';
- boardHelpAnchor=btn;requestAnimationFrame(()=>positionBoardHelp(btn,tip));
-}
-function hideBoardButtonHelp(btn){
- if(btn&&boardHelpAnchor&&btn!==boardHelpAnchor)return;
- if(boardHelpTooltip){boardHelpTooltip.style.opacity='0';boardHelpTooltip.style.visibility='hidden';}
- boardHelpAnchor=null;
-}
 function installBoardButtonHelp(){
  const root=$('tab-boards');if(!root||root.dataset.boardHelpReady==='1')return;
  root.dataset.boardHelpReady='1';refreshBoardButtonHelp(root);
- root.addEventListener('mouseover',e=>{const btn=e.target.closest?.('button');if(btn&&root.contains(btn))showBoardButtonHelp(btn);});
- root.addEventListener('mouseout',e=>{const btn=e.target.closest?.('button');if(btn&&(!e.relatedTarget||!btn.contains(e.relatedTarget)))hideBoardButtonHelp(btn);});
- root.addEventListener('focusin',e=>{const btn=e.target.closest?.('button');if(btn&&root.contains(btn))showBoardButtonHelp(btn);});
- root.addEventListener('focusout',e=>{const btn=e.target.closest?.('button');if(btn)hideBoardButtonHelp(btn);});
- root.addEventListener('click',()=>hideBoardButtonHelp());
- window.addEventListener('scroll',()=>{if(boardHelpAnchor&&boardHelpTooltip?.style.visibility==='visible')positionBoardHelp(boardHelpAnchor,boardHelpTooltip);},{passive:true});
- window.addEventListener('resize',()=>{if(boardHelpAnchor&&boardHelpTooltip?.style.visibility==='visible')positionBoardHelp(boardHelpAnchor,boardHelpTooltip);});
 }
 function renderList(){
  const root=$('boards-list');if(!root)return;
