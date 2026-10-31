@@ -8,10 +8,11 @@ compatibility_flags = ["nodejs_compat"]
 
 [vars]
 # Các biến cấu hình được quản lý trực tiếp trong Cloudflare Pages Settings hoặc .env
-  
-# Production only: Cloudflare requires the target Worker to exist before Pages
-# can deploy a Service binding. Preview intentionally has no BOARD_REALTIME
-# binding so PR builds remain deployable before the Worker is provisioned.
-[[env.production.services]]
-binding = "BOARD_REALTIME"
-service = "kiemtratructuyen-board-realtime"
+#
+# LƯU Ý PRODUCTION:
+# Không khai báo BOARD_REALTIME service binding cứng tại đây.
+# Cloudflare sẽ từ chối deploy toàn bộ Pages nếu Worker đích chưa tồn tại.
+# Sau khi Worker "kiemtratructuyen-board-realtime" đã được provision,
+# cấu hình Service Binding BOARD_REALTIME trong Cloudflare Pages Settings.
+# API Bảng tương tác đã fail-safe và trả BOARD_REALTIME_NOT_READY (503)
+# nếu binding/secret chưa sẵn sàng, không làm ảnh hưởng các chức năng khác.
