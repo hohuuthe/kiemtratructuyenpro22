@@ -5,11 +5,10 @@ import {
 import { ensureInteractiveBoardSchema } from './schema';
 
 export const boardCorsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Board-Access-Code',
-  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+  // API bảng chỉ phục vụ cùng origin; không mở CORS ra website bên ngoài.
   'Content-Type': 'application/json; charset=utf-8',
-  'Cache-Control': 'no-store'
+  'Cache-Control': 'no-store',
+  'X-Content-Type-Options': 'nosniff'
 };
 
 export function boardJson(data: any, status = 200) {
