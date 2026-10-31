@@ -55,7 +55,15 @@ export function astToMtef(ast,{fontSizePt=13,display=false}={}) {
         else face=TYPES.symbol;
         return char(cp,face);
       }).flat();
-      case 'frac':return tmpl(11,0,[line(n.num,depth),line(n.den,depth)]);
+      case 'frac':{
+        if(n.style==='skewed')return tmpl(11,2,[line(n.num,depth),line(n.den,depth)]);
+        if(n.style==='noBar'){
+          // MTEF has no dedicated no-bar fraction variation. Preserve numerator /
+          // denominator as two editable, centered lines without inventing a bar.
+          return [4,0,2,1,line(n.num,depth),line(n.den,depth),0];
+        }
+        return tmpl(11,0,[line(n.num,depth),line(n.den,depth)]);
+      }
       case 'root':return tmpl(10,isEmpty(n.degree)?0:1,[line(n.body,depth),line(n.degree,depth+1)]);
       case 'script':{
         if(isEmpty(n.sub)&&isEmpty(n.sup))fail('EMPTY_SCRIPT','An empty script cannot be exported.');
@@ -74,6 +82,22 @@ export function astToMtef(ast,{fontSizePt=13,display=false}={}) {
         const def=NARY[n.symbol];if(!def)fail('UNSUPPORTED_OPERATOR','Unknown large operator.');
         const v=(isEmpty(n.sub)?0:1)|(isEmpty(n.sup)?0:2)|(n.position==='undOvr'?64:0);
         return tmpl(def[0],v,[line(n.body,depth),line(n.sup,depth+1),line(n.sub,depth+1),char(def[1],22)]);
+      }
+      case 'groupChar':{
+        const selector=n.chr==='\\u23b4'||n.chr==='\\u23b5'?25:24;
+        const top=n.pos==='top';
+        const glyph=n.chr==='\\u23b4'?0xfe47:n.chr==='\\u23b5'?0xfe48:top?0xfe37:0xfe38;
+        return tmpl(selector,top?1:0,[line(n.body,depth),[1,1],char(glyph,22)]);
+      }
+      case 'borderBox':{
+        let variation=0;
+        if(n.hideLeft)variation|=2;
+        if(n.hideRight)variation|=4;
+        if(n.hideTop)variation|=8;
+        if(n.hideBottom)variation|=16;
+        if(n.strikeH||n.strikeV||n.strikeBLTR||n.strikeTLBR)
+          fail('UNSUPPORTED_BORDER_STRIKE','MathType box strike variants need a separately qualified construction.');
+        return tmpl(37,variation,[line(n.body,depth)]);
       }
       case 'matrix':{
         const rows=n.rows.length,cols=n.rows[0]?.length;
