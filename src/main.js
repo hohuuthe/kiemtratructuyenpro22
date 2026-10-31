@@ -2438,6 +2438,9 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                     visible = isStudentOrGuest;
                 } else if (tab === 'documents') {
                     visible = true;
+                } else if (tab === 'boards') {
+                    // Chỉ tài khoản đã đăng nhập mới thấy bảng tương tác; khách không tải dữ liệu này.
+                    visible = Boolean(currentUser);
                 } else if (tab === 'help') {
                     // Trợ giúp: Hiển thị cho tất cả
                     visible = true;
