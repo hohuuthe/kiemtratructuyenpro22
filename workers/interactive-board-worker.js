@@ -243,6 +243,7 @@ export class BoardRoom {
       role:String(claims.role||'student'),
       permission:String(claims.permission||'view'),
       blocked:userLocked,
+      allowedPages,
       activeStrokes:[],
       recentOps:[],
       joinedAt:Date.now()
@@ -330,7 +331,8 @@ export class BoardRoom {
     for (const raw of packet.ops) {
       const kind=String(raw?.kind||'');
       if (kind==='present_page' && canManage) {
-        const pageId=safeId(raw.pageId);if(!pageId)continue;
+        const pageId=safeId(raw.pageId),allowed=Array.isArray(actor.allowedPages)?actor.allowedPages:[actor.pageId];
+        if(!pageId||!allowed.includes(pageId)||await this.ctx.storage.get('deletedpage:'+pageId))continue;
         this.broadcast({type:'page_focus',pageId,by:actor.userId});
         continue;
       }
@@ -461,7 +463,13 @@ export class BoardRoom {
         }
         let removedPoints=0;
         for(const value of rows.values())if(value?.creatorId===targetUserId&&value?.type==='stroke'&&Array.isArray(value.points))removedPoints+=value.points.length;
-        if(keys.length)await this.ctx.storage.delete(keys);
+        if(keys.length){
+          await this.ctx.storage.delete(keys);
+          for(const objectId of objectIds){
+            const voteRows=await this.ctx.storage.list({prefix:'vote:'+pageId+':'+objectId+':'});
+            if(voteRows.size)await this.ctx.storage.delete([...voteRows.keys()]);
+          }
+        }
         const countKey='count:'+pageId,pointsKey='points:'+pageId;
         const objectCount=Number(await this.ctx.storage.get(countKey));
         if(Number.isFinite(objectCount))await this.ctx.storage.put(countKey,Math.max(0,objectCount-keys.length));
