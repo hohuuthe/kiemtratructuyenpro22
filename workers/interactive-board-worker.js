@@ -323,7 +323,9 @@ export class BoardRoom {
     if(clientOpId)actor.recentOps=actor.recentOps.concat(clientOpId).slice(-80);
     ws.serializeAttachment(actor);
     const roomLocked=Boolean(await this.ctx.storage.get('room:locked'));
-    const canManage=actor.permission==='manage' || actor.role==='teacher' || actor.role==='admin';
+    // Quyền quản lý chỉ đến từ claim permission=manage do Pages API cấp sau khi kiểm tra owner/admin.
+    // Không suy quyền quản lý trực tiếp từ role vì giáo viên có thể tham gia bảng của giáo viên khác như một người tham gia thường.
+    const canManage=actor.permission==='manage';
     const userBlocked=!canManage && Boolean(actor.blocked);
     const canDraw=canManage || (!roomLocked && !userBlocked && actor.permission==='draw');
     const canComment=canManage || (!roomLocked && !userBlocked && ['draw','comment'].includes(actor.permission));
