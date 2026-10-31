@@ -94,6 +94,7 @@ function handleMessage(m){
  if(m.type==='stroke_segment'){let s=remoteStrokes.get(m.objectId);if(!s){s={id:m.objectId,pageId:m.pageId,type:'stroke',points:[],color:m.color,width:m.width};remoteStrokes.set(m.objectId,s);}s.points.push(...(m.points||[]));render();return;}
  if(m.type==='presence'){renderParticipants(m.participants||[]);return;}
  if(m.type==='lock_state'){locked=!!m.locked;syncLockUi();return;}
+ if(m.type==='board_deleted'){manualExit=true;window.showToast?.('Bảng này đã được giáo viên xóa.','info');exitRoom();return;}
 }
 function sendOps(ops){if(ws?.readyState===WebSocket.OPEN&&ops.length)ws.send(JSON.stringify({type:'op_batch',ops}));}
 function renderParticipants(items){$('board-online-count').textContent=items.length+' người';$('board-participants').innerHTML=items.map(p=>'<div class="rounded-lg bg-white border px-3 py-2"><p class="font-bold truncate">'+esc(p.displayName)+'</p><p class="text-[11px] text-slate-500">'+esc(p.role==='teacher'?'Giáo viên':p.role==='admin'?'Admin':'Học sinh')+'</p></div>').join('');}
