@@ -44,7 +44,7 @@ function normalizeObject(input, actorId) {
   if (!id || !pageId || !['stroke','text','note','rect','ellipse','line','arrow'].includes(type)) return null;
   const base={id,pageId,type,creatorId:actorId,updatedAt:Date.now()};
   if (type==='stroke') {
-    const points=normalizePoints(input.points);
+    const points=normalizePoints(input.points).slice(0,1600);
     if (points.length<2) return null;
     return {...base,points,color:safeColor(input.color),width:clamp(input.width,1,24,3)};
   }
@@ -60,13 +60,32 @@ function normalizeObject(input, actorId) {
 function stateOf(ws) {
   try { return ws.deserializeAttachment() || {}; } catch { return {}; }
 }
+function secureEqualString(a,b) {
+  const aa=new TextEncoder().encode(String(a||'')),bb=new TextEncoder().encode(String(b||''));
+  let diff=aa.length^bb.length;
+  for(let i=0;i<Math.max(aa.length,bb.length);i++) diff|=(aa[i]||0)^(bb[i]||0);
+  return diff===0;
+}
 
 export default {
   async fetch(request, env) {
+    const url=new URL(request.url);
+    if (request.method==='POST' && url.pathname==='/internal/board-reset') {
+      const secret=String(env.BOARD_REALTIME_SECRET || env.JWT_SECRET || '');
+      if (!secret || !secureEqualString(request.headers.get('X-Board-Internal-Secret'),secret)) {
+        return new Response('Unauthorized',{status:401});
+      }
+      let body;try{body=await request.json();}catch{return new Response('Invalid JSON',{status:400});}
+      const tenant=String(body?.tenant||''),boardId=safeId(body?.boardId);
+      if(!/^[A-Za-z0-9_-]{1,64}$/.test(tenant)||!boardId)return new Response('Invalid board',{status:400});
+      const roomName=tenant+':'+boardId;
+      const stub=env.BOARD_ROOM.get(env.BOARD_ROOM.idFromName(roomName));
+      return stub.fetch(new Request('https://board.internal/reset',{method:'POST',headers:{'X-Board-Internal-Secret':secret}}));
+    }
     if ((request.headers.get('Upgrade') || '').toLowerCase() !== 'websocket') {
       return new Response('WebSocket required', {status:426});
     }
-    const token = new URL(request.url).searchParams.get('token') || '';
+    const token = url.searchParams.get('token') || '';
     const claims = await verifyJwt(token, String(env.BOARD_REALTIME_SECRET || env.JWT_SECRET || ''));
     if (!claims || claims.tokenType !== 'board_join' || !safeId(claims.boardId) ||
         !safeId(claims.userId) || !/^[A-Za-z0-9_-]{1,64}$/.test(String(claims.tenant || ''))) {
@@ -85,8 +104,15 @@ export class BoardRoom {
   }
 
   async fetch(request) {
-    if ((request.headers.get('Upgrade') || '').toLowerCase() !== 'websocket') return new Response('WebSocket required',{status:426});
     const url=new URL(request.url);
+    if(request.method==='POST'&&url.pathname==='/reset'){
+      const secret=String(this.env.BOARD_REALTIME_SECRET || this.env.JWT_SECRET || '');
+      if(!secret||!secureEqualString(request.headers.get('X-Board-Internal-Secret'),secret))return new Response('Unauthorized',{status:401});
+      for(const socket of this.ctx.getWebSockets()){try{socket.send(JSON.stringify({type:'board_deleted'}));socket.close(4004,'Board deleted')}catch{}}
+      await this.ctx.storage.deleteAll();
+      return new Response('OK');
+    }
+    if ((request.headers.get('Upgrade') || '').toLowerCase() !== 'websocket') return new Response('WebSocket required',{status:426});
     const token=url.searchParams.get('token')||'';
     const claims=await verifyJwt(token,String(this.env.BOARD_REALTIME_SECRET || this.env.JWT_SECRET || ''));
     if (!claims || claims.tokenType!=='board_join') return new Response('Unauthorized',{status:401});
@@ -116,14 +142,19 @@ export class BoardRoom {
     this.ctx.acceptWebSocket(server,[pageId]);
     server.serializeAttachment(attachment);
 
+    const incomingRevision=Math.max(1,Number(claims.boardRevision)||1);
+    const storedRevision=Math.max(0,Number(await this.ctx.storage.get('room:boardRevision'))||0);
     let lockedRaw=await this.ctx.storage.get('room:locked');
-    if (lockedRaw===undefined && claims.initialLocked===true) {
-      lockedRaw=true;
-      await this.ctx.storage.put('room:locked',true);
+    if(incomingRevision>storedRevision){
+      lockedRaw=claims.initialLocked===true;
+      await this.ctx.storage.put({'room:boardRevision':incomingRevision,'room:locked':Boolean(lockedRaw)});
+    }else if(lockedRaw===undefined){
+      lockedRaw=claims.initialLocked===true;
+      if(lockedRaw)await this.ctx.storage.put('room:locked',true);
     }
     const locked=Boolean(lockedRaw);
     const objects=await this.ctx.storage.list({prefix:'obj:'+pageId+':'});
-    const snapshot=[...objects.values()].slice(0,3000);
+    const snapshot=[...objects.values()].slice(0,1000);
     server.send(JSON.stringify({type:'snapshot',pageId,locked,objects:snapshot,participants:this.participants()}));
     this.broadcast({type:'presence',participants:this.participants()},server);
     return new Response(null,{status:101,webSocket:client});
@@ -183,7 +214,7 @@ export class BoardRoom {
           if (!Number.isFinite(objectCount)) {
             objectCount=(await this.ctx.storage.list({prefix:'obj:'+object.pageId+':'})).size;
           }
-          if (objectCount>=3000) continue;
+          if (objectCount>=1000) continue;
           await this.ctx.storage.put(countKey,objectCount+1);
         }
         await this.ctx.storage.put(key,object);
