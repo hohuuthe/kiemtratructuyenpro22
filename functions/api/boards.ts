@@ -195,7 +195,27 @@ export const onRequestPut: PagesFunction = async (context: any) => {
       parsed.targetClasses.join(','), parsed.studentPermission, parsed.startsAt, parsed.endsAt,
       parsed.maxParticipants, parsed.settingsJson, id, expectedRevision).run();
     if (!Number(result.meta?.changes || 0)) return boardJson({ error: 'Bảng vừa được thay đổi ở thiết bị khác. Vui lòng tải lại trước khi lưu.' }, 409);
-    return boardJson({ data: boardListProjection(await loadBoard(db, id), true) });
+    const updated=await loadBoard(db,id);
+
+    // Existing sockets must not retain stale class/access/edit permissions.
+    try {
+      const secret=String(context.env?.BOARD_REALTIME_SECRET || context.env?.JWT_SECRET || '').trim();
+      if(secret && context.env?.BOARD_REALTIME?.fetch){
+        const route=resolveTenantRoutingFromRequest(context.request,context.env);
+        await context.env.BOARD_REALTIME.fetch(new Request('https://board.internal/internal/board-policy',{
+          method:'POST',
+          headers:{'Content-Type':'application/json','X-Board-Internal-Secret':secret},
+          body:JSON.stringify({
+            tenant:String(route.slug||'default'),boardId:id,revision:Number(updated?.revision||expectedRevision+1),
+            locked:updated?.status==='locked',
+            unavailable:['draft','closed','archived'].includes(String(updated?.status||''))
+          })
+        }));
+      }
+    } catch(error:any) {
+      console.warn('[BOARD REALTIME POLICY]',error?.message||error);
+    }
+    return boardJson({ data: boardListProjection(updated, true) });
   } catch (error: any) {
     console.error('[BOARD UPDATE]', error?.message || error);
     return boardJson({ error: error?.message || 'Không thể cập nhật bảng tương tác.' }, 400);
