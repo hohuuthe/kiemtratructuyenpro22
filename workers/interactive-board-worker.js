@@ -276,6 +276,7 @@ export class BoardRoom {
         const key='obj:'+object.pageId+':'+object.id;
         const existing=await this.ctx.storage.get(key);
         if (existing && !canManage && existing.creatorId!==actor.userId) continue;
+        if (existing?.creatorId) object.creatorId=existing.creatorId;
         if (!existing) {
           const countKey='count:'+object.pageId;
           let objectCount=Number(await this.ctx.storage.get(countKey));
