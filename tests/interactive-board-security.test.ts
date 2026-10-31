@@ -193,3 +193,10 @@ test('non-owner teacher role must not imply realtime manage permission',()=>{
   assert.match(worker,/const canManage=actor\.permission==='manage'/);
   assert.doesNotMatch(worker,/actor\.role==='teacher'\s*\|\|\s*actor\.role==='admin'/);
 });
+
+
+test('join token normalizes interaction role so user-role students can be moderated',()=>{
+  const join=fs.readFileSync('functions/api/board/join.ts','utf8');
+  assert.match(join,/const realtimeRole = owner \? 'manager' : 'student'/);
+  assert.match(join,/role: realtimeRole/);
+});
