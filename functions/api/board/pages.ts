@@ -49,7 +49,18 @@ export const onRequestPost: PagesFunction=async(context:any)=>{
       'INSERT INTO interactive_board_pages (id,board_id,page_no,title,background_type,canvas_width,canvas_height,revision,created_at,updated_at) VALUES (?,?,?,?,?,1600,900,1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)'
     ).bind(id,boardId,pageNo,title,background(input.background_type)).run();
     await bumpBoard(db,boardId);
-    return boardJson({data:{id,board_id:boardId,page_no:pageNo,title,background_type:background(input.background_type),canvas_width:1600,canvas_height:900,revision:1}},201);
+    const created={id,board_id:boardId,page_no:pageNo,title,background_type:background(input.background_type),canvas_width:1600,canvas_height:900,revision:1};
+    try{
+      const secret=String(context.env?.BOARD_REALTIME_SECRET||context.env?.JWT_SECRET||'').trim();
+      if(secret&&context.env?.BOARD_REALTIME?.fetch){
+        const route=resolveTenantRoutingFromRequest(context.request,context.env);
+        await context.env.BOARD_REALTIME.fetch(new Request('https://board.internal/internal/board-page-created',{
+          method:'POST',headers:{'Content-Type':'application/json','X-Board-Internal-Secret':secret},
+          body:JSON.stringify({tenant:String(route.slug||'default'),boardId,page:created})
+        }));
+      }
+    }catch(error:any){console.warn('[BOARD PAGE CREATE BROADCAST]',error?.message||error);}
+    return boardJson({data:created},201);
   }catch(error:any){console.error('[BOARD PAGE CREATE]',error?.message||error);return boardJson({error:error?.message||'Không thể thêm trang.'},400);}
 };
 
