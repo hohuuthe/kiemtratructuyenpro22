@@ -93,6 +93,8 @@ test('implementation is lazy, bounded and does not push live strokes into Neon',
   assert.match(ui,/pendingReliable/);
   assert.match(ui,/\/api\/ai\/generate/);
   assert.match(ui,/boardTextPayload/);
+  assert.match(ui,/aiClusterPlan/);
+  assert.match(ui,/applyAiCluster/);
   assert.match(ui,/board-ai-run/);
   assert.match(ui,/insertAiResult/);
   assert.match(ui,/gemini_api_key_/);
@@ -103,6 +105,8 @@ test('implementation is lazy, bounded and does not push live strokes into Neon',
   assert.match(ui,/remoteLasers/);
   assert.match(ui,/templateObjects/);
   assert.match(ui,/setZoom/);
+  assert.match(ui,/pinchStart/);
+  assert.match(ui,/panPointers/);
   assert.match(ui,/requestFullscreen/);
   assert.match(ui,/board_deleted/);
   assert.match(ui,/board\/pages/);
@@ -118,6 +122,7 @@ test('implementation is lazy, bounded and does not push live strokes into Neon',
   assert.match(worker,/Board policy changed/);
   assert.match(worker,/set_user_lock/);
   assert.match(worker,/vote_toggle/);
+  assert.match(worker,/voteRows/);
   assert.match(worker,/timer_start/);
   assert.match(worker,/present_page/);
   assert.match(ui,/vote_state/);
