@@ -7,7 +7,7 @@ let roomTokenExpiresAt=0,tokenRefreshAttempts=0,currentPageId='';
 let undoStack=[],redoStack=[],renderQueued=false,lastRateNotice=0,userLocked=false;
 let pendingReliable=new Map(),dragState=null,snapshotLoading=false,participantsCache=[];
 let remoteLasers=new Map(),lastLaserSent=0;
-let zoomLevel=1,panDrag=null,timerState=null,timerTick=null,aiResultText='',followTeacher=true;
+let zoomLevel=1,panDrag=null,timerState=null,timerTick=null,aiResultText='',aiClusterPlan=null,followTeacher=true;
 
 function token(){return localStorage.getItem(window.tenantStorageKey?window.tenantStorageKey('auth_token'):'auth_token')||'';}
 async function api(method,url,body){
@@ -205,10 +205,8 @@ async function exportBoardPdf(){
  }catch(e){window.showToast?.(e.message||'Không thể xuất PDF.','error');}
  finally{if(btn){btn.disabled=false;btn.textContent='📄 PDF';}}
 }
-function boardTextPayload(){
- const items=[...objects.values()].filter(o=>o.pageId===currentPageId&&(o.type==='note'||o.type==='text')&&String(o.text||'').trim()).slice(0,80);
- return items.map((o,i)=>(i+1)+'. '+String(o.text).trim()).join('\n').slice(0,12000);
-}
+function boardTextItems(){return [...objects.values()].filter(o=>o.pageId===currentPageId&&(o.type==='note'||o.type==='text')&&String(o.text||'').trim()).slice(0,80);}
+function boardTextPayload(){return boardTextItems().map((o,i)=>(i+1)+'. '+String(o.text).trim()).join('\n').slice(0,12000);}
 function aiStorageKey(){const username=String(actor?.username||'').trim();return username?'gemini_api_key_'+username:'';}
 function readAiKeys(){const typed=String($('board-ai-key')?.value||'').trim();if(typed)return typed;const k=aiStorageKey();try{return k?String(localStorage.getItem(k)||''):''}catch{return '';}}
 async function runBoardAi(){
@@ -217,19 +215,47 @@ async function runBoardAi(){
  const key=readAiKeys();if(!key){window.showToast?.('Hãy nhập Gemini API Key cá nhân.','info');return;}
  const typed=String($('board-ai-key')?.value||'').trim(),storageKey=aiStorageKey();if(typed&&storageKey)try{localStorage.setItem(storageKey,typed)}catch{}
  const mode=$('board-ai-mode')?.value||'summary',extra=String($('board-ai-extra')?.value||'').trim().slice(0,500);
+ aiClusterPlan=null;
  const instruction={
    summary:'Tóm tắt súc tích các ý kiến, giữ đủ ý chính và không bịa thêm.',
-   themes:'Gom các ý kiến thành các nhóm chủ đề; đặt tên từng nhóm và nêu các ý thuộc nhóm.',
+   themes:'Phân nhóm các sticky theo chủ đề.',
    actions:'Rút ra danh sách việc cần làm, ưu tiên và bước tiếp theo từ các ý kiến.',
    lesson:'Viết phần kết luận bài học ngắn gọn, dễ hiểu cho học sinh THPT dựa đúng vào các ý trên bảng.'
  }[mode];
- const prompt='Bạn là trợ lý lớp học. '+instruction+'\n'+(extra?'Yêu cầu bổ sung: '+extra+'\n':'')+'Chỉ sử dụng dữ liệu sau, không suy diễn ngoài dữ liệu:\n'+source;
+ const isThemes=mode==='themes';
+ const prompt=isThemes
+   ? 'Bạn là trợ lý lớp học. Hãy phân nhóm các ý kiến bên dưới thành tối đa 4 chủ đề. Trả duy nhất JSON dạng {"groups":[{"title":"Tên nhóm","noteNumbers":[1,2]}]}. Mỗi số chỉ xuất hiện tối đa một lần, chỉ dùng số có trong dữ liệu. '+(extra?'Yêu cầu bổ sung: '+extra+' ':'')+'Dữ liệu:\n'+source
+   : 'Bạn là trợ lý lớp học. '+instruction+'\n'+(extra?'Yêu cầu bổ sung: '+extra+'\n':'')+'Chỉ sử dụng dữ liệu sau, không suy diễn ngoài dữ liệu:\n'+source;
  const btn=$('board-ai-run');if(btn){btn.disabled=true;btn.textContent='Đang phân tích...';}
  try{
-   const res=await api('POST','/api/ai/generate',{apiKey:key,model:'gemini-3.8-flash',contents:[{role:'user',parts:[{text:prompt}]}]});
-   aiResultText=String(res.text||'').trim().slice(0,6000);$('board-ai-result').textContent=aiResultText||'AI không trả nội dung.';$('board-ai-insert')?.classList.toggle('hidden',!aiResultText);
- }catch(e){$('board-ai-result').textContent=e.message||'Không thể gọi AI.';}
+   const res=await api('POST','/api/ai/generate',{apiKey:key,model:'gemini-3.8-flash',contents:[{role:'user',parts:[{text:prompt}]}],config:isThemes?{responseMimeType:'application/json'}:{}});
+   const raw=String(res.text||'').trim();
+   if(isThemes){
+     let parsed;try{parsed=JSON.parse(raw.replace(/^\`\`\`(?:json)?/i,'').replace(/\`\`\`$/,'').trim())}catch{throw Error('AI trả kết quả phân nhóm không đúng định dạng.');}
+     const max=boardTextItems().length,seen=new Set(),groups=[];
+     for(const g of Array.isArray(parsed?.groups)?parsed.groups.slice(0,4):[]){
+       const nums=[];for(const n of Array.isArray(g?.noteNumbers)?g.noteNumbers:[]){const v=Math.trunc(Number(n));if(v>=1&&v<=max&&!seen.has(v)){seen.add(v);nums.push(v);}}
+       if(nums.length)groups.push({title:String(g?.title||'Nhóm').slice(0,80),noteNumbers:nums.slice(0,12)});
+     }
+     if(!groups.length)throw Error('AI chưa tạo được nhóm hợp lệ.');
+     aiClusterPlan={groups};aiResultText=groups.map((g,i)=>(i+1)+'. '+g.title+': '+g.noteNumbers.join(', ')).join('\n');
+     $('board-ai-result').textContent=aiResultText;$('board-ai-insert').textContent='Sắp xếp lên bảng';$('board-ai-insert').classList.remove('hidden');
+   }else{
+     aiResultText=raw.slice(0,6000);$('board-ai-result').textContent=aiResultText||'AI không trả nội dung.';$('board-ai-insert').textContent='Chèn lên bảng';$('board-ai-insert')?.classList.toggle('hidden',!aiResultText);
+   }
+ }catch(e){$('board-ai-result').textContent=e.message||'Không thể gọi AI.';aiClusterPlan=null;}
  finally{if(btn){btn.disabled=false;btn.textContent='Phân tích bằng AI';}}
+}
+function applyAiCluster(){
+ if(!aiClusterPlan||!room?.board?.can_manage)return;
+ const notes=boardTextItems(),groups=aiClusterPlan.groups||[],ops=[],changed=[];
+ const colWidth=1500/Math.max(1,groups.length);
+ groups.forEach((g,gi)=>{
+   const title={id:crypto.randomUUID(),pageId:currentPageId,type:'note',x:50+gi*colWidth,y:40,w:Math.min(330,colWidth-30),h:90,text:g.title,color:'#111827',fontSize:22,creatorId:myId()};
+   objects.set(title.id,title);ops.push({kind:'put',object:title});changed.push({kind:'put',object:title});
+   g.noteNumbers.slice(0,7).forEach((n,ri)=>{const original=notes[n-1];if(!original)return;const before=cloneObject(original),after={...cloneObject(original),x:50+gi*colWidth,y:160+ri*100,w:Math.min(330,colWidth-30),h:86};objects.set(after.id,after);ops.push({kind:'put',object:after});changed.push({kind:'update',before,after:cloneObject(after)});});
+ });
+ if(ops.length)sendOps(ops);for(const a of changed)remember(a);scheduleRender();$('board-ai-modal')?.classList.add('hidden');window.showToast?.('AI đã sắp xếp sticky theo chủ đề.','success');
 }
 function insertAiResult(){
  if(!aiResultText||!room?.board?.can_manage)return;
@@ -423,7 +449,7 @@ function pointerUp(){
 function exitRoom(){
  manualExit=true;if(reconnectTimer){clearTimeout(reconnectTimer);reconnectTimer=null;}
  if(ws)try{ws.onclose=null;ws.close(1000,'exit')}catch{};ws=null;room=null;activeBoard=null;activeAccessCode='';reconnectAttempts=0;
- roomTokenExpiresAt=0;tokenRefreshAttempts=0;currentPageId='';userLocked=false;snapshotLoading=false;participantsCache=[];pendingReliable.clear();dragState=null;panDrag=null;remoteLasers.clear();zoomLevel=1;aiResultText='';timerState=null;followTeacher=true;if(timerTick){clearInterval(timerTick);timerTick=null;}undoStack=[];redoStack=[];objects.clear();remoteStrokes.clear();drawing=null;$('board-room')?.classList.add('hidden');$('boards-home')?.classList.remove('hidden');
+ roomTokenExpiresAt=0;tokenRefreshAttempts=0;currentPageId='';userLocked=false;snapshotLoading=false;participantsCache=[];pendingReliable.clear();dragState=null;panDrag=null;remoteLasers.clear();zoomLevel=1;aiResultText='';aiClusterPlan=null;timerState=null;followTeacher=true;if(timerTick){clearInterval(timerTick);timerTick=null;}undoStack=[];redoStack=[];objects.clear();remoteStrokes.clear();drawing=null;$('board-room')?.classList.add('hidden');$('boards-home')?.classList.remove('hidden');
 }
 
 export function resetInteractiveBoards(){generation++;list=[];actor=null;manage=false;page=1;total=0;exitRoom();}
@@ -459,10 +485,10 @@ export function connectInteractiveBoards(){
  $('board-bring-here')?.addEventListener('click',()=>{if(room?.board?.can_manage)sendOps([{kind:'present_page',pageId:currentPageId}]);});
  $('board-follow-teacher')?.addEventListener('click',()=>{followTeacher=!followTeacher;const btn=$('board-follow-teacher');if(btn)btn.textContent='Theo GV: '+(followTeacher?'Bật':'Tắt');});
  $('board-export-pdf')?.addEventListener('click',exportBoardPdf);
- $('board-ai')?.addEventListener('click',()=>{if(!room?.board?.can_manage)return;aiResultText='';$('board-ai-result').textContent='Chưa có kết quả.';$('board-ai-insert')?.classList.add('hidden');$('board-ai-modal')?.classList.remove('hidden');});
+ $('board-ai')?.addEventListener('click',()=>{if(!room?.board?.can_manage)return;aiResultText='';aiClusterPlan=null;$('board-ai-result').textContent='Chưa có kết quả.';$('board-ai-insert')?.classList.add('hidden');$('board-ai-modal')?.classList.remove('hidden');});
  $('board-ai-close')?.addEventListener('click',()=>$('board-ai-modal')?.classList.add('hidden'));
  $('board-ai-run')?.addEventListener('click',runBoardAi);
- $('board-ai-insert')?.addEventListener('click',insertAiResult);
+ $('board-ai-insert')?.addEventListener('click',()=>aiClusterPlan?applyAiCluster():insertAiResult());
  $('board-template')?.addEventListener('click',()=>{if(room?.board?.can_manage)$('board-template-modal')?.classList.remove('hidden');});
  $('board-template-close')?.addEventListener('click',()=>$('board-template-modal')?.classList.add('hidden'));
  $('board-template-modal')?.addEventListener('click',e=>{const btn=e.target.closest('[data-board-template]');if(btn)applyTemplate(btn.dataset.boardTemplate);});
