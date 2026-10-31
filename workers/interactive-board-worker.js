@@ -70,7 +70,7 @@ function secureEqualString(a,b) {
 export default {
   async fetch(request, env) {
     const url=new URL(request.url);
-    if (request.method==='POST' && (url.pathname==='/internal/board-reset' || url.pathname==='/internal/board-policy')) {
+    if (request.method==='POST' && (url.pathname==='/internal/board-reset' || url.pathname==='/internal/board-policy' || url.pathname==='/internal/board-page-reset')) {
       const secret=String(env.BOARD_REALTIME_SECRET || env.JWT_SECRET || '');
       if (!secret || !secureEqualString(request.headers.get('X-Board-Internal-Secret'),secret)) {
         return new Response('Unauthorized',{status:401});
@@ -82,6 +82,15 @@ export default {
       const stub=env.BOARD_ROOM.get(env.BOARD_ROOM.idFromName(roomName));
       if(url.pathname==='/internal/board-reset'){
         return stub.fetch(new Request('https://board.internal/reset',{method:'POST',headers:{'X-Board-Internal-Secret':secret}}));
+      }
+      if(url.pathname==='/internal/board-page-reset'){
+        const pageId=safeId(body?.pageId);
+        if(!pageId)return new Response('Invalid page',{status:400});
+        return stub.fetch(new Request('https://board.internal/page-reset',{
+          method:'POST',
+          headers:{'Content-Type':'application/json','X-Board-Internal-Secret':secret},
+          body:JSON.stringify({pageId})
+        }));
       }
       const revision=Math.max(1,Number(body?.revision)||1);
       const locked=body?.locked===true;
@@ -115,6 +124,17 @@ export class BoardRoom {
 
   async fetch(request) {
     const url=new URL(request.url);
+    if(request.method==='POST'&&url.pathname==='/page-reset'){
+      const secret=String(this.env.BOARD_REALTIME_SECRET || this.env.JWT_SECRET || '');
+      if(!secret||!secureEqualString(request.headers.get('X-Board-Internal-Secret'),secret))return new Response('Unauthorized',{status:401});
+      let body;try{body=await request.json();}catch{return new Response('Invalid JSON',{status:400});}
+      const pageId=safeId(body?.pageId);if(!pageId)return new Response('Invalid page',{status:400});
+      const rows=await this.ctx.storage.list({prefix:'obj:'+pageId+':'});
+      if(rows.size)await this.ctx.storage.delete([...rows.keys()]);
+      await this.ctx.storage.delete('count:'+pageId);
+      for(const socket of this.ctx.getWebSockets(pageId)){try{socket.send(JSON.stringify({type:'page_deleted',pageId}));socket.close(4005,'Page deleted')}catch{}}
+      return new Response('OK');
+    }
     if(request.method==='POST'&&url.pathname==='/policy'){
       const secret=String(this.env.BOARD_REALTIME_SECRET || this.env.JWT_SECRET || '');
       if(!secret||!secureEqualString(request.headers.get('X-Board-Internal-Secret'),secret))return new Response('Unauthorized',{status:401});
