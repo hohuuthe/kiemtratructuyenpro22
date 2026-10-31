@@ -394,6 +394,17 @@ export class BoardRoom {
         this.broadcast({type:'laser',pageId,userId:actor.userId,displayName:actor.displayName||'Giáo viên',x,y},ws,pageId);
         continue;
       }
+      if (kind==='stroke_cancel') {
+        if (!canDraw) continue;
+        const pageId=safeId(raw.pageId),objectId=safeId(raw.objectId);
+        if(!pageId||!objectId||pageId!==actor.pageId)continue;
+        if(Array.isArray(actor.activeStrokes)&&actor.activeStrokes.includes(objectId)){
+          actor.activeStrokes=actor.activeStrokes.filter(id=>id!==objectId);
+          ws.serializeAttachment(actor);
+        }
+        this.broadcast({type:'stroke_cancel',pageId,objectId},ws,pageId);
+        continue;
+      }
       if (kind==='stroke_segment') {
         if (!canDraw) continue;
         const pageId=safeId(raw.pageId); if (!pageId || pageId!==actor.pageId) continue;
