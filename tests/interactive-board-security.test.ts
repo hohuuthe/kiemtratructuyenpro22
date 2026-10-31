@@ -67,7 +67,8 @@ test('implementation is lazy, bounded and does not push live strokes into Neon',
   assert.match(worker,/message\.length>65536/);
   assert.match(worker,/packet\.ops\.length>80/);
   assert.doesNotMatch(worker,/NEON_DATABASE_URL|DATABASE_URL/);
-  assert.match(worker,/requestedPageId!==signedPageId/);
+  assert.match(worker,/!allowedPages\.includes\(requestedPageId\)/);
+  assert.match(worker,/deletedpage:/);
   assert.match(worker,/sameUser\.length>=3/);
   assert.match(worker,/storage\.deleteAll/);
   assert.match(worker,/objectCount>=600/);
