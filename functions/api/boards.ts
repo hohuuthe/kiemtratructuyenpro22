@@ -199,7 +199,7 @@ export const onRequestPut: PagesFunction = async (context: any) => {
 
     // Existing sockets must not retain stale class/access/edit permissions.
     try {
-      const secret=String(context.env?.BOARD_REALTIME_SECRET || context.env?.JWT_SECRET || '').trim();
+      const secret=String(context.env?.BOARD_REALTIME_SECRET || '').trim();
       if(secret && context.env?.BOARD_REALTIME?.fetch){
         const route=resolveTenantRoutingFromRequest(context.request,context.env);
         await context.env.BOARD_REALTIME.fetch(new Request('https://board.internal/internal/board-policy',{
@@ -236,7 +236,7 @@ export const onRequestDelete: PagesFunction = async (context: any) => {
     // Best-effort purge of Durable Object state. Metadata deletion stays authoritative
     // even if the optional realtime Worker is temporarily unavailable.
     try {
-      const secret=String(context.env?.BOARD_REALTIME_SECRET || context.env?.JWT_SECRET || '').trim();
+      const secret=String(context.env?.BOARD_REALTIME_SECRET || '').trim();
       if(secret && context.env?.BOARD_REALTIME?.fetch){
         const route=resolveTenantRoutingFromRequest(context.request,context.env);
         await context.env.BOARD_REALTIME.fetch(new Request('https://board.internal/internal/board-reset',{
