@@ -1,69 +1,58 @@
 /**
- * Preview-only browser rasterizer for the experimental MathType export route.
- * Loaded lazily only after the user explicitly chooses MathType.
- * Equation export never imports this module.
- *
- * IMPORTANT: do not use html2canvas here. MathJax already gives us an SVG;
- * serializing that SVG and drawing it directly to Canvas is substantially lighter
- * on the browser main thread, especially on phones with 100+ equations.
+ * Preview-only MathType renderer.
+ * Uses its OWN MathJax SVG engine, lazy-loaded only after the user selects MathType.
+ * The application's global MathJax CHTML instance is never touched.
  */
+import {mathjax} from 'mathjax-full/js/mathjax.js';
+import {MathML} from 'mathjax-full/js/input/mathml.js';
+import {SVG} from 'mathjax-full/js/output/svg.js';
+import {liteAdaptor} from 'mathjax-full/js/adaptors/liteAdaptor.js';
+import {RegisterHTMLHandler} from 'mathjax-full/js/handlers/html.js';
 import {astToMathml} from './omml-ast.js';
 import {fail,aborted} from './errors.js';
 
-const pxToPt = px => px * 72 / 96;
-const nextFrame = () => new Promise(resolve => requestAnimationFrame(() => resolve()));
-
-async function cooperativeYield(signal) {
+const pxPerPt=96/72;
+const nextPaint=()=>new Promise(resolve=>{
+  if(typeof requestAnimationFrame==='function')requestAnimationFrame(()=>resolve());
+  else setTimeout(resolve,0);
+});
+async function cooperativeYield(signal){
   aborted(signal);
-  if (globalThis.scheduler?.yield) await globalThis.scheduler.yield();
-  else {
-    await nextFrame();
-    await new Promise(resolve => setTimeout(resolve,0));
-  }
+  if(globalThis.scheduler?.yield)await globalThis.scheduler.yield();
+  else{await nextPaint();await new Promise(r=>setTimeout(r,0));}
   aborted(signal);
 }
 
-async function waitForMathJax() {
-  const started = Date.now();
-  while (Date.now() - started < 12000) {
-    const mj = globalThis.MathJax;
-    if (mj?.typesetPromise) {
-      if (mj.startup?.promise) await mj.startup.promise;
-      return mj;
-    }
-    await new Promise(resolve => setTimeout(resolve,60));
-  }
-  fail('PREVIEW_FAILED','MathJax chưa sẵn sàng để tạo ảnh xem trước MathType.');
+let engine=null;
+function getEngine(){
+  if(engine)return engine;
+  const adaptor=liteAdaptor();
+  RegisterHTMLHandler(adaptor);
+  const document=mathjax.document('',{
+    InputJax:new MathML(),
+    OutputJax:new SVG({fontCache:'none'})
+  });
+  engine={adaptor,document};
+  return engine;
 }
-
-function serializedSafeSvg(svg,widthPx,heightPx) {
-  const clone=svg.cloneNode(true);
-  clone.setAttribute('xmlns','http://www.w3.org/2000/svg');
-  clone.setAttribute('width',String(widthPx));
-  clone.setAttribute('height',String(heightPx));
-  for(const n of clone.querySelectorAll('image,script,foreignObject'))
-    fail('PREVIEW_FAILED','MathJax SVG chứa thành phần không được phép.');
-  for(const use of clone.querySelectorAll('use')) {
-    const href=use.getAttribute('href')||use.getAttribute('xlink:href')||'';
-    if(href && !href.startsWith('#')) fail('PREVIEW_FAILED','MathJax SVG tham chiếu tài nguyên ngoài.');
-  }
-  return new XMLSerializer().serializeToString(clone);
+function safeSvg(adaptor,node){
+  const xml=adaptor.outerHTML(node);
+  if(!xml.startsWith('<svg')||/merror|mjx-merror|<text\b|<foreignObject\b|<image\b|<script\b/i.test(xml))
+    fail('PREVIEW_FAILED','MathType SVG chứa glyph hoặc thành phần không được hỗ trợ.');
+  if(/(?:href|xlink:href)=["'](?!#)/i.test(xml))
+    fail('PREVIEW_FAILED','MathType SVG tham chiếu tài nguyên ngoài.');
+  return xml;
 }
-
-async function rasterizeSvg(svg,widthPx,heightPx,scale,signal) {
-  await cooperativeYield(signal);
-  const source=serializedSafeSvg(svg,widthPx,heightPx);
-  const url=URL.createObjectURL(new Blob([source],{type:'image/svg+xml;charset=utf-8'}));
-  try {
-    const image=new Image();
-    image.decoding='async';
-    image.src=url;
-    await image.decode();
+async function svgToPng(svg,widthPx,heightPx,scale,signal){
+  aborted(signal);await cooperativeYield(signal);
+  const url=URL.createObjectURL(new Blob([svg],{type:'image/svg+xml;charset=utf-8'}));
+  try{
+    const image=new Image();image.decoding='async';image.src=url;await image.decode();
     aborted(signal);
     const canvas=document.createElement('canvas');
     canvas.width=Math.max(1,Math.ceil(widthPx*scale));
     canvas.height=Math.max(1,Math.ceil(heightPx*scale));
-    if(canvas.width*canvas.height>8_000_000||canvas.width>8192||canvas.height>8192)
+    if(canvas.width>8192||canvas.height>8192||canvas.width*canvas.height>8_000_000)
       fail('RESOURCE_LIMIT','Equation preview pixel limit exceeded.');
     const ctx=canvas.getContext('2d',{alpha:true});
     if(!ctx)fail('PREVIEW_FAILED','Canvas không khả dụng.');
@@ -72,67 +61,39 @@ async function rasterizeSvg(svg,widthPx,heightPx,scale,signal) {
     const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));
     if(!blob)fail('PREVIEW_FAILED','Không tạo được PNG xem trước MathType.');
     return {png:new Uint8Array(await blob.arrayBuffer()),pixelWidth:canvas.width,pixelHeight:canvas.height};
-  } finally {
-    URL.revokeObjectURL(url);
-  }
+  }finally{URL.revokeObjectURL(url);}
 }
 
-export function createBrowserMathTypePreviewRenderer() {
-  return async function renderMathTypePreview(ast,options={}) {
-    aborted(options.signal);
-    if(typeof document==='undefined'||typeof window==='undefined')
-      fail('PREVIEW_FAILED','MathType Preview chỉ chạy trong trình duyệt.');
-
-    // Give the browser one paint opportunity before each formula. This keeps
-    // scrolling, progress text, modal buttons and cancellation responsive.
-    await cooperativeYield(options.signal);
-    const mathJax=await waitForMathJax();
-    aborted(options.signal);
-
-    const fontSizePt=Number(options.fontSizePt||13);
-    if(!Number.isFinite(fontSizePt)||fontSizePt<6||fontSizePt>96)
-      fail('INVALID_SIZE','Cỡ chữ công thức MathType không hợp lệ.');
-
-    const host=document.createElement('div');
-    host.setAttribute('data-kttt-mathtype-preview','true');
-    host.style.cssText=[
-      'position:fixed','left:-20000px','top:0','z-index:-1','visibility:visible',
-      'display:inline-block','white-space:nowrap','background:transparent',
-      'color:#000','font-size:'+fontSizePt+'pt','line-height:normal','padding:0','margin:0',
-      'pointer-events:none'
-    ].join(';');
-    host.innerHTML=astToMathml(ast,false);
-    const baseline=document.createElement('span');
-    baseline.setAttribute('aria-hidden','true');
-    baseline.style.cssText='display:inline-block;width:0;height:0;padding:0;margin:0;vertical-align:baseline;';
-    host.appendChild(baseline);
-    document.body.appendChild(host);
-
-    try {
-      await mathJax.typesetPromise([host]);
-      aborted(options.signal);
-      if(document.fonts?.ready)await document.fonts.ready;
-      const container=host.querySelector('mjx-container');
-      const svg=container?.querySelector('svg');
-      if(!container||!svg)fail('PREVIEW_FAILED','MathJax không tạo được SVG công thức.');
-
-      const rect=container.getBoundingClientRect();
-      const baseRect=baseline.getBoundingClientRect();
-      if(!rect.width||!rect.height||rect.width>5000||rect.height>5000)
-        fail('PREVIEW_FAILED','Kích thước công thức xem trước không hợp lệ.');
-
-      const widthPt=pxToPt(rect.width),heightPt=pxToPt(rect.height);
-      const measured=pxToPt(baseRect.top-rect.top);
-      const baselinePt=Number.isFinite(measured)&&measured>=0&&measured<=heightPt
-        ? measured : Math.min(heightPt,heightPt*0.82);
-
-      // 3x is retained for print clarity. Direct SVG rasterization is much
-      // cheaper than DOM screenshots while preserving the same output density.
-      const raster=await rasterizeSvg(svg,rect.width,rect.height,3,options.signal);
-      return {...raster,widthPt,heightPt,baselinePt};
-    } finally {
-      try{mathJax.typesetClear?.([host]);}catch{}
-      host.remove();
-    }
+export function createBrowserMathTypePreviewRenderer(){
+  const {adaptor,document:mathDocument}=getEngine();
+  return async function renderMathTypePreview(ast,{fontSizePt=13,display=false,signal}={}){
+    aborted(signal);await cooperativeYield(signal);
+    const size=Number(fontSizePt);
+    if(!Number.isFinite(size)||size<6||size>96)fail('INVALID_SIZE','Cỡ chữ công thức MathType không hợp lệ.');
+    const mathml=astToMathml(ast,display);
+    const node=mathDocument.convert(mathml,{
+      display,
+      em:size*pxPerPt,
+      ex:size*pxPerPt/2,
+      containerWidth:1000
+    });
+    const root=adaptor.firstChild(node);
+    if(!root)fail('PREVIEW_FAILED','MathJax SVG không tạo được công thức.');
+    const viewBox=(adaptor.getAttribute(root,'viewBox')||'').trim().split(/\s+/).map(Number);
+    if(viewBox.length!==4||!viewBox.every(Number.isFinite)||viewBox[2]<=0||viewBox[3]<=0)
+      fail('PREVIEW_FAILED','MathJax SVG có kích thước không hợp lệ.');
+    const [left,top,width,height]=viewBox;
+    void left;
+    const widthPt=width*size/1000;
+    const heightPt=height*size/1000;
+    const baselinePt=Math.max(0,Math.min(heightPt,(height+top)*size/1000));
+    if(widthPt<=0||heightPt<=0||widthPt>3000||heightPt>3000)
+      fail('RESOURCE_LIMIT','Công thức xem trước vượt giới hạn.');
+    adaptor.setAttribute(root,'width',String(widthPt*pxPerPt));
+    adaptor.setAttribute(root,'height',String(heightPt*pxPerPt));
+    adaptor.setAttribute(root,'xmlns','http://www.w3.org/2000/svg');
+    const svg=safeSvg(adaptor,root);
+    const raster=await svgToPng(svg,widthPt*pxPerPt,heightPt*pxPerPt,3,signal);
+    return {...raster,widthPt,heightPt,baselinePt};
   };
 }
