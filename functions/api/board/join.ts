@@ -43,6 +43,8 @@ export const onRequestPost: PagesFunction = async (context: any) => {
       role: owner ? (isAdmin ? 'admin' : 'teacher') : 'student',
       permission,
       boardRevision: Number(board.revision || 1),
+      pageId: String(pages[0].id),
+      maxParticipants: Math.max(1, Math.min(120, Number(board.max_participants) || 60)),
       iat: now,
       exp: now + 300
     }, secret);
@@ -55,7 +57,8 @@ export const onRequestPost: PagesFunction = async (context: any) => {
           can_manage: owner, revision: Number(board.revision || 1)
         },
         pages: pages || [],
-        realtime_path: prefix + '/api/board/realtime?token=' + encodeURIComponent(token),
+        realtime_path: prefix + '/api/board/realtime?token=' + encodeURIComponent(token) +
+          '&pageId=' + encodeURIComponent(String(pages[0].id)),
         token_expires_in: 300
       }
     });
