@@ -309,13 +309,18 @@ export class BoardRoom {
         try{ws.send(JSON.stringify({type:'op_ack',clientOpId,duplicate:true}))}catch{}
         return;
       }
-      actor.recentOps=actor.recentOps.concat(clientOpId).slice(-80);
     }
     const now=Date.now(),windowStart=Number(actor.rateWindowStart||0);
     if(!windowStart||now-windowStart>10000){actor.rateWindowStart=now;actor.rateOps=0;}
-    actor.rateOps=Number(actor.rateOps||0)+packet.ops.length;
+    const nextOps=Number(actor.rateOps||0)+packet.ops.length;
+    if(nextOps>400){
+      actor.rateOps=nextOps;ws.serializeAttachment(actor);
+      try{ws.send(JSON.stringify({type:'rate_limited',retryAfterMs:Math.max(250,10000-(now-Number(actor.rateWindowStart||now))) }))}catch{}
+      return;
+    }
+    actor.rateOps=nextOps;
+    if(clientOpId)actor.recentOps=actor.recentOps.concat(clientOpId).slice(-80);
     ws.serializeAttachment(actor);
-    if(actor.rateOps>400){try{ws.send(JSON.stringify({type:'rate_limited'}))}catch{};return;}
     const roomLocked=Boolean(await this.ctx.storage.get('room:locked'));
     const canManage=actor.permission==='manage' || actor.role==='teacher' || actor.role==='admin';
     const userBlocked=!canManage && Boolean(actor.blocked);
