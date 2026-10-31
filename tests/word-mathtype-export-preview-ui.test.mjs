@@ -37,7 +37,7 @@ test('Exam MathType selection bypasses the existing server Equation ZIP and post
   assert.match(exam,/const equationFormat = document\.querySelector\('input\[name="docx-equation-format"\]:checked'\)\?\.value \|\| 'equation'/);
   assert.match(exam,/let useClientFallback = equationFormat === 'mathtype'/);
   assert.match(exam,/if \(!useClientFallback\) try \{/);
-  assert.match(exam,/generateDocxClientSide\(targetExamId, headerOpts, soLuongDe, updateProgress, equationFormat\)/);
+  assert.match(exam,/generateDocxClientSide\(targetExamId, headerOpts, soLuongDe, updateProgress, equationFormat, mathTypeController\?\.signal\)/);
   assert.match(exam,/const equationBlob = await generateExamDocx\(currentHeader, selectedQuestions\)/);
   assert.match(exam,/const docBlob = await finalizeWordExport\(equationBlob,/);
 });
