@@ -121,7 +121,8 @@ export async function canEnterBoard(user: any, board: any, isAdmin: boolean, acc
 
 export async function hashBoardAccessCode(code: unknown) {
   const value = cleanText(code, 200);
-  if (!value) throw new Error('Bảng bảo mật phải có mã truy cập.');
+  if (value.length < 4) throw new Error('Mã bảo mật phải có ít nhất 4 ký tự.');
+  if (value.length > 64) throw new Error('Mã bảo mật tối đa 64 ký tự.');
   return hashPasswordPBKDF2(value);
 }
 
