@@ -40,6 +40,9 @@ export const onRequestPost: PagesFunction = async (context: any) => {
     const permission = owner ? 'manage' : board.student_permission;
     // Realtime dùng role tương tác riêng, không dùng trực tiếp role tài khoản (student account thường có role=user).
     const realtimeRole = owner ? 'manager' : 'student';
+    const displayRole = isAdmin ? 'admin'
+      : (String(user.role || '').toLowerCase() === 'teacher' || String(user.target_audience || '').toLocaleLowerCase('vi') === 'giáo viên')
+        ? 'teacher' : 'student';
     const now = Math.floor(Date.now() / 1000);
     const token = await signJWT({
       tokenType: 'board_join',
