@@ -3,7 +3,7 @@ import { resolveTenantRoutingFromRequest } from '../../../src/tenant-host-map';
 import { boardJson, getBoardRequestContext, cleanId, canEnterBoard, canManageBoard, loadBoard } from './common';
 
 function realtimeSecret(env: any) {
-  return String(env?.BOARD_REALTIME_SECRET || env?.JWT_SECRET || '').trim();
+  return String(env?.BOARD_REALTIME_SECRET || '').trim();
 }
 
 export const onRequestOptions: PagesFunction = async () => boardJson({ ok: true });
