@@ -70,7 +70,7 @@ function secureEqualString(a,b) {
 export default {
   async fetch(request, env) {
     const url=new URL(request.url);
-    if (request.method==='POST' && (url.pathname==='/internal/board-reset' || url.pathname==='/internal/board-policy' || url.pathname==='/internal/board-page-reset' || url.pathname==='/internal/board-page-created')) {
+    if (request.method==='POST' && (url.pathname==='/internal/board-reset' || url.pathname==='/internal/board-policy' || url.pathname==='/internal/board-page-reset' || url.pathname==='/internal/board-page-created' || url.pathname==='/internal/board-page-updated')) {
       const secret=String(env.BOARD_REALTIME_SECRET || '');
       if (!secret || !secureEqualString(request.headers.get('X-Board-Internal-Secret'),secret)) {
         return new Response('Unauthorized',{status:401});
@@ -82,6 +82,15 @@ export default {
       const stub=env.BOARD_ROOM.get(env.BOARD_ROOM.idFromName(roomName));
       if(url.pathname==='/internal/board-reset'){
         return stub.fetch(new Request('https://board.internal/reset',{method:'POST',headers:{'X-Board-Internal-Secret':secret}}));
+      }
+      if(url.pathname==='/internal/board-page-updated'){
+        const page=body?.page;
+        if(!page||!safeId(page.id))return new Response('Invalid page',{status:400});
+        return stub.fetch(new Request('https://board.internal/page-updated',{
+          method:'POST',
+          headers:{'Content-Type':'application/json','X-Board-Internal-Secret':secret},
+          body:JSON.stringify({page})
+        }));
       }
       if(url.pathname==='/internal/board-page-created'){
         const page=body?.page;
@@ -133,6 +142,17 @@ export class BoardRoom {
 
   async fetch(request) {
     const url=new URL(request.url);
+    if(request.method==='POST'&&url.pathname==='/page-updated'){
+      const secret=String(this.env.BOARD_REALTIME_SECRET || '');
+      if(!secret||!secureEqualString(request.headers.get('X-Board-Internal-Secret'),secret))return new Response('Unauthorized',{status:401});
+      let body;try{body=await request.json();}catch{return new Response('Invalid JSON',{status:400});}
+      const page=body?.page;if(!page||!safeId(page.id))return new Response('Invalid page',{status:400});
+      this.broadcast({type:'page_updated',page:{
+        id:String(page.id),page_no:Number(page.page_no)||0,title:String(page.title||'').slice(0,100),
+        background_type:String(page.background_type||'white'),canvas_width:1600,canvas_height:900,revision:Number(page.revision)||1
+      }});
+      return new Response('OK');
+    }
     if(request.method==='POST'&&url.pathname==='/page-created'){
       const secret=String(this.env.BOARD_REALTIME_SECRET || '');
       if(!secret||!secureEqualString(request.headers.get('X-Board-Internal-Secret'),secret))return new Response('Unauthorized',{status:401});
