@@ -337,6 +337,21 @@ export class BoardRoom {
         this.broadcast({type:'clear_page',pageId},null,pageId);
         continue;
       }
+      if (kind==='clear_user_objects' && canManage) {
+        const targetUserId=safeId(raw.targetUserId),pageId=safeId(raw.pageId);
+        if(!targetUserId||!pageId||pageId!==actor.pageId)continue;
+        const rows=await this.ctx.storage.list({prefix:'obj:'+pageId+':'});
+        const keys=[],objectIds=[];
+        for(const [key,value] of rows){
+          if(value?.creatorId===targetUserId){keys.push(key);objectIds.push(value.id);}
+        }
+        if(keys.length)await this.ctx.storage.delete(keys);
+        const countKey='count:'+pageId;
+        const objectCount=Number(await this.ctx.storage.get(countKey));
+        if(Number.isFinite(objectCount))await this.ctx.storage.put(countKey,Math.max(0,objectCount-keys.length));
+        this.broadcast({type:'clear_user_objects',pageId,targetUserId,objectIds},null,pageId);
+        continue;
+      }
       if (kind==='set_user_lock' && canManage) {
         const targetUserId=safeId(raw.targetUserId);
         const blocked=raw.blocked===true;
