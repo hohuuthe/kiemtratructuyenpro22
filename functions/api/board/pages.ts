@@ -50,7 +50,7 @@ export const onRequestPost: PagesFunction=async(context:any)=>{
     await bumpBoard(db,boardId);
     const created={id,board_id:boardId,page_no:pageNo,title,background_type:background(input.background_type),canvas_width:1600,canvas_height:900,revision:1};
     try{
-      const secret=String(context.env?.BOARD_REALTIME_SECRET||context.env?.JWT_SECRET||'').trim();
+      const secret=String(context.env?.BOARD_REALTIME_SECRET||'').trim();
       if(secret&&context.env?.BOARD_REALTIME?.fetch){
         const route=resolveTenantRoutingFromRequest(context.request,context.env);
         await context.env.BOARD_REALTIME.fetch(new Request('https://board.internal/internal/board-page-created',{
@@ -97,7 +97,7 @@ export const onRequestDelete: PagesFunction=async(context:any)=>{
     await db.prepare('DELETE FROM interactive_board_pages WHERE id=?').bind(pageId).run();
     await bumpBoard(db,String(page.board_id));
     try{
-      const secret=String(context.env?.BOARD_REALTIME_SECRET||context.env?.JWT_SECRET||'').trim();
+      const secret=String(context.env?.BOARD_REALTIME_SECRET||'').trim();
       if(secret&&context.env?.BOARD_REALTIME?.fetch){
         const route=resolveTenantRoutingFromRequest(context.request,context.env);
         await context.env.BOARD_REALTIME.fetch(new Request('https://board.internal/internal/board-page-reset',{
