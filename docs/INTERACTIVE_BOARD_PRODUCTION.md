@@ -84,7 +84,8 @@ Kết quả đạt phải có:
     "database": true,
     "realtime_secret": true,
     "realtime_binding": true,
-    "realtime_worker": true
+    "realtime_worker": true,
+    "durable_object": true
   }
 }
 ```
