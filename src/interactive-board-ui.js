@@ -3,7 +3,8 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 let actor=null,manage=false,list=[],page=1,total=0,generation=0,wired=false,pendingBoard=null;
 let ws=null,room=null,objects=new Map(),remoteStrokes=new Map(),tool='pen',drawing=null,lastSegmentIndex=0,locked=false;
 let activeBoard=null,activeAccessCode='',manualExit=false,reconnectTimer=null,reconnectAttempts=0;
-let roomTokenExpiresAt=0,tokenRefreshAttempts=0;
+let roomTokenExpiresAt=0,tokenRefreshAttempts=0,currentPageId='';
+let undoStack=[],redoStack=[];
 
 function token(){return localStorage.getItem(window.tenantStorageKey?window.tenantStorageKey('auth_token'):'auth_token')||'';}
 async function api(method,url,body){
@@ -50,11 +51,14 @@ function closeCode(){pendingBoard=null;$('board-code-modal')?.classList.add('hid
 
 async function join(b,accessCode='',options={}){
  try{
-  const result=await api('POST','/api/board/join',{boardId:b.id,accessCode});
+  const result=await api('POST','/api/board/join',{boardId:b.id,accessCode,pageId:options.pageId||currentPageId||undefined});
   activeBoard=b;activeAccessCode=accessCode;manualExit=false;room=result.data;
   roomTokenExpiresAt=Date.now()+Math.max(30,Number(room.token_expires_in)||300)*1000-10000;
+  currentPageId=String(room.current_page_id||room.pages?.[0]?.id||'');
   if(!options.reconnect){objects.clear();remoteStrokes.clear();tokenRefreshAttempts=0;}
+  if(options.pageSwitch){undoStack=[];redoStack=[];}
   locked=room.board.status==='locked';
+  renderPageControls();
   $('boards-home')?.classList.add('hidden');$('board-room')?.classList.remove('hidden');$('board-room-title').textContent=room.board.name;
   $('board-lock')?.classList.toggle('hidden',!room.board.can_manage);$('board-clear')?.classList.toggle('hidden',!room.board.can_manage);
   connectSocket();
@@ -102,6 +106,56 @@ function handleMessage(m){
  if(m.type==='board_deleted'){manualExit=true;window.showToast?.('Bảng này đã được giáo viên xóa.','info');exitRoom();return;}
 }
 function sendOps(ops){if(ws?.readyState===WebSocket.OPEN&&ops.length)ws.send(JSON.stringify({type:'op_batch',ops}));}
+function myId(){return String(actor?.id||actor?.user_id||'');}
+function remember(action){undoStack.push(action);if(undoStack.length>100)undoStack.shift();redoStack=[];syncHistoryButtons();}
+function syncHistoryButtons(){if($('board-undo'))$('board-undo').disabled=!undoStack.length;if($('board-redo'))$('board-redo').disabled=!redoStack.length;}
+function renderPageControls(){
+ const select=$('board-page-select');if(!select||!room)return;
+ const pages=room.pages||[];
+ select.innerHTML=pages.map(p=>'<option value="'+esc(p.id)+'">'+esc((p.page_no||'')+'. '+(p.title||'Trang'))+'</option>').join('');
+ select.value=currentPageId||pages[0]?.id||'';
+ const idx=pages.findIndex(p=>String(p.id)===String(select.value));
+ if($('board-page-prev'))$('board-page-prev').disabled=idx<=0;
+ if($('board-page-next'))$('board-page-next').disabled=idx<0||idx>=pages.length-1;
+ $('board-add-page')?.classList.toggle('hidden',!room.board.can_manage);
+ $('board-delete-page')?.classList.toggle('hidden',!room.board.can_manage||pages.length<=1);
+}
+async function switchPage(pageId){
+ if(!room||!pageId||pageId===currentPageId)return;
+ try{
+   manualExit=false;
+   if(ws)try{ws.onclose=null;ws.close(1000,'switch page')}catch{}
+   ws=null;objects.clear();remoteStrokes.clear();drawing=null;render();
+   await join(activeBoard,activeAccessCode,{pageId,pageSwitch:true});
+ }catch(e){window.showToast?.(e.message||'Không thể chuyển trang.','error');}
+}
+function hitObject(point){
+ const [x,y]=point,items=[...objects.values()].reverse();
+ for(const o of items){
+  if(o.pageId!==currentPageId)continue;
+  if(!room?.board?.can_manage && String(o.creatorId||'')!==myId())continue;
+  if((o.type==='note'||o.type==='text')&&x>=o.x&&x<=o.x+(o.w||220)&&y>=o.y&&y<=o.y+(o.h||120))return o;
+  if(o.type==='stroke'&&Array.isArray(o.points)){
+   const threshold=Math.max(12,(o.width||3)*3);
+   for(let i=0;i<o.points.length;i+=Math.max(1,Math.floor(o.points.length/180))){
+    const p=o.points[i];if(Math.hypot(x-p[0],y-p[1])<=threshold)return o;
+   }
+  }
+ }
+ return null;
+}
+async function undo(){
+ const action=undoStack.pop();if(!action)return;
+ if(action.kind==='put'){sendOps([{kind:'delete',pageId:action.object.pageId,objectId:action.object.id}]);objects.delete(action.object.id);}
+ else if(action.kind==='delete'){sendOps([{kind:'put',object:action.object}]);objects.set(action.object.id,action.object);}
+ redoStack.push(action);syncHistoryButtons();render();
+}
+async function redo(){
+ const action=redoStack.pop();if(!action)return;
+ if(action.kind==='put'){sendOps([{kind:'put',object:action.object}]);objects.set(action.object.id,action.object);}
+ else if(action.kind==='delete'){sendOps([{kind:'delete',pageId:action.object.pageId,objectId:action.object.id}]);objects.delete(action.object.id);}
+ undoStack.push(action);syncHistoryButtons();render();
+}
 function renderParticipants(items){$('board-online-count').textContent=items.length+' người';$('board-participants').innerHTML=items.map(p=>'<div class="rounded-lg bg-white border px-3 py-2"><p class="font-bold truncate">'+esc(p.displayName)+'</p><p class="text-[11px] text-slate-500">'+esc(p.role==='teacher'?'Giáo viên':p.role==='admin'?'Admin':'Học sinh')+'</p></div>').join('');}
 function syncLockUi(){const overlay=$('board-locked-overlay');overlay?.classList.toggle('hidden',!locked);const btn=$('board-lock');if(btn&&!btn.classList.contains('hidden'))btn.textContent=locked?'🔓 Mở cho HS':'🔒 Khóa HS';}
 function canvas(){return $('board-canvas');}
@@ -120,15 +174,16 @@ function noteText(){return ($('board-note-text')?.value||$('board-note-text-mobi
 function canEdit(){return room?.board?.can_manage||(!locked&&room?.board?.student_permission!=='view');}
 function pointerDown(e){
  if(!room||!canEdit())return;const p=logicalPoint(e);canvas().setPointerCapture?.(e.pointerId);
- if(tool==='note'){if(!room.board.can_manage&&room.board.student_permission==='view')return;const text=noteText();if(!text){window.showToast?.('Nhập nội dung ghi chú trước.','info');return;}const o={id:crypto.randomUUID(),pageId:room.pages[0].id,type:'note',x:p[0],y:p[1],w:260,h:130,text,color:$('board-color').value,fontSize:20};objects.set(o.id,{...o,creatorId:actor?.id||actor?.user_id});sendOps([{kind:'put',object:o}]);render();return;}
- if(!room.board.can_manage&&room.board.student_permission!=='draw')return;drawing={id:crypto.randomUUID(),pageId:room.pages[0].id,type:'stroke',points:[p],color:$('board-color').value,width:Number($('board-width').value)||3};lastSegmentIndex=0;
+ if(tool==='note'){if(!room.board.can_manage&&room.board.student_permission==='view')return;const text=noteText();if(!text){window.showToast?.('Nhập nội dung ghi chú trước.','info');return;}const o={id:crypto.randomUUID(),pageId:currentPageId,type:'note',x:p[0],y:p[1],w:260,h:130,text,color:$('board-color').value,fontSize:20,creatorId:myId()};objects.set(o.id,o);sendOps([{kind:'put',object:o}]);remember({kind:'put',object:o});render();return;}
+ if(tool==='eraser'){const target=hitObject(p);if(target){sendOps([{kind:'delete',pageId:target.pageId,objectId:target.id}]);objects.delete(target.id);remember({kind:'delete',object:target});render();}return;}
+ if(!room.board.can_manage&&room.board.student_permission!=='draw')return;drawing={id:crypto.randomUUID(),pageId:currentPageId,type:'stroke',points:[p],color:$('board-color').value,width:Number($('board-width').value)||3};lastSegmentIndex=0;
 }
 function pointerMove(e){if(!drawing)return;const p=logicalPoint(e),last=drawing.points[drawing.points.length-1];if(Math.hypot(p[0]-last[0],p[1]-last[1])<2)return;drawing.points.push(p);if(drawing.points.length-lastSegmentIndex>=8){const pts=drawing.points.slice(lastSegmentIndex);lastSegmentIndex=drawing.points.length-1;sendOps([{kind:'stroke_segment',pageId:drawing.pageId,objectId:drawing.id,points:pts,color:drawing.color,width:drawing.width}]);}render();}
-function pointerUp(){if(!drawing)return;const done=drawing;drawing=null;if(done.points.length>1){objects.set(done.id,{...done,creatorId:actor?.id||actor?.user_id});sendOps([{kind:'put',object:done}]);}render();}
+function pointerUp(){if(!drawing)return;const done={...drawing,creatorId:myId()};drawing=null;if(done.points.length>1){objects.set(done.id,done);sendOps([{kind:'put',object:done}]);remember({kind:'put',object:done});}render();}
 function exitRoom(){
  manualExit=true;if(reconnectTimer){clearTimeout(reconnectTimer);reconnectTimer=null;}
  if(ws)try{ws.onclose=null;ws.close(1000,'exit')}catch{};ws=null;room=null;activeBoard=null;activeAccessCode='';reconnectAttempts=0;
- roomTokenExpiresAt=0;tokenRefreshAttempts=0;objects.clear();remoteStrokes.clear();drawing=null;$('board-room')?.classList.add('hidden');$('boards-home')?.classList.remove('hidden');
+ roomTokenExpiresAt=0;tokenRefreshAttempts=0;currentPageId='';undoStack=[];redoStack=[];objects.clear();remoteStrokes.clear();drawing=null;$('board-room')?.classList.add('hidden');$('boards-home')?.classList.remove('hidden');
 }
 
 export function resetInteractiveBoards(){generation++;list=[];actor=null;manage=false;page=1;total=0;exitRoom();}
@@ -151,5 +206,11 @@ export function connectInteractiveBoards(){
  canvas()?.addEventListener('pointerdown',pointerDown);canvas()?.addEventListener('pointermove',pointerMove);canvas()?.addEventListener('pointerup',pointerUp);canvas()?.addEventListener('pointercancel',pointerUp);
  $('board-exit')?.addEventListener('click',exitRoom);
  $('board-lock')?.addEventListener('click',()=>{if(room?.board?.can_manage)sendOps([{kind:locked?'unlock':'lock'}]);});
- $('board-clear')?.addEventListener('click',()=>{if(!room?.board?.can_manage)return;window.showConfirmModal?.('Xóa toàn bộ nội dung đang có trên trang bảng này?',()=>sendOps([{kind:'clear_page',pageId:room.pages[0].id}]));});
+ $('board-clear')?.addEventListener('click',()=>{if(!room?.board?.can_manage)return;window.showConfirmModal?.('Xóa toàn bộ nội dung đang có trên trang bảng này?',()=>{sendOps([{kind:'clear_page',pageId:currentPageId}]);undoStack=[];redoStack=[];syncHistoryButtons();});});
+ $('board-page-select')?.addEventListener('change',e=>switchPage(e.target.value));
+ $('board-page-prev')?.addEventListener('click',()=>{const pages=room?.pages||[],i=pages.findIndex(p=>String(p.id)===String(currentPageId));if(i>0)switchPage(pages[i-1].id);});
+ $('board-page-next')?.addEventListener('click',()=>{const pages=room?.pages||[],i=pages.findIndex(p=>String(p.id)===String(currentPageId));if(i>=0&&i<pages.length-1)switchPage(pages[i+1].id);});
+ $('board-add-page')?.addEventListener('click',async()=>{if(!room?.board?.can_manage)return;try{const result=await api('POST','/api/board/pages',{boardId:room.board.id});room.pages=[...(room.pages||[]),result.data];renderPageControls();await switchPage(result.data.id);}catch(e){window.showToast?.(e.message||'Không thể thêm trang.','error');}});
+ $('board-delete-page')?.addEventListener('click',()=>{if(!room?.board?.can_manage||!currentPageId)return;const target=(room.pages||[]).find(p=>String(p.id)===String(currentPageId));window.showConfirmModal?.('Xóa trang “'+(target?.title||'')+'”?',async()=>{try{await api('DELETE','/api/board/pages?id='+encodeURIComponent(currentPageId));room.pages=(room.pages||[]).filter(p=>String(p.id)!==String(currentPageId));const next=room.pages[0];if(next)await switchPage(next.id);renderPageControls();}catch(e){window.showToast?.(e.message||'Không thể xóa trang.','error');}});});
+ $('board-undo')?.addEventListener('click',undo);$('board-redo')?.addEventListener('click',redo);syncHistoryButtons();
 }
