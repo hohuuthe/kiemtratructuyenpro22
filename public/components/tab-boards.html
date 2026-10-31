@@ -14,6 +14,7 @@
   <div class="min-w-0"><h2 id="board-room-title" class="font-black text-lg truncate">Bảng tương tác</h2><p id="board-room-status" class="text-xs text-slate-500">Đang kết nối...</p></div>
   <div class="flex flex-wrap gap-2">
    <button id="board-add-page" type="button" class="hidden rounded-lg bg-blue-100 text-blue-800 px-3 py-2 font-bold text-sm">＋ Trang</button>
+   <button id="board-edit-page" type="button" class="hidden rounded-lg bg-slate-100 text-slate-700 px-3 py-2 font-bold text-sm">✎ Trang</button>
    <button id="board-delete-page" type="button" class="hidden rounded-lg bg-rose-50 text-rose-700 px-3 py-2 font-bold text-sm">Xóa trang</button>
    <button id="board-lock" type="button" class="hidden rounded-lg bg-amber-100 text-amber-900 px-3 py-2 font-bold text-sm">🔒 Khóa HS</button>
    <button id="board-export-image" type="button" class="rounded-lg bg-white border px-3 py-2 font-bold text-sm">🖼️ Xuất ảnh</button>
@@ -76,6 +77,16 @@
   <label id="board-code-field" class="hidden text-sm font-bold">Mã bảo mật<input name="access_code" type="password" maxlength="200" autocomplete="new-password" class="mt-1 w-full border rounded-lg p-3 font-normal" placeholder="Để trống khi sửa nếu không đổi mã"></label>
   <div class="grid sm:grid-cols-2 gap-3"><label class="text-sm font-bold">Bắt đầu<input name="starts_at" type="datetime-local" class="mt-1 w-full border rounded-lg p-3 font-normal"></label><label class="text-sm font-bold">Kết thúc<input name="ends_at" type="datetime-local" class="mt-1 w-full border rounded-lg p-3 font-normal"></label></div>
   <div class="flex justify-end gap-2 border-t pt-4"><button id="board-edit-cancel" type="button" class="rounded-xl border px-4 py-3 font-bold">Hủy</button><button type="submit" class="rounded-xl bg-emerald-700 text-white px-5 py-3 font-bold">Lưu bảng</button></div>
+ </form>
+</div>
+
+<div id="board-page-modal" class="hidden fixed inset-0 z-[224] bg-black/60 p-3 flex items-center justify-center" role="dialog" aria-modal="true">
+ <form id="board-page-form" class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5 space-y-4">
+  <h3 class="font-black text-lg">Cấu hình trang</h3>
+  <input type="hidden" name="id"><input type="hidden" name="revision">
+  <label class="block text-sm font-bold">Tên trang<input name="title" maxlength="100" class="mt-1 w-full border rounded-lg p-3 font-normal"></label>
+  <label class="block text-sm font-bold">Nền trang<select name="background_type" class="mt-1 w-full border rounded-lg p-3 font-normal"><option value="white">Trắng</option><option value="grid">Lưới</option><option value="lined">Dòng kẻ</option><option value="dots">Chấm</option></select></label>
+  <div class="flex justify-end gap-2"><button id="board-page-cancel" type="button" class="rounded-lg border px-4 py-2 font-bold">Hủy</button><button type="submit" class="rounded-lg bg-emerald-700 text-white px-4 py-2 font-bold">Lưu</button></div>
  </form>
 </div>
 
