@@ -13,3 +13,6 @@ new_sqlite_classes = ["BoardRoom"]
 
 # Secret bắt buộc, đặt cùng giá trị với Pages:
 #   npx wrangler secret put BOARD_REALTIME_SECRET --config wrangler.board.toml
+
+[secrets]
+required = ["BOARD_REALTIME_SECRET"]
