@@ -1,0 +1,52 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {finalizeWordExport,canExportMathTypeHere,isMathTypePreviewHost} from '../src/word-export-format.js';
+
+const app=fs.readFileSync(new URL('../src/main.js',import.meta.url),'utf8');
+const examStart=app.indexOf('window.openExportDocxModal = async function');
+const examEnd=app.indexOf('async function fetchAllExamsChunked(',examStart);
+const exam=app.slice(examStart,examEnd);
+const bankStart=app.indexOf('📤 Tùy chọn xuất file Word');
+const bankExec=app.indexOf('window.executeExportWord = async function',bankStart);
+const bankEnd=app.indexOf('window.exportStatsToExcel',bankExec);
+const bank=app.slice(bankStart,bankEnd);
+
+test('Equation stays the default in both Preview export dialogs',()=>{
+  assert.ok(examStart>=0&&examEnd>examStart);
+  assert.match(exam,/name="docx-equation-format" value="equation" checked/);
+  assert.match(exam,/name="docx-equation-format" value="mathtype"/);
+  assert.match(bank,/name="bank-word-equation-format" value="equation" checked/);
+  assert.match(bank,/name="bank-word-equation-format" value="mathtype"/);
+});
+
+test('MathType is Preview-host-only and Production/custom domains remain locked',()=>{
+  assert.equal(isMathTypePreviewHost('feat-word-export-mathtype-20.kiemtratructuyenpro.pages.dev'),true);
+  assert.equal(isMathTypePreviewHost('947ce87a.kiemtratructuyenpro.pages.dev'),true);
+  assert.equal(isMathTypePreviewHost('kiemtratructuyenpro.pages.dev'),false);
+  assert.equal(canExportMathTypeHere('testpro.id.vn'),false);
+  assert.equal(canExportMathTypeHere('kiemtratructuyenpro.pages.dev'),false);
+});
+
+test('Equation finalize path is an object-identity no-op',async()=>{
+  const blob=new Blob(['unchanged-equation-docx']);
+  assert.equal(await finalizeWordExport(blob,{equationFormat:'equation',hostname:'testpro.id.vn'}),blob);
+});
+
+test('Exam MathType selection bypasses the existing server Equation ZIP and post-processes only client DOCX',()=>{
+  assert.match(exam,/const equationFormat = document\.querySelector\('input\[name="docx-equation-format"\]:checked'\)\?\.value \|\| 'equation'/);
+  assert.match(exam,/let useClientFallback = equationFormat === 'mathtype'/);
+  assert.match(exam,/if \(!useClientFallback\) try \{/);
+  assert.match(exam,/generateDocxClientSide\(targetExamId, headerOpts, soLuongDe, updateProgress, equationFormat\)/);
+  assert.match(exam,/const equationBlob = await generateExamDocx\(currentHeader, selectedQuestions\)/);
+  assert.match(exam,/const docBlob = await finalizeWordExport\(equationBlob,/);
+});
+
+test('Question-bank MathType selection post-processes the generated copy and saves outputBlob',()=>{
+  assert.match(bank,/const equationFormat = modal\.querySelector\('input\[name="bank-word-equation-format"\]:checked'\)\?\.value \|\| 'equation'/);
+  assert.match(bank,/const outputBlob = await finalizeWordExport\(blob,/);
+  assert.match(bank,/writeQuestionBankWordFile\(choice\.handle, outputBlob\)/);
+  assert.match(bank,/createQuestionBankWordDownload\(outputBlob, downloadName\)/);
+  assert.doesNotMatch(bank,/writeQuestionBankWordFile\(choice\.handle, blob\)/);
+  assert.doesNotMatch(bank,/createQuestionBankWordDownload\(blob, downloadName\)/);
+});
