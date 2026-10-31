@@ -5,6 +5,7 @@ let ws=null,room=null,objects=new Map(),remoteStrokes=new Map(),tool='pen',drawi
 let activeBoard=null,activeAccessCode='',manualExit=false,reconnectTimer=null,reconnectAttempts=0;
 let roomTokenExpiresAt=0,tokenRefreshAttempts=0,currentPageId='';
 let undoStack=[],redoStack=[],renderQueued=false,lastRateNotice=0,userLocked=false;
+let pendingReliable=new Map();
 
 function token(){return localStorage.getItem(window.tenantStorageKey?window.tenantStorageKey('auth_token'):'auth_token')||'';}
 async function api(method,url,body){
@@ -75,7 +76,7 @@ function wsUrl(path){const u=new URL(path,location.href);u.protocol=location.pro
 function connectSocket(){
  if(ws)try{ws.onclose=null;ws.close()}catch{};if(!room)return;const socket=new WebSocket(wsUrl(room.realtime_path));ws=socket;
  $('board-room-status').textContent=reconnectAttempts?'Đang kết nối lại...':'Đang kết nối realtime...';
- socket.onopen=()=>{reconnectAttempts=0;if(reconnectTimer){clearTimeout(reconnectTimer);reconnectTimer=null;}$('board-room-status').textContent='Đã kết nối realtime';};
+ socket.onopen=()=>{reconnectAttempts=0;if(reconnectTimer){clearTimeout(reconnectTimer);reconnectTimer=null;}$('board-room-status').textContent='Đã kết nối realtime';for(const payload of pendingReliable.values()){try{socket.send(payload)}catch{}}};
  socket.onclose=()=>{if(ws!==socket||manualExit)return;$('board-room-status').textContent='Mất kết nối — đang thử kết nối lại...';scheduleReconnect();};
  socket.onerror=()=>{$('board-room-status').textContent='Kết nối realtime không ổn định';};
  socket.onmessage=e=>{let m;try{m=JSON.parse(e.data)}catch{return;}handleMessage(m);};
@@ -101,6 +102,7 @@ function handleMessage(m){
  if(m.type==='stroke_segment'){let s=remoteStrokes.get(m.objectId);if(!s){s={id:m.objectId,pageId:m.pageId,type:'stroke',points:[],color:m.color,width:m.width};remoteStrokes.set(m.objectId,s);}s.points.push(...(m.points||[]));scheduleRender();return;}
  if(m.type==='page_created'&&m.page){if(!room.pages.some(p=>String(p.id)===String(m.page.id))){room.pages=[...room.pages,m.page].sort((a,b)=>(a.page_no||0)-(b.page_no||0));renderPageControls();}return;}
  if(m.type==='page_deleted'){room.pages=(room.pages||[]).filter(p=>String(p.id)!==String(m.pageId));renderPageControls();if(String(m.pageId)===String(currentPageId)){const next=room.pages[0];if(next)switchPage(next.id);else exitRoom();}return;}
+ if(m.type==='op_ack'&&m.clientOpId){pendingReliable.delete(String(m.clientOpId));return;}
  if(m.type==='stroke_cancel'){remoteStrokes.delete(m.objectId);scheduleRender();return;}
  if(m.type==='user_lock_state'){userLocked=!!m.blocked;syncLockUi();window.showToast?.(userLocked?'Giáo viên đã tạm khóa quyền tương tác của bạn.':'Giáo viên đã mở lại quyền tương tác cho bạn.','info');return;}
  if(m.type==='rate_limited'){const now=Date.now();if(now-lastRateNotice>5000){lastRateNotice=now;window.showToast?.('Thao tác quá nhanh, hệ thống đang giảm nhịp để bảo vệ lớp học.','info');}return;}
@@ -110,7 +112,17 @@ function handleMessage(m){
  if(m.type==='board_unavailable'){manualExit=true;window.showToast?.('Bảng đã đóng hoặc tạm ngừng truy cập.','info');exitRoom();return;}
  if(m.type==='board_deleted'){manualExit=true;window.showToast?.('Bảng này đã được giáo viên xóa.','info');exitRoom();return;}
 }
-function sendOps(ops){if(ws?.readyState===WebSocket.OPEN&&ops.length)ws.send(JSON.stringify({type:'op_batch',ops}));}
+function sendOps(ops){
+ if(!ops.length)return;
+ const transient=ops.every(op=>op.kind==='stroke_segment');
+ const clientOpId=transient?'':crypto.randomUUID();
+ const payload=JSON.stringify({type:'op_batch',clientOpId:clientOpId||undefined,ops});
+ if(!transient&&clientOpId){
+   pendingReliable.set(clientOpId,payload);
+   if(pendingReliable.size>40){const oldest=pendingReliable.keys().next().value;pendingReliable.delete(oldest);}
+ }
+ if(ws?.readyState===WebSocket.OPEN)ws.send(payload);
+}
 function myId(){return String(actor?.id||actor?.user_id||'');}
 function remember(action){undoStack.push(action);if(undoStack.length>100)undoStack.shift();redoStack=[];syncHistoryButtons();}
 function syncHistoryButtons(){if($('board-undo'))$('board-undo').disabled=!undoStack.length;if($('board-redo'))$('board-redo').disabled=!redoStack.length;}
@@ -179,7 +191,7 @@ function syncLockUi(){
  const btn=$('board-lock');if(btn&&!btn.classList.contains('hidden'))btn.textContent=locked?'🔓 Mở cho HS':'🔒 Khóa HS';
 }
 function canvas(){return $('board-canvas');}
-function logicalPoint(ev){const c=canvas(),r=c.getBoundingClientRect();return [(ev.clientX-r.left)*1600/r.width,(ev.clientY-r.top)*900/r.height];}
+function logicalPoint(ev){const c=canvas(),r=c.getBoundingClientRect();return [Math.round((ev.clientX-r.left)*1600/r.width),Math.round((ev.clientY-r.top)*900/r.height)];}
 function scheduleRender(){if(renderQueued)return;renderQueued=true;requestAnimationFrame(()=>{renderQueued=false;render();});}
 function applyPageBackground(){
  const wrap=$('board-canvas-wrap'),page=(room?.pages||[]).find(p=>String(p.id)===String(currentPageId));if(!wrap)return;
@@ -228,7 +240,7 @@ function pointerUp(){
 function exitRoom(){
  manualExit=true;if(reconnectTimer){clearTimeout(reconnectTimer);reconnectTimer=null;}
  if(ws)try{ws.onclose=null;ws.close(1000,'exit')}catch{};ws=null;room=null;activeBoard=null;activeAccessCode='';reconnectAttempts=0;
- roomTokenExpiresAt=0;tokenRefreshAttempts=0;currentPageId='';userLocked=false;undoStack=[];redoStack=[];objects.clear();remoteStrokes.clear();drawing=null;$('board-room')?.classList.add('hidden');$('boards-home')?.classList.remove('hidden');
+ roomTokenExpiresAt=0;tokenRefreshAttempts=0;currentPageId='';userLocked=false;pendingReliable.clear();undoStack=[];redoStack=[];objects.clear();remoteStrokes.clear();drawing=null;$('board-room')?.classList.add('hidden');$('boards-home')?.classList.remove('hidden');
 }
 
 export function resetInteractiveBoards(){generation++;list=[];actor=null;manage=false;page=1;total=0;exitRoom();}
