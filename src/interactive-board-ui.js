@@ -116,6 +116,7 @@ function handleMessage(m){
  if(m.type==='laser'){remoteLasers.set(String(m.userId),{x:m.x,y:m.y,name:m.displayName||'Giáo viên',expires:Date.now()+900});scheduleRender();setTimeout(()=>{const v=remoteLasers.get(String(m.userId));if(v&&v.expires<=Date.now()){remoteLasers.delete(String(m.userId));scheduleRender();}},950);return;}
  if(m.type==='stroke_cancel'){remoteStrokes.delete(m.objectId);scheduleRender();return;}
  if(m.type==='user_lock_state'){userLocked=!!m.blocked;if(userLocked){drawing=null;dragState=null;scheduleRender();}syncLockUi();window.showToast?.(userLocked?'Giáo viên đã tạm khóa quyền tương tác của bạn.':'Giáo viên đã mở lại quyền tương tác cho bạn.','info');return;}
+ if(m.type==='vote_state'){const o=objects.get(String(m.objectId));if(o){o.voteCount=Math.max(0,Number(m.voteCount)||0);objects.set(o.id,o);scheduleRender();}return;}
  if(m.type==='timer_state'){timerState=m.timer||null;syncTimerUi();return;}
  if(m.type==='rate_limited'){const now=Date.now();if(now-lastRateNotice>5000){lastRateNotice=now;window.showToast?.('Thao tác quá nhanh, hệ thống đang giảm nhịp để bảo vệ lớp học.','info');}return;}
  if(m.type==='presence'){renderParticipants(m.participants||[]);return;}
@@ -276,6 +277,11 @@ function translateObject(o,dx,dy){
  else {n.x1+=dx;n.y1+=dy;n.x2+=dx;n.y2+=dy;}
  return n;
 }
+function hitVotable(point){
+ const [x,y]=point,items=[...objects.values()].reverse();
+ for(const o of items){if(o.pageId!==currentPageId||!['note','text'].includes(o.type))continue;if(x>=o.x&&x<=o.x+(o.w||220)&&y>=o.y&&y<=o.y+(o.h||120))return o;}
+ return null;
+}
 function hitObject(point){
  const [x,y]=point,items=[...objects.values()].reverse();
  for(const o of items){
@@ -348,7 +354,7 @@ function render(){
 function drawObject(ctx,o){
  if(!o)return;ctx.save();ctx.strokeStyle=o.color||'#111827';ctx.fillStyle=o.color||'#111827';ctx.lineWidth=o.width||3;ctx.lineCap='round';ctx.lineJoin='round';
  if(o.type==='stroke'&&o.points?.length){ctx.beginPath();o.points.forEach((p,i)=>i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]));ctx.stroke();}
- else if(o.type==='note'||o.type==='text'){ctx.fillStyle='#fff7c2';ctx.strokeStyle='#eab308';ctx.lineWidth=1.5;ctx.fillRect(o.x,o.y,o.w||220,o.h||120);ctx.strokeRect(o.x,o.y,o.w||220,o.h||120);ctx.fillStyle=o.color||'#111827';ctx.font=(o.fontSize||20)+'px sans-serif';wrapText(ctx,o.text||'',o.x+12,o.y+28,(o.w||220)-24,26);}
+ else if(o.type==='note'||o.type==='text'){ctx.fillStyle='#fff7c2';ctx.strokeStyle='#eab308';ctx.lineWidth=1.5;ctx.fillRect(o.x,o.y,o.w||220,o.h||120);ctx.strokeRect(o.x,o.y,o.w||220,o.h||120);ctx.fillStyle=o.color||'#111827';ctx.font=(o.fontSize||20)+'px sans-serif';wrapText(ctx,o.text||'',o.x+12,o.y+28,(o.w||220)-24,26);const votes=Math.max(0,Number(o.voteCount)||0);if(votes){ctx.font='bold 18px sans-serif';ctx.fillStyle='#475569';ctx.fillText('👍 '+votes,o.x+(o.w||220)-62,o.y+(o.h||120)-14);}}
  else if(o.type==='line'||o.type==='arrow'){ctx.beginPath();ctx.moveTo(o.x1,o.y1);ctx.lineTo(o.x2,o.y2);ctx.stroke();if(o.type==='arrow'){const a=Math.atan2(o.y2-o.y1,o.x2-o.x1),len=16+Math.min(16,(o.width||3)*2);ctx.beginPath();ctx.moveTo(o.x2,o.y2);ctx.lineTo(o.x2-len*Math.cos(a-Math.PI/6),o.y2-len*Math.sin(a-Math.PI/6));ctx.moveTo(o.x2,o.y2);ctx.lineTo(o.x2-len*Math.cos(a+Math.PI/6),o.y2-len*Math.sin(a+Math.PI/6));ctx.stroke();}}
  else if(o.type==='rect'){ctx.strokeRect(Math.min(o.x1,o.x2),Math.min(o.y1,o.y2),Math.abs(o.x2-o.x1),Math.abs(o.y2-o.y1));}
  else if(o.type==='ellipse'){const cx=(o.x1+o.x2)/2,cy=(o.y1+o.y2)/2,rx=Math.abs(o.x2-o.x1)/2,ry=Math.abs(o.y2-o.y1)/2;ctx.beginPath();ctx.ellipse(cx,cy,Math.max(1,rx),Math.max(1,ry),0,0,Math.PI*2);ctx.stroke();}
@@ -360,6 +366,7 @@ function canEdit(){if(snapshotLoading)return false;return room?.board?.can_manag
 function pointerDown(e){
  if(!room)return;const p=logicalPoint(e);canvas().setPointerCapture?.(e.pointerId);
  if(tool==='pan'){const stage=$('board-stage-scroll');panDrag={clientX:e.clientX,clientY:e.clientY,left:stage?.scrollLeft||0,top:stage?.scrollTop||0};return;}
+ if(tool==='vote'){if(locked||userLocked)return;const target=hitVotable(p);if(target)sendOps([{kind:'vote_toggle',pageId:currentPageId,objectId:target.id}]);return;}
  if(!canEdit())return;
  if(tool==='laser'){return;}
  if(tool==='select'){
