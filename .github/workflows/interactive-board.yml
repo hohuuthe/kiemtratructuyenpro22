@@ -5,7 +5,7 @@ on:
     paths:
       - 'functions/api/board/**'
       - 'functions/api/boards.ts'
-      - 'functions/[slug]/api/[[path]].ts'
+      - 'functions/**/api/**'
       - 'src/interactive-board-ui.js'
       - 'src/main.js'
       - 'public/components/tab-boards.html'
