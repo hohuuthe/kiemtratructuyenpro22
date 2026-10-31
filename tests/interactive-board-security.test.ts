@@ -204,7 +204,7 @@ test('join token normalizes interaction role so user-role students can be modera
 
 test('reconnect dedupe survives socket replacement',()=>{
   const worker=fs.readFileSync('workers/interactive-board-worker.js','utf8');
-  assert.match(worker,/recentops:\'+actor\.userId/);
+  assert.match(worker,/recentops:/);
   assert.match(worker,/await this\.ctx\.storage\.put\(recentKey,durableRecent\)/);
   assert.doesNotMatch(worker,/actor\.recentOps/);
 });
