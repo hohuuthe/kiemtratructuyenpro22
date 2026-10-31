@@ -175,9 +175,11 @@ export function ommlToAst(node) {
       validateChildren(n,['borderBoxPr','e']);
       const pr=props(n,'borderBoxPr',['hideTop','hideBot','hideLeft','hideRight','strikeH','strikeV','strikeBLTR','strikeTLBR','noBreak']);
       const flag=name=>bool(mchild(pr,name),false);
+      const noBreak=flag('noBreak');
+      if(noBreak)unsupported(n,'borderBox noBreak has no qualified MTEF equivalent');
       return {k:'borderBox',body:arg(n,'e',depth),hideTop:flag('hideTop'),hideBottom:flag('hideBot'),
         hideLeft:flag('hideLeft'),hideRight:flag('hideRight'),strikeH:flag('strikeH'),
-        strikeV:flag('strikeV'),strikeBLTR:flag('strikeBLTR'),strikeTLBR:flag('strikeTLBR')};
+        strikeV:flag('strikeV'),strikeBLTR:flag('strikeBLTR'),strikeTLBR:flag('strikeTLBR'),noBreak};
     }
     if(k==='limLow'||k==='limUpp'){
       validateChildren(n,[k+'Pr','e','lim']);props(n,k+'Pr');
