@@ -19,6 +19,136 @@ function feedback(text,error=false){const el=$('boards-feedback');if(!el)return;
 function dateLocal(v){if(!v)return '';const d=new Date(v);if(Number.isNaN(d.getTime()))return '';const pad=n=>String(n).padStart(2,'0');return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+'T'+pad(d.getHours())+':'+pad(d.getMinutes());}
 function statusLabel(v){return {draft:'Nháp',open:'Đang mở',locked:'Đang khóa',closed:'Đã đóng',archived:'Lưu trữ'}[v]||v;}
 function modeLabel(v){return {public:'Công khai',unit:'Theo lớp/đơn vị',protected:'Mã bảo mật'}[v]||v;}
+
+const BOARD_BUTTON_HELP={
+ 'boards-new':'Tạo một Bảng tương tác thông minh mới.',
+ 'boards-reload':'Tải lại danh sách bảng theo dữ liệu mới nhất.',
+ 'boards-prev':'Xem trang danh sách bảng trước.',
+ 'boards-next':'Xem trang danh sách bảng tiếp theo.',
+ 'board-add-page':'Thêm một trang trắng mới vào bảng hiện tại.',
+ 'board-edit-page':'Đổi tên hoặc kiểu nền của trang hiện tại.',
+ 'board-delete-page':'Xóa trang hiện tại khỏi bảng.',
+ 'board-bring-here':'Yêu cầu học sinh đang theo giáo viên chuyển tới trang này.',
+ 'board-follow-teacher':'Bật/tắt tự động chuyển trang theo giáo viên.',
+ 'board-lock':'Khóa hoặc mở quyền tương tác của toàn bộ học sinh.',
+ 'board-ai':'Mở trợ lý AI để tóm tắt, gom nhóm hoặc rút ý từ nội dung bảng.',
+ 'board-template':'Chèn nhanh một mẫu hoạt động lớp học vào trang hiện tại.',
+ 'board-timer':'Tạo hoặc quản lý đồng hồ đếm ngược cho hoạt động.',
+ 'board-export-pdf':'Xuất toàn bộ các trang của bảng thành file PDF.',
+ 'board-export-image':'Xuất trang hiện tại thành ảnh PNG.',
+ 'board-fullscreen':'Bật hoặc thoát chế độ toàn màn hình.',
+ 'board-clear':'Xóa toàn bộ nội dung trên trang hiện tại.',
+ 'board-exit':'Rời Bảng tương tác và quay về danh sách.',
+ 'board-undo':'Hoàn tác thao tác gần nhất (Ctrl/Cmd + Z).',
+ 'board-redo':'Làm lại thao tác vừa hoàn tác (Ctrl/Cmd + Y).',
+ 'board-page-prev':'Chuyển sang trang trước của bảng.',
+ 'board-page-next':'Chuyển sang trang tiếp theo của bảng.',
+ 'board-zoom-out':'Thu nhỏ vùng bảng để xem rộng hơn.',
+ 'board-zoom-label':'Đưa mức thu phóng về 100% và về đầu trang.',
+ 'board-zoom-in':'Phóng to vùng bảng để thao tác chi tiết hơn.',
+ 'board-edit-close':'Đóng cửa sổ cấu hình bảng mà không lưu.',
+ 'board-edit-cancel':'Hủy thay đổi và đóng cửa sổ cấu hình bảng.',
+ 'board-page-cancel':'Hủy thay đổi cấu hình trang.',
+ 'board-ai-close':'Đóng cửa sổ Trợ lý AI.',
+ 'board-ai-insert':'Chèn kết quả AI vừa tạo lên trang hiện tại.',
+ 'board-ai-run':'Gửi nội dung chữ của trang hiện tại cho AI phân tích.',
+ 'board-template-close':'Đóng danh sách mẫu lớp học.',
+ 'board-timer-stop':'Dừng đồng hồ đang chạy.',
+ 'board-timer-cancel':'Đóng cửa sổ hẹn giờ mà không thay đổi.',
+ 'board-code-cancel':'Hủy nhập mã và quay lại danh sách bảng.'
+};
+const BOARD_TOOL_HELP={
+ pan:'Kéo để di chuyển khung nhìn trên bảng.',
+ select:'Chọn và kéo đối tượng do bạn có quyền chỉnh sửa.',
+ laser:'Dùng con trỏ laser để chỉ vị trí cho cả lớp.',
+ pen:'Vẽ tự do bằng màu và độ dày nét đang chọn.',
+ note:'Đặt một ghi chú chữ tại vị trí bạn chạm.',
+ vote:'Bấm vào ghi chú để bình chọn hoặc bỏ bình chọn.',
+ eraser:'Chạm vào đối tượng để xóa nếu bạn có quyền.',
+ line:'Kéo để vẽ một đoạn thẳng.',
+ arrow:'Kéo để vẽ mũi tên chỉ hướng.',
+ rect:'Kéo để vẽ hình chữ nhật.',
+ ellipse:'Kéo để vẽ hình elip.'
+};
+const BOARD_TEMPLATE_HELP={
+ brainstorm:'Chèn mẫu Động não để thu thập và gom ý tưởng.',
+ kwl:'Chèn bảng KWL: Đã biết · Muốn biết · Đã học.',
+ swot:'Chèn ma trận SWOT bốn nhóm nội dung.',
+ exit:'Chèn mẫu Phiếu 3-2-1 để tổng kết hoạt động.'
+};
+const BOARD_TEXT_HELP={
+ 'Lưu bảng':'Lưu toàn bộ cấu hình của bảng tương tác.',
+ 'Lưu':'Lưu tên và kiểu nền của trang.',
+ 'Hủy':'Đóng cửa sổ hiện tại mà không lưu thay đổi.',
+ 'Vào bảng':'Kiểm tra quyền truy cập và kết nối realtime vào bảng.',
+ 'Phân tích bằng AI':'Phân tích nội dung chữ trên trang hiện tại bằng AI.',
+ 'Chèn lên bảng':'Đưa kết quả AI vào trang hiện tại.',
+ 'Bắt đầu':'Bắt đầu đồng hồ đếm ngược với thời gian đã chọn.',
+ 'Dừng':'Dừng đồng hồ đếm ngược hiện tại.'
+};
+let boardHelpTooltip=null,boardHelpAnchor=null;
+function boardButtonText(btn){return String(btn?.textContent||'').replace(/\s+/g,' ').trim();}
+function resolveBoardButtonHelp(btn){
+ if(!btn)return '';
+ if(btn.dataset.boardEnter!==undefined)return 'Mở bảng này và kết nối phiên làm việc realtime.';
+ if(btn.dataset.boardEdit!==undefined)return 'Chỉnh sửa thông tin, quyền truy cập và thời gian của bảng.';
+ if(btn.dataset.boardDelete!==undefined)return 'Xóa bảng này sau khi xác nhận.';
+ if(btn.dataset.boardUserClear!==undefined)return 'Xóa toàn bộ đóng góp của học sinh này trên trang hiện tại.';
+ if(btn.dataset.boardUserLock!==undefined)return btn.dataset.blocked==='1'?'Mở lại quyền tương tác cho học sinh này.':'Tạm khóa quyền tương tác của học sinh này.';
+ if(btn.dataset.boardTool)return BOARD_TOOL_HELP[btn.dataset.boardTool]||'Chọn công cụ thao tác trên bảng.';
+ if(btn.dataset.boardTemplate)return BOARD_TEMPLATE_HELP[btn.dataset.boardTemplate]||'Chèn mẫu hoạt động này lên bảng.';
+ if(btn.id==='board-lock')return locked?'Mở lại quyền tương tác cho toàn bộ học sinh.':'Tạm khóa quyền tương tác của toàn bộ học sinh.';
+ if(btn.id==='board-follow-teacher')return followTeacher?'Đang tự theo trang giáo viên; bấm để tắt.':'Đang tự do chuyển trang; bấm để theo giáo viên.';
+ return BOARD_BUTTON_HELP[btn.id]||BOARD_TEXT_HELP[boardButtonText(btn)]||(boardButtonText(btn)?'Thực hiện thao tác: '+boardButtonText(btn)+'.':'Thực hiện chức năng của nút này.');
+}
+function ensureBoardHelpTooltip(){
+ if(boardHelpTooltip&&document.body.contains(boardHelpTooltip))return boardHelpTooltip;
+ const tip=document.createElement('div');tip.id='board-button-tooltip';tip.setAttribute('role','tooltip');
+ tip.style.cssText='position:fixed;z-index:500;max-width:290px;padding:7px 10px;border-radius:8px;background:#0f172a;color:#fff;font-size:12px;font-weight:600;line-height:1.35;box-shadow:0 8px 24px rgba(15,23,42,.22);pointer-events:none;opacity:0;visibility:hidden;transition:opacity .12s ease;white-space:normal;';
+ document.body.appendChild(tip);boardHelpTooltip=tip;return tip;
+}
+function refreshBoardButtonHelp(root=$('tab-boards')||document){
+ root?.querySelectorAll?.('button').forEach(btn=>{
+   const help=resolveBoardButtonHelp(btn);if(!help)return;
+   btn.title=help;btn.setAttribute('aria-description',help);
+   const visible=boardButtonText(btn);
+   if(!btn.getAttribute('aria-label')&&(!visible||!/[À-ɏ\p{L}\p{N}]/u.test(visible)))btn.setAttribute('aria-label',help);
+ });
+ const color=$('board-color');if(color)color.title='Chọn màu cho bút, đường và hình vẽ.';
+ const width=$('board-width');if(width)width.title='Điều chỉnh độ dày của nét vẽ.';
+ const pageSelect=$('board-page-select');if(pageSelect)pageSelect.title='Chọn nhanh trang muốn mở trong bảng.';
+}
+function positionBoardHelp(btn,tip){
+ const r=btn.getBoundingClientRect(),gap=8;
+ const tr=tip.getBoundingClientRect();
+ let left=r.left+r.width/2-tr.width/2;
+ left=Math.max(8,Math.min(left,window.innerWidth-tr.width-8));
+ let top=r.bottom+gap;
+ if(top+tr.height>window.innerHeight-8)top=Math.max(8,r.top-tr.height-gap);
+ tip.style.left=Math.round(left)+'px';tip.style.top=Math.round(top)+'px';
+}
+function showBoardButtonHelp(btn){
+ const help=resolveBoardButtonHelp(btn);if(!help)return;
+ btn.title=help;btn.setAttribute('aria-description',help);
+ const tip=ensureBoardHelpTooltip();tip.textContent=help;tip.style.visibility='visible';tip.style.opacity='1';
+ boardHelpAnchor=btn;requestAnimationFrame(()=>positionBoardHelp(btn,tip));
+}
+function hideBoardButtonHelp(btn){
+ if(btn&&boardHelpAnchor&&btn!==boardHelpAnchor)return;
+ if(boardHelpTooltip){boardHelpTooltip.style.opacity='0';boardHelpTooltip.style.visibility='hidden';}
+ boardHelpAnchor=null;
+}
+function installBoardButtonHelp(){
+ const root=$('tab-boards');if(!root||root.dataset.boardHelpReady==='1')return;
+ root.dataset.boardHelpReady='1';refreshBoardButtonHelp(root);
+ root.addEventListener('mouseover',e=>{const btn=e.target.closest?.('button');if(btn&&root.contains(btn))showBoardButtonHelp(btn);});
+ root.addEventListener('mouseout',e=>{const btn=e.target.closest?.('button');if(btn&&(!e.relatedTarget||!btn.contains(e.relatedTarget)))hideBoardButtonHelp(btn);});
+ root.addEventListener('focusin',e=>{const btn=e.target.closest?.('button');if(btn&&root.contains(btn))showBoardButtonHelp(btn);});
+ root.addEventListener('focusout',e=>{const btn=e.target.closest?.('button');if(btn)hideBoardButtonHelp(btn);});
+ root.addEventListener('click',()=>hideBoardButtonHelp());
+ window.addEventListener('scroll',()=>{if(boardHelpAnchor&&boardHelpTooltip?.style.visibility==='visible')positionBoardHelp(boardHelpAnchor,boardHelpTooltip);},{passive:true});
+ window.addEventListener('resize',()=>{if(boardHelpAnchor&&boardHelpTooltip?.style.visibility==='visible')positionBoardHelp(boardHelpAnchor,boardHelpTooltip);});
+}
 function renderList(){
  const root=$('boards-list');if(!root)return;
  if(!list.length){root.innerHTML='<div class="col-span-full rounded-xl bg-slate-50 p-8 text-center text-slate-500">Chưa có bảng tương tác phù hợp.</div>';return;}
@@ -29,6 +159,7 @@ function renderList(){
   '<div class="flex flex-wrap gap-2 pt-2 border-t"><button data-board-enter="'+esc(b.id)+'" class="flex-1 rounded-xl bg-emerald-700 text-white py-2.5 px-3 font-bold text-sm">Vào bảng</button>'+
   (manage?'<button data-board-edit="'+esc(b.id)+'" class="rounded-xl bg-blue-50 text-blue-700 py-2.5 px-3 font-bold text-sm">Sửa</button><button data-board-delete="'+esc(b.id)+'" class="rounded-xl bg-rose-50 text-rose-700 py-2.5 px-3 font-bold text-sm">Xóa</button>':'')+'</div></article>').join('');
  const pages=Math.max(1,Math.ceil(total/20)),p=$('boards-pagination');if(p){p.innerHTML='<button id="boards-prev" class="rounded-lg border px-3 py-2" '+(page<=1?'disabled':'')+'>‹ Trước</button><span>Trang '+page+' / '+pages+'</span><button id="boards-next" class="rounded-lg border px-3 py-2" '+(page>=pages?'disabled':'')+'>Sau ›</button>';}
+ refreshBoardButtonHelp(root?.closest?.('#tab-boards')||$('tab-boards'));
 }
 async function load(){
  const seq=++generation;const root=$('boards-list');if(root)root.innerHTML='<div class="col-span-full text-center p-8 text-slate-500">Đang tải danh sách bảng...</div>';
@@ -286,7 +417,7 @@ function renderPageControls(){
  const select=$('board-page-select');if(!select||!room)return;
  const pages=room.pages||[];
  select.innerHTML=pages.map(p=>'<option value="'+esc(p.id)+'">'+esc((p.page_no||'')+'. '+(p.title||'Trang'))+'</option>').join('');
- select.value=currentPageId||pages[0]?.id||'';applyPageBackground();
+ select.value=currentPageId||pages[0]?.id||'';applyPageBackground();refreshBoardButtonHelp($('tab-boards'));
  const idx=pages.findIndex(p=>String(p.id)===String(select.value));
  if($('board-page-prev'))$('board-page-prev').disabled=idx<=0;
  if($('board-page-next'))$('board-page-next').disabled=idx<0||idx>=pages.length-1;
@@ -372,12 +503,12 @@ function renderParticipants(items){
    const canModerate=room?.board?.can_manage&&p.role==='student'&&String(p.userId)!==myId();
    const contributionCount=counts.get(String(p.userId))||0;
    return '<div class="rounded-lg bg-white border px-3 py-2 space-y-1"><div class="flex items-center justify-between gap-2"><div class="min-w-0"><p class="font-bold truncate">'+esc(p.displayName)+'</p><p class="text-[11px] text-slate-500">'+esc(roleLabel)+(p.blocked?' • đang khóa':'')+(p.role==='student'?' • '+contributionCount+' đóng góp':'')+'</p></div>'+(canModerate?'<div class="flex gap-1"><button data-board-user-clear="'+esc(p.userId)+'" class="shrink-0 rounded-md bg-rose-50 text-rose-700 px-2 py-1 text-[11px] font-bold">Xóa nét</button><button data-board-user-lock="'+esc(p.userId)+'" data-blocked="'+(p.blocked?'1':'0')+'" class="shrink-0 rounded-md px-2 py-1 text-[11px] font-bold '+(p.blocked?'bg-emerald-50 text-emerald-700':'bg-amber-50 text-amber-800')+'">'+(p.blocked?'Mở':'Khóa')+'</button></div>':'')+'</div></div>';
- }).join('');
+ }).join('');refreshBoardButtonHelp($('board-participants'));
 }
 function syncLockUi(){
  const overlay=$('board-locked-overlay');overlay?.classList.toggle('hidden',!(locked||userLocked));
  const label=overlay?.querySelector('span');if(label)label.textContent=userLocked?'Giáo viên đang khóa quyền tương tác của bạn':(locked?'Bảng đang khóa chỉnh sửa':'');
- const btn=$('board-lock');if(btn&&!btn.classList.contains('hidden'))btn.textContent=locked?'🔓 Mở cho HS':'🔒 Khóa HS';
+ const btn=$('board-lock');if(btn&&!btn.classList.contains('hidden'))btn.textContent=locked?'🔓 Mở cho HS':'🔒 Khóa HS';refreshBoardButtonHelp($('tab-boards'));
 }
 function canvas(){return $('board-canvas');}
 function logicalPoint(ev){const c=canvas(),r=c.getBoundingClientRect();return [Math.round((ev.clientX-r.left)*1600/r.width),Math.round((ev.clientY-r.top)*900/r.height)];}
@@ -484,7 +615,7 @@ export function initInteractiveBoards(user){
  $('boards-new')?.classList.toggle('hidden',!canCreateBoard);load();
 }
 export function connectInteractiveBoards(){
- if(wired||!$('boards-list'))return;wired=true;
+ if(wired||!$('boards-list'))return;wired=true;installBoardButtonHelp();
  $('boards-new')?.addEventListener('click',()=>openEdit());
  $('boards-reload')?.addEventListener('click',()=>load());
  $('boards-prev')?.addEventListener?.('click',()=>{});
@@ -509,7 +640,7 @@ export function connectInteractiveBoards(){
    out.toBlob(blob=>{if(!blob)return;const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(room?.board?.name||'bang-tuong-tac').replace(/[^\p{L}\p{N}._-]+/gu,'-')+'.png';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);},'image/png');
  });
  $('board-bring-here')?.addEventListener('click',()=>{if(room?.board?.can_manage)sendOps([{kind:'present_page',pageId:currentPageId}]);});
- $('board-follow-teacher')?.addEventListener('click',()=>{followTeacher=!followTeacher;const btn=$('board-follow-teacher');if(btn)btn.textContent='Theo GV: '+(followTeacher?'Bật':'Tắt');});
+ $('board-follow-teacher')?.addEventListener('click',()=>{followTeacher=!followTeacher;const btn=$('board-follow-teacher');if(btn)btn.textContent='Theo GV: '+(followTeacher?'Bật':'Tắt');refreshBoardButtonHelp($('tab-boards'));});
  $('board-export-pdf')?.addEventListener('click',exportBoardPdf);
  $('board-ai')?.addEventListener('click',()=>{if(!room?.board?.can_manage)return;aiResultText='';aiClusterPlan=null;$('board-ai-result').textContent='Chưa có kết quả.';$('board-ai-insert')?.classList.add('hidden');$('board-ai-modal')?.classList.remove('hidden');});
  $('board-ai-close')?.addEventListener('click',()=>$('board-ai-modal')?.classList.add('hidden'));
