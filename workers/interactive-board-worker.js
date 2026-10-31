@@ -152,7 +152,7 @@ export class BoardRoom {
       const pageId=safeId(body?.pageId);if(!pageId)return new Response('Invalid page',{status:400});
       const rows=await this.ctx.storage.list({prefix:'obj:'+pageId+':'});
       if(rows.size)await this.ctx.storage.delete([...rows.keys()]);
-      await this.ctx.storage.delete('count:'+pageId);
+      await this.ctx.storage.delete(['count:'+pageId,'points:'+pageId]);
       await this.ctx.storage.put('deletedpage:'+pageId,true);
       this.broadcast({type:'page_deleted',pageId});
       for(const socket of this.ctx.getWebSockets(pageId)){try{socket.close(4005,'Page deleted')}catch{}}
@@ -225,9 +225,14 @@ export class BoardRoom {
     }
     const locked=Boolean(lockedRaw);
     const objects=await this.ctx.storage.list({prefix:'obj:'+pageId+':'});
-    const snapshot=[...objects.values()].slice(0,1000);
-    server.send(JSON.stringify({type:'snapshot',pageId,locked,userLocked,objects:snapshot,participants:this.participants()}));
-    this.broadcast({type:'presence',participants:this.participants()},server);
+    const snapshot=[...objects.values()].slice(0,600);
+    const participants=this.participants();
+    server.send(JSON.stringify({type:'snapshot_begin',pageId,locked,userLocked,total:snapshot.length,participants}));
+    for(let i=0;i<snapshot.length;i+=100){
+      server.send(JSON.stringify({type:'snapshot_chunk',pageId,objects:snapshot.slice(i,i+100)}));
+    }
+    server.send(JSON.stringify({type:'snapshot_end',pageId}));
+    this.broadcast({type:'presence',participants},server);
     return new Response(null,{status:101,webSocket:client});
   }
 
@@ -302,15 +307,26 @@ export class BoardRoom {
         const existing=await this.ctx.storage.get(key);
         if (existing && !canManage && existing.creatorId!==actor.userId) continue;
         if (existing?.creatorId) object.creatorId=existing.creatorId;
+        const countKey='count:'+object.pageId;
+        const pointsKey='points:'+object.pageId;
+        const newPoints=object.type==='stroke'?object.points.length:0;
+        const oldPoints=existing?.type==='stroke'&&Array.isArray(existing.points)?existing.points.length:0;
+        let pointCount=Number(await this.ctx.storage.get(pointsKey));
+        if(!Number.isFinite(pointCount)){
+          pointCount=0;
+          const existingRows=await this.ctx.storage.list({prefix:'obj:'+object.pageId+':'});
+          for(const value of existingRows.values())if(value?.type==='stroke'&&Array.isArray(value.points))pointCount+=value.points.length;
+        }
+        if(pointCount-oldPoints+newPoints>40000)continue;
         if (!existing) {
-          const countKey='count:'+object.pageId;
           let objectCount=Number(await this.ctx.storage.get(countKey));
           if (!Number.isFinite(objectCount)) {
             objectCount=(await this.ctx.storage.list({prefix:'obj:'+object.pageId+':'})).size;
           }
-          if (objectCount>=1000) continue;
+          if (objectCount>=600) continue;
           await this.ctx.storage.put(countKey,objectCount+1);
         }
+        await this.ctx.storage.put(pointsKey,Math.max(0,pointCount-oldPoints+newPoints));
         await this.ctx.storage.put(key,object);
         if(Array.isArray(actor.activeStrokes)&&actor.activeStrokes.includes(object.id)){
           actor.activeStrokes=actor.activeStrokes.filter(id=>id!==object.id);
@@ -327,9 +343,13 @@ export class BoardRoom {
         const existing=await this.ctx.storage.get(key);
         if (!existing || (!canManage && existing.creatorId!==actor.userId)) continue;
         await this.ctx.storage.delete(key);
-        const countKey='count:'+pageId;
+        const countKey='count:'+pageId,pointsKey='points:'+pageId;
         const objectCount=Number(await this.ctx.storage.get(countKey));
         if (Number.isFinite(objectCount) && objectCount>0) await this.ctx.storage.put(countKey,objectCount-1);
+        if(existing?.type==='stroke'&&Array.isArray(existing.points)){
+          const pointCount=Number(await this.ctx.storage.get(pointsKey));
+          if(Number.isFinite(pointCount))await this.ctx.storage.put(pointsKey,Math.max(0,pointCount-existing.points.length));
+        }
         this.broadcast({type:'delete',pageId,objectId},null,pageId);
         continue;
       }
@@ -338,6 +358,7 @@ export class BoardRoom {
         const rows=await this.ctx.storage.list({prefix:'obj:'+pageId+':'});
         if (rows.size) await this.ctx.storage.delete([...rows.keys()]);
         await this.ctx.storage.put('count:'+pageId,0);
+        await this.ctx.storage.put('points:'+pageId,0);
         this.broadcast({type:'clear_page',pageId},null,pageId);
         continue;
       }
@@ -349,10 +370,14 @@ export class BoardRoom {
         for(const [key,value] of rows){
           if(value?.creatorId===targetUserId){keys.push(key);objectIds.push(value.id);}
         }
+        let removedPoints=0;
+        for(const value of rows.values())if(value?.creatorId===targetUserId&&value?.type==='stroke'&&Array.isArray(value.points))removedPoints+=value.points.length;
         if(keys.length)await this.ctx.storage.delete(keys);
-        const countKey='count:'+pageId;
+        const countKey='count:'+pageId,pointsKey='points:'+pageId;
         const objectCount=Number(await this.ctx.storage.get(countKey));
         if(Number.isFinite(objectCount))await this.ctx.storage.put(countKey,Math.max(0,objectCount-keys.length));
+        const pointCount=Number(await this.ctx.storage.get(pointsKey));
+        if(Number.isFinite(pointCount))await this.ctx.storage.put(pointsKey,Math.max(0,pointCount-removedPoints));
         this.broadcast({type:'clear_user_objects',pageId,targetUserId,objectIds},null,pageId);
         continue;
       }
