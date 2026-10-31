@@ -1,5 +1,5 @@
 # Cấu hình Deploy lên Cloudflare Pages
-name = "kiemtratructuyenmoi"
+name = "kiemtratructuyenpro"
 pages_build_output_dir = "./dist"
 
 # Môi trường tương thích
@@ -8,9 +8,10 @@ compatibility_flags = ["nodejs_compat"]
 
 [vars]
 # Các biến cấu hình được quản lý trực tiếp trong Cloudflare Pages Settings hoặc .env
-
-
-# Realtime Bảng tương tác: Pages gọi Worker nội bộ, không đi vòng qua Internet.
-[[services]]
+  
+# Production only: Cloudflare requires the target Worker to exist before Pages
+# can deploy a Service binding. Preview intentionally has no BOARD_REALTIME
+# binding so PR builds remain deployable before the Worker is provisioned.
+[[env.production.services]]
 binding = "BOARD_REALTIME"
 service = "kiemtratructuyen-board-realtime"
