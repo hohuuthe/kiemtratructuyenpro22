@@ -17,10 +17,14 @@ CREATE TABLE IF NOT EXISTS users (
     target_audience TEXT DEFAULT 'Học sinh',
     payment_status TEXT DEFAULT 'Chưa thanh toán',
     payment_method TEXT,
+    is_vip INTEGER DEFAULT 0,
     is_active INTEGER DEFAULT 1,
     expiry_date TEXT,
     created_at TEXT
 );
+
+-- Migration cho CSDL hiện hữu
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_vip INTEGER DEFAULT 0;
 
 -- 2. BẢNG TÀI KHOẢN ĐĂNG NHẬP (accounts)
 CREATE TABLE IF NOT EXISTS accounts (
