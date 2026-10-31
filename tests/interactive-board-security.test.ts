@@ -67,6 +67,9 @@ test('implementation is lazy, bounded and does not push live strokes into Neon',
   assert.match(ui,/\/api\/board\/join/);
   assert.match(ui,/scheduleReconnect/);
   assert.match(ui,/board_deleted/);
+  assert.match(ui,/policy_changed/);
+  assert.match(worker,/internal\/board-policy/);
+  assert.match(worker,/Board policy changed/);
   assert.match(api,/LOWER\(\?\) = ANY/);
 });
 
