@@ -100,7 +100,7 @@ async function accountProof(account: any, secret: string, tenantKey = ''): Promi
       account.id, account.user_id || account.id, account.password,
       account.role || '', account.is_active ?? 1, account.expiry_date || '',
       account.target_audience || '', account.profile_active ?? 1,
-      account.profile_expiry_date || '', account.is_vip ?? account.profile_vip ?? 0
+      account.profile_expiry_date || '', Number(account.is_vip ?? account.profile_vip ?? 0) ? 1 : 0
     ].map(value => String(value));
     const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret),
       {name: 'HMAC', hash: 'SHA-256'}, false, ['sign']);
