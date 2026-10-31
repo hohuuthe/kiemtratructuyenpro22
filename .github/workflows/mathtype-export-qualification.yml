@@ -1,0 +1,32 @@
+name: MathType export qualification (not native acceptance)
+on:
+  pull_request:
+    paths:
+      - 'src/word-export-format.js'
+      - 'src/word-mathtype-export/**'
+      - 'tests/word-mathtype-export*'
+      - 'tests/helpers/*export*'
+      - 'qualification/mathtype-export/**'
+      - '.github/workflows/mathtype-export-qualification.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --no-audit --no-fund
+      - run: npm install --prefix qualification/mathtype-export --no-audit --no-fund
+      - name: Independent package, MathJax and unchanged Equation identity tests
+        run: node --test tests/word-mathtype-export.test.mjs
+      - name: Actual app generators and established 121-source corpus
+        run: node --import tsx --test tests/word-mathtype-export-app.test.mjs
+      - name: Existing import and Equation regression gate remains mandatory
+        run: npm run test:word-import-release
+      - run: npm run lint
+      - run: npm run build
