@@ -14,8 +14,7 @@ No edits to `src/main.js`, `src/exam-docx-generator.ts`,
 Excel export, root package dependencies, database schemas or existing workflows.
 `finalizeWordExport(blob)` and `{equationFormat:'equation'}` return the identical
 input object. The MathType path cannot be enabled by a caller-supplied `force` flag.
-The new UI control is NOT mounted in the application; Equation is selected by
-default and MathType remains disabled until native qualification is recorded.
+The UI control is mounted in both Cloudflare Preview export dialogs. Equation is selected by default. MathType is enabled only on branch/commit Preview hosts; custom domains and the bare Production pages.dev host remain locked until native qualification is recorded.
 
 ## Implemented
 
@@ -69,8 +68,8 @@ On the agreed supported Word desktop + MathType versions:
 4. Check repeated formulas edit independently; no unrelated object changes.
 5. Compare both export modes on the same finalized question IDs and answer keys.
 6. Verify the full required corpus, then record versions, evidence and exceptions.
-7. Only then wire the component/adapter into Preview dialogs and perform phone,
-   multi-code-exam, answer, download and end-to-end regression checks.
+7. Preview wiring is now present in both export dialogs. Complete phone, multi-code-exam,
+   answer, download and end-to-end native Word/MathType checks before any Production enablement.
 8. Do not enable or merge to Production merely because Preview build is green.
 
 ## Technical references
