@@ -229,3 +229,21 @@ test('production board health check verifies secret binding and worker',()=>{
   assert.match(worker,/\/internal\/health/);
   assert.match(router,/'board\/health': boardHealth/);
 });
+
+
+test('display role is separate from interaction privilege',()=>{
+  const join=fs.readFileSync('functions/api/board/join.ts','utf8');
+  const worker=fs.readFileSync('workers/interactive-board-worker.js','utf8');
+  assert.match(join,/role: realtimeRole/);
+  assert.match(join,/displayRole,/);
+  assert.doesNotMatch(join,/role: owner \? \(isAdmin \? 'admin' : 'teacher'\) : 'student'/);
+  assert.match(worker,/displayRole:String\(claims\.displayRole\|\|'student'\)/);
+  assert.match(worker,/role:s\.displayRole\|\|'student'/);
+});
+
+test('PDF export refreshes signed page list when a new page is outside current token',()=>{
+  const ui=fs.readFileSync('src/interactive-board-ui.js','utf8');
+  assert.match(ui,/response\.status===403&&!retried/);
+  assert.match(ui,/roomTokenExpiresAt=0/);
+  assert.match(ui,/return fetchPageSnapshot\(pageId,true\)/);
+});
