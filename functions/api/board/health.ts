@@ -11,7 +11,8 @@ export const onRequestGet: PagesFunction = async (context: any) => {
       database: true,
       realtime_secret: Boolean(secret),
       realtime_binding: Boolean(binding && typeof binding.fetch === 'function'),
-      realtime_worker: false
+      realtime_worker: false,
+      durable_object: false
     };
 
     if (!checks.realtime_secret || !checks.realtime_binding) {
@@ -24,8 +25,12 @@ export const onRequestGet: PagesFunction = async (context: any) => {
         headers: { 'X-Board-Internal-Secret': secret }
       }));
       checks.realtime_worker = response.ok;
-      if (!response.ok) {
-        return boardJson({ ok: false, checks, error: 'Worker realtime không phản hồi hợp lệ.' }, 503);
+      if (response.ok) {
+        const detail: any = await response.json().catch(() => ({}));
+        checks.durable_object = detail?.durable_object === true;
+      }
+      if (!response.ok || !checks.durable_object) {
+        return boardJson({ ok: false, checks, error: 'Worker realtime hoặc Durable Object không phản hồi hợp lệ.' }, 503);
       }
     } catch (error: any) {
       return boardJson({ ok: false, checks, error: error?.message || 'Không kết nối được Worker realtime.' }, 503);
