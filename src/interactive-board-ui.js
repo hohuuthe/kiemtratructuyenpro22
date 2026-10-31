@@ -171,9 +171,15 @@ function renderObjectsToCanvas(pageInfo,pageObjects){
  const out=document.createElement('canvas');out.width=1600;out.height=900;const ctx=out.getContext('2d');renderBackgroundToCanvas(ctx,pageInfo);
  for(const o of pageObjects||[])drawObject(ctx,o);return out;
 }
+async function ensureFreshRoomToken(pageId=currentPageId){
+ if(room&&Date.now()<roomTokenExpiresAt)return;
+ if(!activeBoard)throw Error('Phiên bảng không còn hoạt động.');
+ await join(activeBoard,activeAccessCode,{pageId,reconnect:true});
+ if(!room||Date.now()>=roomTokenExpiresAt)throw Error('Không thể làm mới phiên bảng.');
+}
 async function fetchPageSnapshot(pageId){
+ await ensureFreshRoomToken(pageId);
  if(!room?.realtime_base_path)throw Error('Phiên realtime chưa sẵn sàng.');
- if(Date.now()>=roomTokenExpiresAt)throw Error('Phiên xuất đã hết hạn. Hãy thoát và vào lại bảng rồi thử lại.');
  const url=new URL(room.realtime_base_path,location.href);url.searchParams.set('snapshot','1');url.searchParams.set('pageId',String(pageId));
  const response=await fetch(url.href,{cache:'no-store'});if(!response.ok)throw Error(response.status===410?'Trang đã bị xóa.':'Không thể đọc dữ liệu trang.');
  return response.json();
