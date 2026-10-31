@@ -31,6 +31,9 @@ import * as r26 from '../../api/settings';
 import * as r27 from '../../api/teacher-classes';
 import * as r28 from '../../api/upload-image';
 import * as r29 from '../../api/users';
+import * as boards from '../../api/boards';
+import * as boardJoin from '../../api/board/join';
+import * as boardRealtime from '../../api/board/realtime';
 import * as accountId from '../../api/accounts/[id]';
 import * as userId from '../../api/users/[id]';
 
@@ -65,6 +68,9 @@ const handlers: Record<string, any> = {
   'teacher-classes': r27,
   'upload-image': r28,
   'users': r29,
+  'boards': boards,
+  'board/join': boardJoin,
+  'board/realtime': boardRealtime,
 };
 const ALLOWED_METHODS = new Set(['GET','POST','PUT','PATCH','DELETE','OPTIONS','HEAD']);
 
