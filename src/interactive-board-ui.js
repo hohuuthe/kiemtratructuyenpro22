@@ -2,6 +2,7 @@ const $=id=>document.getElementById(id);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let actor=null,manage=false,list=[],page=1,total=0,generation=0,wired=false,pendingBoard=null;
 let ws=null,room=null,objects=new Map(),remoteStrokes=new Map(),tool='pen',drawing=null,lastSegmentIndex=0,locked=false;
+let activeBoard=null,activeAccessCode='',manualExit=false,reconnectTimer=null,reconnectAttempts=0;
 
 function token(){return localStorage.getItem(window.tenantStorageKey?window.tenantStorageKey('auth_token'):'auth_token')||'';}
 async function api(method,url,body){
@@ -46,22 +47,35 @@ function closeEdit(){$('board-edit-modal')?.classList.add('hidden');}
 function openCode(b){pendingBoard=b;$('board-code-modal')?.classList.remove('hidden');const f=$('board-code-form');f.reset();f.elements.namedItem('access_code').focus();}
 function closeCode(){pendingBoard=null;$('board-code-modal')?.classList.add('hidden');}
 
-async function join(b,accessCode=''){
+async function join(b,accessCode='',options={}){
  try{
-  const result=await api('POST','/api/board/join',{boardId:b.id,accessCode});room=result.data;objects.clear();remoteStrokes.clear();locked=room.board.status==='locked';
+  const result=await api('POST','/api/board/join',{boardId:b.id,accessCode});
+  activeBoard=b;activeAccessCode=accessCode;manualExit=false;room=result.data;
+  if(!options.reconnect){objects.clear();remoteStrokes.clear();}
+  locked=room.board.status==='locked';
   $('boards-home')?.classList.add('hidden');$('board-room')?.classList.remove('hidden');$('board-room-title').textContent=room.board.name;
   $('board-lock')?.classList.toggle('hidden',!room.board.can_manage);$('board-clear')?.classList.toggle('hidden',!room.board.can_manage);
   connectSocket();
- }catch(e){if(e.code==='BOARD_ACCESS_CODE_REQUIRED'){openCode(b);return;}feedback(e.message,true);}
+ }catch(e){
+  if(e.code==='BOARD_ACCESS_CODE_REQUIRED'&&!options.reconnect){openCode(b);return;}
+  if(options.reconnect){scheduleReconnect();return;}
+  feedback(e.message,true);
+ }
 }
 function wsUrl(path){const u=new URL(path,location.href);u.protocol=location.protocol==='https:'?'wss:':'ws:';return u.href;}
 function connectSocket(){
- if(ws)try{ws.close()}catch{};if(!room)return;const socket=new WebSocket(wsUrl(room.realtime_path));ws=socket;
- $('board-room-status').textContent='Đang kết nối realtime...';
- socket.onopen=()=>{$('board-room-status').textContent='Đã kết nối realtime';};
- socket.onclose=()=>{if(ws===socket)$('board-room-status').textContent='Mất kết nối — thoát và vào lại bảng để kết nối lại';};
- socket.onerror=()=>{$('board-room-status').textContent='Lỗi kết nối realtime';};
+ if(ws)try{ws.onclose=null;ws.close()}catch{};if(!room)return;const socket=new WebSocket(wsUrl(room.realtime_path));ws=socket;
+ $('board-room-status').textContent=reconnectAttempts?'Đang kết nối lại...':'Đang kết nối realtime...';
+ socket.onopen=()=>{reconnectAttempts=0;if(reconnectTimer){clearTimeout(reconnectTimer);reconnectTimer=null;}$('board-room-status').textContent='Đã kết nối realtime';};
+ socket.onclose=()=>{if(ws!==socket||manualExit)return;$('board-room-status').textContent='Mất kết nối — đang thử kết nối lại...';scheduleReconnect();};
+ socket.onerror=()=>{$('board-room-status').textContent='Kết nối realtime không ổn định';};
  socket.onmessage=e=>{let m;try{m=JSON.parse(e.data)}catch{return;}handleMessage(m);};
+}
+function scheduleReconnect(){
+ if(manualExit||!activeBoard||reconnectTimer)return;
+ reconnectAttempts=Math.min(reconnectAttempts+1,8);
+ const delay=Math.min(1000*Math.pow(1.7,reconnectAttempts-1),12000);
+ reconnectTimer=setTimeout(async()=>{reconnectTimer=null;if(manualExit||!activeBoard)return;await join(activeBoard,activeAccessCode,{reconnect:true});},delay);
 }
 function handleMessage(m){
  if(m.type==='snapshot'){objects.clear();for(const o of m.objects||[])objects.set(o.id,o);locked=!!m.locked;render();renderParticipants(m.participants||[]);syncLockUi();return;}
@@ -96,7 +110,11 @@ function pointerDown(e){
 }
 function pointerMove(e){if(!drawing)return;const p=logicalPoint(e),last=drawing.points[drawing.points.length-1];if(Math.hypot(p[0]-last[0],p[1]-last[1])<2)return;drawing.points.push(p);if(drawing.points.length-lastSegmentIndex>=8){const pts=drawing.points.slice(lastSegmentIndex);lastSegmentIndex=drawing.points.length-1;sendOps([{kind:'stroke_segment',pageId:drawing.pageId,objectId:drawing.id,points:pts,color:drawing.color,width:drawing.width}]);}render();}
 function pointerUp(){if(!drawing)return;const done=drawing;drawing=null;if(done.points.length>1){objects.set(done.id,{...done,creatorId:actor?.id||actor?.user_id});sendOps([{kind:'put',object:done}]);}render();}
-function exitRoom(){if(ws)try{ws.close(1000,'exit')}catch{};ws=null;room=null;objects.clear();remoteStrokes.clear();drawing=null;$('board-room')?.classList.add('hidden');$('boards-home')?.classList.remove('hidden');}
+function exitRoom(){
+ manualExit=true;if(reconnectTimer){clearTimeout(reconnectTimer);reconnectTimer=null;}
+ if(ws)try{ws.onclose=null;ws.close(1000,'exit')}catch{};ws=null;room=null;activeBoard=null;activeAccessCode='';reconnectAttempts=0;
+ objects.clear();remoteStrokes.clear();drawing=null;$('board-room')?.classList.add('hidden');$('boards-home')?.classList.remove('hidden');
+}
 
 export function resetInteractiveBoards(){generation++;list=[];actor=null;manage=false;page=1;total=0;exitRoom();}
 export function initInteractiveBoards(user){
