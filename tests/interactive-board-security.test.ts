@@ -277,7 +277,11 @@ test('interactive board mobile workspace keeps touch drawing professional and co
   assert.match(ui,/quadraticCurveTo/);
   assert.match(ui,/function applyBoardDeviceDefaults/);
   assert.match(ui,/mobileGesture/);
+  assert.match(ui,/kind:'stroke_cancel'/);
+  assert.match(ui,/centerX/);
   assert.match(ui,/board-participants-toggle/);
+  const worker=fs.readFileSync('workers/interactive-board-worker.js','utf8');
+  assert.match(worker,/kind==='stroke_cancel'/);
   assert.match(css,/#board-canvas-wrap\s*\{[\s\S]*min-width:760px/);
   assert.match(css,/\.board-tools-panel[\s\S]*position:sticky/);
   assert.match(css,/touch-action:none/);
