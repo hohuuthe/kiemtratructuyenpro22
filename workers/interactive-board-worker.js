@@ -138,6 +138,7 @@ export class BoardRoom {
       if(!secret||!secureEqualString(request.headers.get('X-Board-Internal-Secret'),secret))return new Response('Unauthorized',{status:401});
       let body;try{body=await request.json();}catch{return new Response('Invalid JSON',{status:400});}
       const page=body?.page;if(!page||!safeId(page.id))return new Response('Invalid page',{status:400});
+      await this.ctx.storage.delete('deletedpage:'+String(page.id));
       this.broadcast({type:'page_created',page:{
         id:String(page.id),page_no:Number(page.page_no)||0,title:String(page.title||'').slice(0,100),
         background_type:String(page.background_type||'white'),canvas_width:1600,canvas_height:900,revision:Number(page.revision)||1
@@ -152,6 +153,7 @@ export class BoardRoom {
       const rows=await this.ctx.storage.list({prefix:'obj:'+pageId+':'});
       if(rows.size)await this.ctx.storage.delete([...rows.keys()]);
       await this.ctx.storage.delete('count:'+pageId);
+      await this.ctx.storage.put('deletedpage:'+pageId,true);
       this.broadcast({type:'page_deleted',pageId});
       for(const socket of this.ctx.getWebSockets(pageId)){try{socket.close(4005,'Page deleted')}catch{}}
       return new Response('OK');
@@ -181,11 +183,13 @@ export class BoardRoom {
     if (!claims || claims.tokenType!=='board_join') return new Response('Unauthorized',{status:401});
     const boardId=safeId(claims.boardId), userId=safeId(claims.userId);
     const signedPageId=safeId(claims.pageId || '');
+    const allowedPages=(Array.isArray(claims.pageIds)?claims.pageIds:[signedPageId]).map(safeId).filter(Boolean).slice(0,20);
     const requestedPageId=safeId(url.searchParams.get('pageId') || signedPageId);
-    if (!boardId || !userId || !signedPageId || requestedPageId!==signedPageId) {
+    if (!boardId || !userId || !signedPageId || !requestedPageId || !allowedPages.includes(requestedPageId)) {
       return new Response('Invalid room parameters',{status:403});
     }
-    const pageId=signedPageId;
+    if(await this.ctx.storage.get('deletedpage:'+requestedPageId))return new Response('Page deleted',{status:410});
+    const pageId=requestedPageId;
     const sockets=this.ctx.getWebSockets();
     const max=clamp(claims.maxParticipants,1,120,60);
     const sameUser=sockets.filter(ws=>stateOf(ws).userId===userId);
