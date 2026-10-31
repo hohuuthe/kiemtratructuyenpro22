@@ -133,7 +133,7 @@ test('implementation is lazy, bounded and does not push live strokes into Neon',
   assert.match(worker,/clear_user_objects/);
   assert.match(worker,/stroke_cancel/);
   assert.match(worker,/op_ack/);
-  assert.match(worker,/recentOps/);
+  assert.match(worker,/recentops:/);
   assert.match(worker,/type:'laser'/);
   assert.match(api,/LOWER\(\?\) = ANY/);
   assert.doesNotMatch(workflow,/functions\/\[slug\]\/api\/\[\[path\]\]/,'workflow must avoid invalid bracket glob');
@@ -199,4 +199,12 @@ test('join token normalizes interaction role so user-role students can be modera
   const join=fs.readFileSync('functions/api/board/join.ts','utf8');
   assert.match(join,/const realtimeRole = owner \? 'manager' : 'student'/);
   assert.match(join,/role: realtimeRole/);
+});
+
+
+test('reconnect dedupe survives socket replacement',()=>{
+  const worker=fs.readFileSync('workers/interactive-board-worker.js','utf8');
+  assert.match(worker,/recentops:\'+actor\.userId/);
+  assert.match(worker,/await this\.ctx\.storage\.put\(recentKey,durableRecent\)/);
+  assert.doesNotMatch(worker,/actor\.recentOps/);
 });
