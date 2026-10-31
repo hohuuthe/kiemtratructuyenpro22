@@ -1,6 +1,6 @@
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-let actor=null,manage=false,list=[],page=1,total=0,generation=0,wired=false,pendingBoard=null;
+let actor=null,manage=false,canCreateBoard=false,list=[],page=1,total=0,generation=0,wired=false,pendingBoard=null;
 let ws=null,room=null,objects=new Map(),remoteStrokes=new Map(),tool='pen',drawing=null,lastSegmentIndex=0,locked=false;
 let activeBoard=null,activeAccessCode='',manualExit=false,reconnectTimer=null,reconnectAttempts=0;
 let roomTokenExpiresAt=0,tokenRefreshAttempts=0,currentPageId='';
@@ -41,7 +41,8 @@ function toggleAccessFields(){
  $('board-code-field')?.classList.toggle('hidden',mode!=='protected');
 }
 function openEdit(id=''){
- if(!manage)return;const b=id?list.find(x=>x.id===id):null,f=$('board-edit-form');if(!f)return;f.reset();
+ if(!manage)return;
+ if(!id&&!canCreateBoard){window.showToast?.('Chỉ Giáo viên VIP mới được phép tạo Bảng tương tác thông minh.','warning');return;}const b=id?list.find(x=>x.id===id):null,f=$('board-edit-form');if(!f)return;f.reset();
  f.elements.namedItem('id').value=b?.id||'';f.elements.namedItem('revision').value=b?.revision||'';
  for(const k of ['name','description','status','access_mode','student_permission','max_participants','target_donvi','target_lop'])if(b&&f.elements.namedItem(k))f.elements.namedItem(k).value=b[k]??'';
  if(!b){f.elements.namedItem('status').value='open';f.elements.namedItem('access_mode').value='public';f.elements.namedItem('student_permission').value='draw';f.elements.namedItem('max_participants').value='60';f.elements.namedItem('target_donvi').value=actor?.donvi||'';}
@@ -466,10 +467,14 @@ function exitRoom(){
  roomTokenExpiresAt=0;tokenRefreshAttempts=0;currentPageId='';userLocked=false;snapshotLoading=false;participantsCache=[];pendingReliable.clear();dragState=null;panDrag=null;panPointers.clear();pinchStart=null;remoteLasers.clear();zoomLevel=1;aiResultText='';aiClusterPlan=null;timerState=null;followTeacher=true;if(timerTick){clearInterval(timerTick);timerTick=null;}undoStack=[];redoStack=[];objects.clear();remoteStrokes.clear();drawing=null;$('board-room')?.classList.add('hidden');$('boards-home')?.classList.remove('hidden');
 }
 
-export function resetInteractiveBoards(){generation++;list=[];actor=null;manage=false;page=1;total=0;exitRoom();}
+export function resetInteractiveBoards(){generation++;list=[];actor=null;manage=false;canCreateBoard=false;page=1;total=0;exitRoom();}
 export function initInteractiveBoards(user){
- actor=user||null;const role=String(actor?.role||'').toLowerCase(),aud=String(actor?.target_audience||'').toLowerCase();manage=role==='admin'||role==='teacher'||role==='giáo viên'||aud==='giáo viên'||aud==='quản trị viên';
- $('boards-new')?.classList.toggle('hidden',!manage);load();
+ actor=user||null;const role=String(actor?.role||'').toLowerCase(),aud=String(actor?.target_audience||'').toLowerCase();
+ const isAdmin=role==='admin'||aud==='quản trị viên';
+ const isTeacher=role==='teacher'||role==='giáo viên'||aud==='giáo viên';
+ manage=isAdmin||isTeacher;
+ canCreateBoard=isAdmin||(isTeacher&&Boolean(actor?.is_vip));
+ $('boards-new')?.classList.toggle('hidden',!canCreateBoard);load();
 }
 export function connectInteractiveBoards(){
  if(wired||!$('boards-list'))return;wired=true;
