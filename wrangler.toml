@@ -16,3 +16,10 @@ compatibility_flags = ["nodejs_compat"]
 # cấu hình Service Binding BOARD_REALTIME trong Cloudflare Pages Settings.
 # API Bảng tương tác đã fail-safe và trả BOARD_REALTIME_NOT_READY (503)
 # nếu binding/secret chưa sẵn sàng, không làm ảnh hưởng các chức năng khác.
+
+
+# Production realtime board service binding.
+# Worker kiemtratructuyen-board-realtime is now provisioned successfully.
+[[env.production.services]]
+binding = "BOARD_REALTIME"
+service = "kiemtratructuyen-board-realtime"
