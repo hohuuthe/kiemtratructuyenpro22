@@ -53,11 +53,12 @@ test('Question-bank MathType selection post-processes the generated copy and sav
 });
 
 
-test('Preview runtime uses the app CHTML MathJax instead of incorrectly requiring SVG output',()=>{
+test('Preview runtime uses app CHTML MathJax and batch host capture instead of SVG or per-formula screenshots',()=>{
   const renderer=fs.readFileSync(new URL('../src/word-mathtype-export/preview-browser-mathjax.js',import.meta.url),'utf8');
   assert.match(renderer,/globalThis\.MathJax/);
   assert.match(renderer,/querySelector\('mjx-container'\)/);
-  assert.match(renderer,/html2canvas\(math/);
+  assert.match(renderer,/await html2canvas\(host/);
+  assert.doesNotMatch(renderer,/html2canvas\(math/);
   assert.doesNotMatch(renderer,/querySelector\('svg'\)/);
   assert.match(renderer,/cooperativeYield/);
 });
@@ -70,4 +71,24 @@ test('MathType Preview export has cancellation, timeout and actionable formula-l
   assert.match(app,/describeMathTypeExportFailure/);
   assert.match(app,/signal: mathTypeSignal/);
   assert.match(app,/signal: mathTypeController\?\.signal/);
+});
+
+
+test('MathType renderer batches MathJax/html2canvas work and keeps a bounded duplicate-preview cache',()=>{
+  const renderer=fs.readFileSync(new URL('../src/word-mathtype-export/preview-browser-mathjax.js',import.meta.url),'utf8');
+  assert.match(renderer,/createBrowserMathTypePreviewBatchRenderer/);
+  assert.match(renderer,/batchLimit\(\)/);
+  assert.match(renderer,/previewCache=new Map\(\)/);
+  assert.match(renderer,/CACHE_MAX_BYTES=24\*1024\*1024/);
+  assert.match(renderer,/await html2canvas\(host/);
+  assert.match(renderer,/cropPng\(sheet/);
+});
+
+test('DOCX converter prepares batch previews before packaging and retains per-formula fallback',()=>{
+  const converter=fs.readFileSync(new URL('../src/word-mathtype-export/docx-converter.js',import.meta.url),'utf8');
+  assert.match(converter,/const renderPreviewBatch=options\.renderPreviewBatch/);
+  assert.match(converter,/preparedPreviews=await Promise\.race/);
+  assert.match(converter,/renderPreviewBatch\(work\.map/);
+  assert.match(converter,/let preview=preparedPreviews\?\.\[i\]\|\|null/);
+  assert.match(converter,/renderPreview\(item\.ast/);
 });

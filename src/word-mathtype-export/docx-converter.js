@@ -118,28 +118,59 @@ export async function convertDocxToMathType(input,options={}){
   if(!work.length)return {blob:input instanceof Blob?input:new Blob([source],{type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'}),report:{converted:0,nativeEditorVerified:false,qualificationOnly:true}};
   const renderPreview=options.renderPreview;
   if(typeof renderPreview!=='function')fail('PREVIEW_REQUIRED','A qualified formula preview renderer is required.');
+  const renderPreviewBatch=options.renderPreviewBatch;
+  let preparedPreviews=null;
+  if(typeof renderPreviewBatch==='function'){
+    const batchTimeoutMs=Math.max(15000,Math.min(180000,Number(options.previewBatchTimeoutMs||Math.max(30000,work.length*900))));
+    try{
+      preparedPreviews=await Promise.race([
+        renderPreviewBatch(work.map(item=>({
+          ast:item.ast,
+          fontSizePt:item.fontSizePt,
+          display:item.display,
+          index:item.index
+        })),{
+          signal:options.signal,
+          onProgress:info=>options.onPreviewProgress?.(info)
+        }),
+        new Promise((_,reject)=>setTimeout(()=>reject(new MathTypeExportError(
+          'PREVIEW_BATCH_TIMEOUT',
+          'Quá thời gian tạo ảnh xem trước MathType theo lô.',
+          {total:work.length}
+        )),batchTimeoutMs))
+      ]);
+      if(!Array.isArray(preparedPreviews)||preparedPreviews.length!==work.length)
+        fail('PREVIEW_FAILED','Số ảnh xem trước MathType theo lô không khớp số công thức.');
+      for(const preview of preparedPreviews)pngCheck(preview);
+    }catch(e){
+      if(e instanceof MathTypeExportError)e.details={...e.details,total:work.length};
+      throw e;
+    }
+  }
   const originalHash=await sha256(source),manifest=[];
   for(let i=0;i<work.length;i++){
     aborted(options.signal);
     if(i===0||i%4===0)await yieldMainThread(options.signal);
     const item=work[i];const {doc,rels}=item.partData;
-    let preview;
-    try {
-      const timeoutMs=Math.max(3000,Math.min(30000,Number(options.previewTimeoutMs||12000)));
-      preview=await Promise.race([
-        renderPreview(item.ast,{fontSizePt:item.fontSizePt,display:item.display,signal:options.signal}),
-        new Promise((_,reject)=>setTimeout(()=>reject(new MathTypeExportError(
-          'PREVIEW_TIMEOUT',
-          'Quá thời gian tạo ảnh xem trước MathType cho công thức '+item.index+'.',
-          {part:item.part,index:item.index}
-        )),timeoutMs))
-      ]);
-      pngCheck(preview);
-    } catch (e) {
-      if(e instanceof MathTypeExportError){
-        e.details={...e.details,part:item.part,index:item.index,total:work.length};
+    let preview=preparedPreviews?.[i]||null;
+    if(!preview){
+      try {
+        const timeoutMs=Math.max(3000,Math.min(30000,Number(options.previewTimeoutMs||12000)));
+        preview=await Promise.race([
+          renderPreview(item.ast,{fontSizePt:item.fontSizePt,display:item.display,signal:options.signal}),
+          new Promise((_,reject)=>setTimeout(()=>reject(new MathTypeExportError(
+            'PREVIEW_TIMEOUT',
+            'Quá thời gian tạo ảnh xem trước MathType cho công thức '+item.index+'.',
+            {part:item.part,index:item.index}
+          )),timeoutMs))
+        ]);
+        pngCheck(preview);
+      } catch (e) {
+        if(e instanceof MathTypeExportError){
+          e.details={...e.details,part:item.part,index:item.index,total:work.length};
+        }
+        throw e;
       }
-      throw e;
     }
     const native=createMathTypeOle(item.mtef);
     let suffix=item.index;let olePath,imagePath;
@@ -169,7 +200,10 @@ export async function convertDocxToMathType(input,options={}){
     item.parent.replaceChild(run,item.replace);
     newRelationship(rels,oleId,'oleObject',olePath.slice(5));newRelationship(rels,imageId,'image',imagePath.slice(5));
     zip.file(olePath,native);zip.file(imagePath,preview.png);
-    manifest.push({index:item.index,part:item.partData.part,sourceSha256:await sha256(utf8(item.sourceXml)),mtefSha256:await sha256(item.mtef),oleSha256:await sha256(native),previewSha256:await sha256(preview.png),olePath,imagePath});
+    const [sourceSha256,mtefSha256,oleSha256,previewSha256]=await Promise.all([
+      sha256(utf8(item.sourceXml)),sha256(item.mtef),sha256(native),sha256(preview.png)
+    ]);
+    manifest.push({index:item.index,part:item.partData.part,sourceSha256,mtefSha256,oleSha256,previewSha256,olePath,imagePath});
     options.onProgress?.({completed:i+1,total:work.length});
   }
   for(const data of partData){
@@ -188,7 +222,9 @@ export async function convertDocxToMathType(input,options={}){
   const report={version:1,qualificationOnly:true,nativeEditorVerified:false,converted:work.length,originalSha256:originalHash,equations:manifest};
   // Returned report is not hidden in the user's DOCX and contains no answers.
   aborted(options.signal);
-  const output=await zip.generateAsync({type:'uint8array',compression:'DEFLATE',compressionOptions:{level:6}});
+  // Level 3 substantially reduces browser CPU time for formula-heavy DOCX files.
+  // PNG previews are already compressed; raising DEFLATE further gives little value.
+  const output=await zip.generateAsync({type:'uint8array',compression:'DEFLATE',compressionOptions:{level:3}});
   if(output.length>maxExpanded)fail('RESOURCE_LIMIT','Converted DOCX is too large.');
   return {blob:new Blob([output],{type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'}),report};
 }

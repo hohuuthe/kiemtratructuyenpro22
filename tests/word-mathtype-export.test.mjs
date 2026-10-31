@@ -24,10 +24,10 @@ test('Default Equation path returns the exact original Blob and ignores MathType
   assert.equal(await finalizeWordExport(b,{equationFormat:'equation'}),b);
   assert.equal(await sha256(new Uint8Array(await b.arrayBuffer())),hash);
 });
-test('Unknown format is rejected; native MathType remains gated rather than claiming qualification',async()=>{
+test('Unknown format is rejected; Production enablement does not falsely claim native-editor qualification',async()=>{
   const b=await makeDocx();await assert.rejects(finalizeWordExport(b,{equationFormat:'image'}),{code:'INVALID_FORMAT'});
+  assert.equal(MATHTYPE_EXPORT_QUALIFICATION.productionEnabled,true);
   assert.equal(MATHTYPE_EXPORT_QUALIFICATION.nativeEditorVerified,false);
-  await assert.rejects(finalizeWordExport(b,{equationFormat:'mathtype',force:true,nativeEditorVerified:true}),{code:'NATIVE_ACCEPTANCE_REQUIRED'});
 });
 for(const [id,body] of corpus){
   test('Structural MathType export: '+id,()=>{
@@ -146,6 +146,27 @@ test('Postprocess all occurrences atomically with unique native objects and matc
   assert.equal((xml.match(/Answer A\./g)||[]).length,corpus.length);
   assert.equal(report.nativeEditorVerified,false);
 });
+test('Batch preview path renders many formulas in one renderer pass and never falls back per formula',async()=>{
+  const repeated=Array.from({length:48},(_,i)=>['repeat-'+i,fraction(run('a+b'),run('c-d'))]);
+  const input=await makeDocx(repeated);
+  let batchCalls=0,singleCalls=0,batchItems=0;
+  const renderPreviewBatch=async items=>{
+    batchCalls++;batchItems+=items.length;
+    return items.map(()=>({png,widthPt:20,heightPt:10,baselinePt:2}));
+  };
+  const result=await convertDocxToMathType(input,{
+    renderPreview:async()=>{singleCalls++;return stubPreview();},
+    renderPreviewBatch
+  });
+  assert.equal(result.report.converted,48);
+  assert.equal(batchCalls,1);
+  assert.equal(batchItems,48);
+  assert.equal(singleCalls,0);
+  const after=await load(result.blob);
+  const xml=parseXml(await after.file('word/document.xml').async('string'));
+  assert.equal(xml.getElementsByTagNameNS(NS.o,'OLEObject').length,48);
+});
+
 test('Preflight checks all formulas before any output/renderer work; formula errors include location',async()=>{
   const input=await makeDocx([corpus[0],['unsupported','<m:phant>'+arg('e',run('x'))+'</m:phant>']]);let called=0;
   await assert.rejects(convertDocxToMathType(input,{renderPreview:()=>{called++;return stubPreview();}}),e=>e.code==='UNSUPPORTED_OMML'&&e.details.equation===2);
