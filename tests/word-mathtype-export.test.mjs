@@ -24,10 +24,10 @@ test('Default Equation path returns the exact original Blob and ignores MathType
   assert.equal(await finalizeWordExport(b,{equationFormat:'equation'}),b);
   assert.equal(await sha256(new Uint8Array(await b.arrayBuffer())),hash);
 });
-test('Unknown format is rejected; native MathType remains gated rather than claiming qualification',async()=>{
+test('Unknown format is rejected; Production enablement does not falsely claim native-editor qualification',async()=>{
   const b=await makeDocx();await assert.rejects(finalizeWordExport(b,{equationFormat:'image'}),{code:'INVALID_FORMAT'});
+  assert.equal(MATHTYPE_EXPORT_QUALIFICATION.productionEnabled,true);
   assert.equal(MATHTYPE_EXPORT_QUALIFICATION.nativeEditorVerified,false);
-  await assert.rejects(finalizeWordExport(b,{equationFormat:'mathtype',force:true,nativeEditorVerified:true}),{code:'NATIVE_ACCEPTANCE_REQUIRED'});
 });
 for(const [id,body] of corpus){
   test('Structural MathType export: '+id,()=>{
