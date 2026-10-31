@@ -59,6 +59,8 @@ test('implementation is lazy, bounded and does not push live strokes into Neon',
   assert.match(api,/WITH deleted_pages AS/);
   assert.doesNotMatch(api,/SELECT\s+\*/i);
   assert.match(join,/exp:\s*now \+ 300/);
+  assert.match(join,/pageIds:/);
+  assert.match(join,/allowed_page_ids/);
   assert.doesNotMatch(join,/access_code_hash.*realtime_path/s);
   assert.match(worker,/setWebSocketAutoResponse/);
   assert.match(worker,/acceptWebSocket/);
@@ -68,12 +70,22 @@ test('implementation is lazy, bounded and does not push live strokes into Neon',
   assert.match(worker,/requestedPageId!==signedPageId/);
   assert.match(worker,/sameUser\.length>=3/);
   assert.match(worker,/storage\.deleteAll/);
-  assert.match(worker,/objectCount>=1000/);
+  assert.match(worker,/objectCount>=600/);
   assert.match(worker,/rateOps>400/);
+  assert.match(worker,/snapshot_begin/);
+  assert.match(worker,/snapshot_chunk/);
+  assert.match(worker,/pointCount-oldPoints\+newPoints>40000/);
+  assert.match(worker,/objectCount>=600/);
   assert.doesNotMatch(worker,/JWT_SECRET/);
   assert.match(join,/BOARD_REALTIME_SECRET/);
   assert.match(ui,/\/api\/board\/join/);
   assert.match(ui,/scheduleReconnect/);
+  assert.match(ui,/pendingReliable/);
+  assert.match(ui,/snapshot_begin/);
+  assert.match(ui,/user_lock_state/);
+  assert.match(ui,/data-board-user-clear/);
+  assert.match(ui,/board-export-image/);
+  assert.match(ui,/remoteLasers/);
   assert.match(ui,/board_deleted/);
   assert.match(ui,/board\/pages/);
   assert.match(pages,/Chỉ người quản lý bảng được đọc trực tiếp metadata trang/);
@@ -82,6 +94,12 @@ test('implementation is lazy, bounded and does not push live strokes into Neon',
   assert.match(ui,/policy_changed/);
   assert.match(worker,/internal\/board-policy/);
   assert.match(worker,/Board policy changed/);
+  assert.match(worker,/set_user_lock/);
+  assert.match(worker,/clear_user_objects/);
+  assert.match(worker,/stroke_cancel/);
+  assert.match(worker,/op_ack/);
+  assert.match(worker,/recentOps/);
+  assert.match(worker,/type:'laser'/);
   assert.match(api,/LOWER\(\?\) = ANY/);
 });
 
