@@ -106,6 +106,7 @@ function handleMessage(m){
  if(m.type==='delete'){objects.delete(m.objectId);remoteStrokes.delete(m.objectId);scheduleRender();renderParticipants(participantsCache);return;}
  if(m.type==='clear_page'){for(const [id,o] of objects)if(o.pageId===m.pageId)objects.delete(id);remoteStrokes.clear();drawing=null;dragState=null;scheduleRender();renderParticipants(participantsCache);return;}
  if(m.type==='stroke_segment'){let s=remoteStrokes.get(m.objectId);if(!s){s={id:m.objectId,pageId:m.pageId,type:'stroke',points:[],color:m.color,width:m.width};remoteStrokes.set(m.objectId,s);}s.points.push(...(m.points||[]));scheduleRender();return;}
+ if(m.type==='page_updated'&&m.page){room.pages=(room.pages||[]).map(p=>String(p.id)===String(m.page.id)?{...p,...m.page}:p);renderPageControls();return;}
  if(m.type==='page_created'&&m.page){if(!room.pages.some(p=>String(p.id)===String(m.page.id))){room.pages=[...room.pages,m.page].sort((a,b)=>(a.page_no||0)-(b.page_no||0));renderPageControls();}return;}
  if(m.type==='page_deleted'){room.pages=(room.pages||[]).filter(p=>String(p.id)!==String(m.pageId));renderPageControls();if(String(m.pageId)===String(currentPageId)){const next=room.pages[0];if(next)switchPage(next.id);else exitRoom();}return;}
  if(m.type==='op_ack'&&m.clientOpId){pendingReliable.delete(String(m.clientOpId));return;}
@@ -143,8 +144,17 @@ function renderPageControls(){
  if($('board-page-prev'))$('board-page-prev').disabled=idx<=0;
  if($('board-page-next'))$('board-page-next').disabled=idx<0||idx>=pages.length-1;
  $('board-add-page')?.classList.toggle('hidden',!room.board.can_manage);
+ $('board-edit-page')?.classList.toggle('hidden',!room.board.can_manage);
  $('board-delete-page')?.classList.toggle('hidden',!room.board.can_manage||pages.length<=1);
 }
+function openPageEditor(){
+ if(!room?.board?.can_manage)return;
+ const page=(room.pages||[]).find(p=>String(p.id)===String(currentPageId)),f=$('board-page-form');if(!page||!f)return;
+ f.elements.namedItem('id').value=page.id;f.elements.namedItem('revision').value=page.revision||1;
+ f.elements.namedItem('title').value=page.title||'';f.elements.namedItem('background_type').value=page.background_type||'white';
+ $('board-page-modal')?.classList.remove('hidden');f.elements.namedItem('title').focus();
+}
+function closePageEditor(){$('board-page-modal')?.classList.add('hidden');}
 async function switchPage(pageId){
  if(!room||!pageId||pageId===currentPageId)return;
  try{
@@ -325,6 +335,9 @@ export function connectInteractiveBoards(){
  });
  $('board-lock')?.addEventListener('click',()=>{if(room?.board?.can_manage)sendOps([{kind:locked?'unlock':'lock'}]);});
  $('board-clear')?.addEventListener('click',()=>{if(!room?.board?.can_manage)return;window.showConfirmModal?.('Xóa toàn bộ nội dung đang có trên trang bảng này?',()=>{sendOps([{kind:'clear_page',pageId:currentPageId}]);undoStack=[];redoStack=[];syncHistoryButtons();});});
+ $('board-edit-page')?.addEventListener('click',openPageEditor);
+ $('board-page-cancel')?.addEventListener('click',closePageEditor);
+ $('board-page-form')?.addEventListener('submit',async e=>{e.preventDefault();const f=e.currentTarget,fd=new FormData(f);const body={id:fd.get('id'),revision:Number(fd.get('revision'))||1,title:fd.get('title'),background_type:fd.get('background_type')};const btn=f.querySelector('[type=submit]');btn.disabled=true;try{const result=await api('PUT','/api/board/pages',body);room.pages=(room.pages||[]).map(p=>String(p.id)===String(result.data.id)?{...p,...result.data}:p);closePageEditor();renderPageControls();}catch(err){window.showToast?.(err.message||'Không thể cập nhật trang.','error');}finally{btn.disabled=false;}});
  $('board-page-select')?.addEventListener('change',e=>switchPage(e.target.value));
  $('board-page-prev')?.addEventListener('click',()=>{const pages=room?.pages||[],i=pages.findIndex(p=>String(p.id)===String(currentPageId));if(i>0)switchPage(pages[i-1].id);});
  $('board-page-next')?.addEventListener('click',()=>{const pages=room?.pages||[],i=pages.findIndex(p=>String(p.id)===String(currentPageId));if(i>=0&&i<pages.length-1)switchPage(pages[i+1].id);});
