@@ -187,6 +187,20 @@ test('VIP profile field is wired through schema auth APIs and UI',()=>{
   assert.match(boardUi,/actor\?\.is_vip/);
 });
 
+test('VIP and active switches have clickable labels and board controls expose stable interaction feedback',()=>{
+  const modal=fs.readFileSync('public/components/user-modal.html','utf8');
+  const ui=fs.readFileSync('src/interactive-board-ui.js','utf8');
+  assert.match(modal,/label for="usr-vip"/);
+  assert.match(modal,/label for="usr-active"/);
+  assert.match(modal,/id="usr-vip"[^>]*aria-label="Người dùng VIP"/);
+  assert.match(ui,/function selectBoardTool/);
+  assert.match(ui,/aria-pressed/);
+  assert.match(ui,/tool==='laser'.*sendOps/s);
+  assert.match(ui,/desktopVisible/);
+  assert.match(ui,/board-add-page[\s\S]*btn\.disabled=true/);
+});
+
+
 
 test('non-owner teacher role must not imply realtime manage permission',()=>{
   const worker=fs.readFileSync('workers/interactive-board-worker.js','utf8');
