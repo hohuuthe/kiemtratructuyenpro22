@@ -97,7 +97,24 @@ export const onRequestGet: PagesFunction = async (context: any) => {
       });
     }
 
-    // Student discovery is bounded and column-limited. No snapshot, password hash or settings blob.
+    // Student discovery is filtered inside PostgreSQL so Neon returns only the requested page.
+    const unit = String(user.donvi || '').trim();
+    const studentClass = String(user.lop || '').replace(/\\s+/g, '');
+    const visibilitySql = `
+       b.status IN ('open','locked')
+       AND (b.starts_at IS NULL OR b.starts_at <= CURRENT_TIMESTAMP)
+       AND (b.ends_at IS NULL OR b.ends_at >= CURRENT_TIMESTAMP)
+       AND (
+         b.access_mode IN ('public','protected')
+         OR (
+           b.access_mode='unit'
+           AND LOWER(TRIM(b.target_donvi))=LOWER(TRIM(?))
+           AND (TRIM(b.target_lop)='' OR ? = ANY(string_to_array(replace(b.target_lop,' ',''), ',')))
+         )
+       )`;
+    const countRow = await db.prepare(
+      `SELECT COUNT(*)::int AS total FROM interactive_boards b WHERE ${visibilitySql}`
+    ).bind(unit, studentClass).first();
     const { results } = await db.prepare(
       `SELECT b.id,b.name,b.description,b.creator_id,b.status,b.access_mode,
               b.target_donvi,b.target_lop,b.student_permission,b.starts_at,b.ends_at,
@@ -106,15 +123,12 @@ export const onRequestGet: PagesFunction = async (context: any) => {
        FROM interactive_boards b
        LEFT JOIN accounts a ON a.id = b.creator_id
        LEFT JOIN users u ON u.id = COALESCE(a.user_id,a.id)
-       WHERE b.status IN ('open','locked')
-         AND (b.starts_at IS NULL OR b.starts_at <= CURRENT_TIMESTAMP)
-         AND (b.ends_at IS NULL OR b.ends_at >= CURRENT_TIMESTAMP)
+       WHERE ${visibilitySql}
        ORDER BY b.updated_at DESC
-       LIMIT 100`
-    ).all();
+       LIMIT ? OFFSET ?`
+    ).bind(unit, studentClass, limit, offset).all();
     const visible = (results || []).filter((row: any) => canDiscoverBoard(user, row, isAdmin));
-    const start = offset;
-    return boardJson({ data: visible.slice(start, start + limit).map((row: any) => boardListProjection(row, false)), total: visible.length, page, limit });
+    return boardJson({ data: visible.map((row: any) => boardListProjection(row, false)), total: Number(countRow?.total || 0), page, limit });
   } catch (error: any) {
     console.error('[BOARD LIST]', error?.message || error);
     return boardJson({ error: error?.message || 'Không thể tải danh sách bảng tương tác.' }, 500);
@@ -195,7 +209,6 @@ export const onRequestDelete: PagesFunction = async (context: any) => {
     const current = await loadBoard(db, id);
     if (!current) return boardJson({ error: 'Không tìm thấy bảng.' }, 404);
     if (!canManageBoard(user, current, isAdmin)) return boardJson({ error: 'Bạn không có quyền xóa bảng này.' }, 403);
-    await db.prepare('DELETE FROM interactive_board_snapshots WHERE board_id=?').bind(id).run();
     await db.prepare('DELETE FROM interactive_board_pages WHERE board_id=?').bind(id).run();
     await db.prepare('DELETE FROM interactive_boards WHERE id=?').bind(id).run();
     return boardJson({ ok: true });
