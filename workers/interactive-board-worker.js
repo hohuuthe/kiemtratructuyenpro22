@@ -251,7 +251,6 @@ export class BoardRoom {
       blocked:userLocked,
       allowedPages,
       activeStrokes:[],
-      recentOps:[],
       joinedAt:Date.now()
     };
     this.ctx.acceptWebSocket(server,[pageId]);
@@ -310,9 +309,12 @@ export class BoardRoom {
     let packet; try { packet=JSON.parse(message); } catch { return; }
     if (!packet || packet.type!=='op_batch' || !Array.isArray(packet.ops) || packet.ops.length>80) return;
     const clientOpId=safeId(packet.clientOpId);
+    const recentKey=clientOpId?'recentops:'+actor.userId:'';
+    let durableRecent=[];
     if(clientOpId){
-      if(!Array.isArray(actor.recentOps))actor.recentOps=[];
-      if(actor.recentOps.includes(clientOpId)){
+      const stored=await this.ctx.storage.get(recentKey);
+      durableRecent=Array.isArray(stored)?stored:[];
+      if(durableRecent.includes(clientOpId)){
         try{ws.send(JSON.stringify({type:'op_ack',clientOpId,duplicate:true}))}catch{}
         return;
       }
@@ -326,7 +328,6 @@ export class BoardRoom {
       return;
     }
     actor.rateOps=nextOps;
-    if(clientOpId)actor.recentOps=actor.recentOps.concat(clientOpId).slice(-80);
     ws.serializeAttachment(actor);
     const roomLocked=Boolean(await this.ctx.storage.get('room:locked'));
     // Quyền quản lý chỉ đến từ claim permission=manage do Pages API cấp sau khi kiểm tra owner/admin.
@@ -509,7 +510,11 @@ export class BoardRoom {
         this.broadcast({type:'lock_state',locked});
       }
     }
-    if(clientOpId){try{ws.send(JSON.stringify({type:'op_ack',clientOpId}))}catch{}}
+    if(clientOpId){
+      durableRecent=durableRecent.concat(clientOpId).slice(-80);
+      await this.ctx.storage.put(recentKey,durableRecent);
+      try{ws.send(JSON.stringify({type:'op_ack',clientOpId}))}catch{}
+    }
   }
 
   cleanupTransientStrokes(ws) {
