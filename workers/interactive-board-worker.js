@@ -241,6 +241,7 @@ export class BoardRoom {
       boardId,userId,pageId,
       displayName:String(claims.displayName||'Người dùng').slice(0,100),
       role:String(claims.role||'student'),
+      displayRole:String(claims.displayRole||'student'),
       permission:String(claims.permission||'view'),
       blocked:userLocked,
       allowedPages,
@@ -282,7 +283,7 @@ export class BoardRoom {
       const s=stateOf(ws);
       if (!s.userId) continue;
       if (!seen.has(s.userId)) seen.set(s.userId,{
-        userId:s.userId,displayName:s.displayName||'Người dùng',role:s.role||'student',
+        userId:s.userId,displayName:s.displayName||'Người dùng',role:s.displayRole||'student',
         blocked:Boolean(s.blocked),pageId:s.pageId||''
       });
     }
