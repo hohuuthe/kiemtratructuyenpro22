@@ -105,6 +105,19 @@ test('borderBox edge flags are preserved in the MTEF box variation bits',()=>{
   assert.match(astToMathml(tree),/menclose notation=/);
 });
 
+test('borderBox horizontal and diagonal strikes use editable native strike templates',()=>{
+  const cases=[['strikeH',1],['strikeBLTR',2],['strikeTLBR',4]];
+  for(const [flag,variation] of cases){
+    const tree=ast('<m:borderBox><m:borderBoxPr><m:'+flag+'/></m:borderBoxPr>'+arg('e',run('x'))+'</m:borderBox>');
+    const encoded=readMtef(astToMtef(tree));
+    const strike=flatten(encoded).find(n=>n.selector===36);
+    assert.equal(strike.variation,variation);
+    assert.equal(flatten(strike).some(n=>n.selector===37),true);
+  }
+  const vertical=ast('<m:borderBox><m:borderBoxPr><m:strikeV/></m:borderBoxPr>'+arg('e',run('x'))+'</m:borderBox>');
+  assert.throws(()=>astToMtef(vertical),{code:'UNSUPPORTED_BORDER_STRIKE'});
+});
+
 test('Phantom remains explicitly rejected until a semantically equivalent editable MTEF construction is qualified',()=>{
   assert.throws(()=>ast('<m:phant>'+arg('e',run('x'))+'</m:phant>'),{code:'UNSUPPORTED_OMML'});
 });
