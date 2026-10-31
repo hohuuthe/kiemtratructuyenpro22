@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
-  boardWindowOpen, canDiscoverBoard, canManageBoard, unitAndClassMatch,
+  boardWindowOpen, canDiscoverBoard, canManageBoard, canCreateInteractiveBoard, unitAndClassMatch,
   boardListProjection, normalizeClassList
 } from '../functions/api/board/common.ts';
 
@@ -151,4 +151,38 @@ test('time helper behaves deterministically for open windows',()=>{
   const now=Date.now();
   assert.equal(boardWindowOpen({starts_at:new Date(now-1000).toISOString(),ends_at:new Date(now+1000).toISOString()},now),true);
   assert.equal(boardWindowOpen({starts_at:new Date(now+1000).toISOString(),ends_at:null},now),false);
+});
+
+
+test('VIP teacher policy gates smart board creation server-side',()=>{
+  const normalTeacher={id:'t1',role:'teacher',target_audience:'Giáo viên',is_vip:false};
+  const vipTeacher={...normalTeacher,is_vip:true};
+  const admin={id:'a1',role:'admin',target_audience:'Quản trị viên',is_vip:false};
+  const studentUser={id:'s1',role:'user',target_audience:'Học sinh',is_vip:true};
+  assert.equal(canCreateInteractiveBoard(vipTeacher,false,true),true);
+  assert.equal(canCreateInteractiveBoard(normalTeacher,false,true),false);
+  assert.equal(canCreateInteractiveBoard(admin,true,false),true);
+  assert.equal(canCreateInteractiveBoard(studentUser,false,false),false);
+});
+
+test('VIP profile field is wired through schema auth APIs and UI',()=>{
+  const schema=fs.readFileSync('database-schema.sql','utf8');
+  const utils=fs.readFileSync('functions/api/exam/utils.ts','utf8');
+  const login=fs.readFileSync('functions/api/auth/login.ts','utf8');
+  const users=fs.readFileSync('functions/api/users.ts','utf8');
+  const userById=fs.readFileSync('functions/api/users/[id].ts','utf8');
+  const main=fs.readFileSync('src/main.js','utf8');
+  const boardUi=fs.readFileSync('src/interactive-board-ui.js','utf8');
+  const modal=fs.readFileSync('public/components/user-modal.html','utf8');
+  assert.match(schema,/is_vip INTEGER DEFAULT 0/);
+  assert.match(utils,/ensureUserVipColumn/);
+  assert.match(utils,/u\.is_vip AS profile_vip/);
+  assert.match(login,/users\.is_vip/);
+  assert.match(users,/is_vip/);
+  assert.match(userById,/is_vip/);
+  assert.match(modal,/id="usr-vip"/);
+  assert.match(main,/syncUserVipField/);
+  assert.match(main,/is_vip: document\.getElementById\('usr-vip'\)/);
+  assert.match(boardUi,/canCreateBoard/);
+  assert.match(boardUi,/actor\?\.is_vip/);
 });
