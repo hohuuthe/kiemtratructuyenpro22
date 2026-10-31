@@ -285,6 +285,12 @@ export class BoardRoom {
 
     for (const raw of packet.ops) {
       const kind=String(raw?.kind||'');
+      if (kind==='laser' && canManage) {
+        const pageId=safeId(raw.pageId);if(!pageId||pageId!==actor.pageId)continue;
+        const x=Math.round(clamp(raw.x,0,1600,0)),y=Math.round(clamp(raw.y,0,900,0));
+        this.broadcast({type:'laser',pageId,userId:actor.userId,displayName:actor.displayName||'Giáo viên',x,y},ws,pageId);
+        continue;
+      }
       if (kind==='stroke_segment') {
         if (!canDraw) continue;
         const pageId=safeId(raw.pageId); if (!pageId || pageId!==actor.pageId) continue;
