@@ -50,6 +50,8 @@ test('implementation is lazy, bounded and does not push live strokes into Neon',
   const join=fs.readFileSync('functions/api/board/join.ts','utf8');
   const worker=fs.readFileSync('workers/interactive-board-worker.js','utf8');
   const pages=fs.readFileSync('functions/api/board/pages.ts','utf8');
+  const realtime=fs.readFileSync('functions/api/board/realtime.ts','utf8');
+  const workflow=fs.readFileSync('.github/workflows/interactive-board.yml','utf8');
   assert.match(main,/import\('\.\/interactive-board-ui\.js'\)/);
   assert.match(main,/tab === 'boards'/);
   assert.doesNotMatch(main,/^import .*interactive-board-ui/m);
@@ -76,8 +78,11 @@ test('implementation is lazy, bounded and does not push live strokes into Neon',
   assert.match(worker,/rateOps>400/);
   assert.match(worker,/snapshot_begin/);
   assert.match(worker,/searchParams\.get\('snapshot'\)===\'1\'/);
+  assert.match(realtime,/searchParams\.get\('snapshot'\)===\'1\'/);
   assert.match(ui,/fetchPageSnapshot/);
   assert.match(ui,/import\('jspdf'\)/);
+  assert.match(ui,/board-export-pdf/);
+  assert.match(ui,/exportBoardPdf/);
   assert.match(worker,/snapshot_chunk/);
   assert.match(worker,/pointCount-oldPoints\+newPoints>40000/);
   assert.match(worker,/objectCount>=600/);
@@ -88,6 +93,8 @@ test('implementation is lazy, bounded and does not push live strokes into Neon',
   assert.match(ui,/pendingReliable/);
   assert.match(ui,/\/api\/ai\/generate/);
   assert.match(ui,/boardTextPayload/);
+  assert.match(ui,/board-ai-run/);
+  assert.match(ui,/insertAiResult/);
   assert.match(ui,/gemini_api_key_/);
   assert.match(ui,/snapshot_begin/);
   assert.match(ui,/user_lock_state/);
@@ -116,12 +123,16 @@ test('implementation is lazy, bounded and does not push live strokes into Neon',
   assert.match(ui,/vote_state/);
   assert.match(ui,/timer_state/);
   assert.match(ui,/page_focus/);
+  assert.match(ui,/followTeacher/);
+  assert.match(ui,/board-bring-here/);
   assert.match(worker,/clear_user_objects/);
   assert.match(worker,/stroke_cancel/);
   assert.match(worker,/op_ack/);
   assert.match(worker,/recentOps/);
   assert.match(worker,/type:'laser'/);
   assert.match(api,/LOWER\(\?\) = ANY/);
+  assert.doesNotMatch(workflow,/functions\/\[slug\]\/api\/\[\[path\]\]/,'workflow must avoid invalid bracket glob');
+  assert.ok(worker.indexOf('if(nextOps>400)') < worker.indexOf('actor.recentOps=actor.recentOps.concat'),'rate limit must run before dedupe acceptance');
 });
 
 test('worker prevents student overwrite/delete of objects owned by another actor',()=>{
