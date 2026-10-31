@@ -128,10 +128,10 @@
           <div class="text-xs font-bold text-amber-900">⭐ Người dùng VIP</div>
           <div class="text-[11px] text-amber-700">Chỉ Giáo viên VIP mới được phép tạo Bảng tương tác thông minh</div>
         </div>
-        <div class="relative inline-flex items-center cursor-pointer">
-          <input type="checkbox" id="usr-vip" class="sr-only peer">
-          <div class="w-10 h-5 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500"></div>
-        </div>
+        <label for="usr-vip" class="relative inline-flex items-center cursor-pointer select-none min-w-11 min-h-7" title="Bật hoặc tắt quyền VIP cho hồ sơ Giáo viên">
+          <input type="checkbox" id="usr-vip" class="sr-only peer" aria-label="Người dùng VIP">
+          <span aria-hidden="true" class="relative block w-11 h-6 bg-gray-200 rounded-full transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-amber-400 peer-focus-visible:ring-offset-2 peer-checked:bg-amber-500 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:shadow-sm after:transition-transform peer-checked:after:translate-x-5"></span>
+        </label>
        </div>
 
        <!-- 8. KÍCH HOẠT NGƯỜI DÙNG -->
@@ -140,10 +140,10 @@
           <div class="text-xs font-bold text-gray-800">Trạng thái hoạt động</div>
           <div class="text-[11px] text-gray-500">Cho phép hồ sơ này tham gia các kỳ thi trên hệ thống</div>
         </div>
-        <div class="relative inline-flex items-center cursor-pointer">
-          <input type="checkbox" id="usr-active" class="sr-only peer" checked>
-          <div class="w-10 h-5 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
-        </div>
+        <label for="usr-active" class="relative inline-flex items-center cursor-pointer select-none min-w-11 min-h-7" title="Bật hoặc tắt trạng thái hoạt động của hồ sơ">
+          <input type="checkbox" id="usr-active" class="sr-only peer" checked aria-label="Trạng thái hoạt động">
+          <span aria-hidden="true" class="relative block w-11 h-6 bg-gray-200 rounded-full transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-blue-400 peer-focus-visible:ring-offset-2 peer-checked:bg-blue-600 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:shadow-sm after:transition-transform peer-checked:after:translate-x-5"></span>
+        </label>
        </div>
       </div>
       
