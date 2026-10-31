@@ -30,6 +30,15 @@ import JSZip from 'jszip';
 import * as docx from 'docx';
 import { generateExamDocx, makeWordMathRun } from './exam-docx-generator.ts';
 import { finalizeWordExport, canExportMathTypeHere } from './word-export-format.js';
+
+function describeMathTypeExportFailure(error) {
+    const message = error?.message || String(error || 'Lỗi không xác định');
+    const code = error?.code ? String(error.code) : '';
+    const index = Number(error?.details?.index || error?.details?.equation || 0);
+    const total = Number(error?.details?.total || 0);
+    const where = index > 0 ? ` — công thức ${index}${total > 0 ? '/' + total : ''}` : '';
+    return `${code ? '[' + code + '] ' : ''}${message}${where}`;
+}
 import { buildQuestionBankExportInventory, buildQuestionBankExportPlan } from './question-bank-word-selection.js';
 import { generateQuestionBankDocx } from './question-bank-docx-generator.ts';
 import { beginQuestionBankWordSavePicker, writeQuestionBankWordFile, createQuestionBankWordDownload } from './question-bank-word-download.js';
@@ -4985,6 +4994,10 @@ if (contentType && contentType.includes("application/json")) {
 
         window.closeModal = closeModal;
         function closeModal() {
+            if (window.__mathTypeExamExportController) {
+                try { window.__mathTypeExamExportController.abort(); } catch {}
+                window.__mathTypeExamExportController = null;
+            }
             const allContainers = document.querySelectorAll('#modal-container');
             allContainers.forEach(container => {
                 container.classList.add('hidden');
@@ -6134,6 +6147,8 @@ if (contentType && contentType.includes("application/json")) {
             const soLuongDe = Math.min(20, Math.max(1, parseInt(document.getElementById('docx-export-so-luong')?.value || '1', 10)));
             const thoiGian = document.getElementById('docx-export-thoigian')?.value || 45;
             const equationFormat = document.querySelector('input[name="docx-equation-format"]:checked')?.value || 'equation';
+            const mathTypeController = equationFormat === 'mathtype' ? new AbortController() : null;
+            if (mathTypeController) window.__mathTypeExamExportController = mathTypeController;
 
             const progressContainer = document.getElementById('export-docx-progress-container');
             const progressTitle = document.getElementById('export-progress-title');
@@ -6254,7 +6269,7 @@ if (contentType && contentType.includes("application/json")) {
                         thoiGian,
                         maDe: baseMaDe
                     };
-                    await generateDocxClientSide(targetExamId, headerOpts, soLuongDe, updateProgress, equationFormat);
+                    await generateDocxClientSide(targetExamId, headerOpts, soLuongDe, updateProgress, equationFormat, mathTypeController?.signal);
                 }
 
                 setTimeout(() => {
@@ -6263,9 +6278,13 @@ if (contentType && contentType.includes("application/json")) {
 
             } catch(err) {
                 console.error('Lỗi khi xuất file Word & Excel:', err);
-                showToast('❌ Lỗi khi xuất đề thi: ' + (err.message || err), 'error');
-                if (progressStatus) progressStatus.innerText = '❌ Có lỗi xảy ra trong quá trình bốc ngẫu nhiên & xuất đề thi!';
+                const detail = equationFormat === 'mathtype' ? describeMathTypeExportFailure(err) : (err.message || String(err));
+                showToast('❌ Lỗi khi xuất đề thi: ' + detail, 'error');
+                if (progressStatus) progressStatus.innerText = '❌ ' + detail;
             } finally {
+                if (window.__mathTypeExamExportController === mathTypeController) {
+                    window.__mathTypeExamExportController = null;
+                }
                 if (btn) {
                     btn.disabled = false;
                     btn.innerHTML = originalText;
@@ -6273,7 +6292,7 @@ if (contentType && contentType.includes("application/json")) {
             }
         };
 
-        async function generateDocxClientSide(targetExamId, headerOpts, soLuongDe, updateProgress, equationFormat = 'equation') {
+        async function generateDocxClientSide(targetExamId, headerOpts, soLuongDe, updateProgress, equationFormat = 'equation', mathTypeSignal = null) {
             // 1. Tìm cấu hình đề thi mục tiêu từ các nguồn bộ nhớ client
             let targetExam = (window.allExamConfigsList || []).find(e => String(e.id) === String(targetExamId));
             if (!targetExam && window.examsList) {
@@ -6556,6 +6575,8 @@ if (contentType && contentType.includes("application/json")) {
                 const docBlob = await finalizeWordExport(equationBlob, {
                     equationFormat,
                     hostname: window.location.hostname,
+                    signal: mathTypeSignal,
+                    previewTimeoutMs: 15000,
                     onProgress: ({completed,total}) => {
                         if (equationFormat === 'mathtype' && updateProgress && total) {
                             const base = Math.round((v / soLuongDe) * 80);
@@ -13127,8 +13148,10 @@ D. Phát biểu SAI</pre>
             }
         }
         window.closeQuestionBankWordModal = function closeQuestionBankWordModal() {
+            const currentModal = document.getElementById('export-word-modal');
+            try { currentModal?._mathTypeAbortController?.abort(); } catch {}
             releaseQuestionBankWordDownloads();
-            document.getElementById('export-word-modal')?.remove();
+            currentModal?.remove();
             bankWordExportInventory = null;
         };
 
@@ -13433,6 +13456,8 @@ D. Phát biểu SAI</pre>
             button.disabled = true;
             const originalLabel = button.textContent;
             const equationFormat = modal.querySelector('input[name="bank-word-equation-format"]:checked')?.value || 'equation';
+            const mathTypeController = equationFormat === 'mathtype' ? new AbortController() : null;
+            if (mathTypeController) modal._mathTypeAbortController = mathTypeController;
             button.textContent = equationFormat === 'mathtype'
                 ? '⏳ Đang tạo Equation & chuyển MathType...'
                 : '⏳ Đang xác minh và tạo Word...';
@@ -13484,6 +13509,8 @@ D. Phát biểu SAI</pre>
                 const outputBlob = await finalizeWordExport(blob, {
                     equationFormat,
                     hostname: window.location.hostname,
+                    signal: mathTypeController?.signal,
+                    previewTimeoutMs: 15000,
                     onProgress: ({completed,total}) => {
                         if (equationFormat !== 'mathtype' || !total) return;
                         button.textContent = `⏳ Đang chuyển MathType ${completed}/${total}...`;
@@ -13589,13 +13616,15 @@ D. Phát biểu SAI</pre>
                 if (pickerError) console.warn('[WordBank] Save picker unavailable:', pickerError);
             } catch (error) {
                 console.error('[WordBank] Export failed:', error);
-                showToast('Không thể xuất file Word đầy đủ: ' + (error.message || error), 'error');
+                const detail = equationFormat === 'mathtype' ? describeMathTypeExportFailure(error) : (error.message || String(error));
+                showToast('Không thể xuất file Word đầy đủ: ' + detail, 'error');
                 const status = modal.querySelector('#exp-validation');
                 if (status) {
-                    status.textContent = error.message || String(error);
+                    status.textContent = detail;
                     status.className = 'text-xs font-semibold text-red-700';
                 }
             } finally {
+                if (modal._mathTypeAbortController === mathTypeController) modal._mathTypeAbortController = null;
                 button.dataset.exporting = '';
                 button.textContent = originalLabel;
                 if (modal.isConnected) window.updateWordExportSelectionStats();
