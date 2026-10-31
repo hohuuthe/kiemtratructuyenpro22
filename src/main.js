@@ -29,6 +29,16 @@ import { attachScientificEditorPreviews } from './scientific-formula-editor-prev
 import JSZip from 'jszip';
 import * as docx from 'docx';
 import { generateExamDocx, makeWordMathRun } from './exam-docx-generator.ts';
+import { finalizeWordExport, canExportMathTypeHere } from './word-export-format.js';
+
+function describeMathTypeExportFailure(error) {
+    const message = error?.message || String(error || 'Lỗi không xác định');
+    const code = error?.code ? String(error.code) : '';
+    const index = Number(error?.details?.index || error?.details?.equation || 0);
+    const total = Number(error?.details?.total || 0);
+    const where = index > 0 ? ` — công thức ${index}${total > 0 ? '/' + total : ''}` : '';
+    return `${code ? '[' + code + '] ' : ''}${message}${where}`;
+}
 import { buildQuestionBankExportInventory, buildQuestionBankExportPlan } from './question-bank-word-selection.js';
 import { generateQuestionBankDocx } from './question-bank-docx-generator.ts';
 import { beginQuestionBankWordSavePicker, writeQuestionBankWordFile, createQuestionBankWordDownload } from './question-bank-word-download.js';
@@ -4984,6 +4994,10 @@ if (contentType && contentType.includes("application/json")) {
 
         window.closeModal = closeModal;
         function closeModal() {
+            if (window.__mathTypeExamExportController) {
+                try { window.__mathTypeExamExportController.abort(); } catch {}
+                window.__mathTypeExamExportController = null;
+            }
             const allContainers = document.querySelectorAll('#modal-container');
             allContainers.forEach(container => {
                 container.classList.add('hidden');
@@ -5961,6 +5975,7 @@ if (contentType && contentType.includes("application/json")) {
                 }
             };
 
+            const mathTypePreviewAvailable = canExportMathTypeHere(window.location.hostname);
             const modalContent = `
                 <div class="exam-export-body p-4 sm:p-6 text-left w-full min-w-0">
                     <div class="flex items-start justify-between pb-3.5 mb-4 border-b border-gray-100">
@@ -6011,6 +6026,23 @@ if (contentType && contentType.includes("application/json")) {
                                 <input type="text" id="docx-export-namhoc" value="${escapeHtml(defaultNamHoc)}" class="w-full px-3.5 py-2 text-xs md:text-sm border border-gray-300 rounded-xl focus:border-blue-500 focus:outline-none bg-white font-medium">
                             </div>
                         </div>
+
+                        <fieldset class="rounded-2xl border border-violet-200 bg-violet-50/60 p-3.5 space-y-2">
+                            <legend class="px-1 text-xs md:text-sm font-black text-violet-950">∑ Kiểu công thức trong file Word</legend>
+                            <label class="flex items-start gap-2 cursor-pointer">
+                                <input type="radio" name="docx-equation-format" value="equation" checked class="mt-0.5">
+                                <span><strong>Equation Word</strong> — mặc định, giữ nguyên cơ chế xuất hiện tại.</span>
+                            </label>
+                            <label class="flex items-start gap-2 ${mathTypePreviewAvailable ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}">
+                                <input type="radio" name="docx-equation-format" value="mathtype" ${mathTypePreviewAvailable ? '' : 'disabled'} class="mt-0.5">
+                                <span><strong>MathType OLE</strong> — Preview thử nghiệm, chỉ chạy khi chủ động chọn.</span>
+                            </label>
+                            <div class="text-[11px] leading-relaxed text-violet-800">
+                                ${mathTypePreviewAvailable
+                                  ? 'MathType chỉ bật trên Cloudflare Preview để nghiệm thu. Nếu chuyển đổi lỗi, file MathType sẽ không được xuất dở dang.'
+                                  : 'MathType đang khóa ngoài môi trường Preview. Equation Word vẫn hoạt động bình thường.'}
+                            </div>
+                        </fieldset>
 
                         <!-- Dedicated Multi-Exam & Test Code Section -->
                         <div class="p-4 bg-gradient-to-r from-amber-50/90 via-orange-50/70 to-indigo-50/80 border border-amber-200/90 rounded-2xl space-y-3">
@@ -6114,6 +6146,9 @@ if (contentType && contentType.includes("application/json")) {
             const baseMaDe = (document.getElementById('docx-export-made')?.value || '1201').trim();
             const soLuongDe = Math.min(20, Math.max(1, parseInt(document.getElementById('docx-export-so-luong')?.value || '1', 10)));
             const thoiGian = document.getElementById('docx-export-thoigian')?.value || 45;
+            const equationFormat = document.querySelector('input[name="docx-equation-format"]:checked')?.value || 'equation';
+            const mathTypeController = equationFormat === 'mathtype' ? new AbortController() : null;
+            if (mathTypeController) window.__mathTypeExamExportController = mathTypeController;
 
             const progressContainer = document.getElementById('export-docx-progress-container');
             const progressTitle = document.getElementById('export-progress-title');
@@ -6146,11 +6181,12 @@ if (contentType && contentType.includes("application/json")) {
 
             try {
                 const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
-                let useClientFallback = false;
+                let useClientFallback = equationFormat === 'mathtype';
                 let downloaded = false;
 
-                    // 1. Gọi API Server xuất trọn bộ đề thi Word và file Excel bảng đáp án
-                    try {
+                    // Equation keeps the existing server route byte-for-byte.
+                    // MathType must start from the same client Equation DOCX and post-process only its copy.
+                    if (!useClientFallback) try {
                         updateProgress(25, `Đang bốc ngẫu nhiên câu hỏi & tạo ${soLuongDe} mã đề thi Word kèm Excel đáp án...`, `0 / ${soLuongDe} đề`);
                         const response = await fetch('/api/exam/export-docx', {
                             method: 'POST',
@@ -6233,7 +6269,7 @@ if (contentType && contentType.includes("application/json")) {
                         thoiGian,
                         maDe: baseMaDe
                     };
-                    await generateDocxClientSide(targetExamId, headerOpts, soLuongDe, updateProgress);
+                    await generateDocxClientSide(targetExamId, headerOpts, soLuongDe, updateProgress, equationFormat, mathTypeController?.signal);
                 }
 
                 setTimeout(() => {
@@ -6242,9 +6278,13 @@ if (contentType && contentType.includes("application/json")) {
 
             } catch(err) {
                 console.error('Lỗi khi xuất file Word & Excel:', err);
-                showToast('❌ Lỗi khi xuất đề thi: ' + (err.message || err), 'error');
-                if (progressStatus) progressStatus.innerText = '❌ Có lỗi xảy ra trong quá trình bốc ngẫu nhiên & xuất đề thi!';
+                const detail = equationFormat === 'mathtype' ? describeMathTypeExportFailure(err) : (err.message || String(err));
+                showToast('❌ Lỗi khi xuất đề thi: ' + detail, 'error');
+                if (progressStatus) progressStatus.innerText = '❌ ' + detail;
             } finally {
+                if (window.__mathTypeExamExportController === mathTypeController) {
+                    window.__mathTypeExamExportController = null;
+                }
                 if (btn) {
                     btn.disabled = false;
                     btn.innerHTML = originalText;
@@ -6252,7 +6292,7 @@ if (contentType && contentType.includes("application/json")) {
             }
         };
 
-        async function generateDocxClientSide(targetExamId, headerOpts, soLuongDe, updateProgress) {
+        async function generateDocxClientSide(targetExamId, headerOpts, soLuongDe, updateProgress, equationFormat = 'equation', mathTypeSignal = null) {
             // 1. Tìm cấu hình đề thi mục tiêu từ các nguồn bộ nhớ client
             let targetExam = (window.allExamConfigsList || []).find(e => String(e.id) === String(targetExamId));
             if (!targetExam && window.examsList) {
@@ -6531,8 +6571,24 @@ if (contentType && contentType.includes("application/json")) {
                 // Yield lượt vẽ cho trình duyệt để đảm bảo giao diện cuộn mượt mà, không bị đơ
                 await new Promise(resolve => setTimeout(resolve, 80));
 
-                const docBlob = await generateExamDocx(currentHeader, selectedQuestions);
-                const safeFileName = `De_Thi_${headerOpts.deThiTitle.replace(/[^a-zA-Z0-9_\u00C0-\u1EF9]/g, '_')}_MaDe_${currentMaDe}.docx`;
+                const equationBlob = await generateExamDocx(currentHeader, selectedQuestions);
+                const docBlob = await finalizeWordExport(equationBlob, {
+                    equationFormat,
+                    hostname: window.location.hostname,
+                    signal: mathTypeSignal,
+                    previewTimeoutMs: 15000,
+                    onProgress: ({completed,total}) => {
+                        if (equationFormat === 'mathtype' && updateProgress && total) {
+                            const base = Math.round((v / soLuongDe) * 80);
+                            const span = Math.max(1, Math.round(80 / soLuongDe));
+                            updateProgress(base + Math.round(span * completed / total),
+                                `Đang chuyển công thức sang MathType — mã đề ${currentMaDe}: ${completed}/${total}`,
+                                `Đề ${v + 1} / ${soLuongDe}`);
+                        }
+                    }
+                });
+                const formatSuffix = equationFormat === 'mathtype' ? '_MathType' : '';
+                const safeFileName = `De_Thi_${headerOpts.deThiTitle.replace(/[^a-zA-Z0-9_\u00C0-\u1EF9]/g, '_')}_MaDe_${currentMaDe}${formatSuffix}.docx`;
 
                 generatedFiles.push({
                     maDe: currentMaDe,
@@ -13092,8 +13148,10 @@ D. Phát biểu SAI</pre>
             }
         }
         window.closeQuestionBankWordModal = function closeQuestionBankWordModal() {
+            const currentModal = document.getElementById('export-word-modal');
+            try { currentModal?._mathTypeAbortController?.abort(); } catch {}
             releaseQuestionBankWordDownloads();
-            document.getElementById('export-word-modal')?.remove();
+            currentModal?.remove();
             bankWordExportInventory = null;
         };
 
@@ -13312,6 +13370,7 @@ D. Phát biểu SAI</pre>
                     '" onclick="toggleExportType(\'' + type + '\')" class="btn-filter-type px-2.5 py-1 text-xs font-semibold rounded-lg border border-blue-300 bg-blue-600 text-white cursor-pointer">' +
                     '<span class="type-icon">✓</span> ' + title + '</button>';
 
+                const mathTypePreviewAvailable = canExportMathTypeHere(window.location.hostname);
                 const modalHtml =
                     '<div id="export-word-modal" class="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">' +
                       '<div class="bg-white rounded-2xl shadow-2xl w-full max-w-xl overflow-hidden flex flex-col max-h-[90vh] border border-gray-100">' +
@@ -13354,6 +13413,13 @@ D. Phát biểu SAI</pre>
                               '<label class="cursor-pointer"><input type="radio" name="exp-sort-mode" value="by_lesson" onchange="updateWordExportSelectionStats()"> Theo bài học</label>' +
                             '</div>' +
                           '</fieldset>' +
+                          '<fieldset class="rounded-xl border border-violet-200 bg-violet-50 p-3 space-y-2">' +
+                            '<legend class="text-xs font-bold text-violet-950 px-1">∑ Kiểu công thức trong file Word</legend>' +
+                            '<label class="flex items-start gap-2 cursor-pointer text-xs sm:text-sm"><input type="radio" name="bank-word-equation-format" value="equation" checked class="mt-0.5"> <span><strong>Equation Word</strong> — mặc định, giữ nguyên cơ chế hiện tại.</span></label>' +
+                            (mathTypePreviewAvailable
+                              ? '<label class="flex items-start gap-2 cursor-pointer text-xs sm:text-sm"><input type="radio" name="bank-word-equation-format" value="mathtype" class="mt-0.5"> <span><strong>MathType OLE</strong> — Preview thử nghiệm, chỉ chạy khi chủ động chọn.</span></label><div class="text-[11px] text-violet-800">Nếu chuyển đổi MathType không đạt kiểm tra, hệ thống không phát hành file dở dang.</div>'
+                              : '<label class="flex items-start gap-2 opacity-60 cursor-not-allowed text-xs sm:text-sm"><input type="radio" name="bank-word-equation-format" value="mathtype" disabled class="mt-0.5"> <span><strong>MathType OLE</strong> — chỉ mở trên Cloudflare Preview.</span></label>') +
+                          '</fieldset>' +
                           '<div class="text-xs font-bold text-gray-700">Chi tiết bài học và số lượng câu hỏi hiện có</div>' +
                           '<div class="space-y-2">' + lessonsHtml + '</div>' +
                         '</div>' +
@@ -13389,8 +13455,14 @@ D. Phát biểu SAI</pre>
             button.dataset.exporting = 'true';
             button.disabled = true;
             const originalLabel = button.textContent;
-            button.textContent = '⏳ Đang xác minh và tạo Word...';
-            const downloadName = 'NganHangCauHoi_' + new Date().toISOString().slice(0, 10) + '.docx';
+            const equationFormat = modal.querySelector('input[name="bank-word-equation-format"]:checked')?.value || 'equation';
+            const mathTypeController = equationFormat === 'mathtype' ? new AbortController() : null;
+            if (mathTypeController) modal._mathTypeAbortController = mathTypeController;
+            button.textContent = equationFormat === 'mathtype'
+                ? '⏳ Đang tạo Equation & chuyển MathType...'
+                : '⏳ Đang xác minh và tạo Word...';
+            const formatSuffix = equationFormat === 'mathtype' ? '_MathType' : '';
+            const downloadName = 'NganHangCauHoi_' + new Date().toISOString().slice(0, 10) + formatSuffix + '.docx';
             const ownerAtStart = String(currentUser?.id ?? '');
             // Start the native file picker NOW, inside the real click gesture.
             // Awaiting the database or DOCX generation first would lose activation.
@@ -13434,8 +13506,23 @@ D. Phát biểu SAI</pre>
                 if (!(blob instanceof Blob) || blob.size < 1000) {
                     throw new Error('File Word không được tạo đúng định dạng.');
                 }
-                // Validate the DOCX ZIP header before offering any download.
-                const signature = new Uint8Array(await blob.slice(0, 4).arrayBuffer());
+                const outputBlob = await finalizeWordExport(blob, {
+                    equationFormat,
+                    hostname: window.location.hostname,
+                    signal: mathTypeController?.signal,
+                    previewTimeoutMs: 15000,
+                    onProgress: ({completed,total}) => {
+                        if (equationFormat !== 'mathtype' || !total) return;
+                        button.textContent = `⏳ Đang chuyển MathType ${completed}/${total}...`;
+                        const status = modal.querySelector('#exp-validation');
+                        if (status) {
+                            status.textContent = `Đang chuyển công thức sang MathType: ${completed}/${total}. Bạn vẫn có thể cuộn và thao tác giao diện.`;
+                            status.className = 'text-xs font-semibold text-violet-700';
+                        }
+                    }
+                });
+                // Validate the final DOCX ZIP header before offering any download.
+                const signature = new Uint8Array(await outputBlob.slice(0, 4).arrayBuffer());
                 if (signature.length !== 4 || signature[0] !== 0x50 || signature[1] !== 0x4b ||
                     signature[2] !== 0x03 || signature[3] !== 0x04) {
                     throw new Error('Tệp Word tạo ra không đúng định dạng DOCX.');
@@ -13454,7 +13541,7 @@ D. Phát biểu SAI</pre>
                     const choice = await saveRequest;
                     if (choice?.handle) {
                         try {
-                            savedWithPicker = await writeQuestionBankWordFile(choice.handle, blob);
+                            savedWithPicker = await writeQuestionBankWordFile(choice.handle, outputBlob);
                         } catch (error) {
                             pickerError = error;
                             console.warn('[WordBank] Native save failed, keeping manual download:', error);
@@ -13481,7 +13568,7 @@ D. Phát biểu SAI</pre>
 
                 // Do not remove this anchor or revoke the Blob URL until the
                 // user closes the modal: async click() may be browser-blocked.
-                const wordDownload = createQuestionBankWordDownload(blob, downloadName);
+                const wordDownload = createQuestionBankWordDownload(outputBlob, downloadName);
                 bankWordDownloadReleases.push(wordDownload.release);
                 downloadPanel.appendChild(wordDownload.link);
 
@@ -13529,13 +13616,15 @@ D. Phát biểu SAI</pre>
                 if (pickerError) console.warn('[WordBank] Save picker unavailable:', pickerError);
             } catch (error) {
                 console.error('[WordBank] Export failed:', error);
-                showToast('Không thể xuất file Word đầy đủ: ' + (error.message || error), 'error');
+                const detail = equationFormat === 'mathtype' ? describeMathTypeExportFailure(error) : (error.message || String(error));
+                showToast('Không thể xuất file Word đầy đủ: ' + detail, 'error');
                 const status = modal.querySelector('#exp-validation');
                 if (status) {
-                    status.textContent = error.message || String(error);
+                    status.textContent = detail;
                     status.className = 'text-xs font-semibold text-red-700';
                 }
             } finally {
+                if (modal._mathTypeAbortController === mathTypeController) modal._mathTypeAbortController = null;
                 button.dataset.exporting = '';
                 button.textContent = originalLabel;
                 if (modal.isConnected) window.updateWordExportSelectionStats();

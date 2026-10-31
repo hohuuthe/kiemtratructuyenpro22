@@ -1,0 +1,10 @@
+{
+  "name": "kttt-mathtype-export-qualification",
+  "private": true,
+  "type": "module",
+  "description": "Isolated qualification tooling only. Not installed in the production Equation export path.",
+  "dependencies": {
+    "mathjax-full": "3.2.1",
+    "sharp": "0.34.1"
+  }
+}
