@@ -2246,6 +2246,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             applyDoiTuongConfig();
             updateSidebarVisibility();
             resetDocumentLinks();
+            if (typeof window.__resetInteractiveBoards === 'function') window.__resetInteractiveBoards();
             window.__documentsTabRequested = false;
             resetRoleHelpCache();
             {
@@ -3985,11 +3986,11 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
         function switchTab(tabName) {
             requestedTab = tabName;
             console.log('switchTab called:',tabName);
-            const protectedTabs=['questions','exams','exam-editor','accounts','users','settings','ranking','teacher-assignment'];
+            const protectedTabs=['questions','exams','exam-editor','accounts','users','settings','ranking','teacher-assignment','boards'];
             const adminTabs=['accounts','settings','teacher-assignment'];
             if(protectedTabs.includes(tabName)&&!(
               isAdminLoggedIn||(isTeacherLoggedIn&&!adminTabs.includes(tabName))||
-              (tabName==='ranking'&&Boolean(currentUser)))){showAdminLoginModal();return}
+              ((tabName==='ranking'||tabName==='boards')&&Boolean(currentUser)))){showAdminLoginModal();return}
             if(tabName==='exam'&&(isAdminLoggedIn||isTeacherLoggedIn))tabName='exams';
             requestedTab=tabName; // Guard phản hồi bất đồng bộ bằng tên tab đích thực tế.
             const placeholder=document.getElementById('tab-'+tabName);
@@ -4077,7 +4078,7 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
             if (protectedTabs.includes(tabName)) {
                 // Các tab chỉ dành riêng cho Admin: accounts, settings, teacher-assignment
                 const adminOnlyTabs = ['accounts', 'settings', 'teacher-assignment'];
-                const isAuthorized = isAdminLoggedIn || (isTeacherLoggedIn && !adminOnlyTabs.includes(tabName)) || (tabName === 'ranking' && Boolean(currentUser));
+                const isAuthorized = isAdminLoggedIn || (isTeacherLoggedIn && !adminOnlyTabs.includes(tabName)) || ((tabName === 'ranking' || tabName === 'boards') && Boolean(currentUser));
                 
                 if (!isAuthorized) {
                     requireAdminAuth(tabName);
@@ -4119,6 +4120,19 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
                     // Component may still be loading asynchronously.
                     window.__documentsTabRequested = true;
                 }
+            }
+            if (tabName === 'boards' && currentUser) {
+                // Tách chunk bảng tương tác khỏi bundle khởi động; chỉ tải khi người dùng mở tab.
+                const generation = authDataGeneration;
+                void import('./interactive-board-ui.js').then(module => {
+                    if (generation !== authDataGeneration || requestedTab !== 'boards') return;
+                    module.connectInteractiveBoards();
+                    module.initInteractiveBoards(currentUser);
+                    window.__resetInteractiveBoards = module.resetInteractiveBoards;
+                }).catch(error => {
+                    console.error('Cannot load interactive board module', error);
+                    showToast('Không thể tải Bảng tương tác. Vui lòng thử lại.', 'error');
+                });
             }
             if (tabName === 'help') {
                 const helpRoot = document.getElementById('help-center-root');
