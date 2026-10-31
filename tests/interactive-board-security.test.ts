@@ -61,6 +61,7 @@ test('implementation is lazy, bounded and does not push live strokes into Neon',
   assert.match(join,/exp:\s*now \+ 300/);
   assert.match(join,/pageIds:/);
   assert.match(join,/allowed_page_ids/);
+  assert.match(join,/realtime_base_path/);
   assert.doesNotMatch(join,/access_code_hash.*realtime_path/s);
   assert.match(worker,/setWebSocketAutoResponse/);
   assert.match(worker,/acceptWebSocket/);
@@ -91,7 +92,11 @@ test('implementation is lazy, bounded and does not push live strokes into Neon',
   assert.match(ui,/board\/pages/);
   assert.match(pages,/Chỉ người quản lý bảng được đọc trực tiếp metadata trang/);
   assert.match(pages,/Mỗi bảng tối đa 20 trang/);
+  assert.doesNotMatch(pages,/bumpBoard/);
+  assert.doesNotMatch(pages,/UPDATE interactive_boards/);
   assert.match(worker,/board-page-reset/);
+  assert.match(worker,/page_updated/);
+  assert.match(ui,/board-page-form/);
   assert.match(ui,/policy_changed/);
   assert.match(worker,/internal\/board-policy/);
   assert.match(worker,/Board policy changed/);
