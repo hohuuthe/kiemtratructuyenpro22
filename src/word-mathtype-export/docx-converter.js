@@ -118,28 +118,59 @@ export async function convertDocxToMathType(input,options={}){
   if(!work.length)return {blob:input instanceof Blob?input:new Blob([source],{type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'}),report:{converted:0,nativeEditorVerified:false,qualificationOnly:true}};
   const renderPreview=options.renderPreview;
   if(typeof renderPreview!=='function')fail('PREVIEW_REQUIRED','A qualified formula preview renderer is required.');
+  const renderPreviewBatch=options.renderPreviewBatch;
+  let preparedPreviews=null;
+  if(typeof renderPreviewBatch==='function'){
+    const batchTimeoutMs=Math.max(15000,Math.min(180000,Number(options.previewBatchTimeoutMs||Math.max(30000,work.length*900))));
+    try{
+      preparedPreviews=await Promise.race([
+        renderPreviewBatch(work.map(item=>({
+          ast:item.ast,
+          fontSizePt:item.fontSizePt,
+          display:item.display,
+          index:item.index
+        })),{
+          signal:options.signal,
+          onProgress:info=>options.onPreviewProgress?.(info)
+        }),
+        new Promise((_,reject)=>setTimeout(()=>reject(new MathTypeExportError(
+          'PREVIEW_BATCH_TIMEOUT',
+          'Quá thời gian tạo ảnh xem trước MathType theo lô.',
+          {total:work.length}
+        )),batchTimeoutMs))
+      ]);
+      if(!Array.isArray(preparedPreviews)||preparedPreviews.length!==work.length)
+        fail('PREVIEW_FAILED','Số ảnh xem trước MathType theo lô không khớp số công thức.');
+      for(const preview of preparedPreviews)pngCheck(preview);
+    }catch(e){
+      if(e instanceof MathTypeExportError)e.details={...e.details,total:work.length};
+      throw e;
+    }
+  }
   const originalHash=await sha256(source),manifest=[];
   for(let i=0;i<work.length;i++){
     aborted(options.signal);
     if(i===0||i%4===0)await yieldMainThread(options.signal);
     const item=work[i];const {doc,rels}=item.partData;
-    let preview;
-    try {
-      const timeoutMs=Math.max(3000,Math.min(30000,Number(options.previewTimeoutMs||12000)));
-      preview=await Promise.race([
-        renderPreview(item.ast,{fontSizePt:item.fontSizePt,display:item.display,signal:options.signal}),
-        new Promise((_,reject)=>setTimeout(()=>reject(new MathTypeExportError(
-          'PREVIEW_TIMEOUT',
-          'Quá thời gian tạo ảnh xem trước MathType cho công thức '+item.index+'.',
-          {part:item.part,index:item.index}
-        )),timeoutMs))
-      ]);
-      pngCheck(preview);
-    } catch (e) {
-      if(e instanceof MathTypeExportError){
-        e.details={...e.details,part:item.part,index:item.index,total:work.length};
+    let preview=preparedPreviews?.[i]||null;
+    if(!preview){
+      try {
+        const timeoutMs=Math.max(3000,Math.min(30000,Number(options.previewTimeoutMs||12000)));
+        preview=await Promise.race([
+          renderPreview(item.ast,{fontSizePt:item.fontSizePt,display:item.display,signal:options.signal}),
+          new Promise((_,reject)=>setTimeout(()=>reject(new MathTypeExportError(
+            'PREVIEW_TIMEOUT',
+            'Quá thời gian tạo ảnh xem trước MathType cho công thức '+item.index+'.',
+            {part:item.part,index:item.index}
+          )),timeoutMs))
+        ]);
+        pngCheck(preview);
+      } catch (e) {
+        if(e instanceof MathTypeExportError){
+          e.details={...e.details,part:item.part,index:item.index,total:work.length};
+        }
+        throw e;
       }
-      throw e;
     }
     const native=createMathTypeOle(item.mtef);
     let suffix=item.index;let olePath,imagePath;
