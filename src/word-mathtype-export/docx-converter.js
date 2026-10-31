@@ -114,7 +114,24 @@ export async function convertDocxToMathType(input,options={}){
   const originalHash=await sha256(source),manifest=[];
   for(let i=0;i<work.length;i++){
     aborted(options.signal);const item=work[i];const {doc,rels}=item.partData;
-    const preview=await renderPreview(item.ast,{fontSizePt:item.fontSizePt,display:item.display,signal:options.signal});pngCheck(preview);
+    let preview;
+    try {
+      const timeoutMs=Math.max(3000,Math.min(30000,Number(options.previewTimeoutMs||12000)));
+      preview=await Promise.race([
+        renderPreview(item.ast,{fontSizePt:item.fontSizePt,display:item.display,signal:options.signal}),
+        new Promise((_,reject)=>setTimeout(()=>reject(new MathTypeExportError(
+          'PREVIEW_TIMEOUT',
+          'Quá thời gian tạo ảnh xem trước MathType cho công thức '+item.index+'.',
+          {part:item.part,index:item.index}
+        )),timeoutMs))
+      ]);
+      pngCheck(preview);
+    } catch (e) {
+      if(e instanceof MathTypeExportError){
+        e.details={...e.details,part:item.part,index:item.index,total:work.length};
+      }
+      throw e;
+    }
     const native=createMathTypeOle(item.mtef);
     let suffix=item.index;let olePath,imagePath;
     do{olePath='word/embeddings/kttt-mathtype-'+suffix+'.bin';imagePath='word/media/kttt-mathtype-'+suffix+'.png';suffix++;}
