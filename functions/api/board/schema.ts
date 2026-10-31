@@ -42,14 +42,6 @@ export async function ensureInteractiveBoardSchema(db: any) {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
       UNIQUE(board_id, page_no)
     )`,
-    `CREATE TABLE IF NOT EXISTS interactive_board_snapshots (
-      page_id TEXT PRIMARY KEY,
-      board_id TEXT NOT NULL,
-      version BIGINT NOT NULL DEFAULT 0,
-      state_json TEXT NOT NULL DEFAULT '{"objects":[]}',
-      object_count INTEGER NOT NULL DEFAULT 0,
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-    )`,
     `CREATE INDEX IF NOT EXISTS idx_ib_creator_updated
       ON interactive_boards(creator_id, updated_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_ib_access_status
@@ -57,9 +49,7 @@ export async function ensureInteractiveBoardSchema(db: any) {
     `CREATE INDEX IF NOT EXISTS idx_ib_unit_status
       ON interactive_boards(target_donvi, status, updated_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_ib_pages_board
-      ON interactive_board_pages(board_id, page_no)`,
-    `CREATE INDEX IF NOT EXISTS idx_ib_snapshots_board
-      ON interactive_board_snapshots(board_id)`
+      ON interactive_board_pages(board_id, page_no)`
   ];
 
   for (const sql of statements) {
