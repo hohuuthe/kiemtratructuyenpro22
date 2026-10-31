@@ -30,9 +30,9 @@ export const onRequestPost: PagesFunction = async (context: any) => {
     if (!secret) return boardJson({ error: 'Realtime chưa được cấu hình trên máy chủ.', code: 'BOARD_REALTIME_NOT_CONFIGURED' }, 503);
 
     const route = resolveTenantRoutingFromRequest(context.request, context.env);
-    const tenant = route.source === 'path' && route.prefix ? route.prefix.replace(/^\//, '') : 'default';
+    const tenant = String(route.slug || 'default');
     const owner = canManageBoard(user, board, isAdmin);
-    const permission = owner ? 'manage' : (board.status === 'locked' ? 'view' : board.student_permission);
+    const permission = owner ? 'manage' : board.student_permission;
     const now = Math.floor(Date.now() / 1000);
     const token = await signJWT({
       tokenType: 'board_join',
@@ -45,10 +45,11 @@ export const onRequestPost: PagesFunction = async (context: any) => {
       boardRevision: Number(board.revision || 1),
       pageId: String(pages[0].id),
       maxParticipants: Math.max(1, Math.min(120, Number(board.max_participants) || 60)),
+      initialLocked: board.status === 'locked',
       iat: now,
       exp: now + 300
     }, secret);
-    const prefix = tenant === 'default' ? '' : '/' + tenant;
+    const prefix = route.source === 'path' && route.prefix ? route.prefix : '';
     return boardJson({
       data: {
         board: {
