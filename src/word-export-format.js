@@ -1,14 +1,14 @@
 /**
- * Equation remains an identity operation. MathType is exposed only on Cloudflare
- * branch/commit Preview hosts until native Word + MathType acceptance is complete.
+ * Equation remains an identity operation. MathType is available on Production and
+ * Preview when explicitly selected; native-editor acceptance is tracked separately.
  */
 import { MathTypeExportError } from './word-mathtype-export/errors.js';
 
 export const WORD_EQUATION_FORMATS = Object.freeze(['equation', 'mathtype']);
 export const MATHTYPE_EXPORT_QUALIFICATION = Object.freeze({
-  productionEnabled: false,
+  productionEnabled: true,
   nativeEditorVerified: false,
-  reason: 'Preview qualification only; Production stays locked pending Word + MathType open-edit-save acceptance.'
+  reason: 'Production enabled by project owner request; native Word + MathType open-edit-save acceptance remains tracked separately.'
 });
 
 export function isMathTypePreviewHost(hostname = globalThis.location?.hostname || '') {
@@ -20,9 +20,8 @@ export function isMathTypePreviewHost(hostname = globalThis.location?.hostname |
 }
 
 export function canExportMathTypeHere(hostname = globalThis.location?.hostname || '') {
-  return MATHTYPE_EXPORT_QUALIFICATION.productionEnabled &&
-      MATHTYPE_EXPORT_QUALIFICATION.nativeEditorVerified ||
-    isMathTypePreviewHost(hostname);
+  if (MATHTYPE_EXPORT_QUALIFICATION.productionEnabled) return true;
+  return isMathTypePreviewHost(hostname);
 }
 
 export async function finalizeWordExport(equationBlob, options = {}) {
@@ -30,8 +29,8 @@ export async function finalizeWordExport(equationBlob, options = {}) {
   if (format === 'equation') return equationBlob;
   if (format !== 'mathtype') throw new MathTypeExportError('INVALID_FORMAT', 'Unknown Word equation format.');
   if (!canExportMathTypeHere(options.hostname)) {
-    throw new MathTypeExportError('NATIVE_ACCEPTANCE_REQUIRED',
-      'MathType chỉ đang mở trên Cloudflare Preview. Equation Word vẫn hoạt động bình thường.');
+    throw new MathTypeExportError('MATHTYPE_EXPORT_DISABLED',
+      'MathType OLE hiện đang bị tắt. Equation Word vẫn hoạt động bình thường.');
   }
   const [{convertDocxToMathType},{createBrowserMathTypePreviewRenderer}] = await Promise.all([
     import('./word-mathtype-export/docx-converter.js'),

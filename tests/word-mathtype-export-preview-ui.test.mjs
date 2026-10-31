@@ -20,12 +20,13 @@ test('Equation stays the default in both Preview export dialogs',()=>{
   assert.match(bank,/name="bank-word-equation-format" value="mathtype"/);
 });
 
-test('MathType is Preview-host-only and Production/custom domains remain locked',()=>{
+test('MathType is enabled on Production and Preview while Equation stays default',()=>{
   assert.equal(isMathTypePreviewHost('feat-word-export-mathtype-20.kiemtratructuyenpro.pages.dev'),true);
   assert.equal(isMathTypePreviewHost('947ce87a.kiemtratructuyenpro.pages.dev'),true);
   assert.equal(isMathTypePreviewHost('kiemtratructuyenpro.pages.dev'),false);
-  assert.equal(canExportMathTypeHere('testpro.id.vn'),false);
-  assert.equal(canExportMathTypeHere('kiemtratructuyenpro.pages.dev'),false);
+  assert.equal(canExportMathTypeHere('testpro.id.vn'),true);
+  assert.equal(canExportMathTypeHere('kiemtratructuyenpro.pages.dev'),true);
+  assert.equal(canExportMathTypeHere('feat-word-export-mathtype-20.kiemtratructuyenpro.pages.dev'),true);
 });
 
 test('Equation finalize path is an object-identity no-op',async()=>{

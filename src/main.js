@@ -6035,12 +6035,12 @@ if (contentType && contentType.includes("application/json")) {
                             </label>
                             <label class="flex items-start gap-2 ${mathTypePreviewAvailable ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}">
                                 <input type="radio" name="docx-equation-format" value="mathtype" ${mathTypePreviewAvailable ? '' : 'disabled'} class="mt-0.5">
-                                <span><strong>MathType OLE</strong> — Preview thử nghiệm, chỉ chạy khi chủ động chọn.</span>
+                                <span><strong>MathType OLE</strong> — chỉ chạy khi người dùng chủ động chọn.</span>
                             </label>
                             <div class="text-[11px] leading-relaxed text-violet-800">
                                 ${mathTypePreviewAvailable
-                                  ? 'MathType chỉ bật trên Cloudflare Preview để nghiệm thu. Nếu chuyển đổi lỗi, file MathType sẽ không được xuất dở dang.'
-                                  : 'MathType đang khóa ngoài môi trường Preview. Equation Word vẫn hoạt động bình thường.'}
+                                  ? 'MathType OLE đã được bật trên Production. Nếu chuyển đổi lỗi, hệ thống không phát hành file MathType dở dang và Equation vẫn giữ nguyên.'
+                                  : 'MathType OLE hiện đang tạm khóa. Equation Word vẫn hoạt động bình thường.'}
                             </div>
                         </fieldset>
 
@@ -13417,8 +13417,8 @@ D. Phát biểu SAI</pre>
                             '<legend class="text-xs font-bold text-violet-950 px-1">∑ Kiểu công thức trong file Word</legend>' +
                             '<label class="flex items-start gap-2 cursor-pointer text-xs sm:text-sm"><input type="radio" name="bank-word-equation-format" value="equation" checked class="mt-0.5"> <span><strong>Equation Word</strong> — mặc định, giữ nguyên cơ chế hiện tại.</span></label>' +
                             (mathTypePreviewAvailable
-                              ? '<label class="flex items-start gap-2 cursor-pointer text-xs sm:text-sm"><input type="radio" name="bank-word-equation-format" value="mathtype" class="mt-0.5"> <span><strong>MathType OLE</strong> — Preview thử nghiệm, chỉ chạy khi chủ động chọn.</span></label><div class="text-[11px] text-violet-800">Nếu chuyển đổi MathType không đạt kiểm tra, hệ thống không phát hành file dở dang.</div>'
-                              : '<label class="flex items-start gap-2 opacity-60 cursor-not-allowed text-xs sm:text-sm"><input type="radio" name="bank-word-equation-format" value="mathtype" disabled class="mt-0.5"> <span><strong>MathType OLE</strong> — chỉ mở trên Cloudflare Preview.</span></label>') +
+                              ? '<label class="flex items-start gap-2 cursor-pointer text-xs sm:text-sm"><input type="radio" name="bank-word-equation-format" value="mathtype" class="mt-0.5"> <span><strong>MathType OLE</strong> — chỉ chạy khi người dùng chủ động chọn.</span></label><div class="text-[11px] text-violet-800">Nếu chuyển đổi MathType không đạt kiểm tra, hệ thống không phát hành file dở dang.</div>'
+                              : '<label class="flex items-start gap-2 opacity-60 cursor-not-allowed text-xs sm:text-sm"><input type="radio" name="bank-word-equation-format" value="mathtype" disabled class="mt-0.5"> <span><strong>MathType OLE</strong> — hiện đang tạm khóa.</span></label>') +
                           '</fieldset>' +
                           '<div class="text-xs font-bold text-gray-700">Chi tiết bài học và số lượng câu hỏi hiện có</div>' +
                           '<div class="space-y-2">' + lessonsHtml + '</div>' +
