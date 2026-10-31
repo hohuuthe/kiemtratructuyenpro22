@@ -6577,12 +6577,25 @@ if (contentType && contentType.includes("application/json")) {
                     hostname: window.location.hostname,
                     signal: mathTypeSignal,
                     previewTimeoutMs: 15000,
+                    previewBatchTimeoutMs: 180000,
+                    onPreviewProgress: ({completed,total,cached=0}) => {
+                        if (equationFormat === 'mathtype' && updateProgress && total) {
+                            const base = Math.round((v / soLuongDe) * 80);
+                            const span = Math.max(1, Math.round(80 / soLuongDe));
+                            const phase = Math.round(span * 0.65 * completed / total);
+                            updateProgress(base + phase,
+                                `Đang dựng MathType theo lô — mã đề ${currentMaDe}: ${completed}/${total}${cached ? ` (cache ${cached})` : ''}`,
+                                `Đề ${v + 1} / ${soLuongDe}`);
+                        }
+                    },
                     onProgress: ({completed,total}) => {
                         if (equationFormat === 'mathtype' && updateProgress && total) {
                             const base = Math.round((v / soLuongDe) * 80);
                             const span = Math.max(1, Math.round(80 / soLuongDe));
-                            updateProgress(base + Math.round(span * completed / total),
-                                `Đang chuyển công thức sang MathType — mã đề ${currentMaDe}: ${completed}/${total}`,
+                            const previewShare = Math.round(span * 0.65);
+                            const packageShare = Math.max(1, span - previewShare);
+                            updateProgress(base + previewShare + Math.round(packageShare * completed / total),
+                                `Đang đóng gói MathType — mã đề ${currentMaDe}: ${completed}/${total}`,
                                 `Đề ${v + 1} / ${soLuongDe}`);
                         }
                     }
@@ -13511,12 +13524,22 @@ D. Phát biểu SAI</pre>
                     hostname: window.location.hostname,
                     signal: mathTypeController?.signal,
                     previewTimeoutMs: 15000,
-                    onProgress: ({completed,total}) => {
+                    previewBatchTimeoutMs: 180000,
+                    onPreviewProgress: ({completed,total,cached=0}) => {
                         if (equationFormat !== 'mathtype' || !total) return;
-                        button.textContent = `⏳ Đang chuyển MathType ${completed}/${total}...`;
+                        button.textContent = `⚡ Đang dựng MathType theo lô ${completed}/${total}...`;
                         const status = modal.querySelector('#exp-validation');
                         if (status) {
-                            status.textContent = `Đang chuyển công thức sang MathType: ${completed}/${total}. Bạn vẫn có thể cuộn và thao tác giao diện.`;
+                            status.textContent = `Đang xử lý nhanh theo lô: ${completed}/${total}${cached ? ` — tái sử dụng cache: ${cached}` : ''}.`;
+                            status.className = 'text-xs font-semibold text-violet-700';
+                        }
+                    },
+                    onProgress: ({completed,total}) => {
+                        if (equationFormat !== 'mathtype' || !total) return;
+                        button.textContent = `📦 Đang đóng gói MathType ${completed}/${total}...`;
+                        const status = modal.querySelector('#exp-validation');
+                        if (status) {
+                            status.textContent = `Đang đóng gói MathType: ${completed}/${total}. Giai đoạn dựng công thức theo lô đã hoàn tất.`;
                             status.className = 'text-xs font-semibold text-violet-700';
                         }
                     }
