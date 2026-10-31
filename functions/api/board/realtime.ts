@@ -5,8 +5,11 @@ export const onRequest: PagesFunction = async (context: any) => {
       headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }
     });
   }
-  if ((context.request.headers.get('Upgrade') || '').toLowerCase() !== 'websocket') {
-    return new Response(JSON.stringify({ error: 'Yêu cầu WebSocket không hợp lệ.' }), {
+  const url=new URL(context.request.url);
+  const isWebSocket=(context.request.headers.get('Upgrade') || '').toLowerCase() === 'websocket';
+  const isSnapshot=context.request.method==='GET' && url.searchParams.get('snapshot')==='1';
+  if (!isWebSocket && !isSnapshot) {
+    return new Response(JSON.stringify({ error: 'Yêu cầu realtime không hợp lệ.' }), {
       status: 426,
       headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }
     });
