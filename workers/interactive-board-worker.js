@@ -119,9 +119,9 @@ export default {
         body:JSON.stringify({revision,locked,unavailable})
       }));
     }
-    if ((request.headers.get('Upgrade') || '').toLowerCase() !== 'websocket') {
-      return new Response('WebSocket required', {status:426});
-    }
+    const isWebSocket=(request.headers.get('Upgrade') || '').toLowerCase() === 'websocket';
+    const isSnapshot=request.method==='GET' && url.searchParams.get('snapshot')==='1';
+    if (!isWebSocket && !isSnapshot) return new Response('WebSocket required', {status:426});
     const token = url.searchParams.get('token') || '';
     const claims = await verifyJwt(token, String(env.BOARD_REALTIME_SECRET || ''));
     if (!claims || claims.tokenType !== 'board_join' || !safeId(claims.boardId) ||
@@ -142,6 +142,21 @@ export class BoardRoom {
 
   async fetch(request) {
     const url=new URL(request.url);
+    if(request.method==='GET'&&url.searchParams.get('snapshot')==='1'){
+      const token=url.searchParams.get('token')||'';
+      const claims=await verifyJwt(token,String(this.env.BOARD_REALTIME_SECRET||''));
+      if(!claims||claims.tokenType!=='board_join')return new Response('Unauthorized',{status:401});
+      const signedPageId=safeId(claims.pageId||'');
+      const allowedPages=(Array.isArray(claims.pageIds)?claims.pageIds:[signedPageId]).map(safeId).filter(Boolean).slice(0,20);
+      const pageId=safeId(url.searchParams.get('pageId')||signedPageId);
+      if(!pageId||!allowedPages.includes(pageId))return new Response('Forbidden',{status:403});
+      if(await this.ctx.storage.get('deletedpage:'+pageId))return new Response('Page deleted',{status:410});
+      const rows=await this.ctx.storage.list({prefix:'obj:'+pageId+':'});
+      const objects=[...rows.values()].slice(0,600);
+      return new Response(JSON.stringify({pageId,objects}),{
+        headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}
+      });
+    }
     if(request.method==='POST'&&url.pathname==='/page-updated'){
       const secret=String(this.env.BOARD_REALTIME_SECRET || '');
       if(!secret||!secureEqualString(request.headers.get('X-Board-Internal-Secret'),secret))return new Response('Unauthorized',{status:401});
