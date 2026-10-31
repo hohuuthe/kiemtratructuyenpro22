@@ -62,7 +62,6 @@ test('CFB regular FAT and MiniFAT both round-trip bounded native streams',()=>{
 });
 test('Unsupported semantic properties fail closed, without unsupported-as-image fallback',()=>{
   const bad=[
-    '<m:f><m:fPr><m:type m:val="noBar"/></m:fPr>'+arg('num',run('n'))+arg('den',run('k'))+'</m:f>',
     '<m:r><m:rPr><m:scr m:val="double-struck"/></m:rPr><m:t>R</m:t></m:r>',
     '<m:phant>'+arg('e',run('x'))+'</m:phant>',
     '<m:rad><m:radPr><m:degHide/></m:radPr>'+arg('deg',run('3'))+arg('e',run('x'))+'</m:rad>',
@@ -72,6 +71,44 @@ test('Unsupported semantic properties fail closed, without unsupported-as-image 
   for(const body of bad)assert.throws(()=>ast(body),{code:'UNSUPPORTED_OMML'});
   assert.throws(()=>astToMtef(ast(run('x','b')+run('y','bi'))),{code:'UNSUPPORTED_STYLE'});
 });
+test('Fraction variants bar, noBar, skewed and linear retain their distinct semantics',()=>{
+  const make=type=>ast('<m:f><m:fPr><m:type m:val="'+type+'"/></m:fPr>'+arg('num',run('NUM'))+arg('den',run('DEN'))+'</m:f>');
+  const normal=make('bar');assert.equal(normal.items[0].style,'bar');
+  const noBar=make('noBar');assert.equal(noBar.items[0].style,'noBar');
+  const noBarTree=readMtef(astToMtef(noBar));
+  assert.equal(noBarTree.children[0].k,'pile');
+  assert.equal(noBarTree.children[0].children.length,2);
+  const skew=make('skw');const skewTree=readMtef(astToMtef(skew));
+  assert.equal(flatten(skewTree).find(n=>n.selector===11).variation,2);
+  const linear=make('lin');assert.equal(linear.items[1].text,'/');
+  assert.match(astToMathml(noBar),/linethickness="0"/);
+  assert.match(astToMathml(skew),/bevelled="true"/);
+});
+
+test('groupChr top/bottom braces and brackets preserve position and editable template selectors',()=>{
+  for(const [chr,pos,selector,variation] of [['\\u23de','top',24,1],['\\u23df','bot',24,0],['\\u23b4','top',25,1],['\\u23b5','bot',25,0]]){
+    const tree=ast('<m:groupChr><m:groupChrPr><m:chr m:val="'+chr+'"/><m:pos m:val="'+pos+'"/></m:groupChrPr>'+arg('e',run('BODY'))+'</m:groupChr>');
+    const encoded=readMtef(astToMtef(tree));
+    const group=flatten(encoded).find(n=>n.selector===selector);
+    assert.equal(group.variation,variation);
+    assert.equal(glyphs(group.children[0]),'BODY');
+    assert.equal(group.children[1].null,true);
+  }
+});
+
+test('borderBox edge flags are preserved in the MTEF box variation bits',()=>{
+  const tree=ast('<m:borderBox><m:borderBoxPr><m:hideTop/><m:hideRight/></m:borderBoxPr>'+arg('e',run('x+1'))+'</m:borderBox>');
+  const encoded=readMtef(astToMtef(tree));
+  const box=flatten(encoded).find(n=>n.selector===37);
+  assert.equal(box.variation,8|4);
+  assert.equal(glyphs(box.children[0]),'x+1');
+  assert.match(astToMathml(tree),/menclose notation=/);
+});
+
+test('Phantom remains explicitly rejected until a semantically equivalent editable MTEF construction is qualified',()=>{
+  assert.throws(()=>ast('<m:phant>'+arg('e',run('x'))+'</m:phant>'),{code:'UNSUPPORTED_OMML'});
+});
+
 test('Unsafe XML, entity expansion and deeply nested formulas are rejected',()=>{
   assert.throws(()=>parseXml('<!DOCTYPE x [<!ENTITY a "x">]><x>&a;</x>'),{code:'INVALID_XML'});
   assert.throws(()=>parseXml('<m:oMath>'),{code:'INVALID_XML'});
