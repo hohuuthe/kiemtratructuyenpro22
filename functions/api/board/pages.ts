@@ -35,16 +35,26 @@ export const onRequestPost: PagesFunction=async(context:any)=>{
     const board=await loadBoard(db,boardId);
     if(!board)return boardJson({error:'Không tìm thấy bảng.'},404);
     if(!canManageBoard(user,board,isAdmin))return boardJson({error:'Bạn không có quyền thêm trang.'},403);
-    const count=await pageCount(db,boardId);
-    if(count>=20)return boardJson({error:'Mỗi bảng tối đa 20 trang để tiết kiệm tài nguyên.'},409);
-    const maxRow:any=await db.prepare('SELECT COALESCE(MAX(page_no),0)::int AS max_no FROM interactive_board_pages WHERE board_id=?').bind(boardId).first();
-    const pageNo=Number(maxRow?.max_no||0)+1,id=crypto.randomUUID();
-    const defaultTitle='Bảng '+pageNo;
-    const title=cleanText(input.title,100,defaultTitle)||defaultTitle;
-    await db.prepare(
-      'INSERT INTO interactive_board_pages (id,board_id,page_no,title,background_type,canvas_width,canvas_height,revision,created_at,updated_at) VALUES (?,?,?,?,?,1600,900,1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)'
-    ).bind(id,boardId,pageNo,title,background(input.background_type)).run();
-    const created={id,board_id:boardId,page_no:pageNo,title,background_type:background(input.background_type),canvas_width:1600,canvas_height:900,revision:1};
+    let created:any=null;
+    for(let attempt=0;attempt<3&&!created;attempt++){
+      const count=await pageCount(db,boardId);
+      if(count>=20)return boardJson({error:'Mỗi bảng tối đa 20 trang để tiết kiệm tài nguyên.'},409);
+      const maxRow:any=await db.prepare('SELECT COALESCE(MAX(page_no),0)::int AS max_no FROM interactive_board_pages WHERE board_id=?').bind(boardId).first();
+      const pageNo=Number(maxRow?.max_no||0)+1,id=crypto.randomUUID();
+      const defaultTitle='Bảng '+pageNo;
+      const title=cleanText(input.title,100,defaultTitle)||defaultTitle;
+      try{
+        await db.prepare(
+          'INSERT INTO interactive_board_pages (id,board_id,page_no,title,background_type,canvas_width,canvas_height,revision,created_at,updated_at) VALUES (?,?,?,?,?,1600,900,1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)'
+        ).bind(id,boardId,pageNo,title,background(input.background_type)).run();
+        created={id,board_id:boardId,page_no:pageNo,title,background_type:background(input.background_type),canvas_width:1600,canvas_height:900,revision:1};
+      }catch(error:any){
+        const msg=String(error?.message||'').toLowerCase();
+        const concurrent=msg.includes('unique')||msg.includes('duplicate');
+        if(!concurrent||attempt===2)throw error;
+      }
+    }
+    if(!created)return boardJson({error:'Không thể cấp số trang mới. Vui lòng thử lại.'},409);
     try{
       const secret=String(context.env?.BOARD_REALTIME_SECRET||'').trim();
       if(secret&&context.env?.BOARD_REALTIME?.fetch){
