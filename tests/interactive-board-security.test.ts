@@ -208,3 +208,24 @@ test('reconnect dedupe survives socket replacement',()=>{
   assert.match(worker,/await this\.ctx\.storage\.put\(recentKey,durableRecent\)/);
   assert.doesNotMatch(worker,/actor\.recentOps/);
 });
+
+
+test('rejected optimistic mutations trigger client resync',()=>{
+  const worker=fs.readFileSync('workers/interactive-board-worker.js','utf8');
+  const ui=fs.readFileSync('src/interactive-board-ui.js','utf8');
+  assert.match(worker,/resyncRequired=true/);
+  assert.match(worker,/type:'resync_required'/);
+  assert.match(ui,/m\.type==='resync_required'/);
+  assert.match(ui,/connectSocket\(currentPageId\)/);
+});
+
+test('production board health check verifies secret binding and worker',()=>{
+  const health=fs.readFileSync('functions/api/board/health.ts','utf8');
+  const worker=fs.readFileSync('workers/interactive-board-worker.js','utf8');
+  const router=fs.readFileSync('functions/[slug]/api/[[path]].ts','utf8');
+  assert.match(health,/realtime_secret/);
+  assert.match(health,/realtime_binding/);
+  assert.match(health,/realtime_worker/);
+  assert.match(worker,/\/internal\/health/);
+  assert.match(router,/'board\/health': boardHealth/);
+});
