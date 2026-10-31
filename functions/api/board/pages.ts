@@ -75,7 +75,18 @@ export const onRequestPut: PagesFunction=async(context:any)=>{
       'UPDATE interactive_board_pages SET title=?,background_type=?,revision=revision+1,updated_at=CURRENT_TIMESTAMP WHERE id=? AND revision=?'
     ).bind(title,bg,pageId,expected).run();
     if(!Number(result.meta?.changes||0))return boardJson({error:'Trang vừa được thay đổi ở thiết bị khác. Vui lòng tải lại.'},409);
-    return boardJson({data:await db.prepare('SELECT id,page_no,title,background_type,canvas_width,canvas_height,revision FROM interactive_board_pages WHERE id=?').bind(pageId).first()});
+    const updated=await db.prepare('SELECT id,page_no,title,background_type,canvas_width,canvas_height,revision FROM interactive_board_pages WHERE id=?').bind(pageId).first();
+    try{
+      const secret=String(context.env?.BOARD_REALTIME_SECRET||'').trim();
+      if(secret&&context.env?.BOARD_REALTIME?.fetch){
+        const route=resolveTenantRoutingFromRequest(context.request,context.env);
+        await context.env.BOARD_REALTIME.fetch(new Request('https://board.internal/internal/board-page-updated',{
+          method:'POST',headers:{'Content-Type':'application/json','X-Board-Internal-Secret':secret},
+          body:JSON.stringify({tenant:String(route.slug||'default'),boardId:String(page.board_id),page:updated})
+        }));
+      }
+    }catch(error:any){console.warn('[BOARD PAGE UPDATE BROADCAST]',error?.message||error);}
+    return boardJson({data:updated});
   }catch(error:any){console.error('[BOARD PAGE UPDATE]',error?.message||error);return boardJson({error:error?.message||'Không thể cập nhật trang.'},400);}
 };
 
