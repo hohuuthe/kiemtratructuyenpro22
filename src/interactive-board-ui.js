@@ -174,8 +174,12 @@ function renderObjectsToCanvas(pageInfo,pageObjects){
 async function ensureFreshRoomToken(pageId=currentPageId){
  if(room&&Date.now()<roomTokenExpiresAt)return;
  if(!activeBoard)throw Error('Phiên bảng không còn hoạt động.');
- await join(activeBoard,activeAccessCode,{pageId,reconnect:true});
- if(!room||Date.now()>=roomTokenExpiresAt)throw Error('Không thể làm mới phiên bảng.');
+ const current=room,currentPage=currentPageId;
+ const result=await api('POST','/api/board/join',{boardId:activeBoard.id,accessCode:activeAccessCode,pageId:currentPage||pageId});
+ const fresh=result.data;if(!fresh?.realtime_base_path)throw Error('Không thể làm mới phiên bảng.');
+ room={...current,...fresh,current_page_id:currentPage,pages:current?.pages||fresh.pages};
+ currentPageId=currentPage;
+ roomTokenExpiresAt=Date.now()+Math.max(30,Number(fresh.token_expires_in)||300)*1000-10000;
 }
 async function fetchPageSnapshot(pageId){
  await ensureFreshRoomToken(pageId);
