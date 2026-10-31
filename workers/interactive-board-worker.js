@@ -329,6 +329,11 @@ export class BoardRoom {
 
     for (const raw of packet.ops) {
       const kind=String(raw?.kind||'');
+      if (kind==='present_page' && canManage) {
+        const pageId=safeId(raw.pageId);if(!pageId)continue;
+        this.broadcast({type:'page_focus',pageId,by:actor.userId});
+        continue;
+      }
       if (kind==='vote_toggle') {
         if(roomLocked||userBlocked)continue;
         const pageId=safeId(raw.pageId),objectId=safeId(raw.objectId);
