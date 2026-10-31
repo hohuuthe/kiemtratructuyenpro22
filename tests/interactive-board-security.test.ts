@@ -263,3 +263,22 @@ test('PDF export refreshes signed page list when a new page is outside current t
   assert.match(ui,/roomTokenExpiresAt=0/);
   assert.match(ui,/return fetchPageSnapshot\(pageId,true\)/);
 });
+
+
+test('interactive board mobile workspace keeps touch drawing professional and controls unique',()=>{
+  const html=fs.readFileSync('public/components/tab-boards.html','utf8');
+  const ui=fs.readFileSync('src/interactive-board-ui.js','utf8');
+  const css=fs.readFileSync('src/style.css','utf8');
+  assert.equal((html.match(/id="board-note-text-mobile"/g)||[]).length,1);
+  assert.match(html,/id="board-participants-toggle"/);
+  assert.match(html,/id="board-tools-panel"/);
+  assert.match(html,/class="[^"]*board-stage-scroll/);
+  assert.match(ui,/getCoalescedEvents/);
+  assert.match(ui,/quadraticCurveTo/);
+  assert.match(ui,/function applyBoardDeviceDefaults/);
+  assert.match(ui,/mobileGesture/);
+  assert.match(ui,/board-participants-toggle/);
+  assert.match(css,/#board-canvas-wrap\s*\{[\s\S]*min-width:760px/);
+  assert.match(css,/\.board-tools-panel[\s\S]*position:sticky/);
+  assert.match(css,/touch-action:none/);
+});
