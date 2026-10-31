@@ -1,5 +1,5 @@
 import {
-  getDatabase, getDynamicSecret, verifyAuthSession, checkIsTeacherOrAdmin,
+  getDatabase, getDynamicSecret, verifyAuthSession, checkIsAdmin, checkIsTeacherOrAdmin,
   hashPasswordPBKDF2, verifyPassword
 } from '../exam/utils';
 import { ensureInteractiveBoardSchema } from './schema';
@@ -17,13 +17,14 @@ export function boardJson(data: any, status = 200) {
 
 export async function getBoardRequestContext(context: any) {
   const db = getDatabase(context);
-  await ensureInteractiveBoardSchema(db);
   const header = context.request.headers.get('Authorization') || '';
   if (!header.startsWith('Bearer ')) return { db, user: null, isAdmin: false, isTeacher: false };
   const secret = await getDynamicSecret(db, context.env?.JWT_SECRET);
   const user = await verifyAuthSession(header.slice(7), secret, db);
-  const isAdmin = String(user?.role || '').trim().toLowerCase() === 'admin';
-  const isTeacher = !!user && checkIsTeacherOrAdmin(user) && !isAdmin;
+  if (!user) return { db, user: null, isAdmin: false, isTeacher: false };
+  await ensureInteractiveBoardSchema(db);
+  const isAdmin = checkIsAdmin(user);
+  const isTeacher = checkIsTeacherOrAdmin(user) && !isAdmin;
   return { db, user, isAdmin, isTeacher };
 }
 
