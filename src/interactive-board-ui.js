@@ -60,7 +60,10 @@ async function join(b,accessCode='',options={}){
   connectSocket();
  }catch(e){
   if(e.code==='BOARD_ACCESS_CODE_REQUIRED'&&!options.reconnect){openCode(b);return;}
-  if(options.reconnect){scheduleReconnect();return;}
+  if(options.reconnect){
+    if(e.status===401||e.status===403){manualExit=true;$('board-room-status').textContent=e.message||'Bạn không còn quyền truy cập bảng này.';return;}
+    scheduleReconnect();return;
+  }
   feedback(e.message,true);
  }
 }
@@ -94,6 +97,8 @@ function handleMessage(m){
  if(m.type==='stroke_segment'){let s=remoteStrokes.get(m.objectId);if(!s){s={id:m.objectId,pageId:m.pageId,type:'stroke',points:[],color:m.color,width:m.width};remoteStrokes.set(m.objectId,s);}s.points.push(...(m.points||[]));render();return;}
  if(m.type==='presence'){renderParticipants(m.participants||[]);return;}
  if(m.type==='lock_state'){locked=!!m.locked;syncLockUi();return;}
+ if(m.type==='policy_changed'){locked=!!m.locked;roomTokenExpiresAt=0;syncLockUi();$('board-room-status').textContent='Cấu hình bảng vừa thay đổi — đang xác thực lại...';return;}
+ if(m.type==='board_unavailable'){manualExit=true;window.showToast?.('Bảng đã đóng hoặc tạm ngừng truy cập.','info');exitRoom();return;}
  if(m.type==='board_deleted'){manualExit=true;window.showToast?.('Bảng này đã được giáo viên xóa.','info');exitRoom();return;}
 }
 function sendOps(ops){if(ws?.readyState===WebSocket.OPEN&&ops.length)ws.send(JSON.stringify({type:'op_batch',ops}));}
