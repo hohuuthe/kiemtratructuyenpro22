@@ -50,3 +50,23 @@ test('Question-bank MathType selection post-processes the generated copy and sav
   assert.doesNotMatch(bank,/writeQuestionBankWordFile\(choice\.handle, blob\)/);
   assert.doesNotMatch(bank,/createQuestionBankWordDownload\(blob, downloadName\)/);
 });
+
+
+test('Preview runtime uses the app CHTML MathJax instead of incorrectly requiring SVG output',()=>{
+  const renderer=fs.readFileSync(new URL('../src/word-mathtype-export/preview-browser-mathjax.js',import.meta.url),'utf8');
+  assert.match(renderer,/globalThis\.MathJax/);
+  assert.match(renderer,/querySelector\('mjx-container'\)/);
+  assert.match(renderer,/html2canvas\(math/);
+  assert.doesNotMatch(renderer,/querySelector\('svg'\)/);
+  assert.match(renderer,/cooperativeYield/);
+});
+
+test('MathType Preview export has cancellation, timeout and actionable formula-level errors',()=>{
+  const converter=fs.readFileSync(new URL('../src/word-mathtype-export/docx-converter.js',import.meta.url),'utf8');
+  assert.match(converter,/PREVIEW_TIMEOUT/);
+  assert.match(converter,/previewTimeoutMs/);
+  assert.match(app,/new AbortController\(\)/);
+  assert.match(app,/describeMathTypeExportFailure/);
+  assert.match(app,/signal: mathTypeSignal/);
+  assert.match(app,/signal: mathTypeController\?\.signal/);
+});
