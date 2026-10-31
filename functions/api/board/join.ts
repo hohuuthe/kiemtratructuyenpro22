@@ -32,7 +32,13 @@ export const onRequestPost: PagesFunction = async (context: any) => {
     if (!selectedPage) return boardJson({ error: 'Trang không thuộc bảng này.' }, 403);
 
     const secret = realtimeSecret(context.env);
-    if (!secret) return boardJson({ error: 'Realtime chưa được cấu hình trên máy chủ.', code: 'BOARD_REALTIME_NOT_CONFIGURED' }, 503);
+    const realtime = context.env?.BOARD_REALTIME;
+    if (!secret || !realtime || typeof realtime.fetch !== 'function') {
+      return boardJson({
+        error: 'Dịch vụ realtime của Bảng tương tác chưa sẵn sàng.',
+        code: 'BOARD_REALTIME_NOT_READY'
+      }, 503);
+    }
 
     const route = resolveTenantRoutingFromRequest(context.request, context.env);
     const tenant = String(route.slug || 'default');
