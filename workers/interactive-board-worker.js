@@ -71,7 +71,7 @@ export default {
   async fetch(request, env) {
     const url=new URL(request.url);
     if (request.method==='POST' && (url.pathname==='/internal/board-reset' || url.pathname==='/internal/board-policy' || url.pathname==='/internal/board-page-reset' || url.pathname==='/internal/board-page-created')) {
-      const secret=String(env.BOARD_REALTIME_SECRET || env.JWT_SECRET || '');
+      const secret=String(env.BOARD_REALTIME_SECRET || '');
       if (!secret || !secureEqualString(request.headers.get('X-Board-Internal-Secret'),secret)) {
         return new Response('Unauthorized',{status:401});
       }
@@ -114,7 +114,7 @@ export default {
       return new Response('WebSocket required', {status:426});
     }
     const token = url.searchParams.get('token') || '';
-    const claims = await verifyJwt(token, String(env.BOARD_REALTIME_SECRET || env.JWT_SECRET || ''));
+    const claims = await verifyJwt(token, String(env.BOARD_REALTIME_SECRET || ''));
     if (!claims || claims.tokenType !== 'board_join' || !safeId(claims.boardId) ||
         !safeId(claims.userId) || !/^[A-Za-z0-9_-]{1,64}$/.test(String(claims.tenant || ''))) {
       return new Response('Unauthorized', {status:401});
@@ -134,7 +134,7 @@ export class BoardRoom {
   async fetch(request) {
     const url=new URL(request.url);
     if(request.method==='POST'&&url.pathname==='/page-created'){
-      const secret=String(this.env.BOARD_REALTIME_SECRET || this.env.JWT_SECRET || '');
+      const secret=String(this.env.BOARD_REALTIME_SECRET || '');
       if(!secret||!secureEqualString(request.headers.get('X-Board-Internal-Secret'),secret))return new Response('Unauthorized',{status:401});
       let body;try{body=await request.json();}catch{return new Response('Invalid JSON',{status:400});}
       const page=body?.page;if(!page||!safeId(page.id))return new Response('Invalid page',{status:400});
@@ -145,7 +145,7 @@ export class BoardRoom {
       return new Response('OK');
     }
     if(request.method==='POST'&&url.pathname==='/page-reset'){
-      const secret=String(this.env.BOARD_REALTIME_SECRET || this.env.JWT_SECRET || '');
+      const secret=String(this.env.BOARD_REALTIME_SECRET || '');
       if(!secret||!secureEqualString(request.headers.get('X-Board-Internal-Secret'),secret))return new Response('Unauthorized',{status:401});
       let body;try{body=await request.json();}catch{return new Response('Invalid JSON',{status:400});}
       const pageId=safeId(body?.pageId);if(!pageId)return new Response('Invalid page',{status:400});
@@ -157,7 +157,7 @@ export class BoardRoom {
       return new Response('OK');
     }
     if(request.method==='POST'&&url.pathname==='/policy'){
-      const secret=String(this.env.BOARD_REALTIME_SECRET || this.env.JWT_SECRET || '');
+      const secret=String(this.env.BOARD_REALTIME_SECRET || '');
       if(!secret||!secureEqualString(request.headers.get('X-Board-Internal-Secret'),secret))return new Response('Unauthorized',{status:401});
       let body;try{body=await request.json();}catch{return new Response('Invalid JSON',{status:400});}
       const revision=Math.max(1,Number(body?.revision)||1),locked=body?.locked===true,unavailable=body?.unavailable===true;
@@ -169,7 +169,7 @@ export class BoardRoom {
       return new Response('OK');
     }
     if(request.method==='POST'&&url.pathname==='/reset'){
-      const secret=String(this.env.BOARD_REALTIME_SECRET || this.env.JWT_SECRET || '');
+      const secret=String(this.env.BOARD_REALTIME_SECRET || '');
       if(!secret||!secureEqualString(request.headers.get('X-Board-Internal-Secret'),secret))return new Response('Unauthorized',{status:401});
       for(const socket of this.ctx.getWebSockets()){try{socket.send(JSON.stringify({type:'board_deleted'}));socket.close(4004,'Board deleted')}catch{}}
       await this.ctx.storage.deleteAll();
@@ -177,7 +177,7 @@ export class BoardRoom {
     }
     if ((request.headers.get('Upgrade') || '').toLowerCase() !== 'websocket') return new Response('WebSocket required',{status:426});
     const token=url.searchParams.get('token')||'';
-    const claims=await verifyJwt(token,String(this.env.BOARD_REALTIME_SECRET || this.env.JWT_SECRET || ''));
+    const claims=await verifyJwt(token,String(this.env.BOARD_REALTIME_SECRET || ''));
     if (!claims || claims.tokenType!=='board_join') return new Response('Unauthorized',{status:401});
     const boardId=safeId(claims.boardId), userId=safeId(claims.userId);
     const signedPageId=safeId(claims.pageId || '');
@@ -247,6 +247,11 @@ export class BoardRoom {
     if (!actor.userId || typeof message!=='string' || message.length>65536) return;
     let packet; try { packet=JSON.parse(message); } catch { return; }
     if (!packet || packet.type!=='op_batch' || !Array.isArray(packet.ops) || packet.ops.length>80) return;
+    const now=Date.now(),windowStart=Number(actor.rateWindowStart||0);
+    if(!windowStart||now-windowStart>10000){actor.rateWindowStart=now;actor.rateOps=0;}
+    actor.rateOps=Number(actor.rateOps||0)+packet.ops.length;
+    ws.serializeAttachment(actor);
+    if(actor.rateOps>400){try{ws.send(JSON.stringify({type:'rate_limited'}))}catch{};return;}
     const roomLocked=Boolean(await this.ctx.storage.get('room:locked'));
     const canManage=actor.permission==='manage' || actor.role==='teacher' || actor.role==='admin';
     const canDraw=canManage || (!roomLocked && actor.permission==='draw');
