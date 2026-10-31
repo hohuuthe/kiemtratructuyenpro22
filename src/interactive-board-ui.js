@@ -5,7 +5,7 @@ let ws=null,room=null,objects=new Map(),remoteStrokes=new Map(),tool='pen',drawi
 let activeBoard=null,activeAccessCode='',manualExit=false,reconnectTimer=null,reconnectAttempts=0;
 let roomTokenExpiresAt=0,tokenRefreshAttempts=0,currentPageId='';
 let undoStack=[],redoStack=[],renderQueued=false,lastRateNotice=0,userLocked=false;
-let pendingReliable=new Map(),dragState=null,snapshotLoading=false;
+let pendingReliable=new Map(),dragState=null,snapshotLoading=false,participantsCache=[];
 
 function token(){return localStorage.getItem(window.tenantStorageKey?window.tenantStorageKey('auth_token'):'auth_token')||'';}
 async function api(method,url,body){
@@ -100,15 +100,15 @@ function scheduleReconnect(){
 function handleMessage(m){
  if(m.type==='snapshot_begin'){objects.clear();remoteStrokes.clear();snapshotLoading=true;locked=!!m.locked;userLocked=!!m.userLocked;renderParticipants(m.participants||[]);syncLockUi();applyPageBackground();$('board-room-status').textContent='Đang đồng bộ bảng...';return;}
  if(m.type==='snapshot_chunk'){for(const o of m.objects||[])objects.set(o.id,o);scheduleRender();return;}
- if(m.type==='snapshot_end'){snapshotLoading=false;scheduleRender();$('board-room-status').textContent='Đã kết nối realtime';return;}
- if(m.type==='put'&&m.object){objects.set(m.object.id,m.object);remoteStrokes.delete(m.object.id);scheduleRender();return;}
- if(m.type==='delete'){objects.delete(m.objectId);remoteStrokes.delete(m.objectId);scheduleRender();return;}
- if(m.type==='clear_page'){for(const [id,o] of objects)if(o.pageId===m.pageId)objects.delete(id);scheduleRender();return;}
+ if(m.type==='snapshot_end'){snapshotLoading=false;scheduleRender();renderParticipants(participantsCache);$('board-room-status').textContent='Đã kết nối realtime';return;}
+ if(m.type==='put'&&m.object){objects.set(m.object.id,m.object);remoteStrokes.delete(m.object.id);scheduleRender();renderParticipants(participantsCache);return;}
+ if(m.type==='delete'){objects.delete(m.objectId);remoteStrokes.delete(m.objectId);scheduleRender();renderParticipants(participantsCache);return;}
+ if(m.type==='clear_page'){for(const [id,o] of objects)if(o.pageId===m.pageId)objects.delete(id);scheduleRender();renderParticipants(participantsCache);return;}
  if(m.type==='stroke_segment'){let s=remoteStrokes.get(m.objectId);if(!s){s={id:m.objectId,pageId:m.pageId,type:'stroke',points:[],color:m.color,width:m.width};remoteStrokes.set(m.objectId,s);}s.points.push(...(m.points||[]));scheduleRender();return;}
  if(m.type==='page_created'&&m.page){if(!room.pages.some(p=>String(p.id)===String(m.page.id))){room.pages=[...room.pages,m.page].sort((a,b)=>(a.page_no||0)-(b.page_no||0));renderPageControls();}return;}
  if(m.type==='page_deleted'){room.pages=(room.pages||[]).filter(p=>String(p.id)!==String(m.pageId));renderPageControls();if(String(m.pageId)===String(currentPageId)){const next=room.pages[0];if(next)switchPage(next.id);else exitRoom();}return;}
  if(m.type==='op_ack'&&m.clientOpId){pendingReliable.delete(String(m.clientOpId));return;}
- if(m.type==='clear_user_objects'){for(const id of m.objectIds||[])objects.delete(id);scheduleRender();return;}
+ if(m.type==='clear_user_objects'){for(const id of m.objectIds||[])objects.delete(id);scheduleRender();renderParticipants(participantsCache);return;}
  if(m.type==='stroke_cancel'){remoteStrokes.delete(m.objectId);scheduleRender();return;}
  if(m.type==='user_lock_state'){userLocked=!!m.blocked;syncLockUi();window.showToast?.(userLocked?'Giáo viên đã tạm khóa quyền tương tác của bạn.':'Giáo viên đã mở lại quyền tương tác cho bạn.','info');return;}
  if(m.type==='rate_limited'){const now=Date.now();if(now-lastRateNotice>5000){lastRateNotice=now;window.showToast?.('Thao tác quá nhanh, hệ thống đang giảm nhịp để bảo vệ lớp học.','info');}return;}
@@ -198,11 +198,16 @@ async function redo(){
  undoStack.push(action);syncHistoryButtons();scheduleRender();
 }
 function renderParticipants(items){
- $('board-online-count').textContent=items.length+' người';
- $('board-participants').innerHTML=items.map(p=>{
+ participantsCache=Array.isArray(items)?items:participantsCache;
+ const currentItems=participantsCache;
+ const counts=new Map();
+ for(const o of objects.values())if(o.pageId===currentPageId&&o.creatorId)counts.set(String(o.creatorId),(counts.get(String(o.creatorId))||0)+1);
+ $('board-online-count').textContent=currentItems.length+' người';
+ $('board-participants').innerHTML=currentItems.map(p=>{
    const roleLabel=p.role==='teacher'?'Giáo viên':p.role==='admin'?'Admin':'Học sinh';
    const canModerate=room?.board?.can_manage&&p.role==='student'&&String(p.userId)!==myId();
-   return '<div class="rounded-lg bg-white border px-3 py-2 space-y-1"><div class="flex items-center justify-between gap-2"><div class="min-w-0"><p class="font-bold truncate">'+esc(p.displayName)+'</p><p class="text-[11px] text-slate-500">'+esc(roleLabel)+(p.blocked?' • đang khóa':'')+'</p></div>'+(canModerate?'<div class="flex gap-1"><button data-board-user-clear="'+esc(p.userId)+'" class="shrink-0 rounded-md bg-rose-50 text-rose-700 px-2 py-1 text-[11px] font-bold">Xóa nét</button><button data-board-user-lock="'+esc(p.userId)+'" data-blocked="'+(p.blocked?'1':'0')+'" class="shrink-0 rounded-md px-2 py-1 text-[11px] font-bold '+(p.blocked?'bg-emerald-50 text-emerald-700':'bg-amber-50 text-amber-800')+'">'+(p.blocked?'Mở':'Khóa')+'</button></div>':'')+'</div></div>';
+   const contributionCount=counts.get(String(p.userId))||0;
+   return '<div class="rounded-lg bg-white border px-3 py-2 space-y-1"><div class="flex items-center justify-between gap-2"><div class="min-w-0"><p class="font-bold truncate">'+esc(p.displayName)+'</p><p class="text-[11px] text-slate-500">'+esc(roleLabel)+(p.blocked?' • đang khóa':'')+(p.role==='student'?' • '+contributionCount+' đóng góp':'')+'</p></div>'+(canModerate?'<div class="flex gap-1"><button data-board-user-clear="'+esc(p.userId)+'" class="shrink-0 rounded-md bg-rose-50 text-rose-700 px-2 py-1 text-[11px] font-bold">Xóa nét</button><button data-board-user-lock="'+esc(p.userId)+'" data-blocked="'+(p.blocked?'1':'0')+'" class="shrink-0 rounded-md px-2 py-1 text-[11px] font-bold '+(p.blocked?'bg-emerald-50 text-emerald-700':'bg-amber-50 text-amber-800')+'">'+(p.blocked?'Mở':'Khóa')+'</button></div>':'')+'</div></div>';
  }).join('');
 }
 function syncLockUi(){
@@ -276,7 +281,7 @@ function pointerUp(){
 function exitRoom(){
  manualExit=true;if(reconnectTimer){clearTimeout(reconnectTimer);reconnectTimer=null;}
  if(ws)try{ws.onclose=null;ws.close(1000,'exit')}catch{};ws=null;room=null;activeBoard=null;activeAccessCode='';reconnectAttempts=0;
- roomTokenExpiresAt=0;tokenRefreshAttempts=0;currentPageId='';userLocked=false;snapshotLoading=false;pendingReliable.clear();dragState=null;undoStack=[];redoStack=[];objects.clear();remoteStrokes.clear();drawing=null;$('board-room')?.classList.add('hidden');$('boards-home')?.classList.remove('hidden');
+ roomTokenExpiresAt=0;tokenRefreshAttempts=0;currentPageId='';userLocked=false;snapshotLoading=false;participantsCache=[];pendingReliable.clear();dragState=null;undoStack=[];redoStack=[];objects.clear();remoteStrokes.clear();drawing=null;$('board-room')?.classList.add('hidden');$('boards-home')?.classList.remove('hidden');
 }
 
 export function resetInteractiveBoards(){generation++;list=[];actor=null;manage=false;page=1;total=0;exitRoom();}
