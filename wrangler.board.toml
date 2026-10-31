@@ -11,8 +11,6 @@ class_name = "BoardRoom"
 tag = "v1"
 new_sqlite_classes = ["BoardRoom"]
 
-# Secret bắt buộc, đặt cùng giá trị với Pages:
-#   npx wrangler secret put BOARD_REALTIME_SECRET --config wrangler.board.toml
-
-[secrets]
-required = ["BOARD_REALTIME_SECRET"]
+# BOARD_REALTIME_SECRET is a runtime secret configured in Cloudflare Worker Settings.
+# Do not declare it as a build-time required secret here because that prevents the
+# first deployment from creating the Durable Object namespace/migration.
