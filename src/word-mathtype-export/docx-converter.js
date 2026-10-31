@@ -13,6 +13,12 @@ const utf8=s=>new TextEncoder().encode(s);
 const toArray=x=>Array.from(x||[]);
 const PNG=Uint8Array.from([137,80,78,71,13,10,26,10]);
 const maxDocx=24*1024*1024,maxExpanded=128*1024*1024;
+async function yieldMainThread(signal){
+  aborted(signal);
+  if(globalThis.scheduler?.yield)await globalThis.scheduler.yield();
+  else await new Promise(resolve=>setTimeout(resolve,0));
+  aborted(signal);
+}
 export async function sha256(bytes){
   if(!globalThis.crypto?.subtle)fail('CRYPTO_REQUIRED','Web Crypto is required to verify exported formulas.');
   return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),b=>b.toString(16).padStart(2,'0')).join('');
@@ -89,6 +95,7 @@ export async function convertDocxToMathType(input,options={}){
     const data={part,doc,rels,nonMathText,hasShapeType:toArray(doc.getElementsByTagNameNS(NS.v,'shapetype')).some(n=>n.getAttribute('id')==='_x0000_t75')};
     for(const eq of equations){
       if(++occurrence>2000)fail('RESOURCE_LIMIT','More than 2000 equations in one export.');
+      if(occurrence===1||occurrence%8===0)await yieldMainThread(options.signal);
       let parent=eq.parentNode,replace=eq,display=false;
       if(parent?.namespaceURI===NS.m&&local(parent)==='oMathPara'){
         display=true;replace=parent;parent=parent.parentNode;
@@ -113,7 +120,9 @@ export async function convertDocxToMathType(input,options={}){
   if(typeof renderPreview!=='function')fail('PREVIEW_REQUIRED','A qualified formula preview renderer is required.');
   const originalHash=await sha256(source),manifest=[];
   for(let i=0;i<work.length;i++){
-    aborted(options.signal);const item=work[i];const {doc,rels}=item.partData;
+    aborted(options.signal);
+    if(i===0||i%4===0)await yieldMainThread(options.signal);
+    const item=work[i];const {doc,rels}=item.partData;
     let preview;
     try {
       const timeoutMs=Math.max(3000,Math.min(30000,Number(options.previewTimeoutMs||12000)));
