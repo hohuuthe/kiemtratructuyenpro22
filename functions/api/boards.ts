@@ -77,14 +77,12 @@ export const onRequestGet: PagesFunction = async (context: any) => {
     if (manage && (isAdmin || isTeacher)) {
       const where = isAdmin ? '' : 'WHERE b.creator_id IN (?, ?)';
       const params = isAdmin ? [] : [String(user.id || ''), String(user.user_id || '')];
-      const countRow = await db.prepare(
-        `SELECT COUNT(*)::int AS total FROM interactive_boards b ${where}`
-      ).bind(...params).first();
       const { results } = await db.prepare(
         `SELECT b.id,b.name,b.description,b.creator_id,b.status,b.access_mode,
                 b.target_donvi,b.target_lop,b.student_permission,b.starts_at,b.ends_at,
                 b.max_participants,b.settings_json,b.revision,b.created_at,b.updated_at,
-                COALESCE(u.full_name,a.username,b.creator_id) AS creator_name
+                COALESCE(u.full_name,a.username,b.creator_id) AS creator_name,
+                COUNT(*) OVER()::int AS total_count
          FROM interactive_boards b
          LEFT JOIN accounts a ON a.id = b.creator_id
          LEFT JOIN users u ON u.id = COALESCE(a.user_id,a.id)
@@ -94,7 +92,7 @@ export const onRequestGet: PagesFunction = async (context: any) => {
       ).bind(...params, limit, offset).all();
       return boardJson({
         data: (results || []).map((row: any) => boardListProjection(row, canManageBoard(user, row, isAdmin))),
-        total: Number(countRow?.total || 0), page, limit
+        total: Number(results?.[0]?.total_count || 0), page, limit
       });
     }
 
@@ -113,14 +111,12 @@ export const onRequestGet: PagesFunction = async (context: any) => {
            AND (TRIM(b.target_lop)='' OR LOWER(?) = ANY(string_to_array(LOWER(replace(b.target_lop,' ','')), ',')))
          )
        )`;
-    const countRow = await db.prepare(
-      `SELECT COUNT(*)::int AS total FROM interactive_boards b WHERE ${visibilitySql}`
-    ).bind(unit, studentClass).first();
     const { results } = await db.prepare(
       `SELECT b.id,b.name,b.description,b.creator_id,b.status,b.access_mode,
               b.target_donvi,b.target_lop,b.student_permission,b.starts_at,b.ends_at,
               b.max_participants,b.revision,b.created_at,b.updated_at,
-              COALESCE(u.full_name,a.username,b.creator_id) AS creator_name
+              COALESCE(u.full_name,a.username,b.creator_id) AS creator_name,
+              COUNT(*) OVER()::int AS total_count
        FROM interactive_boards b
        LEFT JOIN accounts a ON a.id = b.creator_id
        LEFT JOIN users u ON u.id = COALESCE(a.user_id,a.id)
@@ -129,7 +125,7 @@ export const onRequestGet: PagesFunction = async (context: any) => {
        LIMIT ? OFFSET ?`
     ).bind(unit, studentClass, limit, offset).all();
     const visible = (results || []).filter((row: any) => canDiscoverBoard(user, row, isAdmin));
-    return boardJson({ data: visible.map((row: any) => boardListProjection(row, false)), total: Number(countRow?.total || 0), page, limit });
+    return boardJson({ data: visible.map((row: any) => boardListProjection(row, false)), total: Number(results?.[0]?.total_count || 0), page, limit });
   } catch (error: any) {
     console.error('[BOARD LIST]', error?.message || error);
     return boardJson({ error: error?.message || 'Không thể tải danh sách bảng tương tác.' }, 500);
@@ -149,18 +145,19 @@ export const onRequestPost: PagesFunction = async (context: any) => {
     const accessHash = parsed.accessMode === 'protected' ? await hashBoardAccessCode(input.access_code) : null;
     const creatorId = String(user.id || user.user_id || '');
     await db.prepare(
-      `INSERT INTO interactive_boards
-       (id,name,description,creator_id,status,access_mode,access_code_hash,target_donvi,target_lop,
-        student_permission,starts_at,ends_at,max_participants,settings_json,revision,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`
+      `WITH created_board AS (
+         INSERT INTO interactive_boards
+         (id,name,description,creator_id,status,access_mode,access_code_hash,target_donvi,target_lop,
+          student_permission,starts_at,ends_at,max_participants,settings_json,revision,created_at,updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
+         RETURNING id
+       )
+       INSERT INTO interactive_board_pages
+       (id,board_id,page_no,title,background_type,canvas_width,canvas_height,revision,created_at,updated_at)
+       SELECT ?,id,1,'Bảng 1',?,1600,900,1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP FROM created_board`
     ).bind(id, parsed.name, parsed.description, creatorId, parsed.status, parsed.accessMode, accessHash,
       parsed.targetDonvi, parsed.targetClasses.join(','), parsed.studentPermission, parsed.startsAt, parsed.endsAt,
-      parsed.maxParticipants, parsed.settingsJson).run();
-    await db.prepare(
-      `INSERT INTO interactive_board_pages
-       (id,board_id,page_no,title,background_type,canvas_width,canvas_height,revision,created_at,updated_at)
-       VALUES (?,?,1,'Bảng 1',?,1600,900,1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`
-    ).bind(pageId, id, JSON.parse(parsed.settingsJson).background || 'white').run();
+      parsed.maxParticipants, parsed.settingsJson, pageId, JSON.parse(parsed.settingsJson).background || 'white').run();
     return boardJson({ data: boardListProjection(await loadBoard(db, id), true) }, 201);
   } catch (error: any) {
     console.error('[BOARD CREATE]', error?.message || error);
@@ -230,8 +227,9 @@ export const onRequestDelete: PagesFunction = async (context: any) => {
     const current = await loadBoard(db, id);
     if (!current) return boardJson({ error: 'Không tìm thấy bảng.' }, 404);
     if (!canManageBoard(user, current, isAdmin)) return boardJson({ error: 'Bạn không có quyền xóa bảng này.' }, 403);
-    await db.prepare('DELETE FROM interactive_board_pages WHERE board_id=?').bind(id).run();
-    await db.prepare('DELETE FROM interactive_boards WHERE id=?').bind(id).run();
+    await db.prepare(
+      'WITH deleted_pages AS (DELETE FROM interactive_board_pages WHERE board_id=? RETURNING id) DELETE FROM interactive_boards WHERE id=?'
+    ).bind(id,id).run();
 
     // Best-effort purge of Durable Object state. Metadata deletion stays authoritative
     // even if the optional realtime Worker is temporarily unavailable.
