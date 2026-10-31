@@ -13,6 +13,8 @@
  <header class="flex flex-wrap items-center gap-2 justify-between p-3 sm:p-4 border-b bg-slate-50">
   <div class="min-w-0"><h2 id="board-room-title" class="font-black text-lg truncate">Bảng tương tác</h2><p id="board-room-status" class="text-xs text-slate-500">Đang kết nối...</p></div>
   <div class="flex flex-wrap gap-2">
+   <button id="board-add-page" type="button" class="hidden rounded-lg bg-blue-100 text-blue-800 px-3 py-2 font-bold text-sm">＋ Trang</button>
+   <button id="board-delete-page" type="button" class="hidden rounded-lg bg-rose-50 text-rose-700 px-3 py-2 font-bold text-sm">Xóa trang</button>
    <button id="board-lock" type="button" class="hidden rounded-lg bg-amber-100 text-amber-900 px-3 py-2 font-bold text-sm">🔒 Khóa HS</button>
    <button id="board-clear" type="button" class="hidden rounded-lg bg-rose-100 text-rose-800 px-3 py-2 font-bold text-sm">Xóa bảng</button>
    <button id="board-exit" type="button" class="rounded-lg bg-slate-200 px-3 py-2 font-bold text-sm">← Thoát</button>
@@ -22,11 +24,19 @@
   <aside class="border-b lg:border-b-0 lg:border-r p-2 sm:p-3 flex lg:flex-col gap-2 overflow-x-auto">
    <button type="button" data-board-tool="pen" class="board-tool active whitespace-nowrap rounded-lg bg-emerald-700 text-white px-3 py-2 font-bold text-sm">✏️ Bút</button>
    <button type="button" data-board-tool="note" class="board-tool whitespace-nowrap rounded-lg bg-slate-100 px-3 py-2 font-bold text-sm">📝 Ghi chú</button>
+   <button type="button" data-board-tool="eraser" class="board-tool whitespace-nowrap rounded-lg bg-slate-100 px-3 py-2 font-bold text-sm">🧽 Tẩy</button>
+   <button id="board-undo" type="button" class="whitespace-nowrap rounded-lg bg-slate-100 px-3 py-2 font-bold text-sm">↶ Hoàn tác</button>
+   <button id="board-redo" type="button" class="whitespace-nowrap rounded-lg bg-slate-100 px-3 py-2 font-bold text-sm">↷ Làm lại</button>
    <label class="whitespace-nowrap text-xs font-bold">Màu<input id="board-color" type="color" value="#111827" class="ml-2 align-middle w-9 h-8"></label>
    <label class="whitespace-nowrap text-xs font-bold">Nét<input id="board-width" type="range" min="1" max="12" value="3" class="w-20 align-middle"></label>
    <textarea id="board-note-text" maxlength="500" rows="3" class="hidden lg:block border rounded-lg p-2 text-xs" placeholder="Nhập ý kiến rồi chọn Ghi chú và chạm lên bảng"></textarea>
   </aside>
   <main class="bg-slate-200 p-2 sm:p-3 min-w-0 overflow-auto">
+   <div class="mb-2 flex items-center justify-center gap-2">
+    <button id="board-page-prev" type="button" class="rounded-lg bg-white px-3 py-2 text-sm font-bold shadow-sm">‹</button>
+    <select id="board-page-select" class="max-w-xs rounded-lg border bg-white px-3 py-2 text-sm font-bold"></select>
+    <button id="board-page-next" type="button" class="rounded-lg bg-white px-3 py-2 text-sm font-bold shadow-sm">›</button>
+   </div>
    <div id="board-canvas-wrap" class="relative mx-auto bg-white shadow-lg max-w-full aspect-video touch-none select-none">
     <canvas id="board-canvas" width="1600" height="900" class="absolute inset-0 w-full h-full touch-none"></canvas>
     <div id="board-locked-overlay" class="hidden absolute inset-0 bg-slate-900/10 pointer-events-none flex items-start justify-center p-3"><span class="bg-white/95 rounded-full px-4 py-2 shadow font-bold text-amber-800">Bảng đang khóa chỉnh sửa</span></div>
