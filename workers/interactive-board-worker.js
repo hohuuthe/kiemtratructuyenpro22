@@ -195,11 +195,14 @@ export class BoardRoom {
 
     const pair=new WebSocketPair();
     const [client,server]=Object.values(pair);
+    const userLocked=claims.role==='student' && Boolean(await this.ctx.storage.get('userlock:'+userId));
     const attachment={
       boardId,userId,pageId,
       displayName:String(claims.displayName||'Người dùng').slice(0,100),
       role:String(claims.role||'student'),
       permission:String(claims.permission||'view'),
+      blocked:userLocked,
+      activeStrokes:[],
       joinedAt:Date.now()
     };
     this.ctx.acceptWebSocket(server,[pageId]);
@@ -218,7 +221,7 @@ export class BoardRoom {
     const locked=Boolean(lockedRaw);
     const objects=await this.ctx.storage.list({prefix:'obj:'+pageId+':'});
     const snapshot=[...objects.values()].slice(0,1000);
-    server.send(JSON.stringify({type:'snapshot',pageId,locked,objects:snapshot,participants:this.participants()}));
+    server.send(JSON.stringify({type:'snapshot',pageId,locked,userLocked,objects:snapshot,participants:this.participants()}));
     this.broadcast({type:'presence',participants:this.participants()},server);
     return new Response(null,{status:101,webSocket:client});
   }
@@ -228,7 +231,10 @@ export class BoardRoom {
     for (const ws of this.ctx.getWebSockets()) {
       const s=stateOf(ws);
       if (!s.userId) continue;
-      if (!seen.has(s.userId)) seen.set(s.userId,{userId:s.userId,displayName:s.displayName||'Người dùng',role:s.role||'student'});
+      if (!seen.has(s.userId)) seen.set(s.userId,{
+        userId:s.userId,displayName:s.displayName||'Người dùng',role:s.role||'student',
+        blocked:Boolean(s.blocked),pageId:s.pageId||''
+      });
     }
     return [...seen.values()].slice(0,120);
   }
@@ -254,8 +260,9 @@ export class BoardRoom {
     if(actor.rateOps>400){try{ws.send(JSON.stringify({type:'rate_limited'}))}catch{};return;}
     const roomLocked=Boolean(await this.ctx.storage.get('room:locked'));
     const canManage=actor.permission==='manage' || actor.role==='teacher' || actor.role==='admin';
-    const canDraw=canManage || (!roomLocked && actor.permission==='draw');
-    const canComment=canManage || (!roomLocked && ['draw','comment'].includes(actor.permission));
+    const userBlocked=!canManage && Boolean(actor.blocked);
+    const canDraw=canManage || (!roomLocked && !userBlocked && actor.permission==='draw');
+    const canComment=canManage || (!roomLocked && !userBlocked && ['draw','comment'].includes(actor.permission));
 
     for (const raw of packet.ops) {
       const kind=String(raw?.kind||'');
@@ -264,7 +271,11 @@ export class BoardRoom {
         const pageId=safeId(raw.pageId); if (!pageId || pageId!==actor.pageId) continue;
         const points=normalizePoints(raw.points).slice(0,120);
         if (!points.length) continue;
-        this.broadcast({type:'stroke_segment',pageId,objectId:safeId(raw.objectId),actorId:actor.userId,points,
+        const objectId=safeId(raw.objectId);if(!objectId)continue;
+        if(!Array.isArray(actor.activeStrokes))actor.activeStrokes=[];
+        if(!actor.activeStrokes.includes(objectId))actor.activeStrokes=actor.activeStrokes.concat(objectId).slice(-12);
+        ws.serializeAttachment(actor);
+        this.broadcast({type:'stroke_segment',pageId,objectId,actorId:actor.userId,points,
           color:safeColor(raw.color),width:clamp(raw.width,1,24,3)},ws,pageId);
         continue;
       }
@@ -287,6 +298,10 @@ export class BoardRoom {
           await this.ctx.storage.put(countKey,objectCount+1);
         }
         await this.ctx.storage.put(key,object);
+        if(Array.isArray(actor.activeStrokes)&&actor.activeStrokes.includes(object.id)){
+          actor.activeStrokes=actor.activeStrokes.filter(id=>id!==object.id);
+          ws.serializeAttachment(actor);
+        }
         this.broadcast({type:'put',object},null,object.pageId);
         continue;
       }
@@ -312,6 +327,22 @@ export class BoardRoom {
         this.broadcast({type:'clear_page',pageId},null,pageId);
         continue;
       }
+      if (kind==='set_user_lock' && canManage) {
+        const targetUserId=safeId(raw.targetUserId);
+        const blocked=raw.blocked===true;
+        if(!targetUserId||targetUserId===actor.userId)continue;
+        if(blocked)await this.ctx.storage.put('userlock:'+targetUserId,true);
+        else await this.ctx.storage.delete('userlock:'+targetUserId);
+        for(const socket of this.ctx.getWebSockets()){
+          const state=stateOf(socket);
+          if(state.userId!==targetUserId||state.role!=='student')continue;
+          state.blocked=blocked;
+          socket.serializeAttachment(state);
+          try{socket.send(JSON.stringify({type:'user_lock_state',blocked}))}catch{}
+        }
+        this.broadcast({type:'presence',participants:this.participants()});
+        continue;
+      }
       if ((kind==='lock'||kind==='unlock') && canManage) {
         const locked=kind==='lock';
         await this.ctx.storage.put('room:locked',locked);
@@ -320,12 +351,21 @@ export class BoardRoom {
     }
   }
 
+  cleanupTransientStrokes(ws) {
+    const state=stateOf(ws),ids=Array.isArray(state.activeStrokes)?state.activeStrokes:[];
+    for(const objectId of ids){
+      this.broadcast({type:'stroke_cancel',pageId:state.pageId,objectId},ws,state.pageId||'');
+    }
+  }
+
   webSocketClose(ws) {
+    this.cleanupTransientStrokes(ws);
     try { ws.close(1000,''); } catch {}
     this.broadcast({type:'presence',participants:this.participants()});
   }
 
   webSocketError(ws) {
+    this.cleanupTransientStrokes(ws);
     try { ws.close(1011,'WebSocket error'); } catch {}
   }
 }
