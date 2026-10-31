@@ -50,6 +50,7 @@ test('implementation is lazy, bounded and does not push live strokes into Neon',
   const join=fs.readFileSync('functions/api/board/join.ts','utf8');
   const worker=fs.readFileSync('workers/interactive-board-worker.js','utf8');
   assert.match(main,/import\('\.\/interactive-board-ui\.js'\)/);
+  assert.match(main,/tab === 'boards'/);
   assert.doesNotMatch(main,/^import .*interactive-board-ui/m);
   assert.match(api,/LIMIT \? OFFSET \?/);
   assert.doesNotMatch(api,/SELECT\s+\*/i);
