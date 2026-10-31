@@ -49,6 +49,7 @@ export const onRequestPost: PagesFunction = async (context: any) => {
       permission,
       boardRevision: Number(board.revision || 1),
       pageId: String(selectedPage.id),
+      pageIds: pages.map((page: any) => String(page.id)).slice(0, 20),
       maxParticipants: Math.max(1, Math.min(120, Number(board.max_participants) || 60)),
       initialLocked: board.status === 'locked',
       iat: now,
@@ -64,6 +65,8 @@ export const onRequestPost: PagesFunction = async (context: any) => {
         },
         pages: pages || [],
         current_page_id: String(selectedPage.id),
+        allowed_page_ids: pages.map((page: any) => String(page.id)).slice(0, 20),
+        realtime_base_path: prefix + '/api/board/realtime?token=' + encodeURIComponent(token),
         realtime_path: prefix + '/api/board/realtime?token=' + encodeURIComponent(token) +
           '&pageId=' + encodeURIComponent(String(selectedPage.id)),
         token_expires_in: 300
