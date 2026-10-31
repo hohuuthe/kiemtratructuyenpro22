@@ -144,6 +144,10 @@ function hitObject(point){
     const p=o.points[i];if(Math.hypot(x-p[0],y-p[1])<=threshold)return o;
    }
   }
+  if(['rect','ellipse','line','arrow'].includes(o.type)){
+   const minX=Math.min(o.x1,o.x2)-14,maxX=Math.max(o.x1,o.x2)+14,minY=Math.min(o.y1,o.y2)-14,maxY=Math.max(o.y1,o.y2)+14;
+   if(x>=minX&&x<=maxX&&y>=minY&&y<=maxY)return o;
+  }
  }
  return null;
 }
