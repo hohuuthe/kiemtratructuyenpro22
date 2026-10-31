@@ -73,8 +73,11 @@ async function join(b,accessCode='',options={}){
  }
 }
 function wsUrl(path){const u=new URL(path,location.href);u.protocol=location.protocol==='https:'?'wss:':'ws:';return u.href;}
-function connectSocket(){
- if(ws)try{ws.onclose=null;ws.close()}catch{};if(!room)return;const socket=new WebSocket(wsUrl(room.realtime_path));ws=socket;
+function connectSocket(pageId=currentPageId){
+ if(ws)try{ws.onclose=null;ws.close()}catch{};if(!room)return;
+ const base=room.realtime_base_path||room.realtime_path;
+ const url=new URL(wsUrl(base));url.searchParams.set('pageId',pageId||currentPageId);
+ const socket=new WebSocket(url.href);ws=socket;
  $('board-room-status').textContent=reconnectAttempts?'Đang kết nối lại...':'Đang kết nối realtime...';
  socket.onopen=()=>{reconnectAttempts=0;if(reconnectTimer){clearTimeout(reconnectTimer);reconnectTimer=null;}$('board-room-status').textContent='Đã kết nối realtime';for(const payload of pendingReliable.values()){try{socket.send(payload)}catch{}}};
  socket.onclose=()=>{if(ws!==socket||manualExit)return;$('board-room-status').textContent='Mất kết nối — đang thử kết nối lại...';scheduleReconnect();};
@@ -88,7 +91,7 @@ function scheduleReconnect(){
  const delay=Math.min(1000*Math.pow(1.7,reconnectAttempts-1),12000);
  reconnectTimer=setTimeout(async()=>{
   reconnectTimer=null;if(manualExit||!activeBoard)return;
-  if(room&&Date.now()<roomTokenExpiresAt){connectSocket();return;}
+  if(room&&Date.now()<roomTokenExpiresAt){connectSocket(currentPageId);return;}
   if(tokenRefreshAttempts>=2){$('board-room-status').textContent='Phiên realtime đã hết hạn. Vui lòng thoát và vào lại bảng.';return;}
   tokenRefreshAttempts++;
   await join(activeBoard,activeAccessCode,{reconnect:true});
@@ -143,7 +146,11 @@ async function switchPage(pageId){
  try{
    manualExit=false;
    if(ws)try{ws.onclose=null;ws.close(1000,'switch page')}catch{}
-   ws=null;objects.clear();remoteStrokes.clear();drawing=null;scheduleRender();
+   ws=null;objects.clear();remoteStrokes.clear();drawing=null;dragState=null;scheduleRender();
+   const allowed=Array.isArray(room.allowed_page_ids)&&room.allowed_page_ids.includes(String(pageId));
+   if(allowed&&Date.now()<roomTokenExpiresAt){
+     currentPageId=String(pageId);undoStack=[];redoStack=[];renderPageControls();connectSocket(currentPageId);return;
+   }
    await join(activeBoard,activeAccessCode,{pageId,pageSwitch:true});
  }catch(e){window.showToast?.(e.message||'Không thể chuyển trang.','error');}
 }
@@ -304,7 +311,7 @@ export function connectInteractiveBoards(){
  $('board-page-select')?.addEventListener('change',e=>switchPage(e.target.value));
  $('board-page-prev')?.addEventListener('click',()=>{const pages=room?.pages||[],i=pages.findIndex(p=>String(p.id)===String(currentPageId));if(i>0)switchPage(pages[i-1].id);});
  $('board-page-next')?.addEventListener('click',()=>{const pages=room?.pages||[],i=pages.findIndex(p=>String(p.id)===String(currentPageId));if(i>=0&&i<pages.length-1)switchPage(pages[i+1].id);});
- $('board-add-page')?.addEventListener('click',async()=>{if(!room?.board?.can_manage)return;try{const result=await api('POST','/api/board/pages',{boardId:room.board.id});if(!(room.pages||[]).some(p=>String(p.id)===String(result.data.id)))room.pages=[...(room.pages||[]),result.data];renderPageControls();await switchPage(result.data.id);}catch(e){window.showToast?.(e.message||'Không thể thêm trang.','error');}});
+ $('board-add-page')?.addEventListener('click',async()=>{if(!room?.board?.can_manage)return;try{const result=await api('POST','/api/board/pages',{boardId:room.board.id});if(!(room.pages||[]).some(p=>String(p.id)===String(result.data.id)))room.pages=[...(room.pages||[]),result.data];renderPageControls();await join(activeBoard,activeAccessCode,{pageId:result.data.id,pageSwitch:true});}catch(e){window.showToast?.(e.message||'Không thể thêm trang.','error');}});
  $('board-delete-page')?.addEventListener('click',()=>{if(!room?.board?.can_manage||!currentPageId)return;const target=(room.pages||[]).find(p=>String(p.id)===String(currentPageId));window.showConfirmModal?.('Xóa trang “'+(target?.title||'')+'”?',async()=>{try{await api('DELETE','/api/board/pages?id='+encodeURIComponent(currentPageId));room.pages=(room.pages||[]).filter(p=>String(p.id)!==String(currentPageId));const next=room.pages[0];if(next)await switchPage(next.id);renderPageControls();}catch(e){window.showToast?.(e.message||'Không thể xóa trang.','error');}});});
  $('board-participants')?.addEventListener('click',e=>{
    const lockBtn=e.target.closest('[data-board-user-lock]'),clearBtn=e.target.closest('[data-board-user-clear]');
