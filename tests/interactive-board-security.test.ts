@@ -54,6 +54,9 @@ test('implementation is lazy, bounded and does not push live strokes into Neon',
   assert.match(main,/tab === 'boards'/);
   assert.doesNotMatch(main,/^import .*interactive-board-ui/m);
   assert.match(api,/LIMIT \? OFFSET \?/);
+  assert.match(api,/COUNT\(\*\) OVER\(\)/);
+  assert.match(api,/WITH created_board AS/);
+  assert.match(api,/WITH deleted_pages AS/);
   assert.doesNotMatch(api,/SELECT\s+\*/i);
   assert.match(join,/exp:\s*now \+ 300/);
   assert.doesNotMatch(join,/access_code_hash.*realtime_path/s);
@@ -85,6 +88,7 @@ test('implementation is lazy, bounded and does not push live strokes into Neon',
 test('worker prevents student overwrite/delete of objects owned by another actor',()=>{
   const worker=fs.readFileSync('workers/interactive-board-worker.js','utf8');
   assert.match(worker,/existing && !canManage && existing\.creatorId!==actor\.userId/);
+  assert.match(worker,/existing\?\.creatorId/);
   assert.match(worker,/!existing \|\| \(!canManage && existing\.creatorId!==actor\.userId\)/);
 });
 
