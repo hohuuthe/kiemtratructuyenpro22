@@ -2246,6 +2246,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             applyDoiTuongConfig();
             updateSidebarVisibility();
             resetDocumentLinks();
+            if (typeof window.__resetInteractiveBoards === 'function') window.__resetInteractiveBoards();
             window.__documentsTabRequested = false;
             resetRoleHelpCache();
             {
@@ -2437,6 +2438,9 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                     visible = isStudentOrGuest;
                 } else if (tab === 'documents') {
                     visible = true;
+                } else if (tab === 'boards') {
+                    // Chỉ tài khoản đã đăng nhập mới thấy bảng tương tác; khách không tải dữ liệu này.
+                    visible = Boolean(currentUser);
                 } else if (tab === 'help') {
                     // Trợ giúp: Hiển thị cho tất cả
                     visible = true;
@@ -3985,11 +3989,11 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
         function switchTab(tabName) {
             requestedTab = tabName;
             console.log('switchTab called:',tabName);
-            const protectedTabs=['questions','exams','exam-editor','accounts','users','settings','ranking','teacher-assignment'];
+            const protectedTabs=['questions','exams','exam-editor','accounts','users','settings','ranking','teacher-assignment','boards'];
             const adminTabs=['accounts','settings','teacher-assignment'];
             if(protectedTabs.includes(tabName)&&!(
               isAdminLoggedIn||(isTeacherLoggedIn&&!adminTabs.includes(tabName))||
-              (tabName==='ranking'&&Boolean(currentUser)))){showAdminLoginModal();return}
+              ((tabName==='ranking'||tabName==='boards')&&Boolean(currentUser)))){showAdminLoginModal();return}
             if(tabName==='exam'&&(isAdminLoggedIn||isTeacherLoggedIn))tabName='exams';
             requestedTab=tabName; // Guard phản hồi bất đồng bộ bằng tên tab đích thực tế.
             const placeholder=document.getElementById('tab-'+tabName);
@@ -4077,7 +4081,7 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
             if (protectedTabs.includes(tabName)) {
                 // Các tab chỉ dành riêng cho Admin: accounts, settings, teacher-assignment
                 const adminOnlyTabs = ['accounts', 'settings', 'teacher-assignment'];
-                const isAuthorized = isAdminLoggedIn || (isTeacherLoggedIn && !adminOnlyTabs.includes(tabName)) || (tabName === 'ranking' && Boolean(currentUser));
+                const isAuthorized = isAdminLoggedIn || (isTeacherLoggedIn && !adminOnlyTabs.includes(tabName)) || ((tabName === 'ranking' || tabName === 'boards') && Boolean(currentUser));
                 
                 if (!isAuthorized) {
                     requireAdminAuth(tabName);
@@ -4119,6 +4123,19 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
                     // Component may still be loading asynchronously.
                     window.__documentsTabRequested = true;
                 }
+            }
+            if (tabName === 'boards' && currentUser) {
+                // Tách chunk bảng tương tác khỏi bundle khởi động; chỉ tải khi người dùng mở tab.
+                const generation = authDataGeneration;
+                void import('./interactive-board-ui.js').then(module => {
+                    if (generation !== authDataGeneration || requestedTab !== 'boards') return;
+                    module.connectInteractiveBoards();
+                    module.initInteractiveBoards(currentUser);
+                    window.__resetInteractiveBoards = module.resetInteractiveBoards;
+                }).catch(error => {
+                    console.error('Cannot load interactive board module', error);
+                    showToast('Không thể tải Bảng tương tác. Vui lòng thử lại.', 'error');
+                });
             }
             if (tabName === 'help') {
                 const helpRoot = document.getElementById('help-center-root');
@@ -20676,6 +20693,11 @@ CẤU TRÚC JSON:
                         </td>
                         <td class="p-3.5 text-gray-600 text-xs whitespace-nowrap">${escapeHTML(usr.occupation) || '-'}</td>
                         <td class="p-3.5 text-gray-600 text-xs whitespace-nowrap">${escapeHTML(usr.payment_status) || '-'}</td>
+                        <td class="p-3.5 text-center whitespace-nowrap">
+                            ${((String(usr.target_audience || '').toLowerCase() === 'giáo viên' || usr.account_role === 'teacher' || (linkedAcc && linkedAcc.role === 'teacher')) && Boolean(Number(usr.is_vip || 0)))
+                                ? '<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-black bg-amber-100 text-amber-800 border border-amber-300">⭐ VIP</span>'
+                                : '<span class="text-gray-300 text-xs">-</span>'}
+                        </td>
                         <td class="p-3.5 whitespace-nowrap">
                             <span class="px-2 py-0.5 rounded-full text-[11px] sm:text-xs font-bold border whitespace-nowrap shrink-0 inline-block ${statusClass}">${statusText}</span>
                         </td>
@@ -20801,10 +20823,13 @@ CẤU TRÚC JSON:
                             <!-- Hàng 4: 3 DÒNG THÔNG TIN (ĐỐI TƯỢNG, TRƯỜNG/ĐƠN VỊ, LỚP) -->
                             <div class="p-2.5 bg-gray-50/80 rounded-xl border border-gray-200/70 text-[11px] space-y-1">
                                 ${usr.target_audience ? `
-                                <div class="flex items-center">
+                                <div class="flex items-center gap-1.5 flex-wrap">
                                     <span class="px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 border border-blue-200 font-medium inline-flex items-center gap-1 text-[11px]">
                                         👥 ${escapeHTML(usr.target_audience)}
                                     </span>
+                                    ${String(usr.target_audience || '').toLowerCase() === 'giáo viên' && Boolean(Number(usr.is_vip || 0))
+                                        ? '<span class="px-2 py-0.5 rounded-md bg-amber-100 text-amber-800 border border-amber-300 font-black text-[11px]">⭐ VIP</span>'
+                                        : ''}
                                 </div>` : ''}
                                 ${(usr.donvi || usr.address) ? `
                                 <div class="flex items-center">
@@ -21272,6 +21297,18 @@ CẤU TRÚC JSON:
             window.loadTeacherClassesForExam();
         };
 
+        window.syncUserVipField = function syncUserVipField() {
+            const audience = String(document.getElementById('usr-audience')?.value || '').trim().toLocaleLowerCase('vi');
+            const isTeacher = audience === 'giáo viên';
+            const wrapper = document.getElementById('usr-vip-wrapper');
+            const vip = document.getElementById('usr-vip');
+            if (wrapper) wrapper.classList.toggle('hidden', !isTeacher);
+            if (vip) {
+                vip.disabled = !isTeacher || (isTeacherLoggedIn && !isAdminLoggedIn);
+                if (!isTeacher) vip.checked = false;
+            }
+        };
+
         window.showUserModal = function showUserModal() {
             if (isTeacherLoggedIn && !isAdminLoggedIn) {
                 showToast('❌ Tài khoản Giáo viên chỉ có quyền xem dữ liệu, không được phép thêm người dùng mới!', 'warning');
@@ -21294,7 +21331,7 @@ CẤU TRÚC JSON:
                 'usr-fullname', 'usr-phone', 'usr-gender', 'usr-dob', 
                 'usr-address', 'usr-donvi', 'usr-lop', 'usr-occupation', 
                 'usr-audience', 'usr-expiry', 'usr-payment-status', 
-                'usr-payment-method', 'usr-active'
+                'usr-payment-method', 'usr-vip', 'usr-active'
             ];
             fieldIds.forEach(fid => {
                 const el = document.getElementById(fid);
@@ -21322,7 +21359,9 @@ CẤU TRÚC JSON:
             
             if (document.getElementById('usr-payment-status')) document.getElementById('usr-payment-status').value = 'Chưa thanh toán';
             if (document.getElementById('usr-payment-method')) document.getElementById('usr-payment-method').value = '';
+            if (document.getElementById('usr-vip')) document.getElementById('usr-vip').checked = false;
             if (document.getElementById('usr-active')) document.getElementById('usr-active').checked = true;
+            window.syncUserVipField?.();
             
             const accDisplay = document.getElementById('usr-linked-account-display');
             const accBadge = document.getElementById('usr-linked-account-badge');
@@ -21400,13 +21439,16 @@ CẤU TRÚC JSON:
 
             const activeEl = document.getElementById('usr-active');
             if (activeEl) activeEl.checked = usr.is_active !== false;
+            const vipEl = document.getElementById('usr-vip');
+            if (vipEl) vipEl.checked = Boolean(Number(usr.is_vip || 0));
+            window.syncUserVipField?.();
 
             // Khóa cứng tất cả các trường (read-only & disabled)
             const fieldIds = [
                 'usr-fullname', 'usr-phone', 'usr-gender', 'usr-dob', 
                 'usr-address', 'usr-donvi', 'usr-lop', 'usr-occupation', 
                 'usr-audience', 'usr-expiry', 'usr-payment-status', 
-                'usr-payment-method', 'usr-active'
+                'usr-payment-method', 'usr-vip', 'usr-active'
             ];
             fieldIds.forEach(fid => {
                 const el = document.getElementById(fid);
@@ -21468,7 +21510,7 @@ CẤU TRÚC JSON:
                 'usr-fullname', 'usr-phone', 'usr-gender', 'usr-dob', 
                 'usr-address', 'usr-donvi', 'usr-lop', 'usr-occupation', 
                 'usr-audience', 'usr-expiry', 'usr-payment-status', 
-                'usr-payment-method', 'usr-active'
+                'usr-payment-method', 'usr-vip', 'usr-active'
             ];
             fieldIds.forEach(fid => {
                 const el = document.getElementById(fid);
@@ -21500,6 +21542,9 @@ CẤU TRÚC JSON:
                 activeEl.disabled = isAdminUsr;
                 activeEl.title = isAdminUsr ? 'Bảo mật hệ thống: Không thể vô hiệu hóa Quản trị viên (Admin)' : '';
             }
+            const vipEl = document.getElementById('usr-vip');
+            if (vipEl) vipEl.checked = Boolean(Number(usr.is_vip || 0));
+            window.syncUserVipField?.();
 
             if (document.getElementById('usr-phone')) document.getElementById('usr-phone').value = usr.phone_number || '';
             if (document.getElementById('usr-expiry')) document.getElementById('usr-expiry').value = usr.expiry_date ? usr.expiry_date.split('T')[0] : '';
@@ -21538,6 +21583,7 @@ CẤU TRÚC JSON:
                 expiry_date: document.getElementById('usr-expiry')?.value ? new Date(document.getElementById('usr-expiry').value).toISOString() : null,
                 payment_status: document.getElementById('usr-payment-status')?.value || 'Chưa thanh toán',
                 payment_method: document.getElementById('usr-payment-method')?.value || '',
+                is_vip: document.getElementById('usr-vip')?.checked === true,
                 is_active: document.getElementById('usr-active')?.checked
             };
 

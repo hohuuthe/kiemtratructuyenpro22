@@ -114,15 +114,31 @@ export async function signAuthSession(account: any, claims: any, secret: string,
     const proof = await accountProof(account, secret, tenantKey);
     return signJWT({...claims, tokenType:'auth', authProof:proof, iat:now, exp:now + 12*3600}, secret);
 }
+const vipSchemaReady = new Set<string>();
+export async function ensureUserVipColumn(db: any) {
+    if (!db) return;
+    const key = String(db.connectionUrl || 'default');
+    if (vipSchemaReady.has(key)) return;
+    try {
+      const row: any = await db.prepare(
+        "SELECT 1 AS ok FROM information_schema.columns WHERE table_schema='public' AND table_name='users' AND column_name='is_vip' LIMIT 1"
+      ).first();
+      if (!row?.ok) await db.prepare("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_vip INTEGER DEFAULT 0").run();
+      vipSchemaReady.add(key);
+    } catch (error) {
+      throw new Error('Không thể kiểm tra/cập nhật cột VIP của người dùng.');
+    }
+}
 export async function verifyAuthSession(token: string, secret: string, db: any): Promise<any | null> {
     if (!db) return null;
+    await ensureUserVipColumn(db);
     const decoded = await verifyJWT(token, secret);
     if (!decoded || decoded.tokenType !== 'auth' || !decoded.authProof ||
         !Number.isFinite(Number(decoded.exp))) return null;
     try {
       const account: any = await db.prepare(`
         SELECT a.id, a.user_id, a.username, a.password, a.role, a.is_active, a.expiry_date,
-               u.full_name, u.target_audience, u.donvi, u.lop,
+               u.full_name, u.target_audience, u.donvi, u.lop, u.is_vip AS profile_vip,
                u.is_active AS profile_active, u.expiry_date AS profile_expiry_date
         FROM accounts a LEFT JOIN users u ON u.id = COALESCE(a.user_id, a.id)
         WHERE a.id = ? LIMIT 1
@@ -137,7 +153,8 @@ export async function verifyAuthSession(token: string, secret: string, db: any):
         ...decoded, id:account.id, user_id:account.user_id || account.id,
         username:account.username, role:account.role, target_audience:audience,
         full_name:account.full_name || account.username,
-        donvi:account.donvi || '', lop:account.lop || ''
+        donvi:account.donvi || '', lop:account.lop || '',
+        is_vip:Boolean(Number(account.profile_vip || 0))
       };
     } catch (err) {
       console.error('Authorization state validation unavailable');
@@ -168,6 +185,7 @@ export async function ensureD1SchemaAndIndexes(db: any) {
                 target_audience TEXT DEFAULT 'Học sinh',
                 payment_status TEXT DEFAULT 'Chưa thanh toán',
                 payment_method TEXT,
+                is_vip INTEGER DEFAULT 0,
                 is_active INTEGER DEFAULT 1,
                 expiry_date TEXT,
                 created_at TEXT
@@ -315,6 +333,7 @@ export async function ensureD1SchemaAndIndexes(db: any) {
         // 2. Migration bổ sung cột nếu bảng đã tồn tại từ trước
         const alterStatements = [
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS lop TEXT",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_vip INTEGER DEFAULT 0",
             "ALTER TABLE accounts ADD COLUMN IF NOT EXISTS user_id TEXT",
             "ALTER TABLE results ADD COLUMN IF NOT EXISTS user_id TEXT",
             "ALTER TABLE results ADD COLUMN IF NOT EXISTS lop TEXT",

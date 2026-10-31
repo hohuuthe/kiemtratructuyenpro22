@@ -1,0 +1,40 @@
+name: Interactive board security and build
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'functions/api/board/**'
+      - 'functions/api/boards.ts'
+      - 'functions/**/api/**'
+      - 'src/interactive-board-ui.js'
+      - 'src/main.js'
+      - 'public/components/tab-boards.html'
+      - 'index.html'
+      - 'workers/interactive-board-worker.js'
+      - 'wrangler.board.toml'
+      - 'tests/interactive-board-security.test.ts'
+      - '.github/workflows/interactive-board.yml'
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Syntax checks
+        run: |
+          node --check src/main.js
+          node --check src/interactive-board-ui.js
+          node --check workers/interactive-board-worker.js
+      - name: Board security regressions
+        run: node --import tsx --test tests/interactive-board-security.test.ts
+      - name: TypeScript project check
+        run: npm run lint
+      - name: Production build
+        run: npm run build

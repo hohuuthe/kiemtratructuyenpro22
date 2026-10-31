@@ -1,4 +1,4 @@
-import { signAuthSession, isLiveAccount, getDynamicSecret, verifyPassword, hashPasswordPBKDF2, getDatabase } from '../exam/utils';
+import { signAuthSession, isLiveAccount, getDynamicSecret, verifyPassword, hashPasswordPBKDF2, getDatabase, ensureUserVipColumn } from '../exam/utils';
 
 interface Env {
   NEON_DATABASE_URL?: string;
@@ -52,10 +52,12 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       return new Response(JSON.stringify({ error: "Database not configured." }), { status: 500, headers: corsHeaders });
     }
 
+    await ensureUserVipColumn(db);
+
     // Lấy tài khoản theo username kết hợp thông tin hồ sơ người dùng từ bảng users
     const stmt = db.prepare(`
       SELECT accounts.id, accounts.user_id, accounts.username, accounts.password, accounts.role, accounts.is_active, accounts.expiry_date, accounts.created_at,
-             users.full_name, users.phone_number, users.target_audience, users.donvi, users.lop, users.gender, users.dob, users.address, users.occupation, users.payment_status, users.payment_method, users.is_active AS profile_active, users.expiry_date AS profile_expiry_date
+             users.full_name, users.phone_number, users.target_audience, users.donvi, users.lop, users.gender, users.dob, users.address, users.occupation, users.payment_status, users.payment_method, users.is_vip, users.is_active AS profile_active, users.expiry_date AS profile_expiry_date
       FROM accounts 
       LEFT JOIN users ON users.id = COALESCE(accounts.user_id, accounts.id)
       WHERE accounts.username = ?
@@ -92,6 +94,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     const finalFullName = account.full_name || account.username;
     account.target_audience = finalTargetAudience;
     account.full_name = finalFullName;
+    account.is_vip = Boolean(Number(account.is_vip || 0));
 
     // Ký JWT
     const SECRET = await getDynamicSecret(db, env.JWT_SECRET);
@@ -104,6 +107,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         username: account.username,
         donvi: account.donvi || '',
         lop: account.lop || '',
+        is_vip: account.is_vip,
     }, SECRET, String(db.connectionUrl || ''));
 
     // Never return password hashes to the browser, even after successful login.

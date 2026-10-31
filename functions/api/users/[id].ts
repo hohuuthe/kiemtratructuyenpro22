@@ -35,7 +35,7 @@ export const onRequestPut: PagesFunction<Env> = async (context) => {
   const userId = params.id as string;
   try {
     const body: any = await request.json();
-    const { full_name, phone_number, gender, dob, address, donvi, lop, occupation, target_audience, payment_status, payment_method, is_active, expiry_date } = body;
+    const { full_name, phone_number, gender, dob, address, donvi, lop, occupation, target_audience, payment_status, payment_method, is_vip, is_active, expiry_date } = body;
 
     const updates = [];
     const sqlParams = [];
@@ -50,6 +50,15 @@ export const onRequestPut: PagesFunction<Env> = async (context) => {
     if (target_audience !== undefined) { updates.push("target_audience = ?"); sqlParams.push(target_audience); }
     if (payment_status !== undefined) { updates.push("payment_status = ?"); sqlParams.push(payment_status); }
     if (payment_method !== undefined) { updates.push("payment_method = ?"); sqlParams.push(payment_method); }
+    if (is_vip !== undefined) {
+      const current: any = await db.prepare("SELECT target_audience FROM users WHERE id = ? LIMIT 1").bind(userId).first();
+      const effectiveAudience = target_audience !== undefined ? target_audience : current?.target_audience;
+      const teacher = String(effectiveAudience || '').trim().toLocaleLowerCase('vi') === 'giáo viên';
+      updates.push("is_vip = ?");
+      sqlParams.push(teacher && (is_vip === true || is_vip === 1 || is_vip === '1' || is_vip === 'true') ? 1 : 0);
+    } else if (target_audience !== undefined && String(target_audience || '').trim().toLocaleLowerCase('vi') !== 'giáo viên') {
+      updates.push("is_vip = 0");
+    }
     if (is_active !== undefined) { updates.push("is_active = ?"); sqlParams.push(is_active ? 1 : 0); }
     if (expiry_date !== undefined) { updates.push("expiry_date = ?"); sqlParams.push(expiry_date); }
 

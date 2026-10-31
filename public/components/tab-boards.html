@@ -1,0 +1,146 @@
+<div id="tab-boards" class="tab-content w-full">
+<section id="boards-home" class="bg-white rounded-2xl shadow-xl p-3 sm:p-6 space-y-5 min-w-0">
+ <header class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4">
+  <div><h2 class="font-black text-xl text-slate-900">🧠 Bảng tương tác</h2><p class="text-sm text-slate-500">Không gian lớp học realtime để giáo viên và học sinh cùng vẽ, viết và đóng góp ý tưởng.</p></div>
+  <div class="flex gap-2"><button id="boards-new" type="button" class="hidden rounded-xl bg-emerald-700 hover:bg-emerald-800 px-4 py-2.5 text-white font-bold text-sm">＋ Tạo bảng</button><button id="boards-reload" type="button" class="rounded-xl bg-slate-100 hover:bg-slate-200 px-4 py-2.5 text-slate-700 font-semibold text-sm">↻ Tải lại</button></div>
+ </header>
+ <div id="boards-feedback" class="hidden rounded-xl p-3 text-sm" role="status"></div>
+ <div id="boards-list" class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" aria-live="polite"><div class="col-span-full text-center p-8 text-slate-500">Đang tải...</div></div>
+ <div id="boards-pagination" class="flex flex-wrap items-center justify-center gap-3 text-sm"></div>
+</section>
+
+<section id="board-room" class="hidden bg-white rounded-2xl shadow-xl overflow-hidden min-w-0">
+ <header class="flex flex-wrap items-center gap-2 justify-between p-3 sm:p-4 border-b bg-slate-50">
+  <div class="min-w-0"><h2 id="board-room-title" class="font-black text-lg truncate">Bảng tương tác</h2><p id="board-room-status" class="text-xs text-slate-500">Đang kết nối...</p></div>
+  <div class="flex flex-wrap gap-2">
+   <button id="board-add-page" type="button" class="hidden rounded-lg bg-blue-100 text-blue-800 px-3 py-2 font-bold text-sm">＋ Trang</button>
+   <button id="board-edit-page" type="button" class="hidden rounded-lg bg-slate-100 text-slate-700 px-3 py-2 font-bold text-sm">✎ Trang</button>
+   <button id="board-delete-page" type="button" class="hidden rounded-lg bg-rose-50 text-rose-700 px-3 py-2 font-bold text-sm">Xóa trang</button>
+   <button id="board-bring-here" type="button" class="hidden rounded-lg bg-sky-100 text-sky-800 px-3 py-2 font-bold text-sm">📍 Đưa lớp tới đây</button>
+   <button id="board-follow-teacher" type="button" class="hidden rounded-lg bg-sky-50 text-sky-700 px-3 py-2 font-bold text-sm">Theo GV: Bật</button>
+   <button id="board-lock" type="button" class="hidden rounded-lg bg-amber-100 text-amber-900 px-3 py-2 font-bold text-sm">🔒 Khóa HS</button>
+   <button id="board-ai" type="button" class="hidden rounded-lg bg-violet-100 text-violet-800 px-3 py-2 font-bold text-sm">✨ AI</button>
+   <button id="board-template" type="button" class="hidden rounded-lg bg-cyan-100 text-cyan-800 px-3 py-2 font-bold text-sm">▦ Mẫu</button>
+   <button id="board-timer" type="button" class="hidden rounded-lg bg-indigo-100 text-indigo-800 px-3 py-2 font-bold text-sm">⏱ Hẹn giờ</button>
+   <button id="board-export-pdf" type="button" class="hidden rounded-lg bg-white border px-3 py-2 font-bold text-sm">📄 PDF</button>
+   <button id="board-export-image" type="button" class="rounded-lg bg-white border px-3 py-2 font-bold text-sm">🖼️ Ảnh</button>
+   <button id="board-fullscreen" type="button" class="rounded-lg bg-white border px-3 py-2 font-bold text-sm">⛶</button>
+   <button id="board-clear" type="button" class="hidden rounded-lg bg-rose-100 text-rose-800 px-3 py-2 font-bold text-sm">Xóa bảng</button>
+   <button id="board-exit" type="button" class="rounded-lg bg-slate-200 px-3 py-2 font-bold text-sm">← Thoát</button>
+  </div>
+ </header>
+ <div class="grid lg:grid-cols-[150px_minmax(0,1fr)_220px] min-h-[70vh]">
+  <aside class="border-b lg:border-b-0 lg:border-r p-2 sm:p-3 flex lg:flex-col gap-2 overflow-x-auto">
+   <button type="button" data-board-tool="pan" class="board-tool whitespace-nowrap rounded-lg bg-slate-100 px-3 py-2 font-bold text-sm">✋ Di chuyển</button>
+   <button type="button" data-board-tool="select" class="board-tool whitespace-nowrap rounded-lg bg-slate-100 px-3 py-2 font-bold text-sm">☝️ Chọn</button>
+   <button id="board-laser-tool" type="button" data-board-tool="laser" class="board-tool hidden whitespace-nowrap rounded-lg bg-slate-100 px-3 py-2 font-bold text-sm">🔴 Laser</button>
+   <button type="button" data-board-tool="pen" class="board-tool active whitespace-nowrap rounded-lg bg-emerald-700 text-white px-3 py-2 font-bold text-sm">✏️ Bút</button>
+   <button type="button" data-board-tool="note" class="board-tool whitespace-nowrap rounded-lg bg-slate-100 px-3 py-2 font-bold text-sm">📝 Ghi chú</button>
+   <button type="button" data-board-tool="vote" class="board-tool whitespace-nowrap rounded-lg bg-slate-100 px-3 py-2 font-bold text-sm">👍 Bình chọn</button>
+   <button type="button" data-board-tool="eraser" class="board-tool whitespace-nowrap rounded-lg bg-slate-100 px-3 py-2 font-bold text-sm">🧽 Tẩy</button>
+   <button type="button" data-board-tool="line" class="board-tool whitespace-nowrap rounded-lg bg-slate-100 px-3 py-2 font-bold text-sm">／ Đường</button>
+   <button type="button" data-board-tool="arrow" class="board-tool whitespace-nowrap rounded-lg bg-slate-100 px-3 py-2 font-bold text-sm">➜ Mũi tên</button>
+   <button type="button" data-board-tool="rect" class="board-tool whitespace-nowrap rounded-lg bg-slate-100 px-3 py-2 font-bold text-sm">▭ Chữ nhật</button>
+   <button type="button" data-board-tool="ellipse" class="board-tool whitespace-nowrap rounded-lg bg-slate-100 px-3 py-2 font-bold text-sm">◯ Elip</button>
+   <button id="board-undo" type="button" class="whitespace-nowrap rounded-lg bg-slate-100 px-3 py-2 font-bold text-sm">↶ Hoàn tác</button>
+   <button id="board-redo" type="button" class="whitespace-nowrap rounded-lg bg-slate-100 px-3 py-2 font-bold text-sm">↷ Làm lại</button>
+   <label class="whitespace-nowrap text-xs font-bold">Màu<input id="board-color" type="color" value="#111827" class="ml-2 align-middle w-9 h-8"></label>
+   <label class="whitespace-nowrap text-xs font-bold">Nét<input id="board-width" type="range" min="1" max="12" value="3" class="w-20 align-middle"></label>
+   <textarea id="board-note-text" maxlength="500" rows="3" class="hidden lg:block border rounded-lg p-2 text-xs" placeholder="Nhập ý kiến rồi chọn Ghi chú và chạm lên bảng"></textarea>
+  </aside>
+  <main id="board-stage-scroll" class="bg-slate-200 p-2 sm:p-3 min-w-0 overflow-auto">
+   <div class="mb-2 flex items-center justify-center gap-2">
+    <button id="board-page-prev" type="button" class="rounded-lg bg-white px-3 py-2 text-sm font-bold shadow-sm">‹</button>
+    <select id="board-page-select" class="max-w-xs rounded-lg border bg-white px-3 py-2 text-sm font-bold"></select>
+    <button id="board-page-next" type="button" class="rounded-lg bg-white px-3 py-2 text-sm font-bold shadow-sm">›</button>
+    <span class="mx-1 h-6 border-l"></span>
+    <button id="board-zoom-out" type="button" class="rounded-lg bg-white px-3 py-2 text-sm font-bold shadow-sm">−</button>
+    <button id="board-zoom-label" type="button" class="min-w-16 rounded-lg bg-white px-3 py-2 text-sm font-bold shadow-sm">100%</button>
+    <button id="board-zoom-in" type="button" class="rounded-lg bg-white px-3 py-2 text-sm font-bold shadow-sm">＋</button>
+    <span id="board-timer-display" class="hidden rounded-full bg-indigo-700 text-white px-3 py-1.5 text-sm font-black tabular-nums">05:00</span>
+   </div>
+   <div id="board-canvas-wrap" class="relative mx-auto bg-white shadow-lg max-w-full aspect-video touch-none select-none">
+    <canvas id="board-canvas" width="1600" height="900" class="absolute inset-0 w-full h-full touch-none"></canvas>
+    <div id="board-locked-overlay" class="hidden absolute inset-0 bg-slate-900/10 pointer-events-none flex items-start justify-center p-3"><span class="bg-white/95 rounded-full px-4 py-2 shadow font-bold text-amber-800">Bảng đang khóa chỉnh sửa</span></div>
+   </div>
+  </main>
+  <aside class="border-t lg:border-t-0 lg:border-l p-3 space-y-3 bg-slate-50">
+   <div><p class="font-black text-sm">Người đang tham gia</p><p id="board-online-count" class="text-xs text-slate-500">0 người</p></div>
+   <div id="board-participants" class="space-y-2 text-sm"></div>
+   <textarea id="board-note-text-mobile" maxlength="500" rows="3" class="lg:hidden w-full border rounded-lg p-2 text-sm" placeholder="Nội dung ghi chú..."></textarea>
+  </aside>
+ </div>
+</section>
+
+<div id="board-edit-modal" class="hidden fixed inset-0 z-[220] bg-black/60 p-3 flex items-center justify-center" role="dialog" aria-modal="true">
+ <form id="board-edit-form" class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[92vh] overflow-y-auto p-5 sm:p-7 space-y-4">
+  <div class="flex justify-between gap-3"><h3 id="board-edit-title" class="font-black text-xl">Tạo bảng tương tác</h3><button id="board-edit-close" type="button" class="rounded-lg border px-3 py-2">✕</button></div>
+  <input type="hidden" name="id"><input type="hidden" name="revision">
+  <label class="block text-sm font-bold">Tên bảng *<input name="name" required maxlength="180" class="mt-1 w-full border rounded-lg p-3 font-normal" placeholder="Ví dụ: Ý tưởng dự án STEM"></label>
+  <label class="block text-sm font-bold">Mô tả<textarea name="description" maxlength="1000" rows="2" class="mt-1 w-full border rounded-lg p-3 font-normal"></textarea></label>
+  <div class="grid sm:grid-cols-2 gap-3">
+   <label class="text-sm font-bold">Trạng thái<select name="status" class="mt-1 w-full border rounded-lg p-3 font-normal"><option value="draft">Nháp</option><option value="open">Đang mở</option><option value="locked">Mở nhưng khóa viết</option><option value="closed">Đã đóng</option></select></label>
+   <label class="text-sm font-bold">Chế độ truy cập<select name="access_mode" class="mt-1 w-full border rounded-lg p-3 font-normal"><option value="public">Công khai cho HS đăng nhập</option><option value="unit">Theo đơn vị/lớp</option><option value="protected">Có mã bảo mật</option></select></label>
+   <label class="text-sm font-bold">Quyền học sinh<select name="student_permission" class="mt-1 w-full border rounded-lg p-3 font-normal"><option value="draw">Vẽ + ghi chú</option><option value="comment">Chỉ ghi chú</option><option value="view">Chỉ xem</option></select></label>
+   <label class="text-sm font-bold">Số người tối đa<input name="max_participants" type="number" min="1" max="120" value="60" class="mt-1 w-full border rounded-lg p-3 font-normal"></label>
+  </div>
+  <div id="board-unit-fields" class="hidden grid sm:grid-cols-2 gap-3">
+   <label class="text-sm font-bold">Đơn vị<input name="target_donvi" maxlength="180" class="mt-1 w-full border rounded-lg p-3 font-normal"></label>
+   <label class="text-sm font-bold">Lớp được phép<input name="target_lop" maxlength="500" class="mt-1 w-full border rounded-lg p-3 font-normal" placeholder="12A1, 12A2"></label>
+  </div>
+  <label id="board-code-field" class="hidden text-sm font-bold">Mã bảo mật<input name="access_code" type="password" maxlength="200" autocomplete="new-password" class="mt-1 w-full border rounded-lg p-3 font-normal" placeholder="Để trống khi sửa nếu không đổi mã"></label>
+  <div class="grid sm:grid-cols-2 gap-3"><label class="text-sm font-bold">Bắt đầu<input name="starts_at" type="datetime-local" class="mt-1 w-full border rounded-lg p-3 font-normal"></label><label class="text-sm font-bold">Kết thúc<input name="ends_at" type="datetime-local" class="mt-1 w-full border rounded-lg p-3 font-normal"></label></div>
+  <div class="flex justify-end gap-2 border-t pt-4"><button id="board-edit-cancel" type="button" class="rounded-xl border px-4 py-3 font-bold">Hủy</button><button type="submit" class="rounded-xl bg-emerald-700 text-white px-5 py-3 font-bold">Lưu bảng</button></div>
+ </form>
+</div>
+
+<div id="board-page-modal" class="hidden fixed inset-0 z-[224] bg-black/60 p-3 flex items-center justify-center" role="dialog" aria-modal="true">
+ <form id="board-page-form" class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5 space-y-4">
+  <h3 class="font-black text-lg">Cấu hình trang</h3>
+  <input type="hidden" name="id"><input type="hidden" name="revision">
+  <label class="block text-sm font-bold">Tên trang<input name="title" maxlength="100" class="mt-1 w-full border rounded-lg p-3 font-normal"></label>
+  <label class="block text-sm font-bold">Nền trang<select name="background_type" class="mt-1 w-full border rounded-lg p-3 font-normal"><option value="white">Trắng</option><option value="grid">Lưới</option><option value="lined">Dòng kẻ</option><option value="dots">Chấm</option></select></label>
+  <div class="flex justify-end gap-2"><button id="board-page-cancel" type="button" class="rounded-lg border px-4 py-2 font-bold">Hủy</button><button type="submit" class="rounded-lg bg-emerald-700 text-white px-4 py-2 font-bold">Lưu</button></div>
+ </form>
+</div>
+
+<div id="board-ai-modal" class="hidden fixed inset-0 z-[226] bg-black/60 p-3 flex items-center justify-center" role="dialog" aria-modal="true">
+ <div class="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[92vh] overflow-y-auto p-5 space-y-4">
+  <div class="flex items-center justify-between gap-3"><div><h3 class="font-black text-lg">✨ Trợ lý AI của bảng</h3><p class="text-xs text-slate-500">Chỉ gửi nội dung chữ của trang hiện tại lên Gemini khi giáo viên bấm phân tích.</p></div><button id="board-ai-close" type="button" class="rounded-lg border px-3 py-2">✕</button></div>
+  <label class="block text-sm font-bold">Tác vụ<select id="board-ai-mode" class="mt-1 w-full border rounded-lg p-3 font-normal"><option value="summary">Tóm tắt ý kiến</option><option value="themes">Gom nhóm theo chủ đề</option><option value="actions">Rút ra việc cần làm</option><option value="lesson">Kết luận bài học</option></select></label>
+  <label class="block text-sm font-bold">Gemini API Key cá nhân <span class="font-normal text-slate-500">(để trống nếu đã lưu trong trình duyệt)</span><input id="board-ai-key" type="password" autocomplete="off" class="mt-1 w-full border rounded-lg p-3 font-normal" placeholder="Dán 1 hoặc nhiều key cách nhau bởi dấu cách"></label>
+  <label class="block text-sm font-bold">Yêu cầu bổ sung<textarea id="board-ai-extra" rows="2" maxlength="500" class="mt-1 w-full border rounded-lg p-3 font-normal" placeholder="Ví dụ: ưu tiên các ý tưởng khả thi trong điều kiện trường học"></textarea></label>
+  <div id="board-ai-result" class="min-h-24 rounded-xl bg-slate-50 border p-3 text-sm whitespace-pre-wrap text-slate-700">Chưa có kết quả.</div>
+  <div class="flex flex-wrap justify-end gap-2"><button id="board-ai-insert" type="button" class="hidden rounded-lg bg-emerald-100 text-emerald-800 px-4 py-2 font-bold">Chèn lên bảng</button><button id="board-ai-run" type="button" class="rounded-lg bg-violet-700 text-white px-4 py-2 font-bold">Phân tích bằng AI</button></div>
+ </div>
+</div>
+
+<div id="board-template-modal" class="hidden fixed inset-0 z-[226] bg-black/60 p-3 flex items-center justify-center" role="dialog" aria-modal="true">
+ <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-5 space-y-4">
+  <div class="flex justify-between gap-3"><div><h3 class="font-black text-lg">▦ Mẫu lớp học</h3><p class="text-xs text-slate-500">Tạo bố cục ngay trên trang hiện tại, không lưu thêm dữ liệu cấu hình.</p></div><button id="board-template-close" type="button" class="rounded-lg border px-3 py-2">✕</button></div>
+  <div class="grid sm:grid-cols-2 gap-3">
+   <button type="button" data-board-template="brainstorm" class="rounded-xl border p-4 text-left hover:bg-slate-50"><b>Động não</b><p class="text-xs text-slate-500 mt-1">Ý tưởng chính + vùng đóng góp</p></button>
+   <button type="button" data-board-template="kwl" class="rounded-xl border p-4 text-left hover:bg-slate-50"><b>KWL</b><p class="text-xs text-slate-500 mt-1">Đã biết · Muốn biết · Đã học</p></button>
+   <button type="button" data-board-template="swot" class="rounded-xl border p-4 text-left hover:bg-slate-50"><b>SWOT</b><p class="text-xs text-slate-500 mt-1">Điểm mạnh · yếu · cơ hội · thách thức</p></button>
+   <button type="button" data-board-template="exit" class="rounded-xl border p-4 text-left hover:bg-slate-50"><b>Phiếu 3-2-1</b><p class="text-xs text-slate-500 mt-1">3 điều học · 2 câu hỏi · 1 ứng dụng</p></button>
+  </div>
+ </div>
+</div>
+
+<div id="board-timer-modal" class="hidden fixed inset-0 z-[226] bg-black/60 p-3 flex items-center justify-center" role="dialog" aria-modal="true">
+ <form id="board-timer-form" class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5 space-y-4">
+  <h3 class="font-black text-lg">⏱ Hẹn giờ hoạt động</h3>
+  <label class="block text-sm font-bold">Số phút<input name="minutes" type="number" min="1" max="99" value="5" class="mt-1 w-full border rounded-lg p-3 font-normal"></label>
+  <label class="block text-sm font-bold">Nhãn hoạt động<input name="label" maxlength="80" class="mt-1 w-full border rounded-lg p-3 font-normal" placeholder="Ví dụ: Thảo luận nhóm"></label>
+  <div class="flex justify-end gap-2"><button id="board-timer-stop" type="button" class="rounded-lg bg-rose-50 text-rose-700 px-4 py-2 font-bold">Dừng</button><button id="board-timer-cancel" type="button" class="rounded-lg border px-4 py-2 font-bold">Hủy</button><button type="submit" class="rounded-lg bg-indigo-700 text-white px-4 py-2 font-bold">Bắt đầu</button></div>
+ </form>
+</div>
+
+<div id="board-code-modal" class="hidden fixed inset-0 z-[225] bg-black/60 p-3 flex items-center justify-center" role="dialog" aria-modal="true">
+ <form id="board-code-form" class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5 space-y-4">
+  <h3 class="font-black text-lg">Nhập mã bảo mật</h3><p class="text-sm text-slate-500">Bảng này yêu cầu mã trước khi tải nội dung.</p>
+  <input name="access_code" type="password" required autocomplete="off" class="w-full border rounded-lg p-3" placeholder="Mã bảo mật">
+  <div class="flex justify-end gap-2"><button id="board-code-cancel" type="button" class="rounded-lg border px-4 py-2 font-bold">Hủy</button><button type="submit" class="rounded-lg bg-emerald-700 text-white px-4 py-2 font-bold">Vào bảng</button></div>
+ </form>
+</div>
+</div>
