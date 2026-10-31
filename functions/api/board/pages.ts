@@ -1,5 +1,5 @@
 import { resolveTenantRoutingFromRequest } from '../../../src/tenant-host-map';
-import { boardJson, getBoardRequestContext, canManageBoard, cleanId, cleanText, loadBoard } from './common';
+import { boardJson, getBoardRequestContext, canManageBoard, canDiscoverBoard, cleanId, cleanText, loadBoard } from './common';
 
 function background(value:any){
   const v=String(value||'white').trim();
@@ -22,7 +22,7 @@ export const onRequestGet: PagesFunction=async(context:any)=>{
     const board=await loadBoard(db,boardId);
     if(!board)return boardJson({error:'Không tìm thấy bảng.'},404);
     const owner=canManageBoard(user,board,isAdmin);
-    if(!owner && !['open','locked'].includes(String(board.status||'')))return boardJson({error:'Bạn không có quyền xem các trang của bảng này.'},403);
+    if(!owner && !canDiscoverBoard(user,board,isAdmin))return boardJson({error:'Bạn không có quyền xem các trang của bảng này.'},403);
     const {results}=await db.prepare(
       'SELECT id,page_no,title,background_type,canvas_width,canvas_height,revision FROM interactive_board_pages WHERE board_id=? ORDER BY page_no ASC LIMIT 20'
     ).bind(boardId).all();
