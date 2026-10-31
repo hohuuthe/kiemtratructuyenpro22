@@ -187,6 +187,8 @@ export class BoardRoom {
       const pageId=safeId(body?.pageId);if(!pageId)return new Response('Invalid page',{status:400});
       const rows=await this.ctx.storage.list({prefix:'obj:'+pageId+':'});
       if(rows.size)await this.ctx.storage.delete([...rows.keys()]);
+      const voteRows=await this.ctx.storage.list({prefix:'vote:'+pageId+':'});
+      if(voteRows.size)await this.ctx.storage.delete([...voteRows.keys()]);
       await this.ctx.storage.delete(['count:'+pageId,'points:'+pageId]);
       await this.ctx.storage.put('deletedpage:'+pageId,true);
       this.broadcast({type:'page_deleted',pageId});
@@ -262,7 +264,8 @@ export class BoardRoom {
     const objects=await this.ctx.storage.list({prefix:'obj:'+pageId+':'});
     const snapshot=[...objects.values()].slice(0,600);
     const participants=this.participants();
-    const timer=await this.ctx.storage.get('room:timer')||null;
+    let timer=await this.ctx.storage.get('room:timer')||null;
+    if(timer?.endAt&&Number(timer.endAt)<=Date.now()){await this.ctx.storage.delete('room:timer');timer=null;}
     server.send(JSON.stringify({type:'snapshot_begin',pageId,locked,userLocked,total:snapshot.length,participants,timer}));
     for(let i=0;i<snapshot.length;i+=100){
       server.send(JSON.stringify({type:'snapshot_chunk',pageId,objects:snapshot.slice(i,i+100)}));
@@ -321,6 +324,22 @@ export class BoardRoom {
 
     for (const raw of packet.ops) {
       const kind=String(raw?.kind||'');
+      if (kind==='vote_toggle') {
+        if(roomLocked||userBlocked)continue;
+        const pageId=safeId(raw.pageId),objectId=safeId(raw.objectId);
+        if(!pageId||!objectId||pageId!==actor.pageId)continue;
+        const objectKey='obj:'+pageId+':'+objectId;
+        const existing=await this.ctx.storage.get(objectKey);
+        if(!existing||!['note','text'].includes(existing.type))continue;
+        const voteKey='vote:'+pageId+':'+objectId+':'+actor.userId;
+        const voted=Boolean(await this.ctx.storage.get(voteKey));
+        let count=Math.max(0,Number(existing.voteCount)||0);
+        if(voted){await this.ctx.storage.delete(voteKey);count=Math.max(0,count-1);}
+        else {await this.ctx.storage.put(voteKey,true);count++;}
+        existing.voteCount=count;await this.ctx.storage.put(objectKey,existing);
+        this.broadcast({type:'vote_state',pageId,objectId,voteCount:count},null,pageId);
+        continue;
+      }
       if (kind==='timer_start' && canManage) {
         const durationSec=Math.round(clamp(raw.durationSec,60,5940,300));
         const label=String(raw.label||'').trim().slice(0,80);
@@ -362,6 +381,7 @@ export class BoardRoom {
         const existing=await this.ctx.storage.get(key);
         if (existing && !canManage && existing.creatorId!==actor.userId) continue;
         if (existing?.creatorId) object.creatorId=existing.creatorId;
+        if (Number.isFinite(Number(existing?.voteCount))) object.voteCount=Math.max(0,Number(existing.voteCount)||0);
         const countKey='count:'+object.pageId;
         const pointsKey='points:'+object.pageId;
         const newPoints=object.type==='stroke'?object.points.length:0;
@@ -398,6 +418,8 @@ export class BoardRoom {
         const existing=await this.ctx.storage.get(key);
         if (!existing || (!canManage && existing.creatorId!==actor.userId)) continue;
         await this.ctx.storage.delete(key);
+        const voteRows=await this.ctx.storage.list({prefix:'vote:'+pageId+':'+objectId+':'});
+        if(voteRows.size)await this.ctx.storage.delete([...voteRows.keys()]);
         const countKey='count:'+pageId,pointsKey='points:'+pageId;
         const objectCount=Number(await this.ctx.storage.get(countKey));
         if (Number.isFinite(objectCount) && objectCount>0) await this.ctx.storage.put(countKey,objectCount-1);
@@ -412,6 +434,8 @@ export class BoardRoom {
         const pageId=safeId(raw.pageId); if (!pageId) continue;
         const rows=await this.ctx.storage.list({prefix:'obj:'+pageId+':'});
         if (rows.size) await this.ctx.storage.delete([...rows.keys()]);
+        const voteRows=await this.ctx.storage.list({prefix:'vote:'+pageId+':'});
+        if(voteRows.size)await this.ctx.storage.delete([...voteRows.keys()]);
         await this.ctx.storage.put('count:'+pageId,0);
         await this.ctx.storage.put('points:'+pageId,0);
         this.broadcast({type:'clear_page',pageId},null,pageId);
