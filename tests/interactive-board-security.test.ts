@@ -186,3 +186,10 @@ test('VIP profile field is wired through schema auth APIs and UI',()=>{
   assert.match(boardUi,/canCreateBoard/);
   assert.match(boardUi,/actor\?\.is_vip/);
 });
+
+
+test('non-owner teacher role must not imply realtime manage permission',()=>{
+  const worker=fs.readFileSync('workers/interactive-board-worker.js','utf8');
+  assert.match(worker,/const canManage=actor\.permission==='manage'/);
+  assert.doesNotMatch(worker,/actor\.role==='teacher'\s*\|\|\s*actor\.role==='admin'/);
+});
