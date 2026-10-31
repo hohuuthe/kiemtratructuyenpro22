@@ -2,7 +2,7 @@ import { resolveTenantRoutingFromRequest } from '../../src/tenant-host-map';
 import {
   boardJson, getBoardRequestContext, cleanText, cleanBoardStatus, cleanBoardAccessMode,
   cleanStudentPermission, normalizeClassList, canManageBoard, canDiscoverBoard,
-  hashBoardAccessCode, boardListProjection, loadBoard
+  hashBoardAccessCode, boardListProjection, loadBoard, canCreateInteractiveBoard
 } from './board/common';
 
 function pageParams(url: string) {
@@ -136,7 +136,7 @@ export const onRequestPost: PagesFunction = async (context: any) => {
   try {
     const { db, user, isAdmin, isTeacher } = await getBoardRequestContext(context);
     if (!user || (!isAdmin && !isTeacher)) return boardJson({ error: 'Chỉ giáo viên hoặc quản trị viên được tạo bảng.' }, 403);
-    if (isTeacher && !Boolean(user.is_vip)) {
+    if (!canCreateInteractiveBoard(user, isAdmin, isTeacher)) {
       return boardJson({ error: 'Chức năng tạo Bảng tương tác thông minh chỉ dành cho Giáo viên VIP.', code: 'VIP_REQUIRED' }, 403);
     }
     const input: any = await context.request.json();
