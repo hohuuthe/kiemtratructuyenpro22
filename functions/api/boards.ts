@@ -92,7 +92,8 @@ export const onRequestGet: PagesFunction = async (context: any) => {
       ).bind(...params, limit, offset).all();
       return boardJson({
         data: (results || []).map((row: any) => boardListProjection(row, canManageBoard(user, row, isAdmin))),
-        total: Number(results?.[0]?.total_count || 0), page, limit
+        total: Number(results?.[0]?.total_count || 0), page, limit,
+        can_create: canCreateInteractiveBoard(user, isAdmin, isTeacher)
       });
     }
 
