@@ -158,7 +158,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
   try {
     const body: any = await request.json();
-    let { id, full_name, phone_number, gender, dob, address, donvi, lop, occupation, target_audience, payment_status, payment_method, is_active, expiry_date } = body;
+    let { id, full_name, phone_number, gender, dob, address, donvi, lop, occupation, target_audience, payment_status, payment_method, is_vip, is_active, expiry_date } = body;
     if (!full_name || !full_name.trim()) {
       return new Response(JSON.stringify({ error: "Vui lòng nhập Họ và tên người dùng!" }), { status: 400, headers: corsHeaders });
     }
@@ -170,7 +170,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     }
 
     const activeVal = is_active !== false && is_active !== 0 && is_active !== 'false' ? 1 : 0;
-    const sql = "INSERT INTO users (id, full_name, phone_number, gender, dob, address, donvi, lop, occupation, target_audience, payment_status, payment_method, is_active, expiry_date, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+    const isTeacherProfile = String(target_audience || '').trim().toLocaleLowerCase('vi') === 'giáo viên';
+    const vipVal = isTeacherProfile && (is_vip === true || is_vip === 1 || is_vip === '1' || is_vip === 'true') ? 1 : 0;
+    const sql = "INSERT INTO users (id, full_name, phone_number, gender, dob, address, donvi, lop, occupation, target_audience, payment_status, payment_method, is_vip, is_active, expiry_date, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
     const params = [
       id,
       full_name.trim(),
@@ -184,6 +186,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       target_audience || 'Học sinh',
       payment_status || 'Chưa thanh toán',
       payment_method || '',
+      vipVal,
       activeVal,
       expiry_date || null,
       new Date().toISOString()
