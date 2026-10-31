@@ -1,7 +1,4 @@
-/** Required release gate: every npm build runs this before bundling.
- * No credentials, production API, user database, or browser are accessed here.
- * An evidence marker is emitted ONLY after real lint and tests exit successfully.
- */
+/** Explicit release gate: no production credentials, APIs or databases are accessed. */
 import fs from 'node:fs';
 import path from 'node:path';
 import {spawnSync} from 'node:child_process';
@@ -16,23 +13,18 @@ function run(command,args){
     return r.stdout||'';
 }
 run(process.platform==='win32'?'npm.cmd':'npm',['run','lint']);
-// Targeted production path: native-source parser, verified import and legacy Office Math.
-// The broader Word/export suite remains in the GitHub Actions regression workflow.
 const tests=[
+    'tests/word-mathtype-121.test.mjs',
     'tests/word-mathtype-regression.test.mjs',
     'tests/word-mathtype-import.test.mjs',
     'tests/word-import-omml.test.mjs',
     'tests/scientific-formula-tokenizer.test.mjs'
 ];
-if(!tests.includes('tests/word-mathtype-regression.test.mjs'))throw new Error('MathType regression suite missing');
-// Running all Word suites in parallel can exhaust the memory available to Pages build workers.
-// Preserve the complete coverage while running test files sequentially.
-console.log('Word import release gate: running',tests.length,'test files sequentially');
+console.log('Word import release gate:',tests.length,'test files sequentially');
 const output=run(process.execPath,['--import','tsx','--test','--test-concurrency=1','--test-reporter=tap',...tests]);
-const total=[...output.matchAll(/^# tests (\d+)\s*$/gm)].at(-1)?.[1];
-const passed=[...output.matchAll(/^# pass (\d+)\s*$/gm)].at(-1)?.[1];
-const failed=[...output.matchAll(/^# fail (\d+)\s*$/gm)].at(-1)?.[1];
-if(!total||!passed||failed!=='0')throw new Error('Incomplete test summary; no release evidence emitted');
+const value=name=>Number([...output.matchAll(new RegExp('^# '+name+' (\\d+)\\s*$','gm'))].at(-1)?.[1]??NaN);
+const total=value('tests'),passed=value('pass'),failed=value('fail'),skipped=value('skipped');
+if(!Number.isFinite(total)||total<200||passed!==total||failed!==0||skipped!==0)throw new Error('Incomplete test summary; no release evidence emitted');
 fs.mkdirSync(path.dirname(evidence),{recursive:true});
-fs.writeFileSync(evidence,JSON.stringify({feature:'mathtype-dsmt4-source-verification',commit:process.env.CF_PAGES_COMMIT_SHA||process.env.GITHUB_SHA||null,lint:'passed',tests:Number(total),passed:Number(passed),failed:0,verifiedAt:new Date().toISOString()},null,2)+'\n');
+fs.writeFileSync(evidence,JSON.stringify({feature:'mathtype-121-import',commit:process.env.CF_PAGES_COMMIT_SHA||process.env.GITHUB_SHA||null,lint:'passed',tests:total,passed,failed:0,skipped:0,verifiedAt:new Date().toISOString()},null,2)+'\n');
 console.log('Word import release gate passed:',total,'tests.');
