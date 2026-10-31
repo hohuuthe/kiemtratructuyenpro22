@@ -200,7 +200,10 @@ export async function convertDocxToMathType(input,options={}){
     item.parent.replaceChild(run,item.replace);
     newRelationship(rels,oleId,'oleObject',olePath.slice(5));newRelationship(rels,imageId,'image',imagePath.slice(5));
     zip.file(olePath,native);zip.file(imagePath,preview.png);
-    manifest.push({index:item.index,part:item.partData.part,sourceSha256:await sha256(utf8(item.sourceXml)),mtefSha256:await sha256(item.mtef),oleSha256:await sha256(native),previewSha256:await sha256(preview.png),olePath,imagePath});
+    const [sourceSha256,mtefSha256,oleSha256,previewSha256]=await Promise.all([
+      sha256(utf8(item.sourceXml)),sha256(item.mtef),sha256(native),sha256(preview.png)
+    ]);
+    manifest.push({index:item.index,part:item.partData.part,sourceSha256,mtefSha256,oleSha256,previewSha256,olePath,imagePath});
     options.onProgress?.({completed:i+1,total:work.length});
   }
   for(const data of partData){
@@ -219,7 +222,9 @@ export async function convertDocxToMathType(input,options={}){
   const report={version:1,qualificationOnly:true,nativeEditorVerified:false,converted:work.length,originalSha256:originalHash,equations:manifest};
   // Returned report is not hidden in the user's DOCX and contains no answers.
   aborted(options.signal);
-  const output=await zip.generateAsync({type:'uint8array',compression:'DEFLATE',compressionOptions:{level:6}});
+  // Level 3 substantially reduces browser CPU time for formula-heavy DOCX files.
+  // PNG previews are already compressed; raising DEFLATE further gives little value.
+  const output=await zip.generateAsync({type:'uint8array',compression:'DEFLATE',compressionOptions:{level:3}});
   if(output.length>maxExpanded)fail('RESOURCE_LIMIT','Converted DOCX is too large.');
   return {blob:new Blob([output],{type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'}),report};
 }
