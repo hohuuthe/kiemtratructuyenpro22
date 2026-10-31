@@ -74,7 +74,7 @@ export default {
     }
     const roomName = String(claims.tenant) + ':' + String(claims.boardId);
     const stub = env.BOARD_ROOM.get(env.BOARD_ROOM.idFromName(roomName));
-    return stub.fetch(new Request(request.url, {headers: request.headers}));
+    return stub.fetch(request);
   }
 };
 
@@ -91,11 +91,18 @@ export class BoardRoom {
     const claims=await verifyJwt(token,String(this.env.BOARD_REALTIME_SECRET || this.env.JWT_SECRET || ''));
     if (!claims || claims.tokenType!=='board_join') return new Response('Unauthorized',{status:401});
     const boardId=safeId(claims.boardId), userId=safeId(claims.userId);
-    const pageId=safeId(url.searchParams.get('pageId') || claims.pageId || '');
-    if (!boardId || !userId || !pageId) return new Response('Invalid room parameters',{status:400});
+    const signedPageId=safeId(claims.pageId || '');
+    const requestedPageId=safeId(url.searchParams.get('pageId') || signedPageId);
+    if (!boardId || !userId || !signedPageId || requestedPageId!==signedPageId) {
+      return new Response('Invalid room parameters',{status:403});
+    }
+    const pageId=signedPageId;
     const sockets=this.ctx.getWebSockets();
     const max=clamp(claims.maxParticipants,1,120,60);
-    if (sockets.length>=max && !sockets.some(ws=>stateOf(ws).userId===userId)) return new Response('Room full',{status:429});
+    const sameUser=sockets.filter(ws=>stateOf(ws).userId===userId);
+    if (sameUser.length>=3) return new Response('Too many connections for this account',{status:429});
+    const distinctUsers=new Set(sockets.map(ws=>stateOf(ws).userId).filter(Boolean));
+    if (!distinctUsers.has(userId) && distinctUsers.size>=max) return new Response('Room full',{status:429});
 
     const pair=new WebSocketPair();
     const [client,server]=Object.values(pair);
@@ -109,7 +116,12 @@ export class BoardRoom {
     this.ctx.acceptWebSocket(server,[pageId]);
     server.serializeAttachment(attachment);
 
-    const locked=Boolean(await this.ctx.storage.get('room:locked'));
+    let lockedRaw=await this.ctx.storage.get('room:locked');
+    if (lockedRaw===undefined && claims.initialLocked===true) {
+      lockedRaw=true;
+      await this.ctx.storage.put('room:locked',true);
+    }
+    const locked=Boolean(lockedRaw);
     const objects=await this.ctx.storage.list({prefix:'obj:'+pageId+':'});
     const snapshot=[...objects.values()].slice(0,3000);
     server.send(JSON.stringify({type:'snapshot',pageId,locked,objects:snapshot,participants:this.participants()}));
@@ -165,6 +177,15 @@ export class BoardRoom {
         const key='obj:'+object.pageId+':'+object.id;
         const existing=await this.ctx.storage.get(key);
         if (existing && !canManage && existing.creatorId!==actor.userId) continue;
+        if (!existing) {
+          const countKey='count:'+object.pageId;
+          let objectCount=Number(await this.ctx.storage.get(countKey));
+          if (!Number.isFinite(objectCount)) {
+            objectCount=(await this.ctx.storage.list({prefix:'obj:'+object.pageId+':'})).size;
+          }
+          if (objectCount>=3000) continue;
+          await this.ctx.storage.put(countKey,objectCount+1);
+        }
         await this.ctx.storage.put(key,object);
         this.broadcast({type:'put',object},null,object.pageId);
         continue;
@@ -177,6 +198,9 @@ export class BoardRoom {
         const existing=await this.ctx.storage.get(key);
         if (!existing || (!canManage && existing.creatorId!==actor.userId)) continue;
         await this.ctx.storage.delete(key);
+        const countKey='count:'+pageId;
+        const objectCount=Number(await this.ctx.storage.get(countKey));
+        if (Number.isFinite(objectCount) && objectCount>0) await this.ctx.storage.put(countKey,objectCount-1);
         this.broadcast({type:'delete',pageId,objectId},null,pageId);
         continue;
       }
@@ -184,6 +208,7 @@ export class BoardRoom {
         const pageId=safeId(raw.pageId); if (!pageId) continue;
         const rows=await this.ctx.storage.list({prefix:'obj:'+pageId+':'});
         if (rows.size) await this.ctx.storage.delete([...rows.keys()]);
+        await this.ctx.storage.put('count:'+pageId,0);
         this.broadcast({type:'clear_page',pageId},null,pageId);
         continue;
       }
