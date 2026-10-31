@@ -505,7 +505,26 @@ function drawObject(ctx,o){
  ctx.restore();
 }
 function wrapText(ctx,text,x,y,maxWidth,lineHeight){const words=String(text).split(/\s+/);let line='';for(const word of words){const test=line?line+' '+word:word;if(ctx.measureText(test).width>maxWidth&&line){ctx.fillText(line,x,y);line=word;y+=lineHeight;}else line=test;}if(line)ctx.fillText(line,x,y);}
-function noteText(){return ($('board-note-text')?.value||$('board-note-text-mobile')?.value||'').trim().slice(0,500);}
+function noteText(){
+ const desktop=$('board-note-text'),mobile=$('board-note-text-mobile');
+ const desktopVisible=desktop&&getComputedStyle(desktop).display!=='none';
+ const mobileVisible=mobile&&getComputedStyle(mobile).display!=='none';
+ const value=desktopVisible?desktop?.value:(mobileVisible?mobile?.value:(desktop?.value||mobile?.value||''));
+ return String(value||'').trim().slice(0,500);
+}
+function syncBoardToolButtons(){
+ document.querySelectorAll('[data-board-tool]').forEach(btn=>{
+   const active=btn.dataset.boardTool===tool;
+   btn.classList.toggle('bg-emerald-700',active);
+   btn.classList.toggle('text-white',active);
+   btn.classList.toggle('bg-slate-100',!active);
+   btn.setAttribute('aria-pressed',active?'true':'false');
+ });
+ const c=canvas();if(c)c.style.cursor=tool==='pan'?'grab':tool==='select'?'default':tool==='eraser'?'cell':tool==='laser'?'crosshair':'crosshair';
+}
+function selectBoardTool(name){
+ tool=name||'pen';syncBoardToolButtons();
+}
 function canEdit(){if(snapshotLoading)return false;return room?.board?.can_manage||(!locked&&!userLocked&&room?.board?.student_permission!=='view');}
 function pointerDown(e){
  if(!room)return;const p=logicalPoint(e);canvas().setPointerCapture?.(e.pointerId);
@@ -517,7 +536,7 @@ function pointerDown(e){
  }
  if(tool==='vote'){if(locked||userLocked)return;const target=hitVotable(p);if(target)sendOps([{kind:'vote_toggle',pageId:currentPageId,objectId:target.id}]);return;}
  if(!canEdit())return;
- if(tool==='laser'){return;}
+ if(tool==='laser'){if(room?.board?.can_manage)sendOps([{kind:'laser',pageId:currentPageId,x:p[0],y:p[1]}]);return;}
  if(tool==='select'){
    const target=hitObject(p);if(!target)return;
    if(!room.board.can_manage&&room.board.student_permission==='comment'&&!['note','text'].includes(target.type))return;
@@ -567,7 +586,7 @@ function pointerUp(e){
  scheduleRender();
 }
 function exitRoom(){
- manualExit=true;if(reconnectTimer){clearTimeout(reconnectTimer);reconnectTimer=null;}
+ manualExit=true;if(reconnectTimer){clearTimeout(reconnectTimer);reconnectTimer=null;}tool='pen';
  if(ws)try{ws.onclose=null;ws.close(1000,'exit')}catch{};ws=null;room=null;activeBoard=null;activeAccessCode='';reconnectAttempts=0;
  roomTokenExpiresAt=0;tokenRefreshAttempts=0;currentPageId='';userLocked=false;snapshotLoading=false;participantsCache=[];pendingReliable.clear();dragState=null;panDrag=null;panPointers.clear();pinchStart=null;remoteLasers.clear();zoomLevel=1;aiResultText='';aiClusterPlan=null;timerState=null;followTeacher=true;if(timerTick){clearInterval(timerTick);timerTick=null;}undoStack=[];redoStack=[];objects.clear();remoteStrokes.clear();drawing=null;$('board-room')?.classList.add('hidden');$('boards-home')?.classList.remove('hidden');
 }
@@ -592,7 +611,7 @@ export function connectInteractiveBoards(){
  $('board-edit-form')?.elements.namedItem('access_mode')?.addEventListener('change',toggleAccessFields);
  $('board-edit-form')?.addEventListener('submit',async e=>{e.preventDefault();const f=e.currentTarget,fd=new FormData(f);const id=fd.get('id');const body={id,revision:Number(fd.get('revision'))||undefined,name:fd.get('name'),description:fd.get('description'),status:fd.get('status'),access_mode:fd.get('access_mode'),student_permission:fd.get('student_permission'),max_participants:Number(fd.get('max_participants'))||60,target_donvi:fd.get('target_donvi'),target_lop:fd.get('target_lop'),access_code:fd.get('access_code'),starts_at:fd.get('starts_at')?new Date(String(fd.get('starts_at'))).toISOString():null,ends_at:fd.get('ends_at')?new Date(String(fd.get('ends_at'))).toISOString():null};const btn=f.querySelector('[type=submit]');btn.disabled=true;try{await api(id?'PUT':'POST','/api/boards',body);closeEdit();feedback('Đã lưu bảng tương tác.');load();}catch(err){feedback(err.message,true)}finally{btn.disabled=false;}});
  $('board-code-cancel')?.addEventListener('click',closeCode);$('board-code-form')?.addEventListener('submit',e=>{e.preventDefault();const b=pendingBoard,code=e.currentTarget.elements.namedItem('access_code').value;closeCode();if(b)join(b,code);});
- document.querySelectorAll('[data-board-tool]').forEach(btn=>btn.addEventListener('click',()=>{tool=btn.dataset.boardTool;document.querySelectorAll('[data-board-tool]').forEach(x=>{x.classList.toggle('bg-emerald-700',x===btn);x.classList.toggle('text-white',x===btn);x.classList.toggle('bg-slate-100',x!==btn);});}));
+ document.querySelectorAll('[data-board-tool]').forEach(btn=>btn.addEventListener('click',()=>selectBoardTool(btn.dataset.boardTool)));syncBoardToolButtons();
  canvas()?.addEventListener('pointerdown',pointerDown);canvas()?.addEventListener('pointermove',pointerMove);canvas()?.addEventListener('pointerup',pointerUp);canvas()?.addEventListener('pointercancel',pointerUp);
  $('board-exit')?.addEventListener('click',exitRoom);
  $('board-export-image')?.addEventListener('click',()=>{
