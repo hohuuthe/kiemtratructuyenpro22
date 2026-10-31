@@ -3,6 +3,7 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 let actor=null,manage=false,list=[],page=1,total=0,generation=0,wired=false,pendingBoard=null;
 let ws=null,room=null,objects=new Map(),remoteStrokes=new Map(),tool='pen',drawing=null,lastSegmentIndex=0,locked=false;
 let activeBoard=null,activeAccessCode='',manualExit=false,reconnectTimer=null,reconnectAttempts=0;
+let roomTokenExpiresAt=0,tokenRefreshAttempts=0;
 
 function token(){return localStorage.getItem(window.tenantStorageKey?window.tenantStorageKey('auth_token'):'auth_token')||'';}
 async function api(method,url,body){
@@ -51,7 +52,8 @@ async function join(b,accessCode='',options={}){
  try{
   const result=await api('POST','/api/board/join',{boardId:b.id,accessCode});
   activeBoard=b;activeAccessCode=accessCode;manualExit=false;room=result.data;
-  if(!options.reconnect){objects.clear();remoteStrokes.clear();}
+  roomTokenExpiresAt=Date.now()+Math.max(30,Number(room.token_expires_in)||300)*1000-10000;
+  if(!options.reconnect){objects.clear();remoteStrokes.clear();tokenRefreshAttempts=0;}
   locked=room.board.status==='locked';
   $('boards-home')?.classList.add('hidden');$('board-room')?.classList.remove('hidden');$('board-room-title').textContent=room.board.name;
   $('board-lock')?.classList.toggle('hidden',!room.board.can_manage);$('board-clear')?.classList.toggle('hidden',!room.board.can_manage);
@@ -73,9 +75,16 @@ function connectSocket(){
 }
 function scheduleReconnect(){
  if(manualExit||!activeBoard||reconnectTimer)return;
- reconnectAttempts=Math.min(reconnectAttempts+1,8);
+ if(reconnectAttempts>=8){$('board-room-status').textContent='Mất kết nối. Vui lòng thoát và vào lại bảng.';return;}
+ reconnectAttempts++;
  const delay=Math.min(1000*Math.pow(1.7,reconnectAttempts-1),12000);
- reconnectTimer=setTimeout(async()=>{reconnectTimer=null;if(manualExit||!activeBoard)return;await join(activeBoard,activeAccessCode,{reconnect:true});},delay);
+ reconnectTimer=setTimeout(async()=>{
+  reconnectTimer=null;if(manualExit||!activeBoard)return;
+  if(room&&Date.now()<roomTokenExpiresAt){connectSocket();return;}
+  if(tokenRefreshAttempts>=2){$('board-room-status').textContent='Phiên realtime đã hết hạn. Vui lòng thoát và vào lại bảng.';return;}
+  tokenRefreshAttempts++;
+  await join(activeBoard,activeAccessCode,{reconnect:true});
+ },delay);
 }
 function handleMessage(m){
  if(m.type==='snapshot'){objects.clear();for(const o of m.objects||[])objects.set(o.id,o);locked=!!m.locked;render();renderParticipants(m.participants||[]);syncLockUi();return;}
@@ -113,7 +122,7 @@ function pointerUp(){if(!drawing)return;const done=drawing;drawing=null;if(done.
 function exitRoom(){
  manualExit=true;if(reconnectTimer){clearTimeout(reconnectTimer);reconnectTimer=null;}
  if(ws)try{ws.onclose=null;ws.close(1000,'exit')}catch{};ws=null;room=null;activeBoard=null;activeAccessCode='';reconnectAttempts=0;
- objects.clear();remoteStrokes.clear();drawing=null;$('board-room')?.classList.add('hidden');$('boards-home')?.classList.remove('hidden');
+ roomTokenExpiresAt=0;tokenRefreshAttempts=0;objects.clear();remoteStrokes.clear();drawing=null;$('board-room')?.classList.add('hidden');$('boards-home')?.classList.remove('hidden');
 }
 
 export function resetInteractiveBoards(){generation++;list=[];actor=null;manage=false;page=1;total=0;exitRoom();}
