@@ -96,8 +96,12 @@ export function ommlToAst(node) {
     if(k==='f'){
       validateChildren(n,['fPr','num','den']); const pr=props(n,'fPr',['type']);
       const type=val(mchild(pr,'type'),'bar');
-      if(type!=='bar')unsupported(n,'fraction '+type);
-      return {k:'frac',num:arg(n,'num',depth),den:arg(n,'den',depth)};
+      const num=arg(n,'num',depth),den=arg(n,'den',depth);
+      if(type==='bar')return {k:'frac',style:'bar',num,den};
+      if(type==='noBar')return {k:'frac',style:'noBar',num,den};
+      if(type==='skw')return {k:'frac',style:'skewed',num,den};
+      if(type==='lin')return seq([num,{k:'text',text:'/',style:'p'},den]);
+      unsupported(n,'fraction '+type);
     }
     if(['sSub','sSup','sSubSup','sPre'].includes(k)){
       validateChildren(n,[k+'Pr','e','sub','sup']); props(n,k+'Pr');
@@ -155,6 +159,26 @@ export function ommlToAst(node) {
       const mark=k==='acc'?val(mchild(pr,'chr'),'\u0302'):val(mchild(pr,'pos'),'top')==='top'?'overbar':'underbar';
       return {k:'accent',mark,body:arg(n,'e',depth)};
     }
+    if(k==='groupChr'){
+      validateChildren(n,['groupChrPr','e']);
+      const pr=props(n,'groupChrPr',['chr','pos','vert','grow']);
+      const chr=val(mchild(pr,'chr'),'\u23de');
+      const pos=val(mchild(pr,'pos'),'top');
+      const vert=val(mchild(pr,'vert'),'horz');
+      if(!bool(mchild(pr,'grow'),true))unsupported(n,'fixed-size group character');
+      if(vert!=='horz')unsupported(n,'vertical group character');
+      if(!['top','bot'].includes(pos))unsupported(n,'group character position');
+      if(!['\u23de','\u23df','\u23b4','\u23b5'].includes(chr))unsupported(n,'group character glyph');
+      return {k:'groupChar',chr,pos,body:arg(n,'e',depth)};
+    }
+    if(k==='borderBox'){
+      validateChildren(n,['borderBoxPr','e']);
+      const pr=props(n,'borderBoxPr',['hideTop','hideBot','hideLeft','hideRight','strikeH','strikeV','strikeBLTR','strikeTLBR','noBreak']);
+      const flag=name=>bool(mchild(pr,name),false);
+      return {k:'borderBox',body:arg(n,'e',depth),hideTop:flag('hideTop'),hideBottom:flag('hideBot'),
+        hideLeft:flag('hideLeft'),hideRight:flag('hideRight'),strikeH:flag('strikeH'),
+        strikeV:flag('strikeV'),strikeBLTR:flag('strikeBLTR'),strikeTLBR:flag('strikeTLBR')};
+    }
     if(k==='limLow'||k==='limUpp'){
       validateChildren(n,[k+'Pr','e','lim']);props(n,k+'Pr');
       return {k:'limit',body:arg(n,'e',depth),sub:k==='limLow'?arg(n,'lim',depth):empty(),sup:k==='limUpp'?arg(n,'lim',depth):empty()};
@@ -187,7 +211,11 @@ export function astToMathml(ast, display=false) {
           return '<'+tag+' mathvariant="'+variant+'">'+x(c)+'</'+tag+'>';
         }).join('')+'</mrow>';
       }
-      case 'frac':return '<mfrac>'+out(n.num)+out(n.den)+'</mfrac>';
+      case 'frac':{
+        if(n.style==='noBar')return '<mfrac linethickness="0">'+out(n.num)+out(n.den)+'</mfrac>';
+        if(n.style==='skewed')return '<mfrac bevelled="true">'+out(n.num)+out(n.den)+'</mfrac>';
+        return '<mfrac>'+out(n.num)+out(n.den)+'</mfrac>';
+      }
       case 'root':return isEmpty(n.degree)?'<msqrt>'+out(n.body)+'</msqrt>':'<mroot>'+out(n.body)+out(n.degree)+'</mroot>';
       case 'script':{
         if(n.pre)return '<mmultiscripts>'+out(n.base)+'<mprescripts/>'+(isEmpty(n.sub)?'<none/>':out(n.sub))+(isEmpty(n.sup)?'<none/>':out(n.sup))+'</mmultiscripts>';
@@ -209,6 +237,25 @@ export function astToMathml(ast, display=false) {
       case 'accent':{
         const under=n.mark==='underbar',mark=n.mark==='overbar'||under?'\u00af':n.mark;
         return '<'+(under?'munder':'mover')+' accent="true">'+out(n.body)+'<mo stretchy="true">'+x(mark)+'</mo></'+(under?'munder':'mover')+'>';
+      }
+      case 'groupChar':{
+        const under=n.pos==='bot';
+        return '<'+(under?'munder':'mover')+'>'+out(n.body)+'<mo stretchy="true">'+x(n.chr)+'</mo></'+(under?'munder':'mover')+'>';
+      }
+      case 'borderBox':{
+        const marks=[];
+        if(n.strikeH)marks.push('horizontalstrike');
+        if(n.strikeV)marks.push('verticalstrike');
+        if(n.strikeBLTR)marks.push('updiagonalstrike');
+        if(n.strikeTLBR)marks.push('downdiagonalstrike');
+        if(!n.hideTop&&!n.hideBottom&&!n.hideLeft&&!n.hideRight&&!marks.length)marks.push('box');
+        else {
+          if(!n.hideTop)marks.push('top');
+          if(!n.hideBottom)marks.push('bottom');
+          if(!n.hideLeft)marks.push('left');
+          if(!n.hideRight)marks.push('right');
+        }
+        return '<menclose notation="'+marks.join(' ')+'">'+out(n.body)+'</menclose>';
       }
       case 'limit':return !isEmpty(n.sub)?'<munder>'+out(n.body)+out(n.sub)+'</munder>':'<mover>'+out(n.body)+out(n.sup)+'</mover>';
       default:fail('UNSUPPORTED_AST','Unknown formula node.');
