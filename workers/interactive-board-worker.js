@@ -315,7 +315,7 @@ export class BoardRoom {
     const nextOps=Number(actor.rateOps||0)+packet.ops.length;
     if(nextOps>400){
       actor.rateOps=nextOps;ws.serializeAttachment(actor);
-      try{ws.send(JSON.stringify({type:'rate_limited',retryAfterMs:Math.max(250,10000-(now-Number(actor.rateWindowStart||now))) }))}catch{}
+      try{ws.send(JSON.stringify({type:'rate_limited',clientOpId:clientOpId||'',retryAfterMs:Math.max(250,10000-(now-Number(actor.rateWindowStart||now))) }))}catch{}
       return;
     }
     actor.rateOps=nextOps;
