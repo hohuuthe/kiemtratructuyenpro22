@@ -62,7 +62,23 @@ const symbols = new Map([
     [0x03c0, '\\pi{}'], [0x03c3, '\\sigma{}'], [0x03c6, '\\varphi{}'],
     [0x03d5, '\\phi{}'], [0x03c9, '\\omega{}'], [0x0394, '\\Delta{}'],
     [0x03a9, '\\Omega{}'], [0x03a3, '\\Sigma{}'],
-    [0x2227, '\\land{}'], [0x2228, '\\lor{}'], [0x00b0, '{}^{\\circ}']
+    [0x2227, '\\land{}'], [0x2228, '\\lor{}'], [0x00b0, '{}^{\\circ}'],
+    [0x2207, '\\nabla{}'], [0x2229, '\\cap{}'], [0x222a, '\\cup{}'],
+    [0x2282, '\\subset{}'], [0x2283, '\\supset{}'], [0x2286, '\\subseteq{}'],
+    [0x2287, '\\supseteq{}'], [0x2209, '\\notin{}'], [0x2205, '\\emptyset{}'],
+    [0x2200, '\\forall{}'], [0x2203, '\\exists{}'], [0x22a5, '\\perp{}'],
+    [0x2225, '\\parallel{}'], [0x2194, '\\leftrightarrow{}'],
+    [0x21d2, '\\Rightarrow{}'], [0x21d0, '\\Leftarrow{}'], [0x21d4, '\\Leftrightarrow{}'],
+    [0x222c, '\\iint{}'], [0x222d, '\\iiint{}'], [0x222e, '\\oint{}'],
+    [0x2210, '\\coprod{}'], [0x22c3, '\\bigcup{}'], [0x22c2, '\\bigcap{}'],
+    [0x03bd, '\\nu{}'], [0x03b6, '\\zeta{}'], [0x03b7, '\\eta{}'],
+    [0x03b9, '\\iota{}'], [0x03ba, '\\kappa{}'], [0x03be, '\\xi{}'],
+    [0x03c1, '\\rho{}'], [0x03c4, '\\tau{}'], [0x03c5, '\\upsilon{}'],
+    [0x03c7, '\\chi{}'], [0x03c8, '\\psi{}'], [0x0393, '\\Gamma{}'],
+    [0x0398, '\\Theta{}'], [0x039b, '\\Lambda{}'], [0x039e, '\\Xi{}'],
+    [0x03a0, '\\Pi{}'], [0x03a6, '\\Phi{}'], [0x03a8, '\\Psi{}'],
+    [0x2026, '\\ldots{}'], [0x22ef, '\\cdots{}'], [0x22ee, '\\vdots{}'],
+    [0x22f1, '\\ddots{}'], [0x7b, '\\{'], [0x7d, '\\}']
 ]);
 const fenceCodes = [
     [0x27e8, 0x27e9, '\\langle', '\\rangle'], [40, 41, '(', ')'],
@@ -71,7 +87,19 @@ const fenceCodes = [
     [0x230a, 0x230b, '\\lfloor', '\\rfloor'], [0x2308, 0x2309, '\\lceil', '\\rceil']
 ];
 
+/**
+ * Decode the documented format first. A few legacy writers emit an END after
+ * a non-final NULL slot. Retry only that explicitly delimited slot variant;
+ * never trim trailing bytes or discard unknown records to make a formula pass.
+ */
 export function convertMtefV5ToLatex(input) {
+    try { return decodeMtef(input, false); }
+    catch (standardError) {
+        try { return decodeMtef(input, true); }
+        catch { throw standardError; }
+    }
+}
+function decodeMtef(input, allowNullSlotEnd) {
     const data = input instanceof Uint8Array ? input : new Uint8Array(input);
     if (data.length < 7 || data.length > MAX_BYTES) fail('invalid stream size');
     const r = new Reader(data);
@@ -81,7 +109,7 @@ export function convertMtefV5ToLatex(input) {
     r.string();
     if (r.byte() & ~1) fail('unsupported equation options');
     const fonts = [null], explicitStyles = [null];
-    let styles = [], count = 0;
+    let styles = [], count = 0, nullSlotEnds = 0;
     const options = allowed => {
         const value = r.byte();
         if (value & 8) fail('nudged content requires review');
@@ -89,7 +117,7 @@ export function convertMtefV5ToLatex(input) {
         return value;
     };
     const styleBits = () => { const v = r.byte(); if (v > 3) fail('invalid font style'); return v; };
-    const list = (depth = 0) => {
+    const list = (depth = 0, template = null) => {
         if (depth > MAX_DEPTH) fail('nesting limit exceeded');
         const nodes = [];
         for (;;) {
@@ -120,6 +148,17 @@ export function convertMtefV5ToLatex(input) {
             }
             if (type === 1) {
                 const opt = options(1);
+                // The extra END is accepted only between required slots, never
+                // at the end of a template, equation, matrix or arbitrary list.
+                const leadingScriptNull = [28, 29].includes(template) && nodes.length === 0;
+                const leadingOperatorNull = template >= 15 && template <= 22 && nodes.length < 3;
+                const nextIsSlot = r.data[r.offset + 1] === 1 && [0, 1].includes(r.data[r.offset + 2]);
+                const nextIsOperator = template >= 15 && template <= 22 && nodes.length === 2 &&
+                    r.data[r.offset + 1] === 2;
+                if (allowNullSlotEnd && (opt & 1) && (leadingScriptNull || leadingOperatorNull) &&
+                    r.data[r.offset] === 0 && (nextIsSlot || nextIsOperator)) {
+                    r.byte(); nullSlotEnds++;
+                }
                 nodes.push({ kind: 'line', empty: !!(opt & 1), children: (opt & 1) ? [] : list(depth + 1) });
                 continue;
             }
@@ -141,7 +180,7 @@ export function convertMtefV5ToLatex(input) {
                 const selector = r.byte(), first = r.byte();
                 const variation = (first & 128) ? (first & 127) | (r.byte() << 8) : first;
                 const flags = r.byte();
-                nodes.push({ kind: 'template', selector, variation, flags, children: list(depth + 1) });
+                nodes.push({ kind: 'template', selector, variation, flags, children: list(depth + 1, selector) });
                 continue;
             }
             if (type === 4) {
@@ -151,20 +190,46 @@ export function convertMtefV5ToLatex(input) {
                 nodes.push({ kind: 'pile', horizontal, children: list(depth + 1) });
                 continue;
             }
+            if (type === 5) {
+                options(0);
+                const vertical = r.byte(), horizontal = r.byte(), cellVertical = r.byte();
+                const rows = r.byte(), cols = r.byte();
+                if (vertical > 4 || cellVertical > 4 || ![1, 2, 3].includes(horizontal) ||
+                    !rows || !cols || rows > 64 || cols > 64 || rows * cols > 1024)
+                    fail('invalid matrix dimensions or alignment');
+                const partitions = length => {
+                    const result = [];
+                    for (let i = 0; i < Math.ceil((length + 1) / 4); i++) {
+                        const byte = r.byte();
+                        // Partitioned matrices are not flattened: their rules can
+                        // change meaning. Leave uncommon borders for review.
+                        if (byte !== 0) fail('matrix partition lines require review');
+                        result.push(byte);
+                    }
+                    return result;
+                };
+                const rowParts = partitions(rows), colParts = partitions(cols);
+                const cells = list(depth + 1);
+                if (cells.length !== rows * cols || cells.some(n => n.kind !== 'line'))
+                    fail('matrix cell count mismatch');
+                nodes.push({ kind: 'matrix', rows, cols, horizontal, cells, rowParts, colParts });
+                continue;
+            }
             if (type === 6) { options(0); nodes.push({ kind: 'embellishment', code: r.byte() }); continue; }
             fail('unsupported record type ' + type);
         }
     };
     const tree = list();
     if (r.offset !== data.length) fail('unconsumed trailing data');
+    if (allowNullSlotEnd && !nullSlotEnds) fail('not the NULL-slot-END compatibility variant');
     if (tree.length !== 1 || !['line', 'pile'].includes(tree[0].kind)) fail('expected one root equation');
     const bounded = value => { if (value.length > MAX_LATEX) fail('LaTeX size limit exceeded'); return value; };
-    const renderList = nodes => bounded(nodes.map(render).join(''));
+    const renderList = (nodes, script = false) => bounded(nodes.map(n => render(n, script)).join(''));
     const glyph = (node, code) => node?.kind === 'char' && node.face === 22 && node.code === code &&
         node.embellishments.length === 0 && !(node.options & 2);
-    const lineValue = node => {
+    const lineValue = (node, script = false) => {
         if (!node || node.kind !== 'line') fail('expected template line');
-        return renderList(node.children);
+        return renderList(node.children, script);
     };
     const embellish = (value, code) => {
         const commands = { 2: 'dot', 3: 'ddot', 8: 'tilde', 9: 'hat', 11: 'overrightarrow',
@@ -173,12 +238,23 @@ export function convertMtefV5ToLatex(input) {
         if ([5, 6, 18].includes(code)) return '{' + value + '}^{' + '\\prime'.repeat(code === 5 ? 1 : code === 6 ? 2 : 3) + '}';
         fail('unsupported embellishment ' + code);
     };
-    function render(node) {
-        if (node.kind === 'line') return renderList(node.children);
+    function render(node, script = false) {
+        if (node.kind === 'line') {
+            if (node.children.some(n => n.kind === 'line')) fail('unexpected nested line');
+            return renderList(node.children, script);
+        }
+        if (node.kind === 'matrix') {
+            const rows = [];
+            for (let i = 0; i < node.rows; i++)
+                rows.push(node.cells.slice(i * node.cols, (i + 1) * node.cols).map(n => lineValue(n)).join(' & '));
+            if (node.horizontal === 2) return bounded('\\begin{matrix}' + rows.join(' \\\\ ') + '\\end{matrix}');
+            const align = (node.horizontal === 1 ? 'l' : 'r').repeat(node.cols);
+            return bounded('\\begin{array}{' + align + '}' + rows.join(' \\\\ ') + '\\end{array}');
+        }
         if (node.kind === 'pile') {
             if (!node.children.length || node.children.some(n => n.kind !== 'line' || n.empty)) fail('invalid pile rows');
             const align = { 1: 'l', 2: 'c', 3: 'r' }[node.horizontal];
-            return bounded('\\begin{array}{' + align + '}' + node.children.map(lineValue).join('\\\\') + '\\end{array}');
+            return bounded('\\begin{array}{' + align + '}' + node.children.map(n => lineValue(n)).join('\\\\') + '\\end{array}');
         }
         if (node.kind === 'char') {
             const { code, face } = node;
@@ -188,7 +264,8 @@ export function convertMtefV5ToLatex(input) {
             if (code < 32 || (code >= 0xd800 && code <= 0xdfff) || (code >= 0xe000 && code <= 0xf8ff)) fail('unmapped MTCode U+' + code.toString(16));
             if (![1, 2, 3, 4, 5, 6, 7, 8].includes(face)) fail('unsupported typeface ' + face);
             const char = String.fromCharCode(code);
-            if (symbols.has(code)) value = symbols.get(code);
+            if (code === 0x00b0 && script) value = '\\circ{}';
+            else if (symbols.has(code)) value = symbols.get(code);
             else if (/^[A-Za-z0-9+\-=.,:;()[\]<>|/*!?]$/.test(char)) value = char;
             else if (char === ' ' && face === 1) value = '\\ ';
             else fail('unmapped MTCode U+' + code.toString(16));
@@ -211,15 +288,44 @@ export function convertMtefV5ToLatex(input) {
             if (at !== c.length) fail('unexpected fence payload');
             return bounded('\\left' + ((v & 1) ? left : '.') + render(c[0]) + '\\right' + ((v & 2) ? right : '.'));
         }
+        if (s >= 15 && s <= 22) {
+            if (flags > (s === 15 ? 1 : 0) || (v & ~0x17f) || c.length !== 4 ||
+                c.slice(0, 3).some(n => n.kind !== 'line')) fail('invalid large-operator slots');
+            const sign = c[3];
+            if (sign.kind !== 'char' || ![6, 22].includes(sign.face) || sign.embellishments.length)
+                fail('invalid large-operator glyph');
+            const allowed = {
+                15: [0x222b, 0x222c, 0x222d, 0x222e], 16: [0x2211], 17: [0x220f],
+                18: [0x2210], 19: [0x22c3, 0x222a], 20: [0x22c2, 0x2229],
+                21: [0x222b, 0x222c, 0x222d, 0x222e], 22: [0x2211, 0x220f, 0x22c3, 0x22c2]
+            };
+            if (!allowed[s].includes(sign.code)) fail('large-operator glyph mismatch');
+            const commands = { 0x222b:'int', 0x222c:'iint', 0x222d:'iiint', 0x222e:'oint',
+                0x2211:'sum', 0x220f:'prod', 0x2210:'coprod', 0x22c3:'bigcup', 0x222a:'bigcup',
+                0x22c2:'bigcap', 0x2229:'bigcap' };
+            // SDK BigOpBoxClass order is MAIN, UPPER, LOWER, glyph.
+            const body = lineValue(c[0]), upper = lineValue(c[1]), lower = lineValue(c[2]);
+            return bounded('\\' + commands[sign.code] + (lower ? '_{' + lower + '}' : '') +
+                (upper ? '^{' + upper + '}' : '') + ' ' + body);
+        }
         if (flags !== 0) fail('unsupported template flags');
+        if ([12, 13, 32, 33].includes(s) && c.length === 1 && c[0].kind === 'line') {
+            if (v !== 0 && !(s <= 13 && v === 1)) fail('unsupported accent variation');
+            const command = { 12:'underline', 13:'overline', 32:'widetilde', 33:'widehat' }[s];
+            const value = lineValue(c[0]);
+            if (!value) fail('empty accent');
+            const once = '\\' + command + '{' + value + '}';
+            return v ? '\\' + command + '{' + once + '}' : once;
+        }
         if (s === 31 && (v === 1 || v === 2)) {
-            if (c.length !== 2 || c[0].kind !== 'line' || !glyph(c[1], v === 1 ? 0x20d6 : 0x20d7)) fail('vector glyph mismatch');
+            if (![1, 2].includes(c.length) || c[0].kind !== 'line' ||
+                (c.length === 2 && !glyph(c[1], v === 1 ? 0x20d6 : 0x20d7))) fail('vector glyph mismatch');
             const value = lineValue(c[0]);
             if (!value) fail('empty vector');
             return (v === 1 ? '\\overleftarrow{' : '\\overrightarrow{') + value + '}';
         }
         if (c.some(n => n.kind !== 'line')) fail('unexpected template payload');
-        const a = c.map(lineValue);
+        const a = c.map(n => lineValue(n, [27, 28, 29].includes(s)));
         if (s === 11 && v === 0 && a.length === 2 && a.every(Boolean)) return bounded('\\frac{' + a[0] + '}{' + a[1] + '}');
         if (s === 10 && v === 0 && a[0] && (a.length === 1 || (a.length === 2 && c[1].empty))) return '\\sqrt{' + a[0] + '}';
         if (s === 10 && v === 1 && a.length === 2 && a.every(Boolean)) return '\\sqrt[' + a[1] + ']{' + a[0] + '}';
