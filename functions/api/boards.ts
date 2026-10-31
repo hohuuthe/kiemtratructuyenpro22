@@ -100,7 +100,7 @@ export const onRequestGet: PagesFunction = async (context: any) => {
 
     // Student discovery is filtered inside PostgreSQL so Neon returns only the requested page.
     const unit = String(user.donvi || '').trim();
-    const studentClass = String(user.lop || '').replace(/\\s+/g, '');
+    const studentClass = String(user.lop || '').replace(/\s+/g, '');
     const visibilitySql = `
        b.status IN ('open','locked')
        AND (b.starts_at IS NULL OR b.starts_at <= CURRENT_TIMESTAMP)
