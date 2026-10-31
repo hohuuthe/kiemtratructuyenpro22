@@ -262,7 +262,8 @@ export class BoardRoom {
     const objects=await this.ctx.storage.list({prefix:'obj:'+pageId+':'});
     const snapshot=[...objects.values()].slice(0,600);
     const participants=this.participants();
-    server.send(JSON.stringify({type:'snapshot_begin',pageId,locked,userLocked,total:snapshot.length,participants}));
+    const timer=await this.ctx.storage.get('room:timer')||null;
+    server.send(JSON.stringify({type:'snapshot_begin',pageId,locked,userLocked,total:snapshot.length,participants,timer}));
     for(let i=0;i<snapshot.length;i+=100){
       server.send(JSON.stringify({type:'snapshot_chunk',pageId,objects:snapshot.slice(i,i+100)}));
     }
@@ -320,6 +321,19 @@ export class BoardRoom {
 
     for (const raw of packet.ops) {
       const kind=String(raw?.kind||'');
+      if (kind==='timer_start' && canManage) {
+        const durationSec=Math.round(clamp(raw.durationSec,60,5940,300));
+        const label=String(raw.label||'').trim().slice(0,80);
+        const timer={endAt:Date.now()+durationSec*1000,label,startedBy:actor.userId};
+        await this.ctx.storage.put('room:timer',timer);
+        this.broadcast({type:'timer_state',timer});
+        continue;
+      }
+      if (kind==='timer_stop' && canManage) {
+        await this.ctx.storage.delete('room:timer');
+        this.broadcast({type:'timer_state',timer:null});
+        continue;
+      }
       if (kind==='laser' && canManage) {
         const pageId=safeId(raw.pageId);if(!pageId||pageId!==actor.pageId)continue;
         const x=Math.round(clamp(raw.x,0,1600,0)),y=Math.round(clamp(raw.y,0,900,0));
