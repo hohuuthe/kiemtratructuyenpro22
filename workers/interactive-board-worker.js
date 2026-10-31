@@ -336,6 +336,7 @@ export class BoardRoom {
     const userBlocked=!canManage && Boolean(actor.blocked);
     const canDraw=canManage || (!roomLocked && !userBlocked && actor.permission==='draw');
     const canComment=canManage || (!roomLocked && !userBlocked && ['draw','comment'].includes(actor.permission));
+    let resyncRequired=false;
 
     for (const raw of packet.ops) {
       const kind=String(raw?.kind||'');
@@ -396,11 +397,11 @@ export class BoardRoom {
       if (kind==='put') {
         const object=normalizeObject(raw.object,actor.userId);
         if (!object || object.pageId!==actor.pageId) continue;
-        if (object.type==='text'||object.type==='note') { if (!canComment) continue; }
-        else if (!canDraw) continue;
+        if (object.type==='text'||object.type==='note') { if (!canComment) {resyncRequired=true;continue;} }
+        else if (!canDraw) {resyncRequired=true;continue;}
         const key='obj:'+object.pageId+':'+object.id;
         const existing=await this.ctx.storage.get(key);
-        if (existing && !canManage && existing.creatorId!==actor.userId) continue;
+        if (existing && !canManage && existing.creatorId!==actor.userId) {resyncRequired=true;continue;}
         if (existing?.creatorId) object.creatorId=existing.creatorId;
         if (Number.isFinite(Number(existing?.voteCount))) object.voteCount=Math.max(0,Number(existing.voteCount)||0);
         const countKey='count:'+object.pageId;
@@ -413,13 +414,13 @@ export class BoardRoom {
           const existingRows=await this.ctx.storage.list({prefix:'obj:'+object.pageId+':'});
           for(const value of existingRows.values())if(value?.type==='stroke'&&Array.isArray(value.points))pointCount+=value.points.length;
         }
-        if(pointCount-oldPoints+newPoints>40000)continue;
+        if(pointCount-oldPoints+newPoints>40000){resyncRequired=true;continue;}
         if (!existing) {
           let objectCount=Number(await this.ctx.storage.get(countKey));
           if (!Number.isFinite(objectCount)) {
             objectCount=(await this.ctx.storage.list({prefix:'obj:'+object.pageId+':'})).size;
           }
-          if (objectCount>=600) continue;
+          if (objectCount>=600) {resyncRequired=true;continue;}
           await this.ctx.storage.put(countKey,objectCount+1);
         }
         await this.ctx.storage.put(pointsKey,Math.max(0,pointCount-oldPoints+newPoints));
@@ -432,12 +433,13 @@ export class BoardRoom {
         continue;
       }
       if (kind==='delete') {
-        if (!canComment) continue;
+        if (!canComment) {resyncRequired=true;continue;}
         const pageId=safeId(raw.pageId), objectId=safeId(raw.objectId);
         if (!pageId||!objectId||pageId!==actor.pageId) continue;
         const key='obj:'+pageId+':'+objectId;
         const existing=await this.ctx.storage.get(key);
-        if (!existing || (!canManage && existing.creatorId!==actor.userId)) continue;
+        if (!existing) continue;
+        if (!canManage && existing.creatorId!==actor.userId) {resyncRequired=true;continue;}
         await this.ctx.storage.delete(key);
         const voteRows=await this.ctx.storage.list({prefix:'vote:'+pageId+':'+objectId+':'});
         if(voteRows.size)await this.ctx.storage.delete([...voteRows.keys()]);
@@ -515,6 +517,7 @@ export class BoardRoom {
       await this.ctx.storage.put(recentKey,durableRecent);
       try{ws.send(JSON.stringify({type:'op_ack',clientOpId}))}catch{}
     }
+    if(resyncRequired){try{ws.send(JSON.stringify({type:'resync_required'}))}catch{}}
   }
 
   cleanupTransientStrokes(ws) {
