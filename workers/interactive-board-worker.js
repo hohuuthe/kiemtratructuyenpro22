@@ -73,7 +73,15 @@ export default {
     if(request.method==='GET' && url.pathname==='/internal/health'){
       const secret=String(env.BOARD_REALTIME_SECRET||'');
       if(!secret||!secureEqualString(request.headers.get('X-Board-Internal-Secret'),secret))return new Response('Unauthorized',{status:401});
-      return new Response(JSON.stringify({ok:true,service:'interactive-board-realtime'}),{headers:{'Content-Type':'application/json','Cache-Control':'no-store'}});
+      try{
+        if(!env.BOARD_ROOM||typeof env.BOARD_ROOM.idFromName!=='function')return new Response('Durable Object binding unavailable',{status:503});
+        const stub=env.BOARD_ROOM.get(env.BOARD_ROOM.idFromName('__health__'));
+        const probe=await stub.fetch(new Request('https://board.internal/health',{
+          method:'GET',headers:{'X-Board-Internal-Secret':secret}
+        }));
+        if(!probe.ok)return new Response('Durable Object health failed',{status:503});
+        return new Response(JSON.stringify({ok:true,service:'interactive-board-realtime',durable_object:true}),{headers:{'Content-Type':'application/json','Cache-Control':'no-store'}});
+      }catch{return new Response('Durable Object unavailable',{status:503});}
     }
     if (request.method==='POST' && (url.pathname==='/internal/board-reset' || url.pathname==='/internal/board-policy' || url.pathname==='/internal/board-page-reset' || url.pathname==='/internal/board-page-created' || url.pathname==='/internal/board-page-updated')) {
       const secret=String(env.BOARD_REALTIME_SECRET || '');
@@ -147,6 +155,11 @@ export class BoardRoom {
 
   async fetch(request) {
     const url=new URL(request.url);
+    if(request.method==='GET'&&url.pathname==='/health'){
+      const secret=String(this.env.BOARD_REALTIME_SECRET||'');
+      if(!secret||!secureEqualString(request.headers.get('X-Board-Internal-Secret'),secret))return new Response('Unauthorized',{status:401});
+      return new Response(JSON.stringify({ok:true,class:'BoardRoom'}),{headers:{'Content-Type':'application/json','Cache-Control':'no-store'}});
+    }
     if(request.method==='GET'&&url.searchParams.get('snapshot')==='1'){
       const token=url.searchParams.get('token')||'';
       const claims=await verifyJwt(token,String(this.env.BOARD_REALTIME_SECRET||''));
