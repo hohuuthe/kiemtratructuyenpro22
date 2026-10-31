@@ -183,11 +183,17 @@ async function ensureFreshRoomToken(pageId=currentPageId){
  currentPageId=currentPage;
  roomTokenExpiresAt=Date.now()+Math.max(30,Number(fresh.token_expires_in)||300)*1000-10000;
 }
-async function fetchPageSnapshot(pageId){
+async function fetchPageSnapshot(pageId,retried=false){
  await ensureFreshRoomToken(pageId);
  if(!room?.realtime_base_path)throw Error('Phiên realtime chưa sẵn sàng.');
  const url=new URL(room.realtime_base_path,location.href);url.searchParams.set('snapshot','1');url.searchParams.set('pageId',String(pageId));
- const response=await fetch(url.href,{cache:'no-store'});if(!response.ok)throw Error(response.status===410?'Trang đã bị xóa.':'Không thể đọc dữ liệu trang.');
+ const response=await fetch(url.href,{cache:'no-store'});
+ if(response.status===403&&!retried){
+   roomTokenExpiresAt=0;
+   await ensureFreshRoomToken(currentPageId||pageId);
+   return fetchPageSnapshot(pageId,true);
+ }
+ if(!response.ok)throw Error(response.status===410?'Trang đã bị xóa.':'Không thể đọc dữ liệu trang.');
  return response.json();
 }
 async function exportBoardPdf(){
