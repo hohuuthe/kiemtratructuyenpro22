@@ -70,7 +70,7 @@ function secureEqualString(a,b) {
 export default {
   async fetch(request, env) {
     const url=new URL(request.url);
-    if (request.method==='POST' && url.pathname==='/internal/board-reset') {
+    if (request.method==='POST' && (url.pathname==='/internal/board-reset' || url.pathname==='/internal/board-policy')) {
       const secret=String(env.BOARD_REALTIME_SECRET || env.JWT_SECRET || '');
       if (!secret || !secureEqualString(request.headers.get('X-Board-Internal-Secret'),secret)) {
         return new Response('Unauthorized',{status:401});
@@ -80,7 +80,17 @@ export default {
       if(!/^[A-Za-z0-9_-]{1,64}$/.test(tenant)||!boardId)return new Response('Invalid board',{status:400});
       const roomName=tenant+':'+boardId;
       const stub=env.BOARD_ROOM.get(env.BOARD_ROOM.idFromName(roomName));
-      return stub.fetch(new Request('https://board.internal/reset',{method:'POST',headers:{'X-Board-Internal-Secret':secret}}));
+      if(url.pathname==='/internal/board-reset'){
+        return stub.fetch(new Request('https://board.internal/reset',{method:'POST',headers:{'X-Board-Internal-Secret':secret}}));
+      }
+      const revision=Math.max(1,Number(body?.revision)||1);
+      const locked=body?.locked===true;
+      const unavailable=body?.unavailable===true;
+      return stub.fetch(new Request('https://board.internal/policy',{
+        method:'POST',
+        headers:{'Content-Type':'application/json','X-Board-Internal-Secret':secret},
+        body:JSON.stringify({revision,locked,unavailable})
+      }));
     }
     if ((request.headers.get('Upgrade') || '').toLowerCase() !== 'websocket') {
       return new Response('WebSocket required', {status:426});
@@ -105,6 +115,18 @@ export class BoardRoom {
 
   async fetch(request) {
     const url=new URL(request.url);
+    if(request.method==='POST'&&url.pathname==='/policy'){
+      const secret=String(this.env.BOARD_REALTIME_SECRET || this.env.JWT_SECRET || '');
+      if(!secret||!secureEqualString(request.headers.get('X-Board-Internal-Secret'),secret))return new Response('Unauthorized',{status:401});
+      let body;try{body=await request.json();}catch{return new Response('Invalid JSON',{status:400});}
+      const revision=Math.max(1,Number(body?.revision)||1),locked=body?.locked===true,unavailable=body?.unavailable===true;
+      await this.ctx.storage.put({'room:boardRevision':revision,'room:locked':locked});
+      const event=unavailable?{type:'board_unavailable'}:{type:'policy_changed',locked};
+      for(const socket of this.ctx.getWebSockets()){
+        try{socket.send(JSON.stringify(event));socket.close(4003,'Board policy changed')}catch{}
+      }
+      return new Response('OK');
+    }
     if(request.method==='POST'&&url.pathname==='/reset'){
       const secret=String(this.env.BOARD_REALTIME_SECRET || this.env.JWT_SECRET || '');
       if(!secret||!secureEqualString(request.headers.get('X-Board-Internal-Secret'),secret))return new Response('Unauthorized',{status:401});
