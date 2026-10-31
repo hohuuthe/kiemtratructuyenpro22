@@ -229,7 +229,7 @@ function handleMessage(m){
 }
 function sendOps(ops){
  if(!ops.length)return;
- const transient=ops.every(op=>op.kind==='stroke_segment'||op.kind==='laser');
+ const transient=ops.every(op=>op.kind==='stroke_segment'||op.kind==='stroke_cancel'||op.kind==='laser');
  const clientOpId=transient?'':crypto.randomUUID();
  const payload=JSON.stringify({type:'op_batch',clientOpId:clientOpId||undefined,ops});
  if(!transient&&clientOpId){
@@ -556,9 +556,11 @@ function pointerDown(e){
  if(e.pointerType==='touch'){
    panPointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
    if(panPointers.size===2){
-     mobileGesture=true;drawing=null;dragState=null;
-     const pts=[...panPointers.values()],dist=Math.hypot(pts[0].x-pts[1].x,pts[0].y-pts[1].y);
-     pinchStart={distance:Math.max(1,dist),zoom:zoomLevel};panDrag=null;return;
+     mobileGesture=true;
+     if(drawing?.type==='stroke')sendOps([{kind:'stroke_cancel',pageId:drawing.pageId,objectId:drawing.id}]);
+     drawing=null;dragState=null;
+     const pts=[...panPointers.values()],dist=Math.hypot(pts[0].x-pts[1].x,pts[0].y-pts[1].y),stage=$('board-stage-scroll');
+     pinchStart={distance:Math.max(1,dist),zoom:zoomLevel,centerX:(pts[0].x+pts[1].x)/2,centerY:(pts[0].y+pts[1].y)/2,left:stage?.scrollLeft||0,top:stage?.scrollTop||0};panDrag=null;return;
    }
  }
  if(tool==='pan'||touchGesture){
@@ -585,7 +587,13 @@ function pointerMove(e){
  const p=logicalPoint(e);
  if(e.pointerType==='touch'&&panPointers.has(e.pointerId))panPointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
  if((tool==='pan'||mobileGesture||panPointers.size>=2)){
-   if(panPointers.size>=2&&pinchStart){const pts=[...panPointers.values()].slice(0,2),dist=Math.hypot(pts[0].x-pts[1].x,pts[0].y-pts[1].y);setZoom(pinchStart.zoom*(dist/pinchStart.distance));return;}
+   if(panPointers.size>=2&&pinchStart){
+     const pts=[...panPointers.values()].slice(0,2),dist=Math.hypot(pts[0].x-pts[1].x,pts[0].y-pts[1].y);
+     const cx=(pts[0].x+pts[1].x)/2,cy=(pts[0].y+pts[1].y)/2,stage=$('board-stage-scroll');
+     setZoom(pinchStart.zoom*(dist/pinchStart.distance));
+     if(stage){stage.scrollLeft=pinchStart.left-(cx-pinchStart.centerX);stage.scrollTop=pinchStart.top-(cy-pinchStart.centerY);}
+     return;
+   }
    if(panDrag){const stage=$('board-stage-scroll');if(stage){stage.scrollLeft=panDrag.left-(e.clientX-panDrag.clientX);stage.scrollTop=panDrag.top-(e.clientY-panDrag.clientY);}return;}
  }
  if(tool==='laser'&&room?.board?.can_manage){
