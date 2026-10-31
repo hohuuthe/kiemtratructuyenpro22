@@ -66,11 +66,14 @@ test('implementation is lazy, bounded and does not push live strokes into Neon',
   assert.match(worker,/sameUser\.length>=3/);
   assert.match(worker,/storage\.deleteAll/);
   assert.match(worker,/objectCount>=1000/);
+  assert.match(worker,/rateOps>400/);
+  assert.doesNotMatch(worker,/JWT_SECRET/);
+  assert.match(join,/BOARD_REALTIME_SECRET/);
   assert.match(ui,/\/api\/board\/join/);
   assert.match(ui,/scheduleReconnect/);
   assert.match(ui,/board_deleted/);
   assert.match(ui,/board\/pages/);
-  assert.match(pages,/canDiscoverBoard/);
+  assert.match(pages,/Chỉ người quản lý bảng được đọc trực tiếp metadata trang/);
   assert.match(pages,/Mỗi bảng tối đa 20 trang/);
   assert.match(worker,/board-page-reset/);
   assert.match(ui,/policy_changed/);
