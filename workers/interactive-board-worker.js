@@ -70,6 +70,11 @@ function secureEqualString(a,b) {
 export default {
   async fetch(request, env) {
     const url=new URL(request.url);
+    if(request.method==='GET' && url.pathname==='/internal/health'){
+      const secret=String(env.BOARD_REALTIME_SECRET||'');
+      if(!secret||!secureEqualString(request.headers.get('X-Board-Internal-Secret'),secret))return new Response('Unauthorized',{status:401});
+      return new Response(JSON.stringify({ok:true,service:'interactive-board-realtime'}),{headers:{'Content-Type':'application/json','Cache-Control':'no-store'}});
+    }
     if (request.method==='POST' && (url.pathname==='/internal/board-reset' || url.pathname==='/internal/board-policy' || url.pathname==='/internal/board-page-reset' || url.pathname==='/internal/board-page-created' || url.pathname==='/internal/board-page-updated')) {
       const secret=String(env.BOARD_REALTIME_SECRET || '');
       if (!secret || !secureEqualString(request.headers.get('X-Board-Internal-Secret'),secret)) {
