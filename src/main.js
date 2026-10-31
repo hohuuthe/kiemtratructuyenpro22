@@ -13483,7 +13483,16 @@ D. Phát biểu SAI</pre>
                 }
                 const outputBlob = await finalizeWordExport(blob, {
                     equationFormat,
-                    hostname: window.location.hostname
+                    hostname: window.location.hostname,
+                    onProgress: ({completed,total}) => {
+                        if (equationFormat !== 'mathtype' || !total) return;
+                        button.textContent = `⏳ Đang chuyển MathType ${completed}/${total}...`;
+                        const status = modal.querySelector('#exp-validation');
+                        if (status) {
+                            status.textContent = `Đang chuyển công thức sang MathType: ${completed}/${total}. Bạn vẫn có thể cuộn và thao tác giao diện.`;
+                            status.className = 'text-xs font-semibold text-violet-700';
+                        }
+                    }
                 });
                 // Validate the final DOCX ZIP header before offering any download.
                 const signature = new Uint8Array(await outputBlob.slice(0, 4).arrayBuffer());
