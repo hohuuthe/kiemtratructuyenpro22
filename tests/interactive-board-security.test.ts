@@ -75,7 +75,7 @@ test('implementation is lazy, bounded and does not push live strokes into Neon',
   assert.match(worker,/sameUser\.length>=3/);
   assert.match(worker,/storage\.deleteAll/);
   assert.match(worker,/objectCount>=600/);
-  assert.match(worker,/rateOps>400/);
+  assert.match(worker,/nextOps>400/);
   assert.match(worker,/snapshot_begin/);
   assert.match(worker,/searchParams\.get\('snapshot'\)===\'1\'/);
   assert.match(realtime,/searchParams\.get\('snapshot'\)===\'1\'/);
@@ -137,7 +137,7 @@ test('implementation is lazy, bounded and does not push live strokes into Neon',
   assert.match(worker,/type:'laser'/);
   assert.match(api,/LOWER\(\?\) = ANY/);
   assert.doesNotMatch(workflow,/functions\/\[slug\]\/api\/\[\[path\]\]/,'workflow must avoid invalid bracket glob');
-  assert.ok(worker.indexOf('if(nextOps>400)') < worker.indexOf('actor.recentOps=actor.recentOps.concat'),'rate limit must run before dedupe acceptance');
+  assert.ok(worker.indexOf('if(nextOps>400)') < worker.indexOf("await this.ctx.storage.put(recentKey,durableRecent)"),'rate limit must run before durable dedupe acceptance');
 });
 
 test('worker prevents student overwrite/delete of objects owned by another actor',()=>{
