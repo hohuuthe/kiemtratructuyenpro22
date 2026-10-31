@@ -95,9 +95,13 @@ export function astToMtef(ast,{fontSizePt=13,display=false}={}) {
         if(n.hideRight)variation|=4;
         if(n.hideTop)variation|=8;
         if(n.hideBottom)variation|=16;
-        if(n.strikeH||n.strikeV||n.strikeBLTR||n.strikeTLBR)
-          fail('UNSUPPORTED_BORDER_STRIKE','MathType box strike variants need a separately qualified construction.');
-        return tmpl(37,variation,[line(n.body,depth)]);
+        if(n.strikeV)fail('UNSUPPORTED_BORDER_STRIKE','Vertical strike has no qualified native MTEF template.');
+        const framed=tmpl(37,variation,[line(n.body,depth)]);
+        const strikes=(n.strikeH?1:0)|(n.strikeBLTR?2:0)|(n.strikeTLBR?4:0);
+        if(!strikes)return framed;
+        // StrikeBoxClass has one main slot. Put the already encoded box inside
+        // a one-slot line, retaining the editable box and its independent edges.
+        return [3,0,36,strikes,0,1,0,...framed,0];
       }
       case 'matrix':{
         const rows=n.rows.length,cols=n.rows[0]?.length;
