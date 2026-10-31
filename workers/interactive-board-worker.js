@@ -35,7 +35,7 @@ function clamp(n,min,max,fallback=min) {
 function normalizePoints(points) {
   if (!Array.isArray(points)) return [];
   return points.slice(0, 4000).map(p=>Array.isArray(p)&&p.length>=2
-    ? [clamp(p[0],-20000,20000,0),clamp(p[1],-20000,20000,0)]
+    ? [Math.round(clamp(p[0],-20000,20000,0)),Math.round(clamp(p[1],-20000,20000,0))]
     : null).filter(Boolean);
 }
 function normalizeObject(input, actorId) {
@@ -203,6 +203,7 @@ export class BoardRoom {
       permission:String(claims.permission||'view'),
       blocked:userLocked,
       activeStrokes:[],
+      recentOps:[],
       joinedAt:Date.now()
     };
     this.ctx.acceptWebSocket(server,[pageId]);
@@ -253,6 +254,15 @@ export class BoardRoom {
     if (!actor.userId || typeof message!=='string' || message.length>65536) return;
     let packet; try { packet=JSON.parse(message); } catch { return; }
     if (!packet || packet.type!=='op_batch' || !Array.isArray(packet.ops) || packet.ops.length>80) return;
+    const clientOpId=safeId(packet.clientOpId);
+    if(clientOpId){
+      if(!Array.isArray(actor.recentOps))actor.recentOps=[];
+      if(actor.recentOps.includes(clientOpId)){
+        try{ws.send(JSON.stringify({type:'op_ack',clientOpId,duplicate:true}))}catch{}
+        return;
+      }
+      actor.recentOps=actor.recentOps.concat(clientOpId).slice(-80);
+    }
     const now=Date.now(),windowStart=Number(actor.rateWindowStart||0);
     if(!windowStart||now-windowStart>10000){actor.rateWindowStart=now;actor.rateOps=0;}
     actor.rateOps=Number(actor.rateOps||0)+packet.ops.length;
@@ -331,13 +341,14 @@ export class BoardRoom {
         const targetUserId=safeId(raw.targetUserId);
         const blocked=raw.blocked===true;
         if(!targetUserId||targetUserId===actor.userId)continue;
+        const targets=this.ctx.getWebSockets().filter(socket=>{
+          const state=stateOf(socket);return state.userId===targetUserId&&state.role==='student';
+        });
+        if(!targets.length)continue;
         if(blocked)await this.ctx.storage.put('userlock:'+targetUserId,true);
         else await this.ctx.storage.delete('userlock:'+targetUserId);
-        for(const socket of this.ctx.getWebSockets()){
-          const state=stateOf(socket);
-          if(state.userId!==targetUserId||state.role!=='student')continue;
-          state.blocked=blocked;
-          socket.serializeAttachment(state);
+        for(const socket of targets){
+          const state=stateOf(socket);state.blocked=blocked;socket.serializeAttachment(state);
           try{socket.send(JSON.stringify({type:'user_lock_state',blocked}))}catch{}
         }
         this.broadcast({type:'presence',participants:this.participants()});
@@ -349,6 +360,7 @@ export class BoardRoom {
         this.broadcast({type:'lock_state',locked});
       }
     }
+    if(clientOpId){try{ws.send(JSON.stringify({type:'op_ack',clientOpId}))}catch{}}
   }
 
   cleanupTransientStrokes(ws) {
