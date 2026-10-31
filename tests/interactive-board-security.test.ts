@@ -75,7 +75,7 @@ test('implementation is lazy, bounded and does not push live strokes into Neon',
   assert.match(worker,/objectCount>=600/);
   assert.match(worker,/rateOps>400/);
   assert.match(worker,/snapshot_begin/);
-  assert.match(worker,/snapshot\)===\'1\'/);
+  assert.match(worker,/searchParams\.get\('snapshot'\)===\'1\'/);
   assert.match(ui,/fetchPageSnapshot/);
   assert.match(ui,/import\('jspdf'\)/);
   assert.match(worker,/snapshot_chunk/);
