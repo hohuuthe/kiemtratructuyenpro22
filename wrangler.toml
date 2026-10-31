@@ -8,3 +8,9 @@ compatibility_flags = ["nodejs_compat"]
 
 [vars]
 # Các biến cấu hình được quản lý trực tiếp trong Cloudflare Pages Settings hoặc .env
+
+
+# Realtime Bảng tương tác: Pages gọi Worker nội bộ, không đi vòng qua Internet.
+[[services]]
+binding = "BOARD_REALTIME"
+service = "kiemtratructuyen-board-realtime"
