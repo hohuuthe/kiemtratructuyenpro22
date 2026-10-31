@@ -109,7 +109,7 @@ export const onRequestGet: PagesFunction = async (context: any) => {
          OR (
            b.access_mode='unit'
            AND LOWER(TRIM(b.target_donvi))=LOWER(TRIM(?))
-           AND (TRIM(b.target_lop)='' OR ? = ANY(string_to_array(replace(b.target_lop,' ',''), ',')))
+           AND (TRIM(b.target_lop)='' OR LOWER(?) = ANY(string_to_array(LOWER(replace(b.target_lop,' ','')), ',')))
          )
        )`;
     const countRow = await db.prepare(
