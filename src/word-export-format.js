@@ -32,10 +32,11 @@ export async function finalizeWordExport(equationBlob, options = {}) {
     throw new MathTypeExportError('MATHTYPE_EXPORT_DISABLED',
       'MathType OLE hiện đang bị tắt. Equation Word vẫn hoạt động bình thường.');
   }
-  const [{convertDocxToMathType},{createBrowserMathTypePreviewRenderer}] = await Promise.all([
+  const [{convertDocxToMathType},previewModule] = await Promise.all([
     import('./word-mathtype-export/docx-converter.js'),
     import('./word-mathtype-export/preview-browser-mathjax.js')
   ]);
-  const renderPreview=options.renderPreview || createBrowserMathTypePreviewRenderer();
-  return (await convertDocxToMathType(equationBlob,{...options,renderPreview})).blob;
+  const renderPreview=options.renderPreview || previewModule.createBrowserMathTypePreviewRenderer();
+  const renderPreviewBatch=options.renderPreviewBatch || previewModule.createBrowserMathTypePreviewBatchRenderer?.();
+  return (await convertDocxToMathType(equationBlob,{...options,renderPreview,renderPreviewBatch})).blob;
 }
