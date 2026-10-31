@@ -22,9 +22,14 @@ export const onRequestPost: PagesFunction = async (context: any) => {
 
     const { results: pages } = await db.prepare(
       `SELECT id,page_no,title,background_type,canvas_width,canvas_height,revision
-       FROM interactive_board_pages WHERE board_id=? ORDER BY page_no ASC LIMIT 50`
+       FROM interactive_board_pages WHERE board_id=? ORDER BY page_no ASC LIMIT 20`
     ).bind(boardId).all();
     if (!pages?.length) return boardJson({ error: 'Bảng chưa có trang hợp lệ.' }, 409);
+    const requestedPageId = cleanId(body.pageId);
+    const selectedPage = requestedPageId
+      ? pages.find((page: any) => String(page.id) === requestedPageId)
+      : pages[0];
+    if (!selectedPage) return boardJson({ error: 'Trang không thuộc bảng này.' }, 403);
 
     const secret = realtimeSecret(context.env);
     if (!secret) return boardJson({ error: 'Realtime chưa được cấu hình trên máy chủ.', code: 'BOARD_REALTIME_NOT_CONFIGURED' }, 503);
@@ -43,7 +48,7 @@ export const onRequestPost: PagesFunction = async (context: any) => {
       role: owner ? (isAdmin ? 'admin' : 'teacher') : 'student',
       permission,
       boardRevision: Number(board.revision || 1),
-      pageId: String(pages[0].id),
+      pageId: String(selectedPage.id),
       maxParticipants: Math.max(1, Math.min(120, Number(board.max_participants) || 60)),
       initialLocked: board.status === 'locked',
       iat: now,
@@ -58,8 +63,9 @@ export const onRequestPost: PagesFunction = async (context: any) => {
           can_manage: owner, revision: Number(board.revision || 1)
         },
         pages: pages || [],
+        current_page_id: String(selectedPage.id),
         realtime_path: prefix + '/api/board/realtime?token=' + encodeURIComponent(token) +
-          '&pageId=' + encodeURIComponent(String(pages[0].id)),
+          '&pageId=' + encodeURIComponent(String(selectedPage.id)),
         token_expires_in: 300
       }
     });
