@@ -1129,3 +1129,186 @@ html.kttt-modal-open, body.kttt-modal-open { overflow: hidden !important; oversc
 .exam-detail-review .katex,.exam-detail-review mjx-container{
   font-size:1em!important;
 }
+
+
+/* ==========================================================================
+   Interactive Board — professional responsive workspace
+   Mobile-first whiteboard ergonomics without changing the 1600x900 model.
+   ========================================================================== */
+#board-room { contain: layout paint; }
+#board-room button, #board-room select, #board-room input, #board-room textarea {
+  -webkit-tap-highlight-color: transparent;
+}
+#board-room button:disabled { opacity:.45; cursor:not-allowed; }
+#board-canvas { image-rendering:auto; }
+#board-canvas-wrap { transform-origin: top left; will-change: width; }
+#board-stage-scroll {
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-gutter: stable;
+}
+.board-tools-panel {
+  scrollbar-width: thin;
+  scroll-snap-type: x proximity;
+}
+.board-tools-panel .board-tool {
+  scroll-snap-align:start;
+  min-height:42px;
+  touch-action:manipulation;
+}
+.board-view-controls {
+  position:sticky;
+  top:0;
+  z-index:30;
+  width:max-content;
+  min-width:100%;
+  padding:2px 4px 6px;
+  background:linear-gradient(to bottom,rgba(226,232,240,.98),rgba(226,232,240,.88));
+  backdrop-filter:blur(6px);
+}
+.board-view-controls > button,
+.board-view-controls > select {
+  min-height:40px;
+  touch-action:manipulation;
+}
+.board-participants-panel {
+  min-width:0;
+  overflow:auto;
+}
+@media (max-width:1023px) {
+  #board-room {
+    border-radius:12px;
+    overflow:visible;
+  }
+  .board-room-header {
+    position:sticky;
+    top:0;
+    z-index:60;
+    padding:8px 10px;
+    background:rgba(248,250,252,.97);
+    backdrop-filter:blur(9px);
+  }
+  .board-room-header > div:first-child {
+    flex:1 1 150px;
+    min-width:0;
+  }
+  .board-room-actions {
+    flex:1 1 100%;
+    flex-wrap:nowrap;
+    overflow-x:auto;
+    padding-bottom:2px;
+    scrollbar-width:none;
+    overscroll-behavior-x:contain;
+  }
+  .board-room-actions::-webkit-scrollbar,
+  .board-tools-panel::-webkit-scrollbar { display:none; }
+  .board-room-actions > button {
+    flex:0 0 auto;
+    min-height:42px;
+    padding-left:12px;
+    padding-right:12px;
+  }
+  .board-room-grid {
+    display:flex;
+    flex-direction:column;
+    min-height:0;
+  }
+  .board-tools-panel {
+    position:sticky;
+    top:70px;
+    z-index:55;
+    order:1;
+    display:flex;
+    flex-direction:row;
+    align-items:center;
+    gap:7px;
+    overflow-x:auto;
+    padding:7px 8px;
+    background:rgba(255,255,255,.97);
+    backdrop-filter:blur(8px);
+    border-bottom:1px solid #e2e8f0;
+  }
+  .board-tools-panel .board-tool,
+  .board-tools-panel > button {
+    flex:0 0 auto;
+    min-height:44px;
+    padding:9px 12px;
+    font-size:13px;
+  }
+  .board-tools-panel > label {
+    flex:0 0 auto;
+    min-height:44px;
+    display:inline-flex;
+    align-items:center;
+    padding:5px 8px;
+    border:1px solid #e2e8f0;
+    border-radius:10px;
+    background:#fff;
+  }
+  .board-mobile-note-wrap {
+    flex:0 0 min(250px,68vw);
+    min-width:210px;
+  }
+  #board-note-text-mobile {
+    min-height:44px;
+    max-height:74px;
+    resize:none;
+    font-size:16px;
+  }
+  .board-stage-scroll {
+    order:2;
+    padding:7px;
+    max-height:calc(100dvh - 190px);
+    min-height:58vh;
+    background:#cbd5e1;
+  }
+  .board-view-controls {
+    justify-content:flex-start;
+    gap:6px;
+    overflow-x:auto;
+    scrollbar-width:none;
+  }
+  .board-view-controls::-webkit-scrollbar { display:none; }
+  .board-view-controls > button,
+  .board-view-controls > select {
+    flex:0 0 auto;
+    min-height:42px;
+    font-size:13px;
+  }
+  #board-page-select { max-width:180px; }
+  #board-canvas-wrap {
+    min-width:760px;
+    width:760px;
+    max-width:none!important;
+    border-radius:8px;
+    overflow:hidden;
+    box-shadow:0 10px 30px rgba(15,23,42,.18);
+  }
+  #board-canvas {
+    touch-action:none;
+  }
+  .board-participants-panel {
+    order:3;
+    max-height:38vh;
+    border-top:1px solid #e2e8f0;
+  }
+  .board-participants-panel.is-mobile-collapsed {
+    display:none;
+  }
+}
+@media (max-width:480px) {
+  .board-room-header h2 { font-size:15px; }
+  #board-room-status { font-size:10px; }
+  .board-room-actions > button { min-height:40px; font-size:12px; padding:8px 10px; }
+  .board-tools-panel { top:62px; }
+  .board-tools-panel .board-tool,
+  .board-tools-panel > button { min-height:42px; font-size:12px; padding:8px 10px; }
+  #board-canvas-wrap { min-width:720px; width:720px; }
+  .board-stage-scroll { max-height:calc(100dvh - 176px); min-height:60vh; }
+}
+@media (min-width:1024px) {
+  .board-participants-panel.is-mobile-collapsed { display:block; }
+}
+@media (prefers-reduced-motion:reduce) {
+  #board-canvas-wrap, .board-tool, #board-room button { transition:none!important; }
+}

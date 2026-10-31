@@ -9,10 +9,10 @@
  <div id="boards-pagination" class="flex flex-wrap items-center justify-center gap-3 text-sm"></div>
 </section>
 
-<section id="board-room" class="hidden bg-white rounded-2xl shadow-xl overflow-hidden min-w-0">
- <header class="flex flex-wrap items-center gap-2 justify-between p-3 sm:p-4 border-b bg-slate-50">
+<section id="board-room" class="hidden bg-white rounded-2xl shadow-xl overflow-hidden min-w-0 board-room-shell">
+ <header class="board-room-header flex flex-wrap items-center gap-2 justify-between p-3 sm:p-4 border-b bg-slate-50">
   <div class="min-w-0"><h2 id="board-room-title" class="font-black text-lg truncate">Bảng tương tác</h2><p id="board-room-status" class="text-xs text-slate-500">Đang kết nối...</p></div>
-  <div class="flex flex-wrap gap-2">
+  <div class="board-room-actions flex flex-wrap gap-2">
    <button id="board-add-page" type="button" class="hidden rounded-lg bg-blue-100 text-blue-800 px-3 py-2 font-bold text-sm">＋ Trang</button>
    <button id="board-edit-page" type="button" class="hidden rounded-lg bg-slate-100 text-slate-700 px-3 py-2 font-bold text-sm">✎ Trang</button>
    <button id="board-delete-page" type="button" class="hidden rounded-lg bg-rose-50 text-rose-700 px-3 py-2 font-bold text-sm">Xóa trang</button>
@@ -29,8 +29,8 @@
    <button id="board-exit" type="button" class="rounded-lg bg-slate-200 px-3 py-2 font-bold text-sm">← Thoát</button>
   </div>
  </header>
- <div class="grid lg:grid-cols-[150px_minmax(0,1fr)_220px] min-h-[70vh]">
-  <aside class="border-b lg:border-b-0 lg:border-r p-2 sm:p-3 flex lg:flex-col gap-2 overflow-x-auto">
+ <div class="board-room-grid grid lg:grid-cols-[160px_minmax(0,1fr)_230px] min-h-[70vh]">
+  <aside id="board-tools-panel" class="board-tools-panel border-b lg:border-b-0 lg:border-r p-2 sm:p-3 flex lg:flex-col gap-2 overflow-x-auto">
    <button type="button" data-board-tool="pan" class="board-tool whitespace-nowrap rounded-lg bg-slate-100 px-3 py-2 font-bold text-sm">✋ Di chuyển</button>
    <button type="button" data-board-tool="select" class="board-tool whitespace-nowrap rounded-lg bg-slate-100 px-3 py-2 font-bold text-sm">☝️ Chọn</button>
    <button id="board-laser-tool" type="button" data-board-tool="laser" class="board-tool hidden whitespace-nowrap rounded-lg bg-slate-100 px-3 py-2 font-bold text-sm">🔴 Laser</button>
@@ -47,9 +47,12 @@
    <label class="whitespace-nowrap text-xs font-bold">Màu<input id="board-color" type="color" value="#111827" class="ml-2 align-middle w-9 h-8"></label>
    <label class="whitespace-nowrap text-xs font-bold">Nét<input id="board-width" type="range" min="1" max="12" value="3" class="w-20 align-middle"></label>
    <textarea id="board-note-text" maxlength="500" rows="3" class="hidden lg:block border rounded-lg p-2 text-xs" placeholder="Nhập ý kiến rồi chọn Ghi chú và chạm lên bảng"></textarea>
+   <div class="lg:hidden board-mobile-note-wrap">
+    <textarea id="board-note-text-mobile" maxlength="500" rows="2" class="w-full border rounded-lg p-2.5 text-sm" placeholder="Nội dung ghi chú..."></textarea>
+   </div>
   </aside>
-  <main id="board-stage-scroll" class="bg-slate-200 p-2 sm:p-3 min-w-0 overflow-auto">
-   <div class="mb-2 flex items-center justify-center gap-2">
+  <main id="board-stage-scroll" class="board-stage-scroll bg-slate-200 p-2 sm:p-3 min-w-0 overflow-auto">
+   <div id="board-view-controls" class="board-view-controls mb-2 flex items-center justify-center gap-2">
     <button id="board-page-prev" type="button" class="rounded-lg bg-white px-3 py-2 text-sm font-bold shadow-sm">‹</button>
     <select id="board-page-select" class="max-w-xs rounded-lg border bg-white px-3 py-2 text-sm font-bold"></select>
     <button id="board-page-next" type="button" class="rounded-lg bg-white px-3 py-2 text-sm font-bold shadow-sm">›</button>
@@ -57,6 +60,7 @@
     <button id="board-zoom-out" type="button" class="rounded-lg bg-white px-3 py-2 text-sm font-bold shadow-sm">−</button>
     <button id="board-zoom-label" type="button" class="min-w-16 rounded-lg bg-white px-3 py-2 text-sm font-bold shadow-sm">100%</button>
     <button id="board-zoom-in" type="button" class="rounded-lg bg-white px-3 py-2 text-sm font-bold shadow-sm">＋</button>
+    <button id="board-participants-toggle" type="button" class="lg:hidden rounded-lg bg-white px-3 py-2 text-sm font-bold shadow-sm" aria-expanded="false">👥 <span id="board-participants-toggle-count">0</span></button>
     <span id="board-timer-display" class="hidden rounded-full bg-indigo-700 text-white px-3 py-1.5 text-sm font-black tabular-nums">05:00</span>
    </div>
    <div id="board-canvas-wrap" class="relative mx-auto bg-white shadow-lg max-w-full aspect-video touch-none select-none">
@@ -64,10 +68,9 @@
     <div id="board-locked-overlay" class="hidden absolute inset-0 bg-slate-900/10 pointer-events-none flex items-start justify-center p-3"><span class="bg-white/95 rounded-full px-4 py-2 shadow font-bold text-amber-800">Bảng đang khóa chỉnh sửa</span></div>
    </div>
   </main>
-  <aside class="border-t lg:border-t-0 lg:border-l p-3 space-y-3 bg-slate-50">
+  <aside id="board-participants-panel" class="board-participants-panel is-mobile-collapsed border-t lg:border-t-0 lg:border-l p-3 space-y-3 bg-slate-50">
    <div><p class="font-black text-sm">Người đang tham gia</p><p id="board-online-count" class="text-xs text-slate-500">0 người</p></div>
    <div id="board-participants" class="space-y-2 text-sm"></div>
-   <textarea id="board-note-text-mobile" maxlength="500" rows="3" class="lg:hidden w-full border rounded-lg p-2 text-sm" placeholder="Nội dung ghi chú..."></textarea>
   </aside>
  </div>
 </section>
