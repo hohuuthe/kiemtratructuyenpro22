@@ -227,6 +227,8 @@ test('production board health check verifies secret binding and worker',()=>{
   assert.match(health,/realtime_binding/);
   assert.match(health,/realtime_worker/);
   assert.match(worker,/\/internal\/health/);
+  assert.match(worker,/idFromName\('__health__'\)/);
+  assert.match(worker,/url\.pathname==='\/health'/);
   assert.match(router,/'board\/health': boardHealth/);
 });
 
