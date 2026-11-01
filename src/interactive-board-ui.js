@@ -634,6 +634,13 @@ function pointerMove(e){
  if(drawing.points.length-lastSegmentIndex>=6){const pts=drawing.points.slice(lastSegmentIndex);lastSegmentIndex=drawing.points.length-1;sendOps([{kind:'stroke_segment',pageId:drawing.pageId,objectId:drawing.id,points:pts,color:drawing.color,width:drawing.width}]);}
  scheduleRender();
 }
+function cancelPointerInteraction(e){
+ if(e?.pointerType==='touch')panPointers.delete(e.pointerId);
+ if(drawing?.type==='stroke')sendOps([{kind:'stroke_cancel',pageId:drawing.pageId,objectId:drawing.id}]);
+ drawing=null;dragState=null;panDrag=null;pinchStart=null;
+ if(panPointers.size===0)mobileGesture=false;
+ scheduleRender();
+}
 function pointerUp(e){
  if(e?.pointerType==='touch')panPointers.delete(e.pointerId);
  if(tool==='pan'||mobileGesture){
@@ -656,7 +663,7 @@ function pointerUp(e){
 function exitRoom(){
  manualExit=true;if(reconnectTimer){clearTimeout(reconnectTimer);reconnectTimer=null;}tool='pen';
  if(ws)try{ws.onclose=null;ws.close(1000,'exit')}catch{};ws=null;room=null;activeBoard=null;activeAccessCode='';reconnectAttempts=0;
- roomTokenExpiresAt=0;tokenRefreshAttempts=0;currentPageId='';userLocked=false;snapshotLoading=false;participantsCache=[];pendingReliable.clear();dragState=null;panDrag=null;panPointers.clear();pinchStart=null;mobileGesture=false;remoteLasers.clear();zoomLevel=1;aiResultText='';aiClusterPlan=null;timerState=null;followTeacher=true;if(timerTick){clearInterval(timerTick);timerTick=null;}undoStack=[];redoStack=[];objects.clear();remoteStrokes.clear();drawing=null;$('board-room')?.classList.add('hidden');$('boards-home')?.classList.remove('hidden');
+ roomTokenExpiresAt=0;tokenRefreshAttempts=0;currentPageId='';userLocked=false;snapshotLoading=false;selectedObjectId='';participantsCache=[];pendingReliable.clear();dragState=null;panDrag=null;panPointers.clear();pinchStart=null;mobileGesture=false;remoteLasers.clear();zoomLevel=1;aiResultText='';aiClusterPlan=null;timerState=null;followTeacher=true;if(timerTick){clearInterval(timerTick);timerTick=null;}undoStack=[];redoStack=[];objects.clear();remoteStrokes.clear();drawing=null;const roomEl=$('board-room');roomEl?.classList.remove('board-pseudo-fullscreen');document.body.classList.remove('board-body-fullscreen');roomEl?.classList.add('hidden');$('boards-home')?.classList.remove('hidden');
 }
 
 export function resetInteractiveBoards(){generation++;list=[];actor=null;manage=false;canCreateBoard=false;page=1;total=0;exitRoom();}
@@ -680,7 +687,7 @@ export function connectInteractiveBoards(){
  $('board-edit-form')?.addEventListener('submit',async e=>{e.preventDefault();const f=e.currentTarget,fd=new FormData(f);const id=fd.get('id');const body={id,revision:Number(fd.get('revision'))||undefined,name:fd.get('name'),description:fd.get('description'),status:fd.get('status'),access_mode:fd.get('access_mode'),student_permission:fd.get('student_permission'),max_participants:Number(fd.get('max_participants'))||60,target_donvi:fd.get('target_donvi'),target_lop:fd.get('target_lop'),access_code:fd.get('access_code'),starts_at:fd.get('starts_at')?new Date(String(fd.get('starts_at'))).toISOString():null,ends_at:fd.get('ends_at')?new Date(String(fd.get('ends_at'))).toISOString():null};const btn=f.querySelector('[type=submit]');btn.disabled=true;try{await api(id?'PUT':'POST','/api/boards',body);closeEdit();feedback('Đã lưu bảng tương tác.');load();}catch(err){feedback(err.message,true)}finally{btn.disabled=false;}});
  $('board-code-cancel')?.addEventListener('click',closeCode);$('board-code-form')?.addEventListener('submit',e=>{e.preventDefault();const b=pendingBoard,code=e.currentTarget.elements.namedItem('access_code').value;closeCode();if(b)join(b,code);});
  document.querySelectorAll('[data-board-tool]').forEach(btn=>btn.addEventListener('click',()=>selectBoardTool(btn.dataset.boardTool)));syncBoardToolButtons();
- canvas()?.addEventListener('pointerdown',pointerDown);canvas()?.addEventListener('pointermove',pointerMove);canvas()?.addEventListener('pointerup',pointerUp);canvas()?.addEventListener('pointercancel',pointerUp);
+ canvas()?.addEventListener('pointerdown',pointerDown);canvas()?.addEventListener('pointermove',pointerMove);canvas()?.addEventListener('pointerup',pointerUp);canvas()?.addEventListener('pointercancel',cancelPointerInteraction);
  $('board-exit')?.addEventListener('click',exitRoom);
  $('board-participants-toggle')?.addEventListener('click',()=>{
    const panel=$('board-participants-panel'),btn=$('board-participants-toggle');if(!panel||!btn)return;
@@ -715,7 +722,18 @@ export function connectInteractiveBoards(){
  $('board-zoom-in')?.addEventListener('click',()=>setZoom(zoomLevel+.1));
  $('board-zoom-out')?.addEventListener('click',()=>setZoom(zoomLevel-.1));
  $('board-zoom-label')?.addEventListener('click',resetView);
- $('board-fullscreen')?.addEventListener('click',async()=>{const roomEl=$('board-room');try{if(!document.fullscreenElement)await roomEl?.requestFullscreen?.();else await document.exitFullscreen?.();}catch{window.showToast?.('Trình duyệt không cho phép toàn màn hình.','info');}});
+ $('board-fullscreen')?.addEventListener('click',async()=>{
+ const roomEl=$('board-room');if(!roomEl)return;
+ try{
+  if(document.fullscreenElement){await document.exitFullscreen?.();roomEl.classList.remove('board-pseudo-fullscreen');document.body.classList.remove('board-body-fullscreen');return;}
+  if(roomEl.requestFullscreen){await roomEl.requestFullscreen();return;}
+  roomEl.classList.toggle('board-pseudo-fullscreen');
+  document.body.classList.toggle('board-body-fullscreen',roomEl.classList.contains('board-pseudo-fullscreen'));
+ }catch{
+  roomEl.classList.toggle('board-pseudo-fullscreen');
+  document.body.classList.toggle('board-body-fullscreen',roomEl.classList.contains('board-pseudo-fullscreen'));
+ }
+});
  $('board-stage-scroll')?.addEventListener('wheel',e=>{if(!e.ctrlKey&&!e.metaKey)return;e.preventDefault();setZoom(zoomLevel+(e.deltaY<0?.1:-.1));},{passive:false});
  $('board-lock')?.addEventListener('click',()=>{if(room?.board?.can_manage)sendOps([{kind:locked?'unlock':'lock'}]);});
  $('board-clear')?.addEventListener('click',()=>{if(!room?.board?.can_manage)return;window.showConfirmModal?.('Xóa toàn bộ nội dung đang có trên trang bảng này?',()=>{sendOps([{kind:'clear_page',pageId:currentPageId}]);undoStack=[];redoStack=[];syncHistoryButtons();});});
@@ -739,6 +757,9 @@ export function connectInteractiveBoards(){
    const mod=e.ctrlKey||e.metaKey;
    if(mod&&String(e.key).toLowerCase()==='z'){e.preventDefault();undo();return;}
    if(mod&&String(e.key).toLowerCase()==='y'){e.preventDefault();redo();return;}
+   if((e.key==='Delete'||e.key==='Backspace')&&selectedObjectId){e.preventDefault();$('board-delete-selected')?.click();return;}
+   if(mod&&String(e.key).toLowerCase()==='d'&&selectedObjectId){e.preventDefault();$('board-duplicate-selected')?.click();return;}
+   if(e.key==='Escape'&&selectedObjectId){e.preventDefault();clearSelection();return;}
    if(e.key==='+'||e.key==='='){e.preventDefault();setZoom(zoomLevel+.1);return;}
    if(e.key==='-'){e.preventDefault();setZoom(zoomLevel-.1);return;}
    if(e.key==='0'){e.preventDefault();resetView();return;}
