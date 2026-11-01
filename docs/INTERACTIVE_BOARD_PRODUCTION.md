@@ -130,3 +130,11 @@ Không xóa Durable Object namespace khi rollback vì dữ liệu bảng realtim
 - Scope: phone-only scanner UI, desktop controls hidden on mobile, camera-first layout, reduced mobile data loading.
 - Verification: PR #95 `release:qr-cards:check` passed before merge.
 - Production trigger: this commit is pushed to `main` for Cloudflare Pages Git integration.
+
+## QR reliable ACK + Presenter monitor release 2026-11-01
+
+- Source commit: `610d6fedf487f814aad223c60279ab8fda60594f`
+- Scope: reliable phone ACK queue, serialized persistence batches, persisted retry queue, explicit per-card ACK, live saved-answer monitor beside Presenter question.
+- Production evidence before release: Neon Production session `AXMCSP` persisted a real response and incremented `response_revision` to 1.
+- Verification: PR #96 `release:qr-cards:check` passed before merge.
+- Production trigger: this commit is pushed to `main` for Cloudflare Pages Git integration.
