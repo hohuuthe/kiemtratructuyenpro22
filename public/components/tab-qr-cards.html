@@ -55,50 +55,51 @@
       </div>
     </section>
 
-    <section id="qr-card-presenter-workspace" class="qr-desktop-only hidden qr-presenter-workspace rounded-2xl bg-slate-950 text-white overflow-hidden">
-      <div class="p-3 sm:p-4 border-b border-white/10 flex flex-wrap items-center gap-2">
+    <section id="qr-card-presenter-workspace" class="qr-desktop-only hidden qr-presenter-workspace rounded-2xl bg-slate-50 text-slate-900 border border-emerald-100 overflow-hidden shadow-xl">
+      <div class="qr-presenter-header p-3 sm:p-4 border-b border-emerald-100 bg-gradient-to-r from-emerald-50 via-teal-50 to-slate-50 flex flex-wrap items-center gap-2">
         <div class="min-w-0 flex-1">
-          <p id="qr-presenter-exam" class="text-sm sm:text-base font-black truncate">Đề kiểm tra</p>
-          <p id="qr-presenter-class" class="text-xs text-slate-300 truncate">Lớp</p>
+          <p id="qr-presenter-exam" class="text-sm sm:text-base font-black text-emerald-950 truncate">Đề kiểm tra</p>
+          <p id="qr-presenter-class" class="text-xs text-slate-600 truncate">Lớp</p>
         </div>
-        <span id="qr-presenter-sync" class="rounded-full bg-emerald-500/20 text-emerald-200 border border-emerald-400/30 px-3 py-1 text-xs font-bold">Đã đồng bộ</span>
-        <span id="qr-presenter-code" class="rounded-xl bg-white/10 px-3 py-2 text-sm font-black tracking-[.18em]">------</span>
-        <button id="qr-presenter-fullscreen" type="button" class="min-h-10 rounded-xl bg-white/10 hover:bg-white/20 px-3 py-2 text-sm font-bold">⛶ Toàn màn hình</button>
+        <span id="qr-presenter-sync" class="rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 px-3 py-1 text-xs font-bold">Đã đồng bộ</span>
+        <span id="qr-presenter-code" class="rounded-xl bg-white border border-emerald-100 text-emerald-900 px-3 py-2 text-sm font-black tracking-[.18em] shadow-sm">------</span>
+        <button id="qr-presenter-fullscreen" type="button" class="min-h-10 rounded-xl bg-white hover:bg-emerald-50 border border-emerald-100 text-emerald-800 px-3 py-2 text-sm font-bold shadow-sm">⛶ Toàn màn hình</button>
       </div>
 
       <div class="qr-presenter-main p-4 sm:p-6 lg:p-8">
         <div class="flex flex-wrap items-center justify-between gap-3">
-          <span id="qr-presenter-question-counter" class="rounded-full bg-indigo-600 px-4 py-2 text-sm sm:text-base font-black">Câu 1/1</span>
+          <span id="qr-presenter-question-counter" class="rounded-xl bg-emerald-50 border border-emerald-100 text-emerald-700 px-4 py-2 text-sm sm:text-base font-black">Câu 1/1</span>
           <div class="flex items-center gap-2">
-            <span id="qr-presenter-state" class="rounded-full bg-emerald-500/20 border border-emerald-400/30 px-3 py-1.5 text-sm font-black text-emerald-200">● Đang nhận đáp án</span>
-            <span id="qr-presenter-progress" class="rounded-full bg-white/10 px-3 py-1.5 text-sm font-black">0/0</span>
+            <span id="qr-presenter-state" class="rounded-full bg-emerald-100 border border-emerald-200 px-3 py-1.5 text-sm font-black text-emerald-800">● Đang nhận đáp án</span>
+            <span id="qr-presenter-progress" class="rounded-full bg-indigo-50 border border-indigo-100 text-indigo-700 px-3 py-1.5 text-sm font-black">0/0</span>
           </div>
         </div>
 
         <div class="qr-presenter-live-grid mt-5">
           <div class="qr-presenter-question-pane min-w-0">
-            <div id="qr-presenter-question-content" class="text-2xl sm:text-3xl lg:text-4xl font-black leading-snug"></div>
+            <div class="qr-presenter-question-accent"></div>
+            <div id="qr-presenter-question-content" class="text-2xl sm:text-3xl lg:text-4xl font-black leading-snug text-slate-900"></div>
             <div id="qr-presenter-options" class="mt-5 grid gap-3 sm:grid-cols-2"></div>
           </div>
 
-          <aside class="qr-presenter-monitor-panel min-w-0 rounded-2xl border border-white/10 bg-white/5 p-3 sm:p-4">
+          <aside class="qr-presenter-monitor-panel min-w-0 rounded-2xl border border-slate-200 bg-white p-3 sm:p-4 shadow-sm">
             <div class="flex items-center justify-between gap-2">
               <div>
-                <p class="font-black text-white">Máy quét đã ghi nhận</p>
-                <p class="text-xs text-slate-400">Chỉ hiển thị đáp án đã lưu trên server</p>
+                <p class="font-black text-slate-900">Máy quét đã ghi nhận</p>
+                <p class="text-xs text-slate-500">Hiển thị toàn bộ học sinh; hàng xanh là đã lưu trên server</p>
               </div>
-              <span id="qr-presenter-response-count" class="rounded-full bg-emerald-500/20 text-emerald-200 border border-emerald-400/30 px-2.5 py-1 text-xs font-black">0 đã lưu</span>
+              <span id="qr-presenter-response-count" class="rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 px-2.5 py-1 text-xs font-black">0/0 đã ghi nhận</span>
             </div>
             <div id="qr-presenter-response-list" class="qr-presenter-response-list mt-3">
-              <div class="qr-presenter-monitor-empty">Chưa có đáp án nào được lưu từ máy quét.</div>
+              <div class="qr-presenter-monitor-empty">Đang tải danh sách học sinh của lớp.</div>
             </div>
           </aside>
         </div>
 
-        <div id="qr-presenter-after-lock" class="hidden mt-5 rounded-2xl border border-white/10 bg-white/5 p-4">
+        <div id="qr-presenter-after-lock" class="hidden mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4">
           <div class="flex flex-wrap items-center justify-between gap-2">
             <p class="font-black">Thống kê câu đã khóa</p>
-            <span id="qr-presenter-missing-count" class="text-sm text-slate-300">0 học sinh chưa trả lời</span>
+            <span id="qr-presenter-missing-count" class="text-sm text-slate-600">0 học sinh chưa trả lời</span>
           </div>
           <div class="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2">
             <div class="qr-presenter-stat"><span>A</span><strong id="qr-presenter-count-a">0</strong></div>
@@ -109,10 +110,10 @@
         </div>
       </div>
 
-      <div class="qr-presenter-controls border-t border-white/10 p-3 sm:p-4 flex flex-wrap gap-2 bg-slate-900">
-        <button id="qr-presenter-prev" type="button" class="min-h-12 rounded-xl bg-white/10 px-4 py-3 font-black">← Câu trước</button>
+      <div class="qr-presenter-controls border-t border-slate-200 p-3 sm:p-4 flex flex-wrap gap-2 bg-white">
+        <button id="qr-presenter-prev" type="button" class="min-h-12 rounded-xl bg-white border-2 border-slate-200 text-slate-700 px-4 py-3 font-black shadow-sm">← Câu trước</button>
         <button id="qr-presenter-lock" type="button" class="min-h-12 rounded-xl bg-amber-500 text-slate-950 px-5 py-3 font-black">🔒 Khóa câu</button>
-        <button id="qr-presenter-next" type="button" class="min-h-12 rounded-xl bg-indigo-600 px-5 py-3 font-black">Câu tiếp theo →</button>
+        <button id="qr-presenter-next" type="button" class="min-h-12 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-5 py-3 font-black shadow-md">Câu tiếp theo →</button>
         <div class="flex-1"></div>
         <button id="qr-presenter-finalize" type="button" class="min-h-12 rounded-xl bg-rose-600 px-5 py-3 font-black">✓ Kết thúc & chấm điểm</button>
       </div>
