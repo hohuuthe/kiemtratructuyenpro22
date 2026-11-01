@@ -217,8 +217,13 @@ export class BoardRoom {
       const secret=String(this.env.BOARD_REALTIME_SECRET || '');
       if(!secret||!secureEqualString(request.headers.get('X-Board-Internal-Secret'),secret))return new Response('Unauthorized',{status:401});
       let body;try{body=await request.json();}catch{return new Response('Invalid JSON',{status:400});}
-      const revision=Math.max(1,Number(body?.revision)||1),locked=body?.locked===true,unavailable=body?.unavailable===true;
-      await this.ctx.storage.put({'room:boardRevision':revision,'room:locked':locked});
+      const revision=Math.max(1,Number(body?.revision)||1),unavailable=body?.unavailable===true;
+      const hasLocked=typeof body?.locked==='boolean';
+      const previousLocked=Boolean(await this.ctx.storage.get('room:locked'));
+      const locked=hasLocked?body.locked===true:previousLocked;
+      const state={'room:boardRevision':revision};
+      if(hasLocked)state['room:locked']=locked;
+      await this.ctx.storage.put(state);
       const event=unavailable?{type:'board_unavailable'}:{type:'policy_changed',locked};
       for(const socket of this.ctx.getWebSockets()){
         try{socket.send(JSON.stringify(event));socket.close(4003,'Board policy changed')}catch{}
@@ -264,6 +269,7 @@ export class BoardRoom {
       blocked:userLocked,
       allowedPages,
       activeStrokes:[],
+      tokenExp:Math.max(0,Number(claims.exp)||0),
       joinedAt:Date.now()
     };
     this.ctx.acceptWebSocket(server,[pageId]);
@@ -295,10 +301,11 @@ export class BoardRoom {
   }
 
   participants() {
-    const seen=new Map();
+    const seen=new Map(),now=Math.floor(Date.now()/1000);
     for (const ws of this.ctx.getWebSockets()) {
       const s=stateOf(ws);
       if (!s.userId) continue;
+      if(s.tokenExp&&now>=Number(s.tokenExp)){try{ws.close(4001,'Token expired')}catch{};continue;}
       if (!seen.has(s.userId)) seen.set(s.userId,{
         userId:s.userId,displayName:s.displayName||'Người dùng',role:s.displayRole||'student',
         blocked:Boolean(s.blocked),pageId:s.pageId||''
@@ -308,10 +315,12 @@ export class BoardRoom {
   }
 
   broadcast(payload, except=null, pageId='') {
-    const text=JSON.stringify(payload);
+    const text=JSON.stringify(payload),now=Math.floor(Date.now()/1000);
     const sockets=pageId ? this.ctx.getWebSockets(pageId) : this.ctx.getWebSockets();
     for (const socket of sockets) {
       if (socket===except || socket.readyState!==WebSocket.OPEN) continue;
+      const s=stateOf(socket);
+      if(s.tokenExp&&now>=Number(s.tokenExp)){try{socket.close(4001,'Token expired')}catch{};continue;}
       try { socket.send(text); } catch {}
     }
   }
@@ -319,6 +328,10 @@ export class BoardRoom {
   async webSocketMessage(ws,message) {
     const actor=stateOf(ws);
     if (!actor.userId || typeof message!=='string' || message.length>65536) return;
+    if(actor.tokenExp && Math.floor(Date.now()/1000)>=Number(actor.tokenExp)){
+      try{ws.send(JSON.stringify({type:'token_expired'}));ws.close(4001,'Token expired')}catch{}
+      return;
+    }
     let packet; try { packet=JSON.parse(message); } catch { return; }
     if (!packet || packet.type!=='op_batch' || !Array.isArray(packet.ops) || packet.ops.length>80) return;
     const clientOpId=safeId(packet.clientOpId);
@@ -349,6 +362,7 @@ export class BoardRoom {
     const userBlocked=!canManage && Boolean(actor.blocked);
     const canDraw=canManage || (!roomLocked && !userBlocked && actor.permission==='draw');
     const canComment=canManage || (!roomLocked && !userBlocked && ['draw','comment'].includes(actor.permission));
+    const canVote=canManage || (!roomLocked && !userBlocked && ['draw','comment'].includes(actor.permission));
     let resyncRequired=false;
 
     for (const raw of packet.ops) {
@@ -360,7 +374,7 @@ export class BoardRoom {
         continue;
       }
       if (kind==='vote_toggle') {
-        if(roomLocked||userBlocked)continue;
+        if(!canVote)continue;
         const pageId=safeId(raw.pageId),objectId=safeId(raw.objectId);
         if(!pageId||!objectId||pageId!==actor.pageId)continue;
         const objectKey='obj:'+pageId+':'+objectId;

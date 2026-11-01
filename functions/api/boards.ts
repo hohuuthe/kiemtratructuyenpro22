@@ -208,7 +208,7 @@ export const onRequestPut: PagesFunction = async (context: any) => {
           headers:{'Content-Type':'application/json','X-Board-Internal-Secret':secret},
           body:JSON.stringify({
             tenant:String(route.slug||'default'),boardId:id,revision:Number(updated?.revision||expectedRevision+1),
-            locked:updated?.status==='locked',
+            ...(String(current?.status||'')!==String(updated?.status||'')?{locked:updated?.status==='locked'}:{}),
             unavailable:['draft','closed','archived'].includes(String(updated?.status||''))
           })
         }));
