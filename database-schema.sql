@@ -200,6 +200,13 @@ CREATE TABLE IF NOT EXISTS qr_answer_sessions (
     question_count INTEGER NOT NULL DEFAULT 0,
     points_41 REAL NOT NULL DEFAULT 1,
     status TEXT NOT NULL DEFAULT 'open',
+    join_code TEXT NOT NULL DEFAULT '',
+    current_question_index INTEGER NOT NULL DEFAULT 0,
+    current_question_id TEXT NOT NULL DEFAULT '',
+    collection_state TEXT NOT NULL DEFAULT 'collecting',
+    state_revision INTEGER NOT NULL DEFAULT 1,
+    response_revision INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT,
     created_at TEXT NOT NULL,
     finalized_at TEXT
 );
@@ -225,6 +232,7 @@ CREATE TABLE IF NOT EXISTS qr_answer_result_links (
 
 CREATE INDEX IF NOT EXISTS idx_qr_cards_user ON qr_answer_cards(user_id);
 CREATE INDEX IF NOT EXISTS idx_qr_sessions_creator ON qr_answer_sessions(creator_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_qr_sessions_join_code ON qr_answer_sessions(join_code);
 CREATE INDEX IF NOT EXISTS idx_qr_responses_session ON qr_answer_responses(session_id, question_id);
 
 -- 6. BẢNG TOKEN BẢO MẬT BÀI THI CHỐNG NỘP TRÙNG (_submitted_exam_tokens)
