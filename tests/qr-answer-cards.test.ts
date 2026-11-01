@@ -67,8 +67,8 @@ test('printed cards expose identity and A/B/C/D while QR payload stays tokenized
   assert.match(ui,/getUserMedia/);
   assert.match(ui,/decodeMultiple/);
   assert.match(ui,/hits >= 3/);
-  assert.match(ui,/action: 'record-batch'/);
-  assert.match(ui,/action: 'finalize'/);
+  assert.match(ui,/action\s*:\s*['"]record-batch['"]/);
+  assert.match(ui,/action\s*:\s*['"]finalize['"]/);
   assert.match(ui,/async function flushAllPending/);
   assert.match(ui,/Promise\.all\(roster\.map/);
 });
