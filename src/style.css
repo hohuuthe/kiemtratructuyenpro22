@@ -1277,9 +1277,9 @@ html.kttt-modal-open, body.kttt-modal-open { overflow: hidden !important; oversc
   }
   #board-page-select { max-width:180px; }
   #board-canvas-wrap {
-    min-width:760px;
-    width:760px;
-    max-width:none!important;
+    min-width:0;
+    width:100%;
+    max-width:100%!important;
     border-radius:8px;
     overflow:hidden;
     box-shadow:0 10px 30px rgba(15,23,42,.18);
@@ -1303,7 +1303,7 @@ html.kttt-modal-open, body.kttt-modal-open { overflow: hidden !important; oversc
   .board-tools-panel { top:62px; }
   .board-tools-panel .board-tool,
   .board-tools-panel > button { min-height:42px; font-size:12px; padding:8px 10px; }
-  #board-canvas-wrap { min-width:720px; width:720px; }
+  #board-canvas-wrap { min-width:0; width:100%; }
   .board-stage-scroll { max-height:calc(100dvh - 176px); min-height:60vh; }
 }
 @media (min-width:1024px) {
@@ -1311,4 +1311,24 @@ html.kttt-modal-open, body.kttt-modal-open { overflow: hidden !important; oversc
 }
 @media (prefers-reduced-motion:reduce) {
   #board-canvas-wrap, .board-tool, #board-room button { transition:none!important; }
+}
+
+.board-pseudo-fullscreen {
+  position:fixed!important;
+  inset:0!important;
+  z-index:9999!important;
+  width:100vw!important;
+  height:100dvh!important;
+  max-width:none!important;
+  border-radius:0!important;
+  background:#fff;
+  overflow:hidden!important;
+}
+.board-pseudo-fullscreen .board-room-grid { height:calc(100dvh - 72px); min-height:0!important; }
+.board-pseudo-fullscreen .board-stage-scroll { max-height:none!important; height:100%; }
+.board-body-fullscreen { overflow:hidden!important; }
+@media (max-width:1023px) {
+  .board-pseudo-fullscreen .board-room-header { top:0; }
+  .board-pseudo-fullscreen .board-tools-panel { top:62px; }
+  .board-pseudo-fullscreen .board-stage-scroll { max-height:calc(100dvh - 168px)!important; min-height:0!important; }
 }
