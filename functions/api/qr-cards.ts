@@ -54,6 +54,29 @@ function normalizeLevel(value: any) {
   if (v === 'VD' || v.includes('VẬN')) return 'VD';
   return v || 'NB';
 }
+function lessonKey(value: any) {
+  return norm(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd').replace(/Đ/g, 'D')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+function lessonAllowed(questionLesson: any, selectedLessons: any[]) {
+  const qRaw = norm(questionLesson);
+  if (!qRaw) return false;
+  const qLower = qRaw.toLocaleLowerCase('vi').replace(/\s+/g, ' ').trim();
+  const qKey = lessonKey(qRaw);
+  return selectedLessons.some(item => {
+    const aRaw = norm(item);
+    if (!aRaw) return false;
+    return qRaw === aRaw ||
+      qLower === aRaw.toLocaleLowerCase('vi').replace(/\s+/g, ' ').trim() ||
+      qKey === lessonKey(aRaw);
+  });
+}
 function safeOptions(value: any) {
   if (value && typeof value === 'object') return value;
   if (typeof value === 'string') {
@@ -379,15 +402,20 @@ export const onRequestPost: PagesFunction<Env> = async (context: any) => {
       await assertClassScope(db, user, admin, className, donvi);
       const exam = await examForActor(db, user, admin, examId);
       const selectedLessons = asArray(exam.selected_lessons).map(norm).filter(Boolean);
-      const creatorId = norm(exam.creator_id);
-      const params: any[] = [creatorId];
-      let sql = 'SELECT id,type,level,lesson,content,options,answer,image,creator_id FROM questions WHERE creator_id = ?';
-      if (selectedLessons.length) {
-        sql += ` AND lesson IN (${selectedLessons.map(() => '?').join(',')})`;
-        params.push(...selectedLessons);
+      if (!selectedLessons.length) {
+        throw Object.assign(new Error('Đề thi chưa chọn Bài học/Chuyên đề. Hãy cấu hình ít nhất một bài trước khi tạo phiên quét.'), { status: 400, code: 'EXAM_LESSONS_REQUIRED' });
       }
-      const qRows: any = await db.prepare(sql).bind(...params).all();
-      const picked = selectQuestionsForExam(qRows.results || [], exam);
+      const creatorId = norm(exam.creator_id);
+      const qRows: any = await db.prepare(`
+        SELECT id,type,level,lesson,content,options,answer,image,creator_id
+        FROM questions
+        WHERE creator_id = ?
+           OR creator_id IN (SELECT user_id FROM accounts WHERE id = ?)
+           OR creator_id IN (SELECT id FROM accounts WHERE user_id = ?)
+      `).bind(creatorId, creatorId, creatorId).all();
+      const validRows = (qRows.results || [])
+        .filter((q: any) => norm(q.id) && norm(q.content) && lessonAllowed(q.lesson, selectedLessons));
+      const picked = selectQuestionsForExam(validRows, exam);
       const students = await classStudents(db, className, donvi);
       if (!students.length) throw Object.assign(new Error('Lớp chưa có hồ sơ học sinh hoạt động.'), { status: 400, code: 'EMPTY_CLASS' });
       const missingCards = students.filter((s: any) => !s.card_token || Number(s.card_active ?? 1) === 0);
