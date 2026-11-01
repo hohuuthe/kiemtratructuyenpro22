@@ -3988,7 +3988,11 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
         window.switchTab = switchTab;
         let requestedTab = '';
         function switchTab(tabName) {
+            const previousTab = requestedTab;
             requestedTab = tabName;
+            if (previousTab === 'qr-cards' && tabName !== 'qr-cards' && typeof window.__resetQrAnswerCards === 'function') {
+                window.__resetQrAnswerCards();
+            }
             console.log('switchTab called:',tabName);
             const protectedTabs=['questions','exams','exam-editor','accounts','users','settings','ranking','teacher-assignment','boards','qr-cards'];
             const adminTabs=['accounts','settings','teacher-assignment'];
