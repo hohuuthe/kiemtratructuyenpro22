@@ -207,3 +207,36 @@ test('mobile QR interface is scanner-only and avoids loading desktop setup data'
   assert.match(css,/qr-mobile-scanner-mode \.qr-student-panel[\s\S]*display:none!important/);
   assert.match(css,/qr-mobile-scanner-mode \.qr-camera-wrap[\s\S]*height:calc\(100dvh - 255px\)/);
 });
+
+
+test('phone persistence uses durable ACK queue and presenter shows only server-saved answers',()=>{
+  const ui=fs.readFileSync('src/qr-answer-cards-ui.js','utf8');
+  const html=fs.readFileSync('public/components/tab-qr-cards.html','utf8');
+  const css=fs.readFileSync('src/style.css','utf8');
+  const api=fs.readFileSync('functions/api/qr-cards.ts','utf8');
+
+  // Phone queue: keep records until server ACK, serialize requests, persist across reload.
+  assert.match(ui,/if\(saveInFlight\)[\s\S]*setTimeout\(queueFlush,120\)/);
+  assert.match(ui,/function persistPendingQueue/);
+  assert.match(ui,/function restorePendingQueue/);
+  assert.match(ui,/localStorage\.setItem\(pendingQueueStorageKey\(session\.id\)/);
+  assert.match(ui,/pendingRecords\.delete\(key\);[\s\S]*acceptedKeys\.add|acceptedKeys\.add\(key\);[\s\S]*pendingRecords\.delete\(key\)/);
+  assert.match(ui,/reason==='STATE_CHANGED'/);
+  assert.match(ui,/Mất kết nối · giữ .* đáp án và tự gửi lại/);
+  assert.doesNotMatch(ui,/for\(const item of batchEntries\)if\(item\.key\)pendingRecords\.delete/);
+
+  // Server gives explicit per-student ACK with identity and persisted timestamp.
+  assert.match(api,/card_token: cardToken/);
+  assert.match(api,/saved_at: now/);
+  assert.match(api,/SELECT r\.user_id,r\.card_token,r\.answer,r\.stable_hits,r\.updated_at/);
+
+  // Presenter monitor is adjacent to the question and renders only state.responses (persisted rows).
+  assert.match(html,/qr-presenter-live-grid/);
+  assert.match(html,/id="qr-presenter-response-list"/);
+  assert.match(html,/Máy quét đã ghi nhận/);
+  assert.match(ui,/function renderPresenterMonitor/);
+  assert.match(ui,/const responses=Array\.isArray\(state\?\.responses\)\?state\.responses:\[\]/);
+  assert.match(ui,/qr-presenter-answer-pill/);
+  assert.match(css,/\.qr-presenter-live-grid[\s\S]*grid-template-columns/);
+  assert.match(css,/\.qr-presenter-response-list[\s\S]*overflow-y:auto/);
+});
