@@ -318,3 +318,24 @@ test('QR hot paths use bounded bulk SQL instead of per-student database loops',(
   assert.match(finalizeBlock,/for \(const student of students\)[\s\S]*resultDrafts\.push/);
   assert.match(finalizeBlock,/const resultValuesSql = persistedDrafts\.map/);
 });
+
+
+test('QR presenter mirrors student exam styling and shows full class roster with green recorded rows',()=>{
+  const html=fs.readFileSync('public/components/tab-qr-cards.html','utf8');
+  const ui=fs.readFileSync('src/qr-answer-cards-ui.js','utf8');
+  const css=fs.readFileSync('src/style.css','utf8');
+
+  assert.match(html,/qr-presenter-question-accent/);
+  assert.match(html,/Hiển thị toàn bộ học sinh; hàng xanh là đã lưu trên server/);
+  assert.match(html,/id="qr-presenter-response-count"[^>]*>0\/0 đã ghi nhận/);
+
+  assert.match(ui,/const students=Array\.isArray\(session\?\.students\)\?session\.students:\[\]/);
+  assert.match(ui,/const responseByUser=new Map\(responses\.map/);
+  assert.match(ui,/is-recorded/);
+  assert.match(ui,/is-waiting/);
+  assert.match(ui,/responses\.length\+'\/'\+rows\.length\+' đã ghi nhận'/);
+
+  assert.match(css,/\.qr-presenter-question-accent/);
+  assert.match(css,/\.qr-presenter-response-row\.is-recorded[\s\S]*background:#dcfce7/);
+  assert.match(css,/\.qr-presenter-option:nth-child\(2\)/);
+});
