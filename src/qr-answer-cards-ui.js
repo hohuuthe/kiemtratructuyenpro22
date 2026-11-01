@@ -40,6 +40,8 @@ let nativeQrSupported = false;
 let scanCycle = 0;
 let lastFrameDuration = 0;
 let cameraTrack = null;
+let tileCanvas = null;
+let tileCtx = null;
 
 function isMobileScannerViewport(){
   return window.matchMedia?.('(max-width: 767px)')?.matches || window.innerWidth <= 767;
@@ -680,44 +682,51 @@ function mapCropLocation(location,x0,y0,scale){
     bottomLeftCorner:conv(location.bottomLeftCorner)
   };
 }
-function cropImageData(source,x0,y0,w,h,upscale=1){
-  const canvas=document.createElement('canvas');
-  const ctx=canvas.getContext('2d',{willReadFrequently:true});
-  canvas.width=Math.max(1,Math.round(w*upscale));
-  canvas.height=Math.max(1,Math.round(h*upscale));
-  ctx.imageSmoothingEnabled=false;
-  const tmp=document.createElement('canvas');
-  tmp.width=source.width;tmp.height=source.height;
-  const tctx=tmp.getContext('2d',{willReadFrequently:true});
-  tctx.putImageData(source,0,0);
-  ctx.drawImage(tmp,x0,y0,w,h,0,0,canvas.width,canvas.height);
-  return ctx.getImageData(0,0,canvas.width,canvas.height);
+function ensureTileCanvas(width,height){
+  if(!tileCanvas){
+    tileCanvas=document.createElement('canvas');
+    tileCtx=tileCanvas.getContext('2d',{willReadFrequently:true});
+  }
+  if(tileCanvas.width!==width)tileCanvas.width=width;
+  if(tileCanvas.height!==height)tileCanvas.height=height;
+  tileCtx.imageSmoothingEnabled=false;
 }
-function decodeJsQrTiles(imageData,maxCodes=32){
+function cropCanvasImageData(sourceCanvas,x0,y0,w,h,upscale=1){
+  const tw=Math.max(1,Math.round(w*upscale));
+  const th=Math.max(1,Math.round(h*upscale));
+  ensureTileCanvas(tw,th);
+  tileCtx.clearRect(0,0,tw,th);
+  tileCtx.drawImage(sourceCanvas,x0,y0,w,h,0,0,tw,th);
+  return tileCtx.getImageData(0,0,tw,th);
+}
+function decodeJsQrTiles(sourceCanvas,imageData,maxCodes=32){
   const all=[];
-  const full=decodeMultiple(imageData,Math.min(20,maxCodes));
+  const full=decodeMultiple(imageData,Math.min(16,maxCodes));
   all.push(...full);
   if(all.length>=maxCodes)return dedupeDetections(all).slice(0,maxCodes);
 
   const cols=imageData.width>=1200?3:2;
   const rows=imageData.height>=700?3:2;
-  const overlap=.18;
+  const overlap=.20;
   const tileW=imageData.width/cols;
   const tileH=imageData.height/rows;
-  for(let ry=0;ry<rows&&all.length<maxCodes;ry++){
-    for(let cx=0;cx<cols&&all.length<maxCodes;cx++){
-      const x0=Math.max(0,Math.floor(cx*tileW-tileW*overlap/2));
-      const y0=Math.max(0,Math.floor(ry*tileH-tileH*overlap/2));
-      const x1=Math.min(imageData.width,Math.ceil((cx+1)*tileW+tileW*overlap/2));
-      const y1=Math.min(imageData.height,Math.ceil((ry+1)*tileH+tileH*overlap/2));
-      const w=x1-x0,h=y1-y0;
-      // Upscale tiles so distant QR modules occupy more decoder pixels.
-      const upscale=imageData.width>=1400?1.8:1.45;
-      const tile=cropImageData(imageData,x0,y0,w,h,upscale);
-      const found=decodeMultiple(tile,6);
-      for(const d of found){
-        all.push({...d,location:mapCropLocation(d.location,x0,y0,upscale)});
-      }
+  const total=cols*rows;
+  // Process a rotating subset each frame. This preserves coverage while keeping UI responsive.
+  const perFrame=nativeQrSupported?3:Math.min(total,6);
+  const offset=(scanCycle*perFrame)%total;
+  for(let n=0;n<perFrame&&all.length<maxCodes;n++){
+    const idx=(offset+n)%total;
+    const ry=Math.floor(idx/cols),cx=idx%cols;
+    const x0=Math.max(0,Math.floor(cx*tileW-tileW*overlap/2));
+    const y0=Math.max(0,Math.floor(ry*tileH-tileH*overlap/2));
+    const x1=Math.min(imageData.width,Math.ceil((cx+1)*tileW+tileW*overlap/2));
+    const y1=Math.min(imageData.height,Math.ceil((ry+1)*tileH+tileH*overlap/2));
+    const w=x1-x0,h=y1-y0;
+    const upscale=imageData.width>=1400?1.8:1.45;
+    const tile=cropCanvasImageData(sourceCanvas,x0,y0,w,h,upscale);
+    const found=decodeMultiple(tile,6);
+    for(const d of found){
+      all.push({...d,location:mapCropLocation(d.location,x0,y0,upscale)});
     }
   }
   return dedupeDetections(all).slice(0,maxCodes);
@@ -864,7 +873,7 @@ async function scanFrame() {
       offctx.imageSmoothingEnabled=false;
       offctx.drawImage(video,0,0,w,h);
       const image=offctx.getImageData(0,0,w,h);
-      const js=decodeJsQrTiles(image,40);
+      const js=decodeJsQrTiles(offscreen,image,40);
       // Map jsQR coordinates to original video coordinate space so overlay remains correct.
       const inv=1/scale;
       const mapped=js.map(d=>({
@@ -1077,9 +1086,13 @@ function fitOverlay(sourceW, sourceH) {
   const ctx = canvas.getContext('2d');
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, cssW, cssH);
-  const scale = Math.min(cssW / sourceW, cssH / sourceH);
-  const drawnW = sourceW * scale, drawnH = sourceH * scale;
-  return { ctx, scale, ox: (cssW - drawnW) / 2, oy: (cssH - drawnH) / 2, cssW, cssH };
+  const video=$('qr-card-video');
+  const objectFit=video?getComputedStyle(video).objectFit:'contain';
+  const scale=objectFit==='cover'
+    ? Math.max(cssW/sourceW,cssH/sourceH)
+    : Math.min(cssW/sourceW,cssH/sourceH);
+  const drawnW=sourceW*scale,drawnH=sourceH*scale;
+  return {ctx,scale,ox:(cssW-drawnW)/2,oy:(cssH-drawnH)/2,cssW,cssH};
 }
 function drawOverlay(detections, sourceW, sourceH) {
   const fit = fitOverlay(sourceW, sourceH);
