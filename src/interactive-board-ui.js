@@ -414,7 +414,7 @@ async function switchPage(pageId){
  try{
    manualExit=false;
    if(ws)try{ws.onclose=null;ws.close(1000,'switch page')}catch{}
-   ws=null;objects.clear();remoteStrokes.clear();drawing=null;dragState=null;scheduleRender();
+   ws=null;objects.clear();remoteStrokes.clear();drawing=null;dragState=null;selectedObjectId='';syncSelectionButtons();scheduleRender();
    const allowed=Array.isArray(room.allowed_page_ids)&&room.allowed_page_ids.includes(String(pageId));
    if(allowed&&Date.now()<roomTokenExpiresAt){
      currentPageId=String(pageId);undoStack=[];redoStack=[];renderPageControls();connectSocket(currentPageId);return;
