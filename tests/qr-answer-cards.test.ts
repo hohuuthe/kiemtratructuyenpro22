@@ -143,7 +143,7 @@ test('final hardening serializes scan writes with lock and avoids hot-path schem
 
   // Row-level SHARE lock linearizes answer write vs presenter lock/update.
   assert.match(api,/FROM qr_answer_sessions[\s\S]*collection_state='collecting'[\s\S]*current_question_id=\?[\s\S]*FOR SHARE/);
-  assert.match(api,/INSERT INTO qr_answer_responses[\s\S]*FROM active_session/);
+  assert.match(api,/INSERT INTO qr_answer_responses[\s\S]*JOIN active_session/);
   assert.match(api,/DELETE FROM qr_answer_responses r[\s\S]*USING active_session/);
 
   // Finalize only wins if the same locked revision is still current.
