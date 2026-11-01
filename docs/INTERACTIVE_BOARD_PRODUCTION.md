@@ -138,3 +138,10 @@ Không xóa Durable Object namespace khi rollback vì dữ liệu bảng realtim
 - Production evidence before release: Neon Production session `AXMCSP` persisted a real response and incremented `response_revision` to 1.
 - Verification: PR #96 `release:qr-cards:check` passed before merge.
 - Production trigger: this commit is pushed to `main` for Cloudflare Pages Git integration.
+
+## QR long-range hybrid scanner release 2026-11-01
+
+- Source commit: `ea1e08ff8634642d9cb15fa848dd0bf9112acad0`
+- Scope: native multi-QR BarcodeDetector, high-resolution tiled jsQR fallback, adaptive scan cadence, camera resolution fallback, compact V2 QR payload, legacy V1 compatibility.
+- Verification: PR #97 `release:qr-cards:check` passed before merge.
+- Production trigger: this commit is pushed to `main` for Cloudflare Pages Git integration.
