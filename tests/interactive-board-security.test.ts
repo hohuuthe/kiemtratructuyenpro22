@@ -335,21 +335,37 @@ test('board metadata edits preserve a temporary realtime classroom lock',()=>{
 });
 
 
-test('smart board tab is VIP-only for teachers and admin bypasses VIP',()=>{
+test('smart board tab is open to logged users while creation is VIP-only',()=>{
   const html=fs.readFileSync('index.html','utf8');
+  const tab=fs.readFileSync('public/components/tab-boards.html','utf8');
   const main=fs.readFileSync('src/main.js','utf8');
+  const ui=fs.readFileSync('src/interactive-board-ui.js','utf8');
   const api=fs.readFileSync('functions/api/boards.ts','utf8');
   const join=fs.readFileSync('functions/api/board/join.ts','utf8');
   const pages=fs.readFileSync('functions/api/board/pages.ts','utf8');
 
-  assert.match(html,/data-sidebar-tab="boards"[\s\S]*VIP/);
-  assert.match(main,/function canUseInteractiveBoardVip/);
-  assert.match(main,/function showInteractiveBoardVipRequiredModal/);
-  assert.match(main,/Bảng tương tác thông minh[\s\S]*0935 078 895/);
-  assert.match(main,/tabName === 'boards'[\s\S]*!canUseInteractiveBoardVip\(\)/);
-  assert.match(main,/tabName === 'boards' && currentUser && canUseInteractiveBoardVip\(\)/);
-  assert.match(main,/tab === 'boards'[\s\S]*visible = isTeacher \|\| isAdmin/);
+  assert.match(tab,/id="boards-new"[\s\S]*VIP/);
+  assert.doesNotMatch(html,/data-sidebar-tab="boards"[\s\S]{0,500}>VIP<\/span>/);
+  assert.match(main,/tab === 'boards'[\s\S]*visible = Boolean\(currentUser\)/);
+  assert.match(main,/tabName === 'boards' && currentUser/);
+  assert.doesNotMatch(main,/showInteractiveBoardVipRequiredModal/);
+  assert.doesNotMatch(main,/tabName === 'boards'[\s\S]{0,300}!canUseInteractiveBoardVip/);
+  assert.match(ui,/canCreateBoard=isAdmin\|\|\(isTeacher&&Boolean\(actor\?\.is_vip\)\)/);
+  assert.match(ui,/boards-new'[\s\S]*!manage/);
+  assert.match(ui,/b\.can_manage\?'<button data-board-edit/);
+  assert.match(ui,/Bạn chỉ được sửa bảng do mình tạo/);
+  assert.match(api,/canCreateInteractiveBoard/);
   assert.match(api,/VIP_REQUIRED/);
-  assert.match(join,/canUseInteractiveBoardVip/);
-  assert.match(pages,/canUseInteractiveBoardVip/);
+  assert.doesNotMatch(join,/canUseInteractiveBoardVip/);
+  assert.doesNotMatch(pages,/canUseInteractiveBoardVip/);
+});
+
+test('admin manages all boards while teachers manage only their own',()=>{
+  const api=fs.readFileSync('functions/api/boards.ts','utf8');
+  const common=fs.readFileSync('functions/api/board/common.ts','utf8');
+  assert.match(api,/const where = isAdmin \? '' : 'WHERE b\.creator_id IN \(\?, \?\)'/);
+  assert.match(api,/boardListProjection\(row, canManageBoard\(user, row, isAdmin\)\)/);
+  assert.match(common,/if \(isAdmin\) return true/);
+  assert.match(common,/ids\.has\(String\(board\.creator_id \|\| ''\)\)/);
+  assert.match(common,/can_manage: Boolean\(owner\)/);
 });
