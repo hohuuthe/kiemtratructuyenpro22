@@ -83,3 +83,49 @@ test('app integrates QR scanner as lazy teacher/admin tab and resets camera on n
   assert.match(main,/import\('\.\/qr-answer-cards-ui\.js'\)/);
   assert.match(main,/__resetQrAnswerCards/);
 });
+
+
+test('presenter and scanner share authoritative server question state',()=>{
+  const api=fs.readFileSync('functions/api/qr-cards.ts','utf8');
+  const ui=fs.readFileSync('src/qr-answer-cards-ui.js','utf8');
+  const html=fs.readFileSync('public/components/tab-qr-cards.html','utf8');
+  const schema=fs.readFileSync('database-schema.sql','utf8');
+
+  assert.match(schema,/join_code TEXT NOT NULL DEFAULT ''/);
+  assert.match(schema,/current_question_index INTEGER NOT NULL DEFAULT 0/);
+  assert.match(schema,/current_question_id TEXT NOT NULL DEFAULT ''/);
+  assert.match(schema,/collection_state TEXT NOT NULL DEFAULT 'collecting'/);
+  assert.match(schema,/state_revision INTEGER NOT NULL DEFAULT 1/);
+  assert.match(schema,/response_revision INTEGER NOT NULL DEFAULT 0/);
+
+  assert.match(api,/action === 'session-state'/);
+  assert.match(api,/action === 'active-sessions'/);
+  assert.match(api,/action === 'set-current-question'/);
+  assert.match(api,/action === 'set-collection-state'/);
+  assert.match(api,/LOCK_BEFORE_NAVIGATE/);
+  assert.match(api,/LOCK_BEFORE_FINALIZE/);
+  assert.match(api,/questionId !== currentQuestionId/);
+  assert.match(api,/QUESTION_LOCKED/);
+  assert.match(api,/response_revision=response_revision\+1/);
+
+  assert.match(html,/id="qr-card-presenter-workspace"/);
+  assert.match(html,/id="qr-card-open-scanner"/);
+  assert.match(html,/id="qr-presenter-lock"/);
+  assert.match(html,/id="qr-scanner-collection-state"/);
+
+  assert.match(ui,/async function syncSessionState/);
+  assert.match(ui,/async function enterPresenter/);
+  assert.match(ui,/async function enterScanner/);
+  assert.match(ui,/async function presenterNavigate/);
+  assert.match(ui,/deviceRole!=='scanner'/);
+  assert.match(ui,/collectionState!=='collecting'/);
+  assert.match(ui,/setTimeout\(flushPending, 80\)/);
+});
+
+test('presenter locks before navigation and finalization to avoid stale phone frames',()=>{
+  const ui=fs.readFileSync('src/qr-answer-cards-ui.js','utf8');
+  assert.match(ui,/if\(collectionState!=='locked'\)await setCollectionState\('locked'\)/);
+  assert.match(ui,/if\(deviceRole==='presenter'&&collectionState!=='locked'\)await setCollectionState\('locked'\)/);
+  assert.match(ui,/expectedRevision:stateRevision/);
+  assert.match(ui,/stateRevision=Number\(result\.data\?\.state_revision/);
+});
