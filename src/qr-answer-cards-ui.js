@@ -431,19 +431,29 @@ function renderPresenterMonitor(state){
   const badge=$('qr-presenter-response-count');
   if(!root)return;
   const responses=Array.isArray(state?.responses)?state.responses:[];
-  if(badge)badge.textContent=responses.length+' đã lưu';
-  if(!responses.length){
-    root.innerHTML='<div class="qr-presenter-monitor-empty">Chưa có đáp án nào được lưu từ máy quét.</div>';
+  const students=Array.isArray(session?.students)?session.students:[];
+  const responseByUser=new Map(responses.map(row=>[String(row.user_id||''),row]));
+  const rows=students.length?students:responses.map(row=>({
+    id:row.user_id,
+    full_name:row.full_name,
+    student_code:row.student_code
+  }));
+  if(badge)badge.textContent=responses.length+'/'+rows.length+' đã ghi nhận';
+  if(!rows.length){
+    root.innerHTML='<div class="qr-presenter-monitor-empty">Không có học sinh trong danh sách lớp.</div>';
     return;
   }
-  root.innerHTML=responses.map(row=>{
-    const answer=String(row.answer||'').toUpperCase();
-    const time=row.updated_at?new Date(row.updated_at).toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit',second:'2-digit'}):'';
-    return '<div class="qr-presenter-response-row">'+
-      '<div class="min-w-0 flex-1"><p class="font-bold truncate">'+esc(row.full_name||row.student_code||row.user_id)+'</p>'+
-      '<p class="text-[11px] text-slate-400 truncate">'+esc(row.student_code||'')+(time?' · '+esc(time):'')+'</p></div>'+
-      '<span class="qr-presenter-answer-pill">'+esc(answer||'?')+'</span>'+
-      '<span class="qr-presenter-saved-pill">Đã lưu</span></div>';
+  root.innerHTML=rows.map((student,index)=>{
+    const row=responseByUser.get(String(student.id||student.user_id||''));
+    const recorded=Boolean(row);
+    const answer=String(row?.answer||'').toUpperCase();
+    const time=row?.updated_at?new Date(row.updated_at).toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit',second:'2-digit'}):'';
+    return '<div class="qr-presenter-response-row '+(recorded?'is-recorded':'is-waiting')+'">'+
+      '<span class="qr-presenter-student-order">'+String(index+1)+'</span>'+
+      '<div class="min-w-0 flex-1"><p class="font-bold truncate text-slate-900">'+esc(student.full_name||row?.full_name||student.student_code||student.id||'Học sinh')+'</p>'+
+      '<p class="text-[11px] '+(recorded?'text-emerald-700':'text-slate-500')+' truncate">'+esc(student.student_code||row?.student_code||'')+(time?' · '+esc(time):'')+'</p></div>'+
+      (recorded?'<span class="qr-presenter-answer-pill">'+esc(answer||'?')+'</span>':'<span class="qr-presenter-waiting-pill">Chưa nhận</span>')+
+      '<span class="'+(recorded?'qr-presenter-saved-pill':'qr-presenter-status-waiting')+'">'+(recorded?'Đã ghi nhận':'Chờ quét')+'</span></div>';
   }).join('');
 }
 function renderPresenterState(state){
@@ -455,7 +465,7 @@ function renderPresenterState(state){
   const stateEl=$('qr-presenter-state');
   if(stateEl){
     stateEl.textContent=locked?'🔒 Đã khóa câu':'● Đang nhận đáp án';
-    stateEl.className='rounded-full border px-3 py-1.5 text-sm font-black '+(locked?'bg-amber-400/20 border-amber-300/30 text-amber-200':'bg-emerald-500/20 border-emerald-400/30 text-emerald-200');
+    stateEl.className='rounded-full border px-3 py-1.5 text-sm font-black '+(locked?'bg-amber-100 border-amber-200 text-amber-800':'bg-emerald-100 border-emerald-200 text-emerald-800');
   }
   const answeredCount=Number(state.answered_count||0);
   const studentCount=Number(session.students?.length||0);
