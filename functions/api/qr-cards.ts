@@ -647,7 +647,12 @@ export const onRequestPost: PagesFunction<Env> = async (context: any) => {
         `).bind(index,qid,now,sessionId).run();
       }
       if (Number(result?.meta?.changes || 0) !== 1) return reply({ error: 'Phiên vừa được thay đổi ở thiết bị khác. Hãy đồng bộ lại.', code: 'SESSION_REVISION_CONFLICT' }, 409);
-      return reply({ data: { current_question_index: index, current_question_id: qid, collection_state: 'collecting' }, error: null });
+      return reply({ data: {
+        current_question_index: index,
+        current_question_id: qid,
+        collection_state: 'collecting',
+        state_revision: expectedRevision > 0 ? expectedRevision + 1 : Number(session.state_revision || 0) + 1
+      }, error: null });
     }
 
     if (action === 'set-collection-state') {
@@ -673,7 +678,10 @@ export const onRequestPost: PagesFunction<Env> = async (context: any) => {
         `).bind(nextState,now,sessionId).run();
       }
       if (Number(result?.meta?.changes || 0) !== 1) return reply({ error: 'Phiên vừa được thay đổi ở thiết bị khác. Hãy đồng bộ lại.', code: 'SESSION_REVISION_CONFLICT' }, 409);
-      return reply({ data: { collection_state: nextState }, error: null });
+      return reply({ data: {
+        collection_state: nextState,
+        state_revision: expectedRevision > 0 ? expectedRevision + 1 : Number(session.state_revision || 0) + 1
+      }, error: null });
     }
 
     if (action === 'record-batch') {
@@ -750,6 +758,9 @@ export const onRequestPost: PagesFunction<Env> = async (context: any) => {
       const session: any = await db.prepare('SELECT * FROM qr_answer_sessions WHERE id = ? LIMIT 1').bind(sessionId).first();
       if (!session) return reply({ error: 'Không tìm thấy phiên quét.' }, 404);
       if (!admin && !actorIds(user).includes(norm(session.creator_id))) return reply({ error: 'Không có quyền kết thúc phiên quét này.' }, 403);
+      if (session.status === 'open' && norm(session.collection_state || 'collecting') !== 'locked') {
+        return reply({ error: 'Hãy khóa câu hiện tại trước khi kết thúc và chấm điểm.', code: 'LOCK_BEFORE_FINALIZE' }, 409);
+      }
       if (session.status === 'finalized') {
         const existingRows: any = await db.prepare(`
           SELECT l.result_id,r.user_id,r.student_name,r.score,r.correct_count
