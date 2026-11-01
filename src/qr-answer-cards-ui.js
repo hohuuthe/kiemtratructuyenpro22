@@ -162,18 +162,19 @@ async function ensureRosterForPrint() {
   if (!roster.length || roster.some(s => !s.card_token)) throw Error('Không thể tạo đủ thẻ cho lớp.');
 }
 async function printCards() {
+  const popup = window.open('', '_blank');
+  if (!popup) return feedback('Trình duyệt đang chặn cửa sổ in. Hãy cho phép popup rồi thử lại.', true);
+  try { popup.opener = null; } catch {}
   try {
+    popup.document.write('<!doctype html><html lang="vi"><head><meta charset="utf-8"><title>Đang tạo thẻ...</title></head><body style="font-family:Arial,sans-serif;padding:30px;text-align:center"><h2>Đang tạo bộ thẻ QR…</h2><p>Không đóng cửa sổ này.</p></body></html>');
+    popup.document.close();
     await ensureRosterForPrint();
     const { className, donvi } = selectedClass();
-    const prepared = [];
-    for (const s of roster) {
+    const prepared = await Promise.all(roster.map(async s => {
       const payload = buildQrCardPayload(s.card_token);
       const dataUrl = await QRCode.toDataURL(payload, { errorCorrectionLevel: 'H', margin: 2, width: 440, color: { dark: '#000000', light: '#ffffff' } });
-      prepared.push({ ...s, dataUrl });
-    }
-    const popup = window.open('', '_blank');
-    if (!popup) throw Error('Trình duyệt đang chặn cửa sổ in. Hãy cho phép popup rồi thử lại.');
-    try { popup.opener = null; } catch {}
+      return { ...s, dataUrl };
+    }));
     const cards = prepared.map(s => `
       <article class="card">
         <div class="answer top">A</div><div class="answer right">B</div><div class="answer bottom">C</div><div class="answer left">D</div>
@@ -195,6 +196,7 @@ async function printCards() {
       </style></head><body><div class="sheet"><div class="toolbar"><button onclick="window.print()">🖨️ In thẻ A4</button></div>${cards}</div></body></html>`);
     popup.document.close();
   } catch (e) {
+    try { popup.close(); } catch {}
     feedback(e.message, true);
   }
 }
@@ -422,7 +424,7 @@ function queueFlush() {
 }
 async function flushPending() {
   if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
-  if (!session || !pendingRecords.size) return;
+  if (!session || !pendingRecords.size) return true;
   const records = [...pendingRecords.values()].slice(0, 40);
   const keys = records.map(r => String(r.questionId) + '|' + String(session.students.find(s => s.card_token === r.cardToken)?.id || ''));
   for (const r of records) {
@@ -431,6 +433,8 @@ async function flushPending() {
   }
   try {
     await api('POST', '/api/qr-cards', { action: 'record-batch', sessionId: session.id, records });
+    if (pendingRecords.size) queueFlush();
+    return true;
   } catch (e) {
     for (const r of records) {
       const student = session.students.find(s => String(s.card_token) === String(r.cardToken));
@@ -438,7 +442,18 @@ async function flushPending() {
     }
     feedback('Kết nối lưu đáp án tạm thời không ổn định. Hệ thống sẽ thử lại.', true);
     setTimeout(queueFlush, 900);
+    return false;
   }
+}
+async function flushAllPending() {
+  if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+  let rounds = 0;
+  while (pendingRecords.size && rounds < 10) {
+    rounds++;
+    const ok = await flushPending();
+    if (!ok) throw Error('Chưa thể đồng bộ hết đáp án lên máy chủ. Hãy kiểm tra mạng rồi chốt lại.');
+  }
+  if (pendingRecords.size) throw Error('Còn đáp án chưa được đồng bộ; chưa thể chốt kết quả an toàn.');
 }
 function fitOverlay(sourceW, sourceH) {
   const wrap = $('qr-card-camera-wrap');
@@ -512,11 +527,11 @@ async function clearStudentAnswer(userId) {
 }
 async function finalize() {
   if (!session) return;
-  await flushPending();
   const run = async () => {
     const btn = $('qr-card-finalize');
     if (btn) btn.disabled = true;
     try {
+      await flushAllPending();
       const result = await api('POST', '/api/qr-cards', { action: 'finalize', sessionId: session.id, confirmFinalize: true });
       stopCamera();
       feedback('Đã lưu ' + (result.data?.total_results || 0) + ' bài quét vào Quản lý kết quả.');
