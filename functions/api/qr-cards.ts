@@ -481,7 +481,7 @@ export const onRequestGet: PagesFunction<Env> = async (context: any) => {
         return reply({ data: { unchanged: true, version, status: session.status }, error: null });
       }
       const responseRows: any = currentQuestionId ? await db.prepare(`
-        SELECT r.user_id,r.answer,r.stable_hits,r.updated_at,u.full_name,
+        SELECT r.user_id,r.card_token,r.answer,r.stable_hits,r.updated_at,u.full_name,
           COALESCE((SELECT a.username FROM accounts a WHERE a.user_id=u.id OR a.id=u.id ORDER BY CASE WHEN a.user_id=u.id THEN 0 ELSE 1 END LIMIT 1),u.id) AS student_code
         FROM qr_answer_responses r
         JOIN users u ON u.id=r.user_id
@@ -751,7 +751,14 @@ export const onRequestPost: PagesFunction<Env> = async (context: any) => {
             card_token=excluded.card_token,answer=excluded.answer,stable_hits=excluded.stable_hits,updated_at=excluded.updated_at
         `).bind(sessionId, questionId, sessionId, questionId, student.id, cardToken, answer, stableHits, now).run();
         if (Number(write?.meta?.changes || 0) === 1) {
-          accepted.push({ user_id: student.id, full_name: student.full_name, answer, question_id: questionId });
+          accepted.push({
+            user_id: student.id,
+            full_name: student.full_name,
+            answer,
+            question_id: questionId,
+            card_token: cardToken,
+            saved_at: now
+          });
         } else {
           rejected.push({ user_id: student.id, full_name: student.full_name, answer, question_id: questionId, reason: 'STATE_CHANGED' });
         }

@@ -75,8 +75,25 @@
           </div>
         </div>
 
-        <div id="qr-presenter-question-content" class="mt-5 text-2xl sm:text-3xl lg:text-4xl font-black leading-snug"></div>
-        <div id="qr-presenter-options" class="mt-5 grid gap-3 sm:grid-cols-2"></div>
+        <div class="qr-presenter-live-grid mt-5">
+          <div class="qr-presenter-question-pane min-w-0">
+            <div id="qr-presenter-question-content" class="text-2xl sm:text-3xl lg:text-4xl font-black leading-snug"></div>
+            <div id="qr-presenter-options" class="mt-5 grid gap-3 sm:grid-cols-2"></div>
+          </div>
+
+          <aside class="qr-presenter-monitor-panel min-w-0 rounded-2xl border border-white/10 bg-white/5 p-3 sm:p-4">
+            <div class="flex items-center justify-between gap-2">
+              <div>
+                <p class="font-black text-white">Máy quét đã ghi nhận</p>
+                <p class="text-xs text-slate-400">Chỉ hiển thị đáp án đã lưu trên server</p>
+              </div>
+              <span id="qr-presenter-response-count" class="rounded-full bg-emerald-500/20 text-emerald-200 border border-emerald-400/30 px-2.5 py-1 text-xs font-black">0 đã lưu</span>
+            </div>
+            <div id="qr-presenter-response-list" class="qr-presenter-response-list mt-3">
+              <div class="qr-presenter-monitor-empty">Chưa có đáp án nào được lưu từ máy quét.</div>
+            </div>
+          </aside>
+        </div>
 
         <div id="qr-presenter-after-lock" class="hidden mt-5 rounded-2xl border border-white/10 bg-white/5 p-4">
           <div class="flex flex-wrap items-center justify-between gap-2">

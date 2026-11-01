@@ -25,6 +25,7 @@ let lastDetections = [];
 let pendingVisualAnswers = new Map();
 let lastSaveError = '';
 let saveInFlight = false;
+let retryCounts = new Map();
 let activeSessions = [];
 let deviceRole = '';
 let syncTimer = null;
@@ -121,6 +122,8 @@ function applyRemoteState(state){
     tracking.clear();
     pendingRecords.clear();
     pendingVisualAnswers.clear();
+    retryCounts.clear();
+    clearPersistedPendingQueue();
     setPhoneSaveState(collectionState==='locked'?'locked':'idle');
   }
   const q=state.current_question||currentQuestion();
@@ -393,6 +396,8 @@ async function enterScanner(data){
   lastSyncVersion='';
   renderQuestion();
   renderScannerHeader();
+  restorePendingQueue();
+  if(pendingRecords.size){setPhoneSaveState('pending','Khôi phục '+pendingRecords.size+' đáp án chưa ACK');queueFlush();}
   await syncSessionState();
   $('qr-card-scan-workspace')?.scrollIntoView({behavior:'smooth',block:'start'});
 }
@@ -414,6 +419,26 @@ function renderPresenterQuestion(q,index,total){
     '<div class="qr-presenter-option"><span>'+key+'</span><div>'+rich(optionText(q?.options,key))+'</div></div>'
   ).join('');
 }
+function renderPresenterMonitor(state){
+  const root=$('qr-presenter-response-list');
+  const badge=$('qr-presenter-response-count');
+  if(!root)return;
+  const responses=Array.isArray(state?.responses)?state.responses:[];
+  if(badge)badge.textContent=responses.length+' đã lưu';
+  if(!responses.length){
+    root.innerHTML='<div class="qr-presenter-monitor-empty">Chưa có đáp án nào được lưu từ máy quét.</div>';
+    return;
+  }
+  root.innerHTML=responses.map(row=>{
+    const answer=String(row.answer||'').toUpperCase();
+    const time=row.updated_at?new Date(row.updated_at).toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit',second:'2-digit'}):'';
+    return '<div class="qr-presenter-response-row">'+
+      '<div class="min-w-0 flex-1"><p class="font-bold truncate">'+esc(row.full_name||row.student_code||row.user_id)+'</p>'+
+      '<p class="text-[11px] text-slate-400 truncate">'+esc(row.student_code||'')+(time?' · '+esc(time):'')+'</p></div>'+
+      '<span class="qr-presenter-answer-pill">'+esc(answer||'?')+'</span>'+
+      '<span class="qr-presenter-saved-pill">Đã lưu</span></div>';
+  }).join('');
+}
 function renderPresenterState(state){
   if(!session)return;
   renderPresenterBase();
@@ -434,6 +459,7 @@ function renderPresenterState(state){
   $('qr-presenter-after-lock')?.classList.toggle('hidden',!locked);
   if($('qr-presenter-missing-count'))$('qr-presenter-missing-count').textContent=String(Math.max(0,studentCount-answeredCount))+' học sinh chưa trả lời';
   for(const k of ['A','B','C','D']){const el=$('qr-presenter-count-'+k.toLowerCase());if(el)el.textContent=String(state.counts?.[k]||0);}
+  renderPresenterMonitor(state);
 }
 function renderScannerState(state){
   if(!session)return;
@@ -487,6 +513,40 @@ function answersForQuestion(questionId) {
   return questionAnswers.get(String(questionId));
 }
 function pendingAnswerKey(questionId,userId){return String(questionId)+'|'+String(userId);}
+function pendingQueueStorageKey(sessionId){
+  const base='qr_pending_ack_'+String(sessionId||'');
+  return window.tenantStorageKey ? window.tenantStorageKey(base) : base;
+}
+function persistPendingQueue(){
+  if(!session?.id)return;
+  try{
+    const payload=[...pendingRecords.entries()].map(([key,record])=>({key,record,retry:retryCounts.get(key)||0}));
+    localStorage.setItem(pendingQueueStorageKey(session.id),JSON.stringify(payload));
+  }catch{}
+}
+function restorePendingQueue(){
+  if(!session?.id)return;
+  try{
+    const raw=localStorage.getItem(pendingQueueStorageKey(session.id));
+    const list=JSON.parse(raw||'[]');
+    if(!Array.isArray(list))return;
+    const currentId=String(session.current_question_id||currentQuestion()?.id||'');
+    for(const item of list){
+      const record=item?.record;
+      if(!record||String(record.questionId)!==currentId)continue;
+      const student=session.students?.find(st=>String(st.card_token)===String(record.cardToken));
+      if(!student)continue;
+      const key=pendingAnswerKey(record.questionId,student.id);
+      pendingRecords.set(key,record);
+      pendingVisualAnswers.set(key,{answer:String(record.answer||'').toUpperCase(),at:Date.now()});
+      retryCounts.set(key,Number(item?.retry||0));
+    }
+  }catch{}
+}
+function clearPersistedPendingQueue(){
+  if(!session?.id)return;
+  try{localStorage.removeItem(pendingQueueStorageKey(session.id));}catch{}
+}
 function setPhoneSaveState(state,message=''){
   const el=$('qr-card-save-status');if(!el)return;
   const styles={
@@ -708,6 +768,7 @@ function acceptStableAnswer(questionId, student, answer, hits) {
     answer,
     stableHits: Math.max(3, hits)
   });
+  persistPendingQueue();
   setPhoneSaveState('pending','Đã nhận '+String(student.full_name||student.student_code)+' · '+answer+' · chờ lưu');
   renderStudentStatus();
   queueFlush();
@@ -718,66 +779,113 @@ function queueFlush() {
 }
 async function flushPending() {
   if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+  if(saveInFlight){
+    setTimeout(queueFlush,120);
+    return false;
+  }
   if (!session || !pendingRecords.size) return true;
   if(collectionState!=='collecting'){
-    pendingRecords.clear();pendingVisualAnswers.clear();setPhoneSaveState('locked');return false;
+    setPhoneSaveState('locked','Câu đã khóa · hàng đợi tạm dừng');
+    return false;
   }
-  const records = [...pendingRecords.values()].slice(0, 40);
-  const entries=records.map(r=>{
-    const student=session.students.find(s=>String(s.card_token)===String(r.cardToken));
-    return {r,student,key:student?pendingAnswerKey(r.questionId,student.id):''};
-  });
-  for(const item of entries)if(item.key)pendingRecords.delete(item.key);
-  saveInFlight=true;lastSaveError='';setPhoneSaveState('saving');
-  try {
-    const result=await api('POST', '/api/qr-cards', { action: 'record-batch', sessionId: session.id, records });
+
+  const batchEntries=[...pendingRecords.entries()].slice(0,40);
+  const records=batchEntries.map(([,record])=>record);
+  saveInFlight=true;lastSaveError='';setPhoneSaveState('saving','Đang lưu '+records.length+' đáp án lên server…');
+
+  try{
+    const result=await api('POST','/api/qr-cards',{action:'record-batch',sessionId:session.id,records});
     const acceptedRows=result.data?.accepted||[];
-    const acceptedKeys=new Set(acceptedRows.map(row=>pendingAnswerKey(row.question_id,row.user_id)));
+    const rejectedRows=result.data?.rejected||[];
+    const acceptedKeys=new Set();
+
     for(const row of acceptedRows){
-      answersForQuestion(row.question_id).set(String(row.user_id),String(row.answer||'').toUpperCase());
-      pendingVisualAnswers.delete(pendingAnswerKey(row.question_id,row.user_id));
+      const student=session.students.find(st=>String(st.id)===String(row.user_id) || String(st.card_token)===String(row.card_token||''));
+      if(!student)continue;
+      const key=pendingAnswerKey(row.question_id,student.id);
+      acceptedKeys.add(key);
+      pendingRecords.delete(key);
+      retryCounts.delete(key);
+      pendingVisualAnswers.delete(key);
+      answersForQuestion(row.question_id).set(String(student.id),String(row.answer||'').toUpperCase());
     }
-    const rejected=[];
-    for(const item of entries){
-      if(!item.student||!item.key)continue;
-      if(!acceptedKeys.has(item.key)){
-        pendingVisualAnswers.delete(item.key);
-        rejected.push(item);
+
+    const rejectedByKey=new Map();
+    for(const row of rejectedRows){
+      let key='';
+      if(row.user_id) key=pendingAnswerKey(row.question_id,row.user_id);
+      else if(row.card_token){
+        const student=session.students.find(st=>String(st.card_token)===String(row.card_token));
+        if(student)key=pendingAnswerKey(row.question_id,student.id);
       }
+      if(key)rejectedByKey.set(key,row);
     }
+
+    for(const [key,record] of batchEntries){
+      if(acceptedKeys.has(key))continue;
+      const rejection=rejectedByKey.get(key);
+      const reason=String(rejection?.reason||'NO_ACK');
+      if(reason==='STALE_QUESTION'||reason==='INVALID_RECORD'||reason==='CARD_NOT_IN_CLASS'){
+        pendingRecords.delete(key);
+        retryCounts.delete(key);
+        pendingVisualAnswers.delete(key);
+        continue;
+      }
+      if(reason==='STATE_CHANGED'){
+        const tries=(retryCounts.get(key)||0)+1;
+        retryCounts.set(key,tries);
+        if(tries>=8){
+          pendingRecords.delete(key);
+          pendingVisualAnswers.delete(key);
+          retryCounts.delete(key);
+        }
+        continue;
+      }
+      // NO_ACK / unknown rejection: keep record in queue for retry.
+      retryCounts.set(key,(retryCounts.get(key)||0)+1);
+    }
+
+    persistPendingQueue();
     tracking.clear();
     lastSyncVersion='';
-    updateStats();renderStudentStatus();
+    updateStats();
+    renderStudentStatus();
+
     if(acceptedRows.length){
-      setPhoneSaveState('saved','Đã lưu '+acceptedRows.length+' đáp án lên server');
+      setPhoneSaveState('saved','Đã lưu '+acceptedRows.length+' đáp án · còn '+pendingRecords.size+' chờ');
       scheduleSync(0);
     }
-    if(rejected.length){
-      const serverState=String(result.data?.collection_state||collectionState);
-      if(serverState==='locked'){
-        collectionState='locked';setPhoneSaveState('locked','Câu vừa được khóa · đáp án muộn không được lưu');
-      }else{
-        setPhoneSaveState('error','Có '+rejected.length+' đáp án chưa được server chấp nhận');
-      }
+
+    const serverState=String(result.data?.collection_state||collectionState);
+    if(serverState==='locked'){
+      collectionState='locked';
+      setPhoneSaveState('locked','Câu vừa khóa · '+pendingRecords.size+' đáp án chưa ACK');
       scheduleSync(0);
+      return pendingRecords.size===0;
     }
-    if (pendingRecords.size) queueFlush();
-    return rejected.length===0;
-  } catch (e) {
+
+    if(pendingRecords.size){
+      setPhoneSaveState('pending','Còn '+pendingRecords.size+' đáp án đang chờ ACK');
+      setTimeout(queueFlush,220);
+      return false;
+    }
+
+    setPhoneSaveState('saved','Tất cả đáp án đã lưu & đồng bộ');
+    return true;
+  }catch(e){
     lastSaveError=String(e?.message||'Không thể lưu đáp án.');
     if(e?.code==='QUESTION_LOCKED'||e?.code==='STALE_QUESTION'){
-      pendingRecords.clear();pendingVisualAnswers.clear();tracking.clear();lastSyncVersion='';
-      setPhoneSaveState('locked','Câu đã khóa · không ghi đáp án muộn');
-      scheduleSync(0);return false;
+      collectionState='locked';
+      setPhoneSaveState('locked','Câu đã khóa · dừng gửi đáp án mới');
+      lastSyncVersion='';scheduleSync(0);
+      return false;
     }
-    for (const item of entries) {
-      if (item.student&&item.key) pendingRecords.set(item.key, item.r);
-    }
-    setPhoneSaveState('error','Lỗi lưu server · đang thử lại');
-    feedback('Chưa lưu được đáp án lên server. Hệ thống đang tự thử lại.', true);
-    setTimeout(queueFlush, 700);
+    persistPendingQueue();
+    setPhoneSaveState('error','Mất kết nối · giữ '+pendingRecords.size+' đáp án và tự gửi lại');
+    feedback('Chưa lưu được đáp án. Hàng đợi vẫn được giữ và sẽ tự gửi lại.',true);
+    setTimeout(queueFlush,650);
     return false;
-  } finally {
+  }finally{
     saveInFlight=false;
   }
 }
@@ -858,6 +966,9 @@ async function clearStudentAnswer(userId) {
     const map = answersForQuestion(q.id);
     map.delete(uid);
     pendingRecords.delete(String(q.id) + '|' + uid);
+    retryCounts.delete(String(q.id) + '|' + uid);
+    pendingVisualAnswers.delete(String(q.id) + '|' + uid);
+    persistPendingQueue();
     tracking.clear();
     updateStats();
     renderStudentStatus();
@@ -877,6 +988,7 @@ async function finalize() {
       stopCamera();
       feedback('Đã lưu ' + (result.data?.total_results || 0) + ' bài quét vào Quản lý kết quả.');
       window.showToast?.('Đã chốt kết quả quét thẻ thành công.', 'success');
+      clearPersistedPendingQueue();
       stopSyncLoop();
       session = null;deviceRole='';
       $('qr-card-scan-workspace')?.classList.add('hidden');
@@ -917,7 +1029,7 @@ function bind() {
     const btn = e.target.closest?.('[data-qr-clear]');
     if (btn) void clearStudentAnswer(btn.dataset.qrClear);
   });
-  $('qr-card-leave-scanner')?.addEventListener('click',()=>{stopCamera();stopSyncLoop();deviceRole='';session=null;$('qr-card-scan-workspace')?.classList.add('hidden');$('qr-card-session-picker')?.classList.remove('hidden');loadActiveSessions();});
+  $('qr-card-leave-scanner')?.addEventListener('click',()=>{stopCamera();stopSyncLoop();clearPersistedPendingQueue();deviceRole='';session=null;$('qr-card-scan-workspace')?.classList.add('hidden');$('qr-card-session-picker')?.classList.remove('hidden');loadActiveSessions();});
   $('qr-presenter-lock')?.addEventListener('click',async()=>{try{await setCollectionState(collectionState==='locked'?'collecting':'locked');}catch(e){feedback(e.message,true);lastSyncVersion='';scheduleSync(0);}});
   $('qr-presenter-prev')?.addEventListener('click',()=>presenterNavigate(-1));
   $('qr-presenter-next')?.addEventListener('click',()=>presenterNavigate(1));
@@ -955,5 +1067,8 @@ export function resetQrAnswerCards() {
   questionAnswers.clear();
   pendingRecords.clear();
   pendingVisualAnswers.clear();
+  retryCounts.clear();
+  lastSaveError='';
+  saveInFlight=false;
   showMissingOnly = false;
 }
