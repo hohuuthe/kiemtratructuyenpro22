@@ -431,8 +431,10 @@ function renderScannerState(state){
   if(collectionState==='locked'){
     if($('qr-card-camera-status'))$('qr-card-camera-status').textContent='CÂU ĐÃ KHÓA · camera chỉ xem, không lưu';
     setPhoneSaveState('locked','Câu đã khóa trên máy tính · không lưu đáp án');
-  }else if(!pendingRecords.size&&!saveInFlight){
-    setPhoneSaveState('idle');
+  }else{
+    if(stream&&$('qr-card-camera-status'))$('qr-card-camera-status').textContent=
+      cameraFacing==='environment'?'Camera sau · đang quét & lưu':'Camera trước · đang quét & lưu';
+    if(!pendingRecords.size&&!saveInFlight)setPhoneSaveState('idle');
   }
   renderStudentStatus();
 }
