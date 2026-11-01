@@ -233,6 +233,7 @@ CREATE TABLE IF NOT EXISTS qr_answer_result_links (
 CREATE INDEX IF NOT EXISTS idx_qr_cards_user ON qr_answer_cards(user_id);
 CREATE INDEX IF NOT EXISTS idx_qr_sessions_creator ON qr_answer_sessions(creator_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_qr_sessions_join_code ON qr_answer_sessions(join_code);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_qr_sessions_join_code_unique ON qr_answer_sessions(join_code) WHERE join_code <> '';
 CREATE INDEX IF NOT EXISTS idx_qr_responses_session ON qr_answer_responses(session_id, question_id);
 
 -- 6. BẢNG TOKEN BẢO MẬT BÀI THI CHỐNG NỘP TRÙNG (_submitted_exam_tokens)
