@@ -1,19 +1,20 @@
 <div id="tab-qr-cards" class="tab-content w-full">
 <section class="qr-answer-shell bg-white rounded-2xl shadow-xl overflow-hidden">
+  <div id="qr-mobile-mode-banner" class="qr-mobile-only hidden px-3 py-2 bg-slate-950 text-white text-xs font-bold">📱 Chế độ máy quét thẻ</div>
   <header class="qr-answer-head p-4 sm:p-5 border-b bg-gradient-to-r from-slate-950 via-indigo-950 to-slate-900 text-white">
     <div class="flex flex-wrap items-start justify-between gap-3">
       <div>
         <h2 class="text-xl sm:text-2xl font-black">📷 Quét thẻ trả lời A/B/C/D</h2>
-        <p class="mt-1 text-xs sm:text-sm text-slate-300">Quét QR theo hướng thẻ để nhận đúng học sinh và đáp án. Video chỉ xử lý trên thiết bị, không tải liên tục lên máy chủ.</p>
+        <p class="qr-desktop-only mt-1 text-xs sm:text-sm text-slate-300">Quét QR theo hướng thẻ để nhận đúng học sinh và đáp án. Video chỉ xử lý trên thiết bị, không tải liên tục lên máy chủ.</p>
       </div>
-      <button id="qr-card-stop-camera" type="button" class="hidden min-h-11 rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-bold hover:bg-white/20">Dừng camera</button>
+      <button id="qr-card-stop-camera" type="button" class="qr-desktop-only hidden min-h-11 rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-bold hover:bg-white/20">Dừng camera</button>
     </div>
   </header>
 
-  <div class="p-3 sm:p-5 space-y-4">
+  <div class="qr-answer-body p-3 sm:p-5 space-y-4">
     <div id="qr-card-feedback" class="hidden rounded-xl p-3 text-sm" role="status"></div>
 
-    <section id="qr-card-setup" class="grid gap-3 lg:grid-cols-[1fr_1fr_auto] items-end">
+    <section id="qr-card-setup" class="qr-desktop-only grid gap-3 lg:grid-cols-[1fr_1fr_auto] items-end">
       <label class="block text-sm font-bold text-slate-700">Lớp
         <select id="qr-card-class" class="mt-1 w-full min-h-11 rounded-xl border border-slate-300 bg-white px-3 text-sm"></select>
       </label>
@@ -30,8 +31,8 @@
     <section id="qr-card-session-picker" class="rounded-2xl border border-cyan-200 bg-cyan-50 p-3 sm:p-4">
       <div class="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <p class="font-black text-cyan-950">Đồng bộ máy tính ↔ điện thoại</p>
-          <p class="text-xs text-cyan-800 mt-1">Máy tính tạo/trình chiếu phiên; điện thoại chọn đúng phiên đang mở rồi bật camera để quét.</p>
+          <p class="font-black text-cyan-950"><span class="qr-desktop-only">Đồng bộ máy tính ↔ điện thoại</span><span class="qr-mobile-only hidden">Chọn phiên đang mở</span></p>
+          <p class="qr-desktop-only text-xs text-cyan-800 mt-1">Máy tính tạo/trình chiếu phiên; điện thoại chọn đúng phiên đang mở rồi bật camera để quét.</p>
         </div>
         <button id="qr-card-refresh-sessions" type="button" class="min-h-10 rounded-xl border border-cyan-300 bg-white px-3 py-2 text-sm font-bold text-cyan-900">↻ Làm mới phiên</button>
       </div>
@@ -39,12 +40,12 @@
         <select id="qr-card-active-session" class="min-h-11 rounded-xl border border-cyan-300 bg-white px-3 text-sm">
           <option value="">-- Chưa có phiên đang mở --</option>
         </select>
-        <button id="qr-card-open-presenter" type="button" class="min-h-11 rounded-xl bg-slate-900 text-white px-4 py-2 text-sm font-black">🖥️ Mở trình chiếu</button>
+        <button id="qr-card-open-presenter" type="button" class="qr-desktop-only min-h-11 rounded-xl bg-slate-900 text-white px-4 py-2 text-sm font-black">🖥️ Mở trình chiếu</button>
         <button id="qr-card-open-scanner" type="button" class="min-h-11 rounded-xl bg-indigo-700 text-white px-4 py-2 text-sm font-black">📱 Kết nối máy quét</button>
       </div>
     </section>
 
-    <section id="qr-card-class-summary" class="rounded-xl border border-slate-200 bg-slate-50 p-3">
+    <section id="qr-card-class-summary" class="qr-desktop-only rounded-xl border border-slate-200 bg-slate-50 p-3">
       <div class="flex flex-wrap items-center justify-between gap-2">
         <p class="font-black text-sm text-slate-800">Danh sách thẻ của lớp</p>
         <span id="qr-card-roster-count" class="rounded-full bg-white border px-2.5 py-1 text-xs font-bold text-slate-600">0 học sinh</span>
@@ -54,7 +55,7 @@
       </div>
     </section>
 
-    <section id="qr-card-presenter-workspace" class="hidden qr-presenter-workspace rounded-2xl bg-slate-950 text-white overflow-hidden">
+    <section id="qr-card-presenter-workspace" class="qr-desktop-only hidden qr-presenter-workspace rounded-2xl bg-slate-950 text-white overflow-hidden">
       <div class="p-3 sm:p-4 border-b border-white/10 flex flex-wrap items-center gap-2">
         <div class="min-w-0 flex-1">
           <p id="qr-presenter-exam" class="text-sm sm:text-base font-black truncate">Đề kiểm tra</p>
@@ -117,8 +118,8 @@
           <span id="qr-card-question-counter" class="rounded-full bg-indigo-700 text-white px-3 py-1 text-xs font-black">Câu 1/1</span>
           <span id="qr-card-progress" class="text-sm font-black text-indigo-950">Đã nhận 0/0</span>
         </div>
-        <div id="qr-card-question-content" class="mt-3 text-base sm:text-lg font-bold text-slate-900 leading-relaxed"></div>
-        <div id="qr-card-options" class="mt-3 grid gap-2 sm:grid-cols-2"></div>
+        <div id="qr-card-question-content" class="qr-mobile-question-detail mt-3 text-base sm:text-lg font-bold text-slate-900 leading-relaxed"></div>
+        <div id="qr-card-options" class="qr-mobile-question-detail mt-3 grid gap-2 sm:grid-cols-2"></div>
       </div>
 
       <div class="qr-scanner-main-grid grid gap-3 xl:grid-cols-[minmax(0,1fr)_320px]">
@@ -132,7 +133,7 @@
               <span id="qr-card-fps-status" class="rounded-lg bg-black/65 text-white px-2.5 py-1.5 text-xs">0 thẻ</span>
             </div>
           </div>
-          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <div class="qr-answer-stats grid grid-cols-2 sm:grid-cols-4 gap-2">
             <div class="qr-answer-stat"><span>A</span><strong id="qr-card-count-a">0</strong></div>
             <div class="qr-answer-stat"><span>B</span><strong id="qr-card-count-b">0</strong></div>
             <div class="qr-answer-stat"><span>C</span><strong id="qr-card-count-c">0</strong></div>
@@ -141,10 +142,11 @@
           <div class="qr-camera-actions grid grid-cols-2 gap-2">
             <button id="qr-card-open-camera" type="button" class="min-h-12 rounded-xl bg-indigo-700 text-white px-4 py-3 font-black">📷 Mở camera sau</button>
             <button id="qr-card-switch-camera" type="button" class="min-h-12 rounded-xl bg-slate-100 px-4 py-3 font-bold text-slate-800">🔄 Đổi camera</button>
+            <button id="qr-card-stop-camera-mobile" type="button" class="qr-mobile-only hidden min-h-12 rounded-xl bg-rose-100 text-rose-800 px-4 py-3 font-bold">■ Dừng camera</button>
           </div>
         </div>
 
-        <aside class="rounded-2xl border border-slate-200 bg-slate-50 p-3 min-w-0">
+        <aside class="qr-student-panel rounded-2xl border border-slate-200 bg-slate-50 p-3 min-w-0">
           <div class="flex items-center justify-between gap-2">
             <p class="font-black text-slate-800">Học sinh</p>
             <button id="qr-card-show-missing" type="button" class="rounded-lg bg-white border px-2.5 py-1.5 text-xs font-bold">Chưa nhận</button>
