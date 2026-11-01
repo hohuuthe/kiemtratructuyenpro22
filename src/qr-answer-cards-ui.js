@@ -450,8 +450,8 @@ function renderPresenterMonitor(state){
     const time=row?.updated_at?new Date(row.updated_at).toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit',second:'2-digit'}):'';
     return '<div class="qr-presenter-response-row '+(recorded?'is-recorded':'is-waiting')+'">'+
       '<span class="qr-presenter-student-order">'+String(index+1)+'</span>'+
-      '<div class="min-w-0 flex-1"><p class="font-bold truncate text-slate-900">'+esc(student.full_name||row?.full_name||student.student_code||student.id||'Học sinh')+'</p>'+
-      '<p class="text-[11px] '+(recorded?'text-emerald-700':'text-slate-500')+' truncate">'+esc(student.student_code||row?.student_code||'')+(time?' · '+esc(time):'')+'</p></div>'+
+      '<div class="qr-presenter-student-info min-w-0 flex-1"><p class="qr-presenter-student-name font-bold text-slate-900">'+esc(student.full_name||row?.full_name||student.student_code||student.id||'Học sinh')+'</p>'+
+      '<p class="qr-presenter-student-meta text-[11px] '+(recorded?'text-emerald-700':'text-slate-500')+'">'+esc(student.student_code||row?.student_code||'')+(time?' · '+esc(time):'')+'</p></div>'+
       (recorded?'<span class="qr-presenter-answer-pill">'+esc(answer||'?')+'</span>':'<span class="qr-presenter-waiting-pill">Chưa nhận</span>')+
       '<span class="'+(recorded?'qr-presenter-saved-pill':'qr-presenter-status-waiting')+'">'+(recorded?'Đã ghi nhận':'Chờ quét')+'</span></div>';
   }).join('');
