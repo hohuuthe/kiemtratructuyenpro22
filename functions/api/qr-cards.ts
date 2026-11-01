@@ -476,10 +476,15 @@ export const onRequestPost: PagesFunction<Env> = async (context: any) => {
       const session: any = await db.prepare('SELECT * FROM qr_answer_sessions WHERE id = ? LIMIT 1').bind(sessionId).first();
       if (!session) return reply({ error: 'Không tìm thấy phiên quét.' }, 404);
       if (!admin && !actorIds(user).includes(norm(session.creator_id))) return reply({ error: 'Không có quyền kết thúc phiên quét này.' }, 403);
-      if (session.status !== 'open') return reply({ error: 'Phiên quét đã được kết thúc trước đó.' }, 409);
+      if (session.status !== 'open') return reply({ error: 'Phiên quét đang được chốt hoặc đã kết thúc trước đó.' }, 409);
+      const lock = await db.prepare("UPDATE qr_answer_sessions SET status='finalizing' WHERE id=? AND status='open'").bind(sessionId).run();
+      if (Number(lock?.meta?.changes || 0) !== 1) return reply({ error: 'Phiên quét đang được chốt ở yêu cầu khác.' }, 409);
 
       const questions = asArray(session.questions_json);
-      if (!questions.length) return reply({ error: 'Phiên quét không có dữ liệu câu hỏi gốc; không tạo kết quả 0 điểm.' }, 409);
+      if (!questions.length) {
+        await db.prepare("UPDATE qr_answer_sessions SET status='open' WHERE id=? AND status='finalizing'").bind(sessionId).run();
+        return reply({ error: 'Phiên quét không có dữ liệu câu hỏi gốc; không tạo kết quả 0 điểm.' }, 409);
+      }
       const students = await classStudents(db, session.class_name, session.donvi || '');
       const responsesResult: any = await db.prepare('SELECT * FROM qr_answer_responses WHERE session_id=?').bind(sessionId).all();
       const responseRows = responsesResult.results || [];
@@ -489,7 +494,10 @@ export const onRequestPost: PagesFunction<Env> = async (context: any) => {
         if (!byUser.has(uid)) byUser.set(uid, new Map());
         byUser.get(uid)!.set(qid, norm(row.answer).toUpperCase());
       }
-      if (!byUser.size) return reply({ error: 'Chưa có học sinh nào được quét ổn định; không tạo kết quả.' }, 409);
+      if (!byUser.size) {
+        await db.prepare("UPDATE qr_answer_sessions SET status='open' WHERE id=? AND status='finalizing'").bind(sessionId).run();
+        return reply({ error: 'Chưa có học sinh nào được quét ổn định; không tạo kết quả.' }, 409);
+      }
 
       const created: any[] = [];
       const skipped: any[] = [];
@@ -534,8 +542,11 @@ export const onRequestPost: PagesFunction<Env> = async (context: any) => {
         ).run();
         created.push({ result_id: resultId, user_id: student.id, full_name: student.full_name, score: Number(score.toFixed(2)), correct_count: correctCount });
       }
-      if (!created.length) return reply({ error: 'Không có bài quét hợp lệ để lưu kết quả.' }, 409);
-      await db.prepare('UPDATE qr_answer_sessions SET status=\'finalized\',finalized_at=? WHERE id=? AND status=\'open\'').bind(now.toISOString(), sessionId).run();
+      if (!created.length) {
+        await db.prepare("UPDATE qr_answer_sessions SET status='open' WHERE id=? AND status='finalizing'").bind(sessionId).run();
+        return reply({ error: 'Không có bài quét hợp lệ để lưu kết quả.' }, 409);
+      }
+      await db.prepare("UPDATE qr_answer_sessions SET status='finalized',finalized_at=? WHERE id=? AND status='finalizing'").bind(now.toISOString(), sessionId).run();
       return reply({ data: { created, skipped, total_results: created.length }, error: null });
     }
 
