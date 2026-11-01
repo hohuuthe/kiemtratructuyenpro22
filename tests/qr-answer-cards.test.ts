@@ -339,3 +339,17 @@ test('QR presenter mirrors student exam styling and shows full class roster with
   assert.match(css,/\.qr-presenter-response-row\.is-recorded[\s\S]*background:#dcfce7/);
   assert.match(css,/\.qr-presenter-option:nth-child\(2\)/);
 });
+
+
+test('QR presenter fullscreen uses full desktop width and monitor keeps full student names',()=>{
+  const ui=fs.readFileSync('src/qr-answer-cards-ui.js','utf8');
+  const css=fs.readFileSync('src/style.css','utf8');
+
+  assert.match(ui,/qr-presenter-student-name/);
+  assert.doesNotMatch(ui,/qr-presenter-student-name[^\n]*truncate/);
+  assert.match(css,/\.qr-presenter-live-grid \{[\s\S]*grid-template-columns:minmax\(0,1fr\) minmax\(245px,275px\)/);
+  assert.match(css,/\.qr-presenter-student-name \{[\s\S]*white-space:normal/);
+  assert.match(css,/#qr-card-presenter-workspace:fullscreen \.qr-presenter-main \{[\s\S]*padding:8px 10px 10px/);
+  assert.match(css,/#qr-card-presenter-workspace:fullscreen \.qr-presenter-live-grid \{[\s\S]*grid-template-columns:minmax\(0,1fr\) minmax\(230px,255px\)/);
+  assert.doesNotMatch(css,/#qr-card-presenter-workspace:fullscreen \.qr-presenter-main \{[\s\S]{0,250}padding:32px 5vw/);
+});
