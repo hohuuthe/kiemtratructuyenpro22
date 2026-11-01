@@ -778,20 +778,29 @@ function stopCamera() {
   if ($('qr-card-camera-empty')) $('qr-card-camera-empty').classList.remove('hidden');
   clearOverlay();
 }
+async function acquireCameraStream(){
+  const profiles=[
+    {width:{ideal:2560},height:{ideal:1440},frameRate:{ideal:30,max:60}},
+    {width:{ideal:1920},height:{ideal:1080},frameRate:{ideal:30,max:30}},
+    {width:{ideal:1280},height:{ideal:720},frameRate:{ideal:30,max:30}}
+  ];
+  let lastError=null;
+  for(const profile of profiles){
+    try{
+      return await navigator.mediaDevices.getUserMedia({
+        audio:false,
+        video:{facingMode:{ideal:cameraFacing},...profile}
+      });
+    }catch(e){lastError=e;}
+  }
+  throw lastError||new Error('Không thể mở camera.');
+}
 async function openCamera() {
   if(deviceRole!=='scanner'||!session)return feedback('Hãy kết nối điện thoại vào một phiên đang mở trước.',true);
   if (!navigator.mediaDevices?.getUserMedia) return feedback('Trình duyệt này không hỗ trợ camera web.', true);
   stopCamera();
   try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      audio:false,
-      video:{
-        facingMode:{ideal:cameraFacing},
-        width:{ideal:2560,min:1280},
-        height:{ideal:1440,min:720},
-        frameRate:{ideal:30,min:20,max:60}
-      }
-    });
+    stream = await acquireCameraStream();
     cameraTrack=stream.getVideoTracks?.()[0]||null;
     await tuneCameraTrack(cameraTrack);
     await initNativeQrDetector();
