@@ -35,6 +35,11 @@ let stateRevision = 0;
 let collectionState = 'collecting';
 let lastStateAt = 0;
 let mobileScannerMode = false;
+let barcodeDetector = null;
+let nativeQrSupported = false;
+let scanCycle = 0;
+let lastFrameDuration = 0;
+let cameraTrack = null;
 
 function isMobileScannerViewport(){
   return window.matchMedia?.('(max-width: 767px)')?.matches || window.innerWidth <= 767;
@@ -311,7 +316,7 @@ async function printCards() {
     const { className, donvi } = selectedClass();
     const prepared = await Promise.all(roster.map(async s => {
       const payload = buildQrCardPayload(s.card_token);
-      const dataUrl = await QRCode.toDataURL(payload, { errorCorrectionLevel: 'H', margin: 2, width: 440, color: { dark: '#000000', light: '#ffffff' } });
+      const dataUrl = await QRCode.toDataURL(payload, { errorCorrectionLevel: 'M', margin: 4, width: 640, color: { dark: '#000000', light: '#ffffff' } });
       return { ...s, dataUrl };
     }));
     const cards = prepared.map(s => `
@@ -326,7 +331,7 @@ async function printCards() {
       <style>
       @page{size:A4 portrait;margin:8mm}*{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;color:#0f172a}
       .sheet{display:grid;grid-template-columns:1fr 1fr;gap:6mm}.card{height:132mm;border:1.3mm solid #0f172a;border-radius:4mm;position:relative;overflow:hidden;break-inside:avoid;background:#fff}
-      .qr{position:absolute;width:78mm;height:78mm;left:50%;top:53%;transform:translate(-50%,-50%);image-rendering:pixelated}
+      .qr{position:absolute;width:82mm;height:82mm;left:50%;top:54%;transform:translate(-50%,-50%);image-rendering:pixelated}
       .answer{position:absolute;font-size:14mm;font-weight:900;line-height:1;color:#0f172a;z-index:2}.top{top:4mm;left:50%;transform:translateX(-50%)}.bottom{bottom:4mm;left:50%;transform:translateX(-50%) rotate(180deg)}
       .left{left:3mm;top:50%;transform:translateY(-50%) rotate(-90deg)}.right{right:3mm;top:50%;transform:translateY(-50%) rotate(90deg)}
       .identity{position:absolute;top:13mm;left:17mm;right:17mm;text-align:center;z-index:3;background:#fff;padding:1.5mm;border-radius:2mm}.identity strong{display:block;font-size:4.5mm;text-transform:uppercase}.identity span{display:block;font-size:3.2mm;margin-top:.8mm}
@@ -624,6 +629,130 @@ function renderStudentStatus() {
       (answer && collectionState==='collecting' ? '<button type="button" data-qr-clear="' + esc(s.id) + '" class="shrink-0 rounded-lg border px-2 py-1 text-xs text-slate-500">Sửa</button>' : '') + '</div>';
   }).join('');
 }
+async function initNativeQrDetector(){
+  if(barcodeDetector || nativeQrSupported)return nativeQrSupported;
+  try{
+    if(!('BarcodeDetector' in window))return false;
+    const formats=await window.BarcodeDetector.getSupportedFormats?.();
+    if(Array.isArray(formats)&&!formats.includes('qr_code'))return false;
+    barcodeDetector=new window.BarcodeDetector({formats:['qr_code']});
+    nativeQrSupported=true;
+    return true;
+  }catch{
+    barcodeDetector=null;
+    nativeQrSupported=false;
+    return false;
+  }
+}
+function nativePoint(p){return p?{x:Number(p.x)||0,y:Number(p.y)||0}:null;}
+function nativeLocation(code){
+  const pts=Array.isArray(code?.cornerPoints)?code.cornerPoints.map(nativePoint).filter(Boolean):[];
+  if(pts.length<4)return null;
+  return {
+    topLeftCorner:pts[0],
+    topRightCorner:pts[1],
+    bottomRightCorner:pts[2],
+    bottomLeftCorner:pts[3]
+  };
+}
+function dedupeDetections(items){
+  const byToken=new Map();
+  for(const d of items||[]){
+    const token=String(d?.cardToken||'');
+    if(!token)continue;
+    const loc=d.location;
+    const area=loc?Math.abs(
+      (loc.topRightCorner.x-loc.topLeftCorner.x)*(loc.bottomLeftCorner.y-loc.topLeftCorner.y)-
+      (loc.topRightCorner.y-loc.topLeftCorner.y)*(loc.bottomLeftCorner.x-loc.topLeftCorner.x)
+    ):0;
+    const prev=byToken.get(token);
+    if(!prev||area>prev._area)byToken.set(token,{...d,_area:area});
+  }
+  return [...byToken.values()].map(({_area,...d})=>d);
+}
+function mapCropLocation(location,x0,y0,scale){
+  if(!location)return null;
+  const conv=p=>({x:x0+(Number(p.x)||0)/scale,y:y0+(Number(p.y)||0)/scale});
+  return {
+    topLeftCorner:conv(location.topLeftCorner),
+    topRightCorner:conv(location.topRightCorner),
+    bottomRightCorner:conv(location.bottomRightCorner),
+    bottomLeftCorner:conv(location.bottomLeftCorner)
+  };
+}
+function cropImageData(source,x0,y0,w,h,upscale=1){
+  const canvas=document.createElement('canvas');
+  const ctx=canvas.getContext('2d',{willReadFrequently:true});
+  canvas.width=Math.max(1,Math.round(w*upscale));
+  canvas.height=Math.max(1,Math.round(h*upscale));
+  ctx.imageSmoothingEnabled=false;
+  const tmp=document.createElement('canvas');
+  tmp.width=source.width;tmp.height=source.height;
+  const tctx=tmp.getContext('2d',{willReadFrequently:true});
+  tctx.putImageData(source,0,0);
+  ctx.drawImage(tmp,x0,y0,w,h,0,0,canvas.width,canvas.height);
+  return ctx.getImageData(0,0,canvas.width,canvas.height);
+}
+function decodeJsQrTiles(imageData,maxCodes=32){
+  const all=[];
+  const full=decodeMultiple(imageData,Math.min(20,maxCodes));
+  all.push(...full);
+  if(all.length>=maxCodes)return dedupeDetections(all).slice(0,maxCodes);
+
+  const cols=imageData.width>=1200?3:2;
+  const rows=imageData.height>=700?3:2;
+  const overlap=.18;
+  const tileW=imageData.width/cols;
+  const tileH=imageData.height/rows;
+  for(let ry=0;ry<rows&&all.length<maxCodes;ry++){
+    for(let cx=0;cx<cols&&all.length<maxCodes;cx++){
+      const x0=Math.max(0,Math.floor(cx*tileW-tileW*overlap/2));
+      const y0=Math.max(0,Math.floor(ry*tileH-tileH*overlap/2));
+      const x1=Math.min(imageData.width,Math.ceil((cx+1)*tileW+tileW*overlap/2));
+      const y1=Math.min(imageData.height,Math.ceil((ry+1)*tileH+tileH*overlap/2));
+      const w=x1-x0,h=y1-y0;
+      // Upscale tiles so distant QR modules occupy more decoder pixels.
+      const upscale=imageData.width>=1400?1.8:1.45;
+      const tile=cropImageData(imageData,x0,y0,w,h,upscale);
+      const found=decodeMultiple(tile,6);
+      for(const d of found){
+        all.push({...d,location:mapCropLocation(d.location,x0,y0,upscale)});
+      }
+    }
+  }
+  return dedupeDetections(all).slice(0,maxCodes);
+}
+async function decodeNative(video,scaleX=1,scaleY=1){
+  if(!await initNativeQrDetector())return [];
+  try{
+    const codes=await barcodeDetector.detect(video);
+    const out=[];
+    for(const code of codes||[]){
+      const parsed=parseQrCardPayload(code.rawValue||'');
+      const loc=nativeLocation(code);
+      if(!parsed||!loc)continue;
+      const scaled={
+        topLeftCorner:{x:loc.topLeftCorner.x*scaleX,y:loc.topLeftCorner.y*scaleY},
+        topRightCorner:{x:loc.topRightCorner.x*scaleX,y:loc.topRightCorner.y*scaleY},
+        bottomRightCorner:{x:loc.bottomRightCorner.x*scaleX,y:loc.bottomRightCorner.y*scaleY},
+        bottomLeftCorner:{x:loc.bottomLeftCorner.x*scaleX,y:loc.bottomLeftCorner.y*scaleY}
+      };
+      out.push({data:code.rawValue,location:scaled,cardToken:parsed.cardToken});
+    }
+    return dedupeDetections(out);
+  }catch{return [];}
+}
+async function tuneCameraTrack(track){
+  if(!track)return;
+  try{
+    const caps=track.getCapabilities?.()||{};
+    const advanced=[];
+    if(Array.isArray(caps.focusMode)&&caps.focusMode.includes('continuous'))advanced.push({focusMode:'continuous'});
+    if(caps.exposureMode&&Array.isArray(caps.exposureMode)&&caps.exposureMode.includes('continuous'))advanced.push({exposureMode:'continuous'});
+    if(caps.whiteBalanceMode&&Array.isArray(caps.whiteBalanceMode)&&caps.whiteBalanceMode.includes('continuous'))advanced.push({whiteBalanceMode:'continuous'});
+    if(advanced.length)await track.applyConstraints({advanced});
+  }catch{}
+}
 function stopCamera() {
   scanActive = false;
   if (scanTimer) { clearTimeout(scanTimer); scanTimer = null; }
@@ -631,6 +760,7 @@ function stopCamera() {
     for (const track of stream.getTracks()) try { track.stop(); } catch {}
     stream = null;
   }
+  cameraTrack=null;
   const video = $('qr-card-video');
   if (video) video.srcObject = null;
   $('qr-card-stop-camera')?.classList.add('hidden');
@@ -645,14 +775,17 @@ async function openCamera() {
   stopCamera();
   try {
     stream = await navigator.mediaDevices.getUserMedia({
-      audio: false,
-      video: {
-        facingMode: { ideal: cameraFacing },
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
-        frameRate: { ideal: 30, max: 30 }
+      audio:false,
+      video:{
+        facingMode:{ideal:cameraFacing},
+        width:{ideal:2560,min:1280},
+        height:{ideal:1440,min:720},
+        frameRate:{ideal:30,min:20,max:60}
       }
     });
+    cameraTrack=stream.getVideoTracks?.()[0]||null;
+    await tuneCameraTrack(cameraTrack);
+    await initNativeQrDetector();
     const video = $('qr-card-video');
     video.srcObject = stream;
     await video.play();
@@ -669,9 +802,12 @@ async function openCamera() {
     feedback('Không thể mở camera: ' + (e?.message || 'hãy kiểm tra quyền camera.'), true);
   }
 }
-function scheduleScan(delay = 115) {
+function scheduleScan(delay) {
   if (!scanActive) return;
-  scanTimer = setTimeout(scanFrame, delay);
+  const adaptive=Number.isFinite(delay)?delay:
+    nativeQrSupported?Math.max(34,Math.min(75,lastFrameDuration*.65)):
+    Math.max(55,Math.min(130,lastFrameDuration*.8||75));
+  scanTimer=setTimeout(scanFrame,adaptive);
 }
 function ensureOffscreen(width, height) {
   if (!offscreen) {
@@ -706,26 +842,55 @@ function decodeMultiple(imageData, maxCodes = 16) {
 }
 async function scanFrame() {
   if (!scanActive || frameBusy || !session || !currentQuestion()) return scheduleScan();
-  const video = $('qr-card-video');
-  if (!video || video.readyState < 2 || !video.videoWidth) return scheduleScan();
-  frameBusy = true;
-  try {
-    const maxW = 960;
-    const scale = Math.min(1, maxW / video.videoWidth);
-    const w = Math.max(320, Math.round(video.videoWidth * scale));
-    const h = Math.max(180, Math.round(video.videoHeight * scale));
-    ensureOffscreen(w, h);
-    offctx.drawImage(video, 0, 0, w, h);
-    const image = offctx.getImageData(0, 0, w, h);
-    const detections = decodeMultiple(image);
-    lastDetections = detections;
+  const video=$('qr-card-video');
+  if(!video||video.readyState<2||!video.videoWidth)return scheduleScan();
+  frameBusy=true;
+  const started=performance.now();
+  try{
+    scanCycle++;
+    let detections=[];
+
+    // Fast path: browser-native detector can return multiple QR codes in one pass.
+    detections=await decodeNative(video,1,1);
+
+    // Fallback / enrichment pass: high-resolution jsQR full frame + overlapping upscaled tiles.
+    // Run every frame if native found nothing, otherwise every 3rd frame to catch codes native missed.
+    if(!detections.length || scanCycle%3===0){
+      const targetW=nativeQrSupported?1600:1920;
+      const scale=Math.min(1,targetW/video.videoWidth);
+      const w=Math.max(640,Math.round(video.videoWidth*scale));
+      const h=Math.max(360,Math.round(video.videoHeight*scale));
+      ensureOffscreen(w,h);
+      offctx.imageSmoothingEnabled=false;
+      offctx.drawImage(video,0,0,w,h);
+      const image=offctx.getImageData(0,0,w,h);
+      const js=decodeJsQrTiles(image,40);
+      // Map jsQR coordinates to original video coordinate space so overlay remains correct.
+      const inv=1/scale;
+      const mapped=js.map(d=>({
+        ...d,
+        location:{
+          topLeftCorner:{x:d.location.topLeftCorner.x*inv,y:d.location.topLeftCorner.y*inv},
+          topRightCorner:{x:d.location.topRightCorner.x*inv,y:d.location.topRightCorner.y*inv},
+          bottomRightCorner:{x:d.location.bottomRightCorner.x*inv,y:d.location.bottomRightCorner.y*inv},
+          bottomLeftCorner:{x:d.location.bottomLeftCorner.x*inv,y:d.location.bottomLeftCorner.y*inv}
+        }
+      }));
+      detections=dedupeDetections([...detections,...mapped]).slice(0,50);
+    }
+
+    lastDetections=detections;
     processDetections(detections);
-    drawOverlay(detections, w, h);
-    if ($('qr-card-fps-status')) $('qr-card-fps-status').textContent = detections.length + ' thẻ trong khung';
-  } catch (e) {
-    console.warn('QR scan frame error', e);
-  } finally {
-    frameBusy = false;
+    drawOverlay(detections,video.videoWidth,video.videoHeight);
+    if($('qr-card-fps-status')){
+      const engine=nativeQrSupported?'Hybrid':'Multi-region';
+      $('qr-card-fps-status').textContent=detections.length+' thẻ · '+engine;
+    }
+  }catch(e){
+    console.warn('QR scan frame error',e);
+  }finally{
+    lastFrameDuration=Math.max(1,performance.now()-started);
+    frameBusy=false;
     scheduleScan();
   }
 }
@@ -743,11 +908,12 @@ function processDetections(detections) {
     const key = String(q.id) + '|' + String(d.cardToken);
     seen.add(key);
     const prev = tracking.get(key);
-    const same = prev?.answer === orientation.answer && now - Number(prev?.lastSeen || 0) < 900;
+    const same = prev?.answer === orientation.answer && now - Number(prev?.lastSeen || 0) < 1200;
     const hits = same ? Number(prev.hits || 0) + 1 : 1;
     const next = { answer: orientation.answer, hits, lastSeen: now, studentId: String(student.id), cardToken: d.cardToken, location: d.location };
     tracking.set(key, next);
-    if (hits >= 3) acceptStableAnswer(q.id, student, orientation.answer, hits);
+    // Two consistent observations are enough for responsiveness; server still receives stableHits.
+    if (hits >= 2) acceptStableAnswer(q.id, student, orientation.answer, hits);
   }
   for (const [key, value] of tracking) {
     if (!seen.has(key) && now - Number(value.lastSeen || 0) > 1200) tracking.delete(key);
