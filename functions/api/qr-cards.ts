@@ -276,7 +276,20 @@ async function examForActor(db: any, user: any, admin: boolean, examId: string) 
   if (!exam) throw Object.assign(new Error('Không tìm thấy đề thi.'), { status: 404, code: 'EXAM_NOT_FOUND' });
   if (!admin) {
     const ids = actorIds(user);
-    if (!ids.includes(norm(exam.creator_id))) {
+    const creatorId = norm(exam.creator_id);
+    let allowed = ids.includes(creatorId);
+    if (!allowed && ids.length && creatorId) {
+      const placeholders = ids.map(() => '?').join(',');
+      const params = [...ids, creatorId, creatorId];
+      const alias: any = await db.prepare(`
+        SELECT id FROM accounts
+        WHERE (id IN (${placeholders}) OR user_id IN (${placeholders}))
+          AND (id=? OR user_id=?)
+        LIMIT 1
+      `).bind(...ids,...ids,creatorId,creatorId).first();
+      allowed = !!alias;
+    }
+    if (!allowed) {
       throw Object.assign(new Error('Giáo viên chỉ được dùng chức năng quét thẻ với đề thi do mình tạo.'), { status: 403, code: 'EXAM_SCOPE_DENIED' });
     }
   }
