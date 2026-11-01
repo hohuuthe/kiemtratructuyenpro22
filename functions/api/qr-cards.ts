@@ -144,6 +144,15 @@ async function ensureTables(db: any) {
       PRIMARY KEY (session_id, question_id, user_id)
     )
   `).run();
+  await db.prepare(`
+    CREATE TABLE IF NOT EXISTS qr_answer_result_links (
+      session_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      result_id TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (session_id, user_id)
+    )
+  `).run();
   try { await db.prepare('CREATE INDEX IF NOT EXISTS idx_qr_cards_user ON qr_answer_cards(user_id)').run(); } catch {}
   try { await db.prepare('CREATE INDEX IF NOT EXISTS idx_qr_sessions_creator ON qr_answer_sessions(creator_id, created_at DESC)').run(); } catch {}
   try { await db.prepare('CREATE INDEX IF NOT EXISTS idx_qr_responses_session ON qr_answer_responses(session_id, question_id)').run(); } catch {}
@@ -398,6 +407,8 @@ export const onRequestGet: PagesFunction<Env> = async (context: any) => {
 };
 
 export const onRequestPost: PagesFunction<Env> = async (context: any) => {
+  let finalizeLockSessionId = '';
+  let finalizeDb: any = null;
   try {
     const a: any = await auth(context);
     if (a.error) return a.error;
@@ -539,6 +550,8 @@ export const onRequestPost: PagesFunction<Env> = async (context: any) => {
       if (session.status !== 'open') return reply({ error: 'Phiên quét đang được chốt hoặc đã kết thúc trước đó.' }, 409);
       const lock = await db.prepare("UPDATE qr_answer_sessions SET status='finalizing' WHERE id=? AND status='open'").bind(sessionId).run();
       if (Number(lock?.meta?.changes || 0) !== 1) return reply({ error: 'Phiên quét đang được chốt ở yêu cầu khác.' }, 409);
+      finalizeLockSessionId = sessionId;
+      finalizeDb = db;
 
       const questions = asArray(session.questions_json);
       if (!questions.length) {
@@ -590,16 +603,35 @@ export const onRequestPost: PagesFunction<Env> = async (context: any) => {
             captureMethod: 'qr_card'
           };
         });
-        const resultId = crypto.randomUUID();
-        await db.prepare(`
-          INSERT INTO results
-          (id,user_id,student_name,student_class,lop,don_vi,exam_name,exam_id,score,time_taken,correct_count,total_questions,details,loai_thi_sinh,cheat_warning_count,created_at)
-          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?)
-        `).bind(
-          resultId, student.id, norm(student.full_name), norm(student.donvi), norm(student.lop), norm(student.donvi),
-          norm(session.exam_name), norm(session.exam_id), Number(score.toFixed(2)), timeTaken, correctCount, questions.length,
-          JSON.stringify(details), 'Quét thẻ QR', now.toISOString()
-        ).run();
+        let link: any = await db.prepare(
+          'SELECT result_id FROM qr_answer_result_links WHERE session_id=? AND user_id=? LIMIT 1'
+        ).bind(sessionId, student.id).first();
+        let resultId = norm(link?.result_id);
+        if (!resultId) {
+          resultId = crypto.randomUUID();
+          await db.prepare(`
+            INSERT INTO qr_answer_result_links(session_id,user_id,result_id,created_at)
+            VALUES(?,?,?,?)
+            ON CONFLICT(session_id,user_id) DO NOTHING
+          `).bind(sessionId, student.id, resultId, now.toISOString()).run();
+          link = await db.prepare(
+            'SELECT result_id FROM qr_answer_result_links WHERE session_id=? AND user_id=? LIMIT 1'
+          ).bind(sessionId, student.id).first();
+          resultId = norm(link?.result_id || resultId);
+        }
+
+        const existingResult: any = await db.prepare('SELECT id FROM results WHERE id=? LIMIT 1').bind(resultId).first();
+        if (!existingResult) {
+          await db.prepare(`
+            INSERT INTO results
+            (id,user_id,student_name,student_class,lop,don_vi,exam_name,exam_id,score,time_taken,correct_count,total_questions,details,loai_thi_sinh,cheat_warning_count,created_at)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?)
+          `).bind(
+            resultId, student.id, norm(student.full_name), norm(student.donvi), norm(student.lop), norm(student.donvi),
+            norm(session.exam_name), norm(session.exam_id), Number(score.toFixed(2)), timeTaken, correctCount, questions.length,
+            JSON.stringify(details), 'Quét thẻ QR', now.toISOString()
+          ).run();
+        }
         created.push({ result_id: resultId, user_id: student.id, full_name: student.full_name, score: Number(score.toFixed(2)), correct_count: correctCount });
       }
       if (!created.length) {
@@ -607,11 +639,18 @@ export const onRequestPost: PagesFunction<Env> = async (context: any) => {
         return reply({ error: 'Không có bài quét hợp lệ để lưu kết quả.' }, 409);
       }
       await db.prepare("UPDATE qr_answer_sessions SET status='finalized',finalized_at=? WHERE id=? AND status='finalizing'").bind(now.toISOString(), sessionId).run();
+      finalizeLockSessionId = '';
+      finalizeDb = null;
       return reply({ data: { created, skipped, total_results: created.length }, error: null });
     }
 
     return reply({ error: 'Thao tác không hợp lệ.' }, 400);
   } catch (err: any) {
+    if (finalizeLockSessionId && finalizeDb) {
+      try {
+        await finalizeDb.prepare("UPDATE qr_answer_sessions SET status='open' WHERE id=? AND status='finalizing'").bind(finalizeLockSessionId).run();
+      } catch {}
+    }
     console.error('POST /api/qr-cards failed', err);
     return reply({ error: err?.message || 'Không thể xử lý chức năng quét thẻ.', code: err?.code }, err?.status || 500);
   }
