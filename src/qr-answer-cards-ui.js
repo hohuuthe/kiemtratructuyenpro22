@@ -25,6 +25,7 @@ let lastDetections = [];
 let pendingVisualAnswers = new Map();
 let lastSaveError = '';
 let saveInFlight = false;
+let retryCounts = new Map();
 let activeSessions = [];
 let deviceRole = '';
 let syncTimer = null;
@@ -414,6 +415,26 @@ function renderPresenterQuestion(q,index,total){
     '<div class="qr-presenter-option"><span>'+key+'</span><div>'+rich(optionText(q?.options,key))+'</div></div>'
   ).join('');
 }
+function renderPresenterMonitor(state){
+  const root=$('qr-presenter-response-list');
+  const badge=$('qr-presenter-response-count');
+  if(!root)return;
+  const responses=Array.isArray(state?.responses)?state.responses:[];
+  if(badge)badge.textContent=responses.length+' đã lưu';
+  if(!responses.length){
+    root.innerHTML='<div class="qr-presenter-monitor-empty">Chưa có đáp án nào được lưu từ máy quét.</div>';
+    return;
+  }
+  root.innerHTML=responses.map(row=>{
+    const answer=String(row.answer||'').toUpperCase();
+    const time=row.updated_at?new Date(row.updated_at).toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit',second:'2-digit'}):'';
+    return '<div class="qr-presenter-response-row">'+
+      '<div class="min-w-0 flex-1"><p class="font-bold truncate">'+esc(row.full_name||row.student_code||row.user_id)+'</p>'+
+      '<p class="text-[11px] text-slate-400 truncate">'+esc(row.student_code||'')+(time?' · '+esc(time):'')+'</p></div>'+
+      '<span class="qr-presenter-answer-pill">'+esc(answer||'?')+'</span>'+
+      '<span class="qr-presenter-saved-pill">Đã lưu</span></div>';
+  }).join('');
+}
 function renderPresenterState(state){
   if(!session)return;
   renderPresenterBase();
@@ -434,6 +455,7 @@ function renderPresenterState(state){
   $('qr-presenter-after-lock')?.classList.toggle('hidden',!locked);
   if($('qr-presenter-missing-count'))$('qr-presenter-missing-count').textContent=String(Math.max(0,studentCount-answeredCount))+' học sinh chưa trả lời';
   for(const k of ['A','B','C','D']){const el=$('qr-presenter-count-'+k.toLowerCase());if(el)el.textContent=String(state.counts?.[k]||0);}
+  renderPresenterMonitor(state);
 }
 function renderScannerState(state){
   if(!session)return;
@@ -720,64 +742,105 @@ async function flushPending() {
   if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
   if (!session || !pendingRecords.size) return true;
   if(collectionState!=='collecting'){
-    pendingRecords.clear();pendingVisualAnswers.clear();setPhoneSaveState('locked');return false;
+    setPhoneSaveState('locked','Câu đã khóa · hàng đợi tạm dừng');
+    return false;
   }
-  const records = [...pendingRecords.values()].slice(0, 40);
-  const entries=records.map(r=>{
-    const student=session.students.find(s=>String(s.card_token)===String(r.cardToken));
-    return {r,student,key:student?pendingAnswerKey(r.questionId,student.id):''};
-  });
-  for(const item of entries)if(item.key)pendingRecords.delete(item.key);
-  saveInFlight=true;lastSaveError='';setPhoneSaveState('saving');
-  try {
-    const result=await api('POST', '/api/qr-cards', { action: 'record-batch', sessionId: session.id, records });
+
+  const batchEntries=[...pendingRecords.entries()].slice(0,40);
+  const records=batchEntries.map(([,record])=>record);
+  saveInFlight=true;lastSaveError='';setPhoneSaveState('saving','Đang lưu '+records.length+' đáp án lên server…');
+
+  try{
+    const result=await api('POST','/api/qr-cards',{action:'record-batch',sessionId:session.id,records});
     const acceptedRows=result.data?.accepted||[];
-    const acceptedKeys=new Set(acceptedRows.map(row=>pendingAnswerKey(row.question_id,row.user_id)));
+    const rejectedRows=result.data?.rejected||[];
+    const acceptedKeys=new Set();
+
     for(const row of acceptedRows){
-      answersForQuestion(row.question_id).set(String(row.user_id),String(row.answer||'').toUpperCase());
-      pendingVisualAnswers.delete(pendingAnswerKey(row.question_id,row.user_id));
+      const student=session.students.find(st=>String(st.id)===String(row.user_id) || String(st.card_token)===String(row.card_token||''));
+      if(!student)continue;
+      const key=pendingAnswerKey(row.question_id,student.id);
+      acceptedKeys.add(key);
+      pendingRecords.delete(key);
+      retryCounts.delete(key);
+      pendingVisualAnswers.delete(key);
+      answersForQuestion(row.question_id).set(String(student.id),String(row.answer||'').toUpperCase());
     }
-    const rejected=[];
-    for(const item of entries){
-      if(!item.student||!item.key)continue;
-      if(!acceptedKeys.has(item.key)){
-        pendingVisualAnswers.delete(item.key);
-        rejected.push(item);
+
+    const rejectedByKey=new Map();
+    for(const row of rejectedRows){
+      let key='';
+      if(row.user_id) key=pendingAnswerKey(row.question_id,row.user_id);
+      else if(row.card_token){
+        const student=session.students.find(st=>String(st.card_token)===String(row.card_token));
+        if(student)key=pendingAnswerKey(row.question_id,student.id);
       }
+      if(key)rejectedByKey.set(key,row);
     }
+
+    for(const [key,record] of batchEntries){
+      if(acceptedKeys.has(key))continue;
+      const rejection=rejectedByKey.get(key);
+      const reason=String(rejection?.reason||'NO_ACK');
+      if(reason==='STALE_QUESTION'||reason==='INVALID_RECORD'||reason==='CARD_NOT_IN_CLASS'){
+        pendingRecords.delete(key);
+        retryCounts.delete(key);
+        pendingVisualAnswers.delete(key);
+        continue;
+      }
+      if(reason==='STATE_CHANGED'){
+        const tries=(retryCounts.get(key)||0)+1;
+        retryCounts.set(key,tries);
+        if(tries>=8){
+          pendingRecords.delete(key);
+          pendingVisualAnswers.delete(key);
+          retryCounts.delete(key);
+        }
+        continue;
+      }
+      // NO_ACK / unknown rejection: keep record in queue for retry.
+      retryCounts.set(key,(retryCounts.get(key)||0)+1);
+    }
+
     tracking.clear();
     lastSyncVersion='';
-    updateStats();renderStudentStatus();
+    updateStats();
+    renderStudentStatus();
+
     if(acceptedRows.length){
-      setPhoneSaveState('saved','Đã lưu '+acceptedRows.length+' đáp án lên server');
+      setPhoneSaveState('saved','Đã lưu '+acceptedRows.length+' đáp án · còn '+pendingRecords.size+' chờ');
       scheduleSync(0);
     }
-    if(rejected.length){
-      const serverState=String(result.data?.collection_state||collectionState);
-      if(serverState==='locked'){
-        collectionState='locked';setPhoneSaveState('locked','Câu vừa được khóa · đáp án muộn không được lưu');
-      }else{
-        setPhoneSaveState('error','Có '+rejected.length+' đáp án chưa được server chấp nhận');
-      }
+
+    const serverState=String(result.data?.collection_state||collectionState);
+    if(serverState==='locked'){
+      collectionState='locked';
+      setPhoneSaveState('locked','Câu vừa khóa · '+pendingRecords.size+' đáp án chưa ACK');
       scheduleSync(0);
+      return pendingRecords.size===0;
     }
-    if (pendingRecords.size) queueFlush();
-    return rejected.length===0;
-  } catch (e) {
+
+    if(pendingRecords.size){
+      setPhoneSaveState('pending','Còn '+pendingRecords.size+' đáp án đang chờ ACK');
+      setTimeout(queueFlush,220);
+      return false;
+    }
+
+    setPhoneSaveState('saved','Tất cả đáp án đã lưu & đồng bộ');
+    return true;
+  }catch(e){
     lastSaveError=String(e?.message||'Không thể lưu đáp án.');
     if(e?.code==='QUESTION_LOCKED'||e?.code==='STALE_QUESTION'){
-      pendingRecords.clear();pendingVisualAnswers.clear();tracking.clear();lastSyncVersion='';
-      setPhoneSaveState('locked','Câu đã khóa · không ghi đáp án muộn');
-      scheduleSync(0);return false;
+      collectionState='locked';
+      setPhoneSaveState('locked','Câu đã khóa · dừng gửi đáp án mới');
+      lastSyncVersion='';scheduleSync(0);
+      return false;
     }
-    for (const item of entries) {
-      if (item.student&&item.key) pendingRecords.set(item.key, item.r);
-    }
-    setPhoneSaveState('error','Lỗi lưu server · đang thử lại');
-    feedback('Chưa lưu được đáp án lên server. Hệ thống đang tự thử lại.', true);
-    setTimeout(queueFlush, 700);
+    setPhoneSaveState('error','Mất kết nối · giữ '+pendingRecords.size+' đáp án và tự gửi lại');
+    feedback('Chưa lưu được đáp án. Hàng đợi vẫn được giữ và sẽ tự gửi lại.',true);
+    setTimeout(queueFlush,650);
     return false;
-  } finally {
+  }finally{
     saveInFlight=false;
   }
 }
@@ -858,6 +921,8 @@ async function clearStudentAnswer(userId) {
     const map = answersForQuestion(q.id);
     map.delete(uid);
     pendingRecords.delete(String(q.id) + '|' + uid);
+    retryCounts.delete(String(q.id) + '|' + uid);
+    pendingVisualAnswers.delete(String(q.id) + '|' + uid);
     tracking.clear();
     updateStats();
     renderStudentStatus();
