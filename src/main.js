@@ -2247,6 +2247,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             updateSidebarVisibility();
             resetDocumentLinks();
             if (typeof window.__resetInteractiveBoards === 'function') window.__resetInteractiveBoards();
+            if (typeof window.__resetQrAnswerCards === 'function') window.__resetQrAnswerCards();
             window.__documentsTabRequested = false;
             resetRoleHelpCache();
             {
@@ -2447,7 +2448,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 } else if (tab === 'ranking') {
                     // QL Kết quả: Hiển thị cho Giáo viên và Admin (ẩn đối với Học sinh)
                     visible = isTeacher || isAdmin || Boolean(currentUser);
-                } else if (tab === 'questions' || tab === 'exams' || tab === 'exam-editor') {
+                } else if (tab === 'questions' || tab === 'exams' || tab === 'exam-editor' || tab === 'qr-cards') {
                     // QL Câu hỏi, QL Đề thi: Dành cho Giáo viên và Admin
                     visible = isTeacher || isAdmin;
                 } else if (tab === 'users') {
@@ -3989,7 +3990,7 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
         function switchTab(tabName) {
             requestedTab = tabName;
             console.log('switchTab called:',tabName);
-            const protectedTabs=['questions','exams','exam-editor','accounts','users','settings','ranking','teacher-assignment','boards'];
+            const protectedTabs=['questions','exams','exam-editor','accounts','users','settings','ranking','teacher-assignment','boards','qr-cards'];
             const adminTabs=['accounts','settings','teacher-assignment'];
             if(protectedTabs.includes(tabName)&&!(
               isAdminLoggedIn||(isTeacherLoggedIn&&!adminTabs.includes(tabName))||
@@ -4135,6 +4136,19 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
                 }).catch(error => {
                     console.error('Cannot load interactive board module', error);
                     showToast('Không thể tải Bảng tương tác. Vui lòng thử lại.', 'error');
+                });
+            }
+            if (tabName === 'qr-cards' && currentUser) {
+                // Camera/QR là chunk riêng, chỉ tải khi Giáo viên/Admin mở chức năng.
+                const generation = authDataGeneration;
+                void import('./qr-answer-cards-ui.js').then(module => {
+                    if (generation !== authDataGeneration || requestedTab !== 'qr-cards') return;
+                    module.connectQrAnswerCards();
+                    module.initQrAnswerCards(currentUser);
+                    window.__resetQrAnswerCards = module.resetQrAnswerCards;
+                }).catch(error => {
+                    console.error('Cannot load QR answer cards module', error);
+                    showToast('Không thể tải chức năng Quét thẻ trả lời. Vui lòng thử lại.', 'error');
                 });
             }
             if (tabName === 'help') {
