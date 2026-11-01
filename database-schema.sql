@@ -177,6 +177,56 @@ CREATE INDEX IF NOT EXISTS idx_ib_access_status ON interactive_boards(access_mod
 CREATE INDEX IF NOT EXISTS idx_ib_unit_status ON interactive_boards(target_donvi, status, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_ib_pages_board ON interactive_board_pages(board_id, page_no);
 
+-- BẢNG THẺ TRẢ LỜI QR A/B/C/D
+-- QR chỉ chứa card_token vô danh; họ tên/mã học sinh được in trên thẻ và ánh xạ server-side.
+CREATE TABLE IF NOT EXISTS qr_answer_cards (
+    card_token TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL UNIQUE,
+    student_code TEXT NOT NULL DEFAULT '',
+    created_by TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS qr_answer_sessions (
+    id TEXT PRIMARY KEY,
+    creator_id TEXT NOT NULL,
+    exam_id TEXT NOT NULL,
+    exam_name TEXT NOT NULL,
+    class_name TEXT NOT NULL,
+    donvi TEXT NOT NULL DEFAULT '',
+    questions_json TEXT NOT NULL,
+    question_count INTEGER NOT NULL DEFAULT 0,
+    points_41 REAL NOT NULL DEFAULT 1,
+    status TEXT NOT NULL DEFAULT 'open',
+    created_at TEXT NOT NULL,
+    finalized_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS qr_answer_responses (
+    session_id TEXT NOT NULL,
+    question_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    card_token TEXT NOT NULL,
+    answer TEXT NOT NULL CHECK (answer IN ('A','B','C','D')),
+    stable_hits INTEGER NOT NULL DEFAULT 3,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (session_id, question_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS qr_answer_result_links (
+    session_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    result_id TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (session_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_qr_cards_user ON qr_answer_cards(user_id);
+CREATE INDEX IF NOT EXISTS idx_qr_sessions_creator ON qr_answer_sessions(creator_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_qr_responses_session ON qr_answer_responses(session_id, question_id);
+
 -- 6. BẢNG TOKEN BẢO MẬT BÀI THI CHỐNG NỘP TRÙNG (_submitted_exam_tokens)
 CREATE TABLE IF NOT EXISTS _submitted_exam_tokens (
     token_hash TEXT PRIMARY KEY,

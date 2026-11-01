@@ -1,0 +1,33 @@
+name: QR answer cards checks
+
+on:
+  push:
+    branches:
+      - feat/qr-answer-cards-20261101
+  pull_request:
+    paths:
+      - 'functions/api/qr-cards.ts'
+      - 'src/qr-answer-cards-ui.js'
+      - 'src/qr-card-orientation.js'
+      - 'public/components/tab-qr-cards.html'
+      - 'tests/qr-answer-cards.test.ts'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'index.html'
+      - 'src/main.js'
+      - 'src/style.css'
+      - 'database-schema.sql'
+      - '.github/workflows/qr-answer-cards.yml'
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run release:qr-cards:check

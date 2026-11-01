@@ -1332,3 +1332,124 @@ html.kttt-modal-open, body.kttt-modal-open { overflow: hidden !important; oversc
   .board-pseudo-fullscreen .board-tools-panel { top:62px; }
   .board-pseudo-fullscreen .board-stage-scroll { max-height:calc(100dvh - 168px)!important; min-height:0!important; }
 }
+
+
+/* ==========================================================================
+   QR Answer Cards — mobile-first classroom scanner
+   ========================================================================== */
+.qr-answer-shell { min-width:0; }
+.qr-answer-shell button,
+.qr-answer-shell select {
+  -webkit-tap-highlight-color:transparent;
+  touch-action:manipulation;
+}
+.qr-answer-shell button:disabled { opacity:.45; cursor:not-allowed; }
+.qr-camera-wrap {
+  aspect-ratio:16/9;
+  width:100%;
+  min-height:280px;
+  max-height:72vh;
+  background:#020617;
+}
+#qr-card-video {
+  position:absolute;
+  inset:0;
+  width:100%;
+  height:100%;
+  object-fit:contain;
+  background:#000;
+}
+#qr-card-overlay { z-index:10; }
+#qr-card-camera-empty { z-index:5; }
+.qr-answer-stat {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  min-height:54px;
+  border:1px solid #cbd5e1;
+  border-radius:14px;
+  padding:9px 14px;
+  background:#fff;
+}
+.qr-answer-stat span {
+  display:grid;
+  place-items:center;
+  width:34px;
+  height:34px;
+  border-radius:10px;
+  background:#eef2ff;
+  color:#3730a3;
+  font-weight:900;
+}
+.qr-answer-stat strong { font-size:22px; color:#0f172a; }
+#qr-card-student-status { overscroll-behavior:contain; scrollbar-gutter:stable; }
+#qr-card-question-content img,
+#qr-card-options img { max-width:100%; height:auto; }
+#qr-card-question-content .katex-display,
+#qr-card-options .katex-display,
+#qr-card-question-content mjx-container[display=true],
+#qr-card-options mjx-container[display=true] {
+  max-width:100%;
+  overflow-x:auto;
+  overflow-y:hidden;
+}
+@media (max-width:767px) {
+  .qr-answer-shell {
+    border-radius:12px;
+    overflow:visible;
+  }
+  .qr-answer-head {
+    position:sticky;
+    top:0;
+    z-index:55;
+    padding:10px 12px;
+    border-radius:12px 12px 0 0;
+  }
+  .qr-answer-head h2 { font-size:17px; }
+  .qr-answer-head p { font-size:11px; line-height:1.45; }
+  #qr-card-setup {
+    display:flex;
+    flex-direction:column;
+    align-items:stretch;
+  }
+  #qr-card-setup > label,
+  #qr-card-setup > div { width:100%; }
+  #qr-card-setup > div { display:grid; grid-template-columns:1fr 1fr; }
+  #qr-card-start { grid-column:1/-1; }
+  .qr-camera-wrap {
+    aspect-ratio:3/4;
+    min-height:min(68dvh,540px);
+    max-height:70dvh;
+    border-radius:14px;
+  }
+  .qr-scan-question {
+    position:sticky;
+    top:72px;
+    z-index:42;
+    max-height:42dvh;
+    overflow:auto;
+    box-shadow:0 7px 20px rgba(15,23,42,.10);
+  }
+  .qr-scan-footer {
+    position:sticky;
+    bottom:0;
+    z-index:45;
+    margin-left:-12px;
+    margin-right:-12px;
+    padding:9px 12px calc(9px + env(safe-area-inset-bottom));
+    background:rgba(255,255,255,.96);
+    backdrop-filter:blur(10px);
+    box-shadow:0 -8px 20px rgba(15,23,42,.08);
+  }
+  .qr-scan-footer button { flex:1 1 auto; min-height:48px; }
+  #qr-card-finalize { flex-basis:100%; }
+}
+@media (max-width:420px) {
+  .qr-camera-wrap { min-height:62dvh; }
+  .qr-answer-stat { min-height:48px; padding:7px 10px; }
+  .qr-answer-stat strong { font-size:19px; }
+}
+@media (prefers-reduced-motion:reduce) {
+  .qr-answer-shell * { scroll-behavior:auto!important; transition:none!important; }
+}
