@@ -2440,8 +2440,8 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 } else if (tab === 'documents') {
                     visible = true;
                 } else if (tab === 'boards') {
-                    // Tab Bảng tương tác là tính năng VIP cho Giáo viên/Admin; giáo viên thường vẫn thấy tab để nhận hướng dẫn nâng cấp.
-                    visible = isTeacher || isAdmin;
+                    // Bảng tương tác hiển thị cho mọi tài khoản đã đăng nhập; quyền tham gia được kiểm tra theo từng bảng.
+                    visible = Boolean(currentUser);
                 } else if (tab === 'help') {
                     // Trợ giúp: Hiển thị cho tất cả
                     visible = true;
@@ -3992,49 +3992,6 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
             return Boolean(currentUser?.is_vip);
         }
 
-        function canUseInteractiveBoardVip() {
-            if (isAdminLoggedIn) return true;
-            if (!isTeacherLoggedIn) return false;
-            return Boolean(currentUser?.is_vip);
-        }
-
-        function showInteractiveBoardVipRequiredModal() {
-            let modal = document.getElementById('board-vip-required-modal');
-            if (!modal) {
-                modal = document.createElement('div');
-                modal.id = 'board-vip-required-modal';
-                modal.className = 'fixed inset-0 z-[999999] hidden items-center justify-center bg-black/60 backdrop-blur-sm p-4';
-                modal.innerHTML = `
-                    <div class="w-full max-w-md rounded-2xl border border-amber-200 bg-white p-5 shadow-2xl">
-                        <div class="flex items-start gap-3">
-                            <div class="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-amber-100 text-2xl">⭐</div>
-                            <div class="min-w-0 flex-1">
-                                <div class="flex items-center gap-2">
-                                    <h3 class="text-lg font-black text-slate-900">Chức năng dành cho Giáo viên VIP</h3>
-                                    <span class="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-black text-amber-800">VIP</span>
-                                </div>
-                                <p class="mt-2 text-sm leading-6 text-slate-600">
-                                    Bảng tương tác thông minh là chức năng dành cho giáo viên có tài khoản VIP.
-                                    Hãy liên hệ <strong class="text-slate-900">0935 078 895</strong> để nâng cấp tài khoản thành VIP và sử dụng chức năng này.
-                                </p>
-                            </div>
-                        </div>
-                        <div class="mt-5 flex justify-end">
-                            <button type="button" id="board-vip-required-close" class="min-h-11 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-black text-white hover:bg-slate-800">
-                                Đã hiểu
-                            </button>
-                        </div>
-                    </div>`;
-                document.body.appendChild(modal);
-                modal.querySelector('#board-vip-required-close')?.addEventListener('click', () => {
-                    modal.classList.add('hidden');
-                    modal.classList.remove('flex');
-                });
-            }
-            modal.classList.remove('hidden');
-            modal.classList.add('flex');
-        }
-
         function showQrScannerVipRequiredModal() {
             let modal = document.getElementById('qr-vip-required-modal');
             if (!modal) {
@@ -4082,11 +4039,6 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
                 window.__resetQrAnswerCards();
             }
             console.log('switchTab called:',tabName);
-            if (tabName === 'boards' && isTeacherLoggedIn && !isAdminLoggedIn && !canUseInteractiveBoardVip()) {
-                showInteractiveBoardVipRequiredModal();
-                requestedTab = previousTab || '';
-                return;
-            }
             if (tabName === 'qr-cards' && isTeacherLoggedIn && !isAdminLoggedIn && !canUseQrScannerVip()) {
                 showQrScannerVipRequiredModal();
                 requestedTab = previousTab || '';
@@ -4096,7 +4048,7 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
             const adminTabs=['accounts','settings','teacher-assignment'];
             if(protectedTabs.includes(tabName)&&!(
               isAdminLoggedIn||(isTeacherLoggedIn&&!adminTabs.includes(tabName))||
-              (tabName==='ranking'&&Boolean(currentUser)))){showAdminLoginModal();return}
+              ((tabName==='ranking'||tabName==='boards')&&Boolean(currentUser)))){showAdminLoginModal();return}
             if(tabName==='exam'&&(isAdminLoggedIn||isTeacherLoggedIn))tabName='exams';
             requestedTab=tabName; // Guard phản hồi bất đồng bộ bằng tên tab đích thực tế.
             const placeholder=document.getElementById('tab-'+tabName);
@@ -4227,8 +4179,8 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
                     window.__documentsTabRequested = true;
                 }
             }
-            if (tabName === 'boards' && currentUser && canUseInteractiveBoardVip()) {
-                // Tách chunk bảng tương tác khỏi bundle khởi động; chỉ Admin hoặc Giáo viên VIP mới tải khi mở tab.
+            if (tabName === 'boards' && currentUser) {
+                // Tách chunk bảng tương tác khỏi bundle khởi động; chỉ tải khi người dùng mở tab.
                 const generation = authDataGeneration;
                 void import('./interactive-board-ui.js').then(module => {
                     if (generation !== authDataGeneration || requestedTab !== 'boards') return;
