@@ -201,6 +201,7 @@ async function ensureTables(db: any) {
     try { await db.prepare(alter).run(); } catch {}
   }
   try { await db.prepare('CREATE INDEX IF NOT EXISTS idx_qr_sessions_join_code ON qr_answer_sessions(join_code)').run(); } catch {}
+  try { await db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_qr_sessions_join_code_unique ON qr_answer_sessions(join_code) WHERE join_code <> ''").run(); } catch {}
 
   // Tenant cũ có thể chưa đi qua /api/exam/grade kể từ khi bổ sung các cột định danh.
   await db.prepare(`
