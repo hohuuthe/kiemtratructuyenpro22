@@ -3986,6 +3986,49 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
             versionEl.innerText = `Phiên bản: 1.0 (Build: ${buildTime})`;
         }
 
+        function canUseQrScannerVip() {
+            if (isAdminLoggedIn) return true;
+            if (!isTeacherLoggedIn) return false;
+            return Boolean(currentUser?.is_vip);
+        }
+
+        function showQrScannerVipRequiredModal() {
+            let modal = document.getElementById('qr-vip-required-modal');
+            if (!modal) {
+                modal = document.createElement('div');
+                modal.id = 'qr-vip-required-modal';
+                modal.className = 'fixed inset-0 z-[999999] hidden items-center justify-center bg-black/60 backdrop-blur-sm p-4';
+                modal.innerHTML = `
+                    <div class="w-full max-w-md rounded-2xl border border-amber-200 bg-white p-5 shadow-2xl">
+                        <div class="flex items-start gap-3">
+                            <div class="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-amber-100 text-2xl">⭐</div>
+                            <div class="min-w-0 flex-1">
+                                <div class="flex items-center gap-2">
+                                    <h3 class="text-lg font-black text-slate-900">Chức năng dành cho Giáo viên VIP</h3>
+                                    <span class="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-black text-amber-800">VIP</span>
+                                </div>
+                                <p class="mt-2 text-sm leading-6 text-slate-600">
+                                    Quét thẻ trả lời là chức năng dành cho giáo viên có tài khoản VIP.
+                                    Hãy liên hệ <strong class="text-slate-900">0935 078 895</strong> để nâng cấp tài khoản thành VIP và sử dụng chức năng này.
+                                </p>
+                            </div>
+                        </div>
+                        <div class="mt-5 flex justify-end">
+                            <button type="button" id="qr-vip-required-close" class="min-h-11 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-black text-white hover:bg-slate-800">
+                                Đã hiểu
+                            </button>
+                        </div>
+                    </div>`;
+                document.body.appendChild(modal);
+                modal.querySelector('#qr-vip-required-close')?.addEventListener('click', () => {
+                    modal.classList.add('hidden');
+                    modal.classList.remove('flex');
+                });
+            }
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
         // ==================== TAB NAVIGATION ====================
         window.switchTab = switchTab;
         let requestedTab = '';
@@ -3996,6 +4039,11 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
                 window.__resetQrAnswerCards();
             }
             console.log('switchTab called:',tabName);
+            if (tabName === 'qr-cards' && isTeacherLoggedIn && !isAdminLoggedIn && !canUseQrScannerVip()) {
+                showQrScannerVipRequiredModal();
+                requestedTab = previousTab || '';
+                return;
+            }
             const protectedTabs=['questions','exams','exam-editor','accounts','users','settings','ranking','teacher-assignment','boards','qr-cards'];
             const adminTabs=['accounts','settings','teacher-assignment'];
             if(protectedTabs.includes(tabName)&&!(
@@ -4144,8 +4192,8 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
                     showToast('Không thể tải Bảng tương tác. Vui lòng thử lại.', 'error');
                 });
             }
-            if (tabName === 'qr-cards' && currentUser) {
-                // Camera/QR là chunk riêng, chỉ tải khi Giáo viên/Admin mở chức năng.
+            if (tabName === 'qr-cards' && currentUser && canUseQrScannerVip()) {
+                // Camera/QR là chunk riêng, chỉ tải khi Admin hoặc Giáo viên VIP mở chức năng.
                 const generation = authDataGeneration;
                 void import('./qr-answer-cards-ui.js').then(module => {
                     if (generation !== authDataGeneration || requestedTab !== 'qr-cards') return;
