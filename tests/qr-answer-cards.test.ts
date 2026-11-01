@@ -318,3 +318,62 @@ test('QR hot paths use bounded bulk SQL instead of per-student database loops',(
   assert.match(finalizeBlock,/for \(const student of students\)[\s\S]*resultDrafts\.push/);
   assert.match(finalizeBlock,/const resultValuesSql = persistedDrafts\.map/);
 });
+
+
+test('QR presenter mirrors student exam styling and shows full class roster with green recorded rows',()=>{
+  const html=fs.readFileSync('public/components/tab-qr-cards.html','utf8');
+  const ui=fs.readFileSync('src/qr-answer-cards-ui.js','utf8');
+  const css=fs.readFileSync('src/style.css','utf8');
+
+  assert.match(html,/qr-presenter-question-accent/);
+  assert.match(html,/Hiển thị toàn bộ học sinh; hàng xanh là đã lưu trên server/);
+  assert.match(html,/id="qr-presenter-response-count"[^>]*>0\/0 đã ghi nhận/);
+
+  assert.match(ui,/const students=Array\.isArray\(session\?\.students\)\?session\.students:\[\]/);
+  assert.match(ui,/const responseByUser=new Map\(responses\.map/);
+  assert.match(ui,/is-recorded/);
+  assert.match(ui,/is-waiting/);
+  assert.match(ui,/responses\.length\+'\/'\+rows\.length\+' đã ghi nhận'/);
+
+  assert.match(css,/\.qr-presenter-question-accent/);
+  assert.match(css,/\.qr-presenter-response-row\.is-recorded[\s\S]*background:#dcfce7/);
+  assert.match(css,/\.qr-presenter-option:nth-child\(2\)/);
+});
+
+
+test('QR presenter fullscreen uses full desktop width and monitor keeps full student names',()=>{
+  const ui=fs.readFileSync('src/qr-answer-cards-ui.js','utf8');
+  const css=fs.readFileSync('src/style.css','utf8');
+
+  assert.match(ui,/qr-presenter-student-name/);
+  assert.doesNotMatch(ui,/qr-presenter-student-name[^\n]*truncate/);
+  assert.match(css,/\.qr-presenter-live-grid \{[\s\S]*grid-template-columns:minmax\(0,1fr\) minmax\(245px,275px\)/);
+  assert.match(css,/\.qr-presenter-student-name \{[\s\S]*white-space:nowrap/);
+  assert.match(css,/#qr-card-presenter-workspace:fullscreen \.qr-presenter-main \{[\s\S]*padding:8px 10px 10px/);
+  assert.match(css,/#qr-card-presenter-workspace:fullscreen \.qr-presenter-live-grid \{[\s\S]*grid-template-columns:minmax\(0,1fr\) minmax\(230px,255px\)/);
+  assert.doesNotMatch(css,/#qr-card-presenter-workspace:fullscreen \.qr-presenter-main \{[\s\S]{0,250}padding:32px 5vw/);
+});
+
+
+test('QR presenter removes waiting badges, keeps one-line names, uses student MC layout and shared math pipeline',()=>{
+  const html=fs.readFileSync('public/components/tab-qr-cards.html','utf8');
+  const ui=fs.readFileSync('src/qr-answer-cards-ui.js','utf8');
+  const css=fs.readFileSync('src/style.css','utf8');
+
+  assert.match(html,/id="qr-presenter-settings"/);
+  assert.match(html,/id="qr-presenter-question-size"/);
+  assert.match(html,/id="qr-presenter-answer-size"/);
+
+  assert.doesNotMatch(ui,/qr-presenter-waiting-pill">Chưa nhận/);
+  assert.doesNotMatch(ui,/qr-presenter-status-waiting[^\n]*Chờ quét/);
+  assert.match(ui,/qr-presenter-option-label/);
+  assert.match(ui,/presenterOptionGridClass/);
+  assert.match(ui,/grid-cols-1 sm:grid-cols-2 lg:grid-cols-4/);
+  assert.match(ui,/window\.renderScientificContent/);
+  assert.match(ui,/window\.queueMathJax/);
+  assert.match(ui,/queueScientificMath\(\$\('qr-card-presenter-workspace'\)\)/);
+
+  assert.match(css,/\.qr-presenter-student-name \{[\s\S]*white-space:nowrap/);
+  assert.match(css,/\.qr-presenter-option-content \{[\s\S]*font-size:var\(--qr-presenter-a-size\)/);
+  assert.match(css,/\.qr-presenter-option-label \{[\s\S]*display:inline/);
+});
