@@ -153,7 +153,9 @@ test('final hardening serializes scan writes with lock and avoids hot-path schem
   assert.doesNotMatch(api,/const students = await classStudents\(db, session\.class_name, session\.donvi \|\| ''\);[\s\S]{0,900}answered_count: responses\.length/);
   assert.match(ui,/const studentCount=Number\(session\.students\?\.length\|\|0\)/);
   assert.match(ui,/acceptedKeys/);
-  assert.match(ui,/answersForQuestion\(r\.questionId\)\.delete/);
+  assert.match(ui,/pendingVisualAnswers/);
+  assert.match(ui,/answersForQuestion\(row\.question_id\)\.set/);
+  assert.doesNotMatch(ui,/map\.set\(uid, answer\);\s*pendingRecords\.set/);
 });
 
 
