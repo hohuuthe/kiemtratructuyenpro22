@@ -282,7 +282,24 @@ test('interactive board mobile workspace keeps touch drawing professional and co
   assert.match(ui,/board-participants-toggle/);
   const worker=fs.readFileSync('workers/interactive-board-worker.js','utf8');
   assert.match(worker,/kind==='stroke_cancel'/);
-  assert.match(css,/#board-canvas-wrap\s*\{[\s\S]*min-width:760px/);
+  assert.match(css,/#board-canvas-wrap\s*\{[\s\S]*min-width:0;[\s\S]*width:100%/);
   assert.match(css,/\.board-tools-panel[\s\S]*position:sticky/);
   assert.match(css,/touch-action:none/);
+});
+
+
+test('interactive board professional controls keep selection, cancellation and mobile fullscreen safe',()=>{
+  const html=fs.readFileSync('public/components/tab-boards.html','utf8');
+  const ui=fs.readFileSync('src/interactive-board-ui.js','utf8');
+  const css=fs.readFileSync('src/style.css','utf8');
+  assert.match(html,/id="board-duplicate-selected"/);
+  assert.match(html,/id="board-delete-selected"/);
+  assert.match(ui,/function cancelPointerInteraction/);
+  assert.match(ui,/pointercancel',cancelPointerInteraction/);
+  assert.match(ui,/selectedObjectId/);
+  assert.match(ui,/board-duplicate-selected/);
+  assert.match(ui,/board-delete-selected/);
+  assert.match(ui,/board-pseudo-fullscreen/);
+  assert.match(css,/\.board-pseudo-fullscreen/);
+  assert.match(css,/\.board-body-fullscreen/);
 });
