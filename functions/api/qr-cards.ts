@@ -710,13 +710,21 @@ export const onRequestPost: PagesFunction<Env> = async (context: any) => {
       const currentQuestionId = norm(session.current_question_id);
       if (!currentQuestionId) return reply({ error: 'Phiên chưa xác định câu hỏi hiện tại.', code: 'CURRENT_QUESTION_MISSING' }, 409);
       const accepted: any[] = [];
+      const rejected: any[] = [];
       const now = new Date().toISOString();
       for (const raw of records) {
         const cardToken = norm(raw.cardToken);
         const questionId = norm(raw.questionId);
         const answer = norm(raw.answer).toUpperCase();
         const stableHits = Math.max(3, Math.min(20, Number(raw.stableHits) || 3));
-        if (!cardToken || questionId !== currentQuestionId || !['A','B','C','D'].includes(answer)) continue;
+        if (!cardToken || !['A','B','C','D'].includes(answer)) {
+          rejected.push({ question_id: questionId, reason: 'INVALID_RECORD' });
+          continue;
+        }
+        if (questionId !== currentQuestionId) {
+          rejected.push({ question_id: questionId, reason: 'STALE_QUESTION', current_question_id: currentQuestionId });
+          continue;
+        }
         const student: any = await db.prepare(`
           SELECT u.id,u.full_name,u.lop,u.donvi,c.card_token
           FROM qr_answer_cards c JOIN users u ON u.id=c.user_id
@@ -725,7 +733,10 @@ export const onRequestPost: PagesFunction<Env> = async (context: any) => {
             AND LOWER(TRIM(COALESCE(u.donvi,'')))=LOWER(TRIM(?))
           LIMIT 1
         `).bind(cardToken, session.class_name, session.donvi || '').first();
-        if (!student) continue;
+        if (!student) {
+          rejected.push({ question_id: questionId, card_token: cardToken, reason: 'CARD_NOT_IN_CLASS' });
+          continue;
+        }
         const write = await db.prepare(`
           WITH active_session AS (
             SELECT id
@@ -741,13 +752,26 @@ export const onRequestPost: PagesFunction<Env> = async (context: any) => {
         `).bind(sessionId, questionId, sessionId, questionId, student.id, cardToken, answer, stableHits, now).run();
         if (Number(write?.meta?.changes || 0) === 1) {
           accepted.push({ user_id: student.id, full_name: student.full_name, answer, question_id: questionId });
+        } else {
+          rejected.push({ user_id: student.id, full_name: student.full_name, answer, question_id: questionId, reason: 'STATE_CHANGED' });
         }
       }
       if (accepted.length) {
         await db.prepare('UPDATE qr_answer_sessions SET response_revision=response_revision+1,updated_at=? WHERE id=? AND status=\'open\'')
           .bind(now,sessionId).run();
       }
-      return reply({ data: { accepted, current_question_id: currentQuestionId }, error: null });
+      const latest: any = await db.prepare(
+        'SELECT status,collection_state,current_question_id,state_revision,response_revision FROM qr_answer_sessions WHERE id=? LIMIT 1'
+      ).bind(sessionId).first();
+      return reply({ data: {
+        accepted,
+        rejected,
+        current_question_id: norm(latest?.current_question_id || currentQuestionId),
+        collection_state: norm(latest?.collection_state || session.collection_state || 'collecting'),
+        status: norm(latest?.status || session.status || 'open'),
+        state_revision: Number(latest?.state_revision || session.state_revision || 0),
+        response_revision: Number(latest?.response_revision || session.response_revision || 0)
+      }, error: null });
     }
 
     if (action === 'clear-answer') {
