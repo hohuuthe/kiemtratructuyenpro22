@@ -394,12 +394,14 @@ function renderPresenterState(state){
     stateEl.textContent=locked?'🔒 Đã khóa câu':'● Đang nhận đáp án';
     stateEl.className='rounded-full border px-3 py-1.5 text-sm font-black '+(locked?'bg-amber-400/20 border-amber-300/30 text-amber-200':'bg-emerald-500/20 border-emerald-400/30 text-emerald-200');
   }
-  if($('qr-presenter-progress'))$('qr-presenter-progress').textContent=String(state.answered_count||0)+'/'+String(state.student_count||0);
+  const answeredCount=Number(state.answered_count||0);
+  const studentCount=Number(session.students?.length||0);
+  if($('qr-presenter-progress'))$('qr-presenter-progress').textContent=String(answeredCount)+'/'+String(studentCount);
   const lockBtn=$('qr-presenter-lock');if(lockBtn)lockBtn.textContent=locked?'🔓 Mở lại câu':'🔒 Khóa câu';
   if($('qr-presenter-prev'))$('qr-presenter-prev').disabled=Number(state.current_question_index||0)<=0;
   if($('qr-presenter-next'))$('qr-presenter-next').disabled=Number(state.current_question_index||0)>=Number(state.question_count||1)-1;
   $('qr-presenter-after-lock')?.classList.toggle('hidden',!locked);
-  if($('qr-presenter-missing-count'))$('qr-presenter-missing-count').textContent=String((state.missing||[]).length)+' học sinh chưa trả lời';
+  if($('qr-presenter-missing-count'))$('qr-presenter-missing-count').textContent=String(Math.max(0,studentCount-answeredCount))+' học sinh chưa trả lời';
   for(const k of ['A','B','C','D']){const el=$('qr-presenter-count-'+k.toLowerCase());if(el)el.textContent=String(state.counts?.[k]||0);}
 }
 function renderScannerState(state){
@@ -415,7 +417,7 @@ function renderScannerState(state){
     badge.textContent=locked?'ĐÃ KHÓA':'ĐANG NHẬN';
     badge.className='rounded-full px-3 py-1.5 text-xs font-black '+(locked?'bg-amber-500 text-slate-950':'bg-emerald-700 text-white');
   }
-  if($('qr-card-progress'))$('qr-card-progress').textContent='Đã nhận '+String(state.answered_count||0)+'/'+String(state.student_count||0);
+  if($('qr-card-progress'))$('qr-card-progress').textContent='Đã nhận '+String(state.answered_count||0)+'/'+String(session.students?.length||0);
   for(const k of ['A','B','C','D']){const el=$('qr-card-count-'+k.toLowerCase());if(el)el.textContent=String(state.counts?.[k]||0);}
   if($('qr-card-camera-status')&&collectionState==='locked')$('qr-card-camera-status').textContent='Câu đã khóa · chờ câu tiếp theo';
   renderStudentStatus();
@@ -648,7 +650,17 @@ async function flushPending() {
     if (student) pendingRecords.delete(String(r.questionId) + '|' + String(student.id));
   }
   try {
-    await api('POST', '/api/qr-cards', { action: 'record-batch', sessionId: session.id, records });
+    const result=await api('POST', '/api/qr-cards', { action: 'record-batch', sessionId: session.id, records });
+    const acceptedKeys=new Set((result.data?.accepted||[]).map(row=>String(row.question_id)+'|'+String(row.user_id)));
+    for(const r of records){
+      const student=session.students.find(s=>String(s.card_token)===String(r.cardToken));
+      if(!student)continue;
+      const key=String(r.questionId)+'|'+String(student.id);
+      if(!acceptedKeys.has(key)){
+        answersForQuestion(r.questionId).delete(String(student.id));
+      }
+    }
+    if(acceptedKeys.size!==records.length){tracking.clear();lastSyncVersion='';scheduleSync(0);updateStats();renderStudentStatus();}
     if (pendingRecords.size) queueFlush();
     return true;
   } catch (e) {
