@@ -8,11 +8,13 @@ import {
   answerFromQrLocation
 } from '../src/qr-card-orientation.js';
 
-test('QR card payload contains only opaque token and version marker', () => {
+test('QR card payload uses compact V2 and still parses legacy V1 cards', () => {
   const token='0123456789abcdef0123456789abcdef0123';
   const payload=buildQrCardPayload(token);
-  assert.equal(payload,'KTTTQR1|'+token+'|ABCD');
-  assert.deepEqual(parseQrCardPayload(payload),{version:'KTTTQR1',cardToken:token});
+  assert.match(payload,/^K2\.[A-Za-z0-9_-]+$/);
+  assert.ok(payload.length < ('KTTTQR1|'+token+'|ABCD').length);
+  assert.deepEqual(parseQrCardPayload(payload),{version:'K2',cardToken:token});
+  assert.deepEqual(parseQrCardPayload('KTTTQR1|'+token+'|ABCD'),{version:'KTTTQR1',cardToken:token});
   assert.equal(parseQrCardPayload('KTTTQR1|Nguyen Van A|ABCD'),null);
   assert.equal(parseQrCardPayload('bad|'+token+'|ABCD'),null);
 });
@@ -66,7 +68,7 @@ test('printed cards expose identity and A/B/C/D while QR payload stays tokenized
   assert.doesNotMatch(ui,/buildQrCardPayload\(s\.full_name/);
   assert.match(ui,/getUserMedia/);
   assert.match(ui,/decodeMultiple/);
-  assert.match(ui,/hits >= 3/);
+  assert.match(ui,/hits >= 2/);
   assert.match(ui,/action\s*:\s*['"]record-batch['"]/);
   assert.match(ui,/action\s*:\s*['"]finalize['"]/);
   assert.match(ui,/async function flushAllPending/);
@@ -239,4 +241,32 @@ test('phone persistence uses durable ACK queue and presenter shows only server-s
   assert.match(ui,/qr-presenter-answer-pill/);
   assert.match(css,/\.qr-presenter-live-grid[\s\S]*grid-template-columns/);
   assert.match(css,/\.qr-presenter-response-list[\s\S]*overflow-y:auto/);
+});
+
+
+test('long-range scanner uses hybrid native multi-QR and high-resolution tiled fallback',()=>{
+  const ui=fs.readFileSync('src/qr-answer-cards-ui.js','utf8');
+  const orientation=fs.readFileSync('src/qr-card-orientation.js','utf8');
+
+  assert.match(ui,/BarcodeDetector/);
+  assert.match(ui,/new window\.BarcodeDetector\(\{formats:\['qr_code'\]\}\)/);
+  assert.match(ui,/decodeJsQrTiles/);
+  assert.match(ui,/cols=imageData\.width>=1200\?3:2/);
+  assert.match(ui,/upscale=imageData\.width>=1400\?1\.8:1\.45/);
+  assert.match(ui,/perFrame=nativeQrSupported\?3:Math\.min\(total,6\)/);
+  assert.match(ui,/targetW=nativeQrSupported\?1600:1920/);
+  assert.match(ui,/width:\{ideal:2560\}/);
+  assert.match(ui,/width:\{ideal:1920\}/);
+  assert.match(ui,/width:\{ideal:1280\}/);
+  assert.match(ui,/focusMode:'continuous'/);
+  assert.match(ui,/errorCorrectionLevel: 'M'/);
+  assert.match(ui,/margin: 4/);
+  assert.match(ui,/width: 640/);
+  assert.match(ui,/width:82mm;height:82mm/);
+  assert.match(ui,/objectFit==='cover'/);
+
+  assert.match(orientation,/QR_CARD_PREFIX_V2 = 'K2'/);
+  assert.match(orientation,/buildQrCardPayload/);
+  assert.match(orientation,/parseQrCardPayload/);
+  assert.match(orientation,/Legacy V1 cards remain fully supported/);
 });
