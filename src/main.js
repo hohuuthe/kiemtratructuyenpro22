@@ -2547,6 +2547,8 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
         window.adminLogout = adminLogout;
         async function adminLogout() {
             closeModal();
+            if (typeof window.__resetQrAnswerCards === 'function') window.__resetQrAnswerCards();
+            if (typeof window.__resetInteractiveBoards === 'function') window.__resetInteractiveBoards();
             localStorage.removeItem(window.tenantStorageKey('auth_token'));
             isAdminLoggedIn = false;
             isTeacherLoggedIn = false;
