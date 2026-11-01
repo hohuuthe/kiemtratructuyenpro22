@@ -131,7 +131,22 @@ const qrSchemaReady = new Set<string>();
 async function ensureTables(db: any) {
   const schemaKey = String(db?.connectionUrl || 'default');
   if (qrSchemaReady.has(schemaKey)) return;
-  await db.prepare(`
+
+  // Hot path: exactly one lightweight query. Production/initialized tenants return here.
+  try {
+    await db.prepare(`
+      SELECT s.join_code,s.current_question_id,s.collection_state,s.state_revision,s.response_revision,
+             r.user_id,r.don_vi
+      FROM qr_answer_sessions s
+      LEFT JOIN results r ON 1=0
+      LIMIT 1
+    `).first();
+    qrSchemaReady.add(schemaKey);
+    return;
+  } catch {}
+
+  // Cold/missing-schema path: migrate in one exec() subrequest where supported.
+  const migrationSql = `
     CREATE TABLE IF NOT EXISTS qr_answer_cards (
       card_token TEXT PRIMARY KEY,
       user_id TEXT NOT NULL UNIQUE,
@@ -140,9 +155,7 @@ async function ensureTables(db: any) {
       active INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
-    )
-  `).run();
-  await db.prepare(`
+    );
     CREATE TABLE IF NOT EXISTS qr_answer_sessions (
       id TEXT PRIMARY KEY,
       creator_id TEXT NOT NULL,
@@ -163,9 +176,7 @@ async function ensureTables(db: any) {
       updated_at TEXT,
       created_at TEXT NOT NULL,
       finalized_at TEXT
-    )
-  `).run();
-  await db.prepare(`
+    );
     CREATE TABLE IF NOT EXISTS qr_answer_responses (
       session_id TEXT NOT NULL,
       question_id TEXT NOT NULL,
@@ -175,36 +186,14 @@ async function ensureTables(db: any) {
       stable_hits INTEGER NOT NULL DEFAULT 3,
       updated_at TEXT NOT NULL,
       PRIMARY KEY (session_id, question_id, user_id)
-    )
-  `).run();
-  await db.prepare(`
+    );
     CREATE TABLE IF NOT EXISTS qr_answer_result_links (
       session_id TEXT NOT NULL,
       user_id TEXT NOT NULL,
       result_id TEXT NOT NULL UNIQUE,
       created_at TEXT NOT NULL,
       PRIMARY KEY (session_id, user_id)
-    )
-  `).run();
-  try { await db.prepare('CREATE INDEX IF NOT EXISTS idx_qr_cards_user ON qr_answer_cards(user_id)').run(); } catch {}
-  try { await db.prepare('CREATE INDEX IF NOT EXISTS idx_qr_sessions_creator ON qr_answer_sessions(creator_id, created_at DESC)').run(); } catch {}
-  try { await db.prepare('CREATE INDEX IF NOT EXISTS idx_qr_responses_session ON qr_answer_responses(session_id, question_id)').run(); } catch {}
-  for (const alter of [
-    "ALTER TABLE qr_answer_sessions ADD COLUMN join_code TEXT NOT NULL DEFAULT ''",
-    "ALTER TABLE qr_answer_sessions ADD COLUMN current_question_index INTEGER NOT NULL DEFAULT 0",
-    "ALTER TABLE qr_answer_sessions ADD COLUMN current_question_id TEXT NOT NULL DEFAULT ''",
-    "ALTER TABLE qr_answer_sessions ADD COLUMN collection_state TEXT NOT NULL DEFAULT 'collecting'",
-    "ALTER TABLE qr_answer_sessions ADD COLUMN state_revision INTEGER NOT NULL DEFAULT 1",
-    "ALTER TABLE qr_answer_sessions ADD COLUMN response_revision INTEGER NOT NULL DEFAULT 0",
-    "ALTER TABLE qr_answer_sessions ADD COLUMN updated_at TEXT"
-  ]) {
-    try { await db.prepare(alter).run(); } catch {}
-  }
-  try { await db.prepare('CREATE INDEX IF NOT EXISTS idx_qr_sessions_join_code ON qr_answer_sessions(join_code)').run(); } catch {}
-  try { await db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_qr_sessions_join_code_unique ON qr_answer_sessions(join_code) WHERE join_code <> ''").run(); } catch {}
-
-  // Tenant cũ có thể chưa đi qua /api/exam/grade kể từ khi bổ sung các cột định danh.
-  await db.prepare(`
+    );
     CREATE TABLE IF NOT EXISTS results (
       id TEXT PRIMARY KEY,
       user_id TEXT,
@@ -223,16 +212,30 @@ async function ensureTables(db: any) {
       cheat_warning_count INTEGER DEFAULT 0,
       ai_grading_summary TEXT,
       created_at TEXT
-    )
-  `).run();
-  for (const alter of [
-    'ALTER TABLE results ADD COLUMN user_id TEXT',
-    'ALTER TABLE results ADD COLUMN lop TEXT',
-    'ALTER TABLE results ADD COLUMN don_vi TEXT',
-    'ALTER TABLE results ADD COLUMN cheat_warning_count INTEGER DEFAULT 0',
-    'ALTER TABLE results ADD COLUMN ai_grading_summary TEXT'
-  ]) {
-    try { await db.prepare(alter).run(); } catch {}
+    );
+    ALTER TABLE qr_answer_sessions ADD COLUMN IF NOT EXISTS join_code TEXT NOT NULL DEFAULT '';
+    ALTER TABLE qr_answer_sessions ADD COLUMN IF NOT EXISTS current_question_index INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE qr_answer_sessions ADD COLUMN IF NOT EXISTS current_question_id TEXT NOT NULL DEFAULT '';
+    ALTER TABLE qr_answer_sessions ADD COLUMN IF NOT EXISTS collection_state TEXT NOT NULL DEFAULT 'collecting';
+    ALTER TABLE qr_answer_sessions ADD COLUMN IF NOT EXISTS state_revision INTEGER NOT NULL DEFAULT 1;
+    ALTER TABLE qr_answer_sessions ADD COLUMN IF NOT EXISTS response_revision INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE qr_answer_sessions ADD COLUMN IF NOT EXISTS updated_at TEXT;
+    ALTER TABLE results ADD COLUMN IF NOT EXISTS user_id TEXT;
+    ALTER TABLE results ADD COLUMN IF NOT EXISTS lop TEXT;
+    ALTER TABLE results ADD COLUMN IF NOT EXISTS don_vi TEXT;
+    ALTER TABLE results ADD COLUMN IF NOT EXISTS cheat_warning_count INTEGER DEFAULT 0;
+    ALTER TABLE results ADD COLUMN IF NOT EXISTS ai_grading_summary TEXT;
+    CREATE INDEX IF NOT EXISTS idx_qr_cards_user ON qr_answer_cards(user_id);
+    CREATE INDEX IF NOT EXISTS idx_qr_sessions_creator ON qr_answer_sessions(creator_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_qr_responses_session ON qr_answer_responses(session_id, question_id);
+    CREATE INDEX IF NOT EXISTS idx_qr_sessions_join_code ON qr_answer_sessions(join_code);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_qr_sessions_join_code_unique ON qr_answer_sessions(join_code) WHERE join_code <> '';
+  `;
+
+  if (typeof db.exec === 'function') {
+    await db.exec(migrationSql);
+  } else {
+    throw new Error('QR schema is not initialized for this tenant.');
   }
   qrSchemaReady.add(schemaKey);
 }
@@ -247,6 +250,12 @@ async function auth(context: any) {
   const admin = checkIsAdmin(user);
   const teacher = checkIsTeacherOrAdmin(user);
   if (!admin && !teacher) return { error: reply({ error: 'Chức năng quét thẻ chỉ dành cho Giáo viên/Admin.' }, 403) };
+  if (!admin && !Boolean(user?.is_vip)) {
+    return { error: reply({
+      error: 'Đây là chức năng dành cho giáo viên có tài khoản VIP. Hãy liên hệ 0935 078 895 để nâng cấp tài khoản thành VIP để có thể sử dụng.',
+      code: 'VIP_REQUIRED'
+    }, 403) };
+  }
   return { db, user, admin, teacher };
 }
 
@@ -698,9 +707,12 @@ export const onRequestPost: PagesFunction<Env> = async (context: any) => {
 
     if (action === 'record-batch') {
       const sessionId = norm(body.sessionId);
-      const records = Array.isArray(body.records) ? body.records.slice(0, 40) : [];
+      const records = Array.isArray(body.records) ? body.records.slice(0, 50) : [];
       if (!sessionId || !records.length) return reply({ error: 'Không có đáp án ổn định để ghi nhận.' }, 400);
-      const session: any = await db.prepare('SELECT * FROM qr_answer_sessions WHERE id = ? LIMIT 1').bind(sessionId).first();
+
+      const session: any = await db.prepare(
+        'SELECT id,creator_id,class_name,donvi,status,collection_state,current_question_id,state_revision,response_revision FROM qr_answer_sessions WHERE id = ? LIMIT 1'
+      ).bind(sessionId).first();
       if (!session) return reply({ error: 'Không tìm thấy phiên quét.' }, 404);
       if (!admin && !actorIds(user).includes(norm(session.creator_id))) return reply({ error: 'Không có quyền cập nhật phiên quét này.' }, 403);
       if (session.status !== 'open') return reply({ error: 'Phiên quét đã kết thúc.' }, 409);
@@ -709,67 +721,131 @@ export const onRequestPost: PagesFunction<Env> = async (context: any) => {
       }
       const currentQuestionId = norm(session.current_question_id);
       if (!currentQuestionId) return reply({ error: 'Phiên chưa xác định câu hỏi hiện tại.', code: 'CURRENT_QUESTION_MISSING' }, 409);
-      const accepted: any[] = [];
+
       const rejected: any[] = [];
-      const now = new Date().toISOString();
-      for (const raw of records) {
-        const cardToken = norm(raw.cardToken);
-        const questionId = norm(raw.questionId);
-        const answer = norm(raw.answer).toUpperCase();
-        const stableHits = Math.max(3, Math.min(20, Number(raw.stableHits) || 3));
-        if (!cardToken || !['A','B','C','D'].includes(answer)) {
-          rejected.push({ question_id: questionId, reason: 'INVALID_RECORD' });
-          continue;
+      const normalized = records.map((raw: any) => ({
+        cardToken: norm(raw.cardToken),
+        questionId: norm(raw.questionId),
+        answer: norm(raw.answer).toUpperCase(),
+        stableHits: Math.max(3, Math.min(20, Number(raw.stableHits) || 3))
+      }));
+      const candidates = normalized.filter((row: any) => {
+        if (!row.cardToken || !['A','B','C','D'].includes(row.answer)) {
+          rejected.push({ question_id: row.questionId, card_token: row.cardToken, reason: 'INVALID_RECORD' });
+          return false;
         }
-        if (questionId !== currentQuestionId) {
-          rejected.push({ question_id: questionId, reason: 'STALE_QUESTION', current_question_id: currentQuestionId });
-          continue;
+        if (row.questionId !== currentQuestionId) {
+          rejected.push({ question_id: row.questionId, card_token: row.cardToken, reason: 'STALE_QUESTION', current_question_id: currentQuestionId });
+          return false;
         }
-        const student: any = await db.prepare(`
-          SELECT u.id,u.full_name,u.lop,u.donvi,c.card_token
-          FROM qr_answer_cards c JOIN users u ON u.id=c.user_id
-          WHERE c.card_token=? AND c.active=1
-            AND LOWER(TRIM(COALESCE(u.lop,'')))=LOWER(TRIM(?))
-            AND LOWER(TRIM(COALESCE(u.donvi,'')))=LOWER(TRIM(?))
-          LIMIT 1
-        `).bind(cardToken, session.class_name, session.donvi || '').first();
+        return true;
+      });
+
+      if (!candidates.length) {
+        return reply({ data: {
+          accepted: [],
+          rejected,
+          current_question_id: currentQuestionId,
+          collection_state: norm(session.collection_state || 'collecting'),
+          status: norm(session.status || 'open'),
+          state_revision: Number(session.state_revision || 0),
+          response_revision: Number(session.response_revision || 0)
+        }, error: null });
+      }
+
+      // One lookup for the whole camera batch instead of one query per card.
+      const uniqueTokens = [...new Set(candidates.map((row: any) => row.cardToken))];
+      const cardPlaceholders = uniqueTokens.map(() => '?').join(',');
+      const studentRows: any = await db.prepare(`
+        SELECT u.id,u.full_name,c.card_token
+        FROM qr_answer_cards c
+        JOIN users u ON u.id=c.user_id
+        WHERE c.card_token IN (${cardPlaceholders}) AND c.active=1
+          AND LOWER(TRIM(COALESCE(u.lop,'')))=LOWER(TRIM(?))
+          AND LOWER(TRIM(COALESCE(u.donvi,'')))=LOWER(TRIM(?))
+      `).bind(...uniqueTokens, session.class_name, session.donvi || '').all();
+      const studentByToken = new Map((studentRows.results || []).map((row: any) => [norm(row.card_token), row]));
+
+      // Last observation per student wins inside this batch; this also prevents duplicate upsert work.
+      const byStudent = new Map<string, any>();
+      for (const row of candidates) {
+        const student: any = studentByToken.get(row.cardToken);
         if (!student) {
-          rejected.push({ question_id: questionId, card_token: cardToken, reason: 'CARD_NOT_IN_CLASS' });
+          rejected.push({ question_id: row.questionId, card_token: row.cardToken, reason: 'CARD_NOT_IN_CLASS' });
           continue;
         }
-        const write = await db.prepare(`
+        byStudent.set(norm(student.id), { ...row, student });
+      }
+      const acceptedCandidates = [...byStudent.values()];
+      const now = new Date().toISOString();
+      const accepted: any[] = [];
+
+      if (acceptedCandidates.length) {
+        const valuesSql = acceptedCandidates.map(() => '(?,?,?,?,?,?,?)').join(',');
+        const params: any[] = [sessionId, currentQuestionId];
+        for (const row of acceptedCandidates) {
+          params.push(sessionId, currentQuestionId, row.student.id, row.cardToken, row.answer, row.stableHits, now);
+        }
+        const writeRows: any = await db.prepare(`
           WITH active_session AS (
             SELECT id
             FROM qr_answer_sessions
             WHERE id=? AND status='open' AND collection_state='collecting' AND current_question_id=?
             FOR SHARE
+          ),
+          incoming(session_id,question_id,user_id,card_token,answer,stable_hits,updated_at) AS (
+            VALUES ${valuesSql}
           )
           INSERT INTO qr_answer_responses(session_id,question_id,user_id,card_token,answer,stable_hits,updated_at)
-          SELECT ?,?,?,?,?,?,?
-          FROM active_session
+          SELECT i.session_id,i.question_id,i.user_id,i.card_token,i.answer,i.stable_hits,i.updated_at
+          FROM incoming i
+          JOIN active_session a ON a.id=i.session_id
+          WHERE TRUE
           ON CONFLICT(session_id,question_id,user_id) DO UPDATE SET
-            card_token=excluded.card_token,answer=excluded.answer,stable_hits=excluded.stable_hits,updated_at=excluded.updated_at
-        `).bind(sessionId, questionId, sessionId, questionId, student.id, cardToken, answer, stableHits, now).run();
-        if (Number(write?.meta?.changes || 0) === 1) {
+            card_token=excluded.card_token,
+            answer=excluded.answer,
+            stable_hits=excluded.stable_hits,
+            updated_at=excluded.updated_at
+          RETURNING user_id,question_id,card_token,answer,stable_hits,updated_at
+        `).bind(...params).all();
+
+        const persisted = writeRows.results || [];
+        const persistedIds = new Set(persisted.map((row: any) => norm(row.user_id)));
+        const studentById = new Map(acceptedCandidates.map((row: any) => [norm(row.student.id), row.student]));
+        for (const row of persisted) {
+          const student: any = studentById.get(norm(row.user_id));
           accepted.push({
-            user_id: student.id,
-            full_name: student.full_name,
-            answer,
-            question_id: questionId,
-            card_token: cardToken,
-            saved_at: now
+            user_id: row.user_id,
+            full_name: student?.full_name || '',
+            answer: norm(row.answer).toUpperCase(),
+            question_id: row.question_id,
+            card_token: row.card_token,
+            saved_at: row.updated_at || now
           });
-        } else {
-          rejected.push({ user_id: student.id, full_name: student.full_name, answer, question_id: questionId, reason: 'STATE_CHANGED' });
+        }
+        for (const row of acceptedCandidates) {
+          if (!persistedIds.has(norm(row.student.id))) {
+            rejected.push({
+              user_id: row.student.id,
+              full_name: row.student.full_name,
+              answer: row.answer,
+              question_id: currentQuestionId,
+              card_token: row.cardToken,
+              reason: 'STATE_CHANGED'
+            });
+          }
         }
       }
+
       if (accepted.length) {
-        await db.prepare('UPDATE qr_answer_sessions SET response_revision=response_revision+1,updated_at=? WHERE id=? AND status=\'open\'')
-          .bind(now,sessionId).run();
+        await db.prepare(
+          'UPDATE qr_answer_sessions SET response_revision=response_revision+1,updated_at=? WHERE id=? AND status=\'open\''
+        ).bind(now,sessionId).run();
       }
       const latest: any = await db.prepare(
         'SELECT status,collection_state,current_question_id,state_revision,response_revision FROM qr_answer_sessions WHERE id=? LIMIT 1'
       ).bind(sessionId).first();
+
       return reply({ data: {
         accepted,
         rejected,
