@@ -124,7 +124,8 @@ async function syncSessionState(){
     const data=result.data||{};
     if(data.version)lastSyncVersion=String(data.version);
     if(data.status&&data.status!=='open'){
-      stopCamera();stopSyncLoop();feedback('Phiên quét đã kết thúc.');
+      stopCamera();stopSyncLoop();deviceRole='';
+      feedback(data.status==='finalized'?'Phiên quét đã được chốt và lưu kết quả.':'Phiên quét đang kết thúc.');
       return;
     }
     applyRemoteState(data);
@@ -422,7 +423,10 @@ function renderScannerState(state){
 async function setCollectionState(next){
   if(!session||deviceRole!=='presenter')return;
   const result=await api('POST','/api/qr-cards',{action:'set-collection-state',sessionId:session.id,collectionState:next,expectedRevision:stateRevision});
-  collectionState=next;lastSyncVersion='';await syncSessionState();return result;
+  collectionState=next;
+  stateRevision=Number(result.data?.state_revision||stateRevision+1);
+  if(session){session.collection_state=next;session.state_revision=stateRevision;}
+  lastSyncVersion='';scheduleSync(0);return result;
 }
 async function presenterNavigate(delta){
   if(!session||deviceRole!=='presenter')return;
@@ -430,8 +434,11 @@ async function presenterNavigate(delta){
     if(collectionState!=='locked')await setCollectionState('locked');
     const next=Math.max(0,Math.min((session.questions?.length||1)-1,questionIndex+delta));
     if(next===questionIndex)return;
-    await api('POST','/api/qr-cards',{action:'set-current-question',sessionId:session.id,index:next,expectedRevision:stateRevision});
-    lastSyncVersion='';await syncSessionState();
+    const result=await api('POST','/api/qr-cards',{action:'set-current-question',sessionId:session.id,index:next,expectedRevision:stateRevision});
+    questionIndex=next;collectionState='collecting';
+    stateRevision=Number(result.data?.state_revision||stateRevision+1);
+    if(session){session.current_question_index=next;session.current_question_id=result.data?.current_question_id||session.questions?.[next]?.id;session.collection_state='collecting';session.state_revision=stateRevision;}
+    lastSyncVersion='';scheduleSync(0);
   }catch(e){feedback(e.message,true);lastSyncVersion='';await syncSessionState();}
 }
 function answersForQuestion(questionId) {
@@ -484,7 +491,7 @@ function renderStudentStatus() {
     return '<div class="rounded-xl border bg-white p-2.5 flex items-center gap-2">' +
       '<span class="w-9 h-9 rounded-lg grid place-items-center shrink-0 font-black ' + (answer ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500') + '">' + (answer || '…') + '</span>' +
       '<div class="min-w-0 flex-1"><p class="font-bold truncate">' + esc(s.full_name) + '</p><p class="text-xs text-slate-500 truncate">' + esc(s.student_code) + '</p></div>' +
-      (answer ? '<button type="button" data-qr-clear="' + esc(s.id) + '" class="rounded-lg border px-2 py-1 text-xs text-slate-500">Sửa</button>' : '') + '</div>';
+      (answer && collectionState==='collecting' ? '<button type="button" data-qr-clear="' + esc(s.id) + '" class="rounded-lg border px-2 py-1 text-xs text-slate-500">Sửa</button>' : '') + '</div>';
   }).join('');
 }
 function stopCamera() {
@@ -502,6 +509,7 @@ function stopCamera() {
   clearOverlay();
 }
 async function openCamera() {
+  if(deviceRole!=='scanner'||!session)return feedback('Hãy kết nối điện thoại vào một phiên đang mở trước.',true);
   if (!navigator.mediaDevices?.getUserMedia) return feedback('Trình duyệt này không hỗ trợ camera web.', true);
   stopCamera();
   try {
@@ -739,10 +747,11 @@ async function clearStudentAnswer(userId) {
 async function finalize() {
   if (!session) return;
   const run = async () => {
-    const btn = $('qr-card-finalize');
+    const btn = $('qr-presenter-finalize');
     if (btn) btn.disabled = true;
     try {
-      await flushAllPending();
+      if(deviceRole==='presenter'&&collectionState!=='locked')await setCollectionState('locked');
+      if(deviceRole==='scanner')await flushAllPending();
       const result = await api('POST', '/api/qr-cards', { action: 'finalize', sessionId: session.id, confirmFinalize: true });
       stopCamera();
       feedback('Đã lưu ' + (result.data?.total_results || 0) + ' bài quét vào Quản lý kết quả.');
