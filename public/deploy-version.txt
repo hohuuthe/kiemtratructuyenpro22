@@ -1,3 +1,4 @@
 Production release trigger
-interactive-board: 9b550641cd21a6488ba5ce76a4d040332cc21759
+interactive-board: b55ad471503f567602e768f32aeeec95e105ab2e
 release-date: 2026-11-01
+release: board-hardening
