@@ -63,6 +63,10 @@
         </div>
         <span id="qr-presenter-sync" class="rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 px-3 py-1 text-xs font-bold">Đã đồng bộ</span>
         <span id="qr-presenter-code" class="rounded-xl bg-white border border-emerald-100 text-emerald-900 px-3 py-2 text-sm font-black tracking-[.18em] shadow-sm">------</span>
+        <button id="qr-presenter-settings" type="button" class="min-h-10 rounded-xl bg-white hover:bg-indigo-50 border border-indigo-100 text-indigo-700 px-3 py-2 text-sm font-bold shadow-sm inline-flex items-center gap-1.5" title="Cài đặt cỡ chữ câu hỏi và đáp án" aria-label="Cài đặt cỡ chữ câu hỏi và đáp án">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924.07 0 3.35a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+          <span class="hidden xl:inline">Cỡ chữ</span>
+        </button>
         <button id="qr-presenter-fullscreen" type="button" class="min-h-10 rounded-xl bg-white hover:bg-emerald-50 border border-emerald-100 text-emerald-800 px-3 py-2 text-sm font-bold shadow-sm">⛶ Toàn màn hình</button>
       </div>
 
@@ -106,6 +110,37 @@
             <div class="qr-presenter-stat"><span>B</span><strong id="qr-presenter-count-b">0</strong></div>
             <div class="qr-presenter-stat"><span>C</span><strong id="qr-presenter-count-c">0</strong></div>
             <div class="qr-presenter-stat"><span>D</span><strong id="qr-presenter-count-d">0</strong></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="qr-presenter-settings-modal" class="hidden fixed inset-0 z-[99999] bg-slate-950/55 backdrop-blur-sm p-4 items-center justify-center">
+        <div class="w-full max-w-md rounded-2xl bg-white border border-slate-200 shadow-2xl overflow-hidden">
+          <div class="h-1.5 bg-gradient-to-r from-emerald-500 via-teal-500 to-indigo-600"></div>
+          <div class="p-4 border-b border-slate-100 flex items-center justify-between gap-3">
+            <div>
+              <h3 class="font-black text-slate-900">Cài đặt cỡ chữ trình chiếu</h3>
+              <p class="text-xs text-slate-500 mt-0.5">Đồng bộ cách chỉnh cỡ chữ câu hỏi và đáp án như giao diện làm bài.</p>
+            </div>
+            <button id="qr-presenter-settings-close" type="button" class="w-9 h-9 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 font-black">×</button>
+          </div>
+          <div class="p-4 space-y-5">
+            <label class="block">
+              <div class="flex items-center justify-between gap-3 text-sm font-bold text-slate-700">
+                <span>Cỡ chữ câu hỏi</span><span id="qr-presenter-question-size-value" class="text-emerald-700">24px</span>
+              </div>
+              <input id="qr-presenter-question-size" type="range" min="18" max="56" step="1" value="24" class="mt-2 w-full accent-emerald-600">
+            </label>
+            <label class="block">
+              <div class="flex items-center justify-between gap-3 text-sm font-bold text-slate-700">
+                <span>Cỡ chữ đáp án</span><span id="qr-presenter-answer-size-value" class="text-indigo-700">20px</span>
+              </div>
+              <input id="qr-presenter-answer-size" type="range" min="16" max="48" step="1" value="20" class="mt-2 w-full accent-indigo-600">
+            </label>
+            <div class="flex justify-end gap-2">
+              <button id="qr-presenter-settings-reset" type="button" class="rounded-xl bg-slate-100 hover:bg-slate-200 px-4 py-2 text-sm font-bold text-slate-700">Mặc định</button>
+              <button id="qr-presenter-settings-done" type="button" class="rounded-xl bg-emerald-600 hover:bg-emerald-700 px-4 py-2 text-sm font-bold text-white">Xong</button>
+            </div>
           </div>
         </div>
       </div>
