@@ -42,7 +42,7 @@ test('server API enforces teacher scope, stable ABCD answers and no fake zero re
   assert.match(api,/Chức năng quét thẻ chỉ dành cho Giáo viên\/Admin/);
   assert.match(api,/Bạn chỉ được quét thẻ cho lớp đã được phân công/);
   assert.match(api,/Giáo viên chỉ được dùng chức năng quét thẻ với đề thi do mình tạo/);
-  assert.match(api,/\['A','B','C','D'\]\.includes\(answer\)/);
+  assert.match(api,/\['A','B','C','D'\]\.includes\(row\.answer\)/);
   assert.match(api,/Math\.max\(3,/);
   assert.match(api,/Chưa có học sinh nào được quét ổn định; không tạo kết quả/);
   assert.match(api,/reason: 'Chưa có đáp án quét'/);
@@ -228,8 +228,8 @@ test('phone persistence uses durable ACK queue and presenter shows only server-s
   assert.doesNotMatch(ui,/for\(const item of batchEntries\)if\(item\.key\)pendingRecords\.delete/);
 
   // Server gives explicit per-student ACK with identity and persisted timestamp.
-  assert.match(api,/card_token: cardToken/);
-  assert.match(api,/saved_at: now/);
+  assert.match(api,/card_token: row\.card_token/);
+  assert.match(api,/saved_at: row\.updated_at \|\| now/);
   assert.match(api,/SELECT r\.user_id,r\.card_token,r\.answer,r\.stable_hits,r\.updated_at/);
 
   // Presenter monitor is adjacent to the question and renders only state.responses (persisted rows).
@@ -315,5 +315,6 @@ test('QR hot paths use bounded bulk SQL instead of per-student database loops',(
   assert.match(finalizeBlock,/resultValuesSql/);
   assert.match(finalizeBlock,/ON CONFLICT\(id\) DO NOTHING/);
   assert.match(finalizeBlock,/qr_answer_result_links\(session_id,user_id,result_id,created_at\)/);
-  assert.doesNotMatch(finalizeBlock,/for \(const student of students\)[\s\S]*await db\.prepare/);
+  assert.match(finalizeBlock,/for \(const student of students\)[\s\S]*resultDrafts\.push/);
+  assert.match(finalizeBlock,/const resultValuesSql = persistedDrafts\.map/);
 });
