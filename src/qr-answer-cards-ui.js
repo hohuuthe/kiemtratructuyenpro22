@@ -574,6 +574,7 @@ function stopCamera() {
   const video = $('qr-card-video');
   if (video) video.srcObject = null;
   $('qr-card-stop-camera')?.classList.add('hidden');
+  $('qr-card-stop-camera-mobile')?.classList.add('hidden');
   if ($('qr-card-camera-status')) $('qr-card-camera-status').textContent = 'Camera đã dừng';
   if ($('qr-card-camera-empty')) $('qr-card-camera-empty').classList.remove('hidden');
   clearOverlay();
@@ -597,6 +598,7 @@ async function openCamera() {
     await video.play();
     scanActive = true;
     $('qr-card-stop-camera')?.classList.remove('hidden');
+    if(mobileScannerMode)$('qr-card-stop-camera-mobile')?.classList.remove('hidden');
     $('qr-card-camera-empty')?.classList.add('hidden');
     if ($('qr-card-camera-status')) $('qr-card-camera-status').textContent =
       collectionState==='collecting'
