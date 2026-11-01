@@ -123,3 +123,10 @@ Không xóa Durable Object namespace khi rollback vì dữ liệu bảng realtim
 - Scope: phone scanner server-confirmed persistence, Presenter synchronization, locked-state UX, mobile overflow hardening.
 - Verification: PR #94 `release:qr-cards:check` passed; Neon branch smoke verified `qr_answer_responses` insert and `response_revision` increment.
 - Production trigger: this commit is pushed to `main` for Cloudflare Pages Git integration.
+
+## QR mobile scanner-only release 2026-11-01
+
+- Source commit: `74b9af0cd3b21288a22d73300285d2fef422de3b`
+- Scope: phone-only scanner UI, desktop controls hidden on mobile, camera-first layout, reduced mobile data loading.
+- Verification: PR #95 `release:qr-cards:check` passed before merge.
+- Production trigger: this commit is pushed to `main` for Cloudflare Pages Git integration.
