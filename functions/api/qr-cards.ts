@@ -97,6 +97,28 @@ function randomToken() {
   crypto.getRandomValues(bytes);
   return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
 }
+function randomJoinCode() {
+  const alphabet = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const bytes = new Uint8Array(6);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, b => alphabet[b % alphabet.length]).join('');
+}
+async function makeUniqueJoinCode(db: any) {
+  for (let i = 0; i < 8; i++) {
+    const code = randomJoinCode();
+    const exists: any = await db.prepare("SELECT id FROM qr_answer_sessions WHERE join_code=? AND status='open' LIMIT 1").bind(code).first();
+    if (!exists) return code;
+  }
+  return randomJoinCode() + randomJoinCode();
+}
+async function ownedSession(db: any, user: any, admin: boolean, sessionId: string) {
+  const session: any = await db.prepare('SELECT * FROM qr_answer_sessions WHERE id=? LIMIT 1').bind(sessionId).first();
+  if (!session) throw Object.assign(new Error('Không tìm thấy phiên quét.'), { status: 404, code: 'SESSION_NOT_FOUND' });
+  if (!admin && !actorIds(user).includes(norm(session.creator_id))) {
+    throw Object.assign(new Error('Không có quyền truy cập phiên quét này.'), { status: 403, code: 'SESSION_SCOPE_DENIED' });
+  }
+  return session;
+}
 function actorIds(user: any) {
   return [...new Set([user?.id, user?.user_id].map(norm).filter(Boolean))];
 }
@@ -128,6 +150,13 @@ async function ensureTables(db: any) {
       question_count INTEGER NOT NULL DEFAULT 0,
       points_41 REAL NOT NULL DEFAULT 1,
       status TEXT NOT NULL DEFAULT 'open',
+      join_code TEXT NOT NULL DEFAULT '',
+      current_question_index INTEGER NOT NULL DEFAULT 0,
+      current_question_id TEXT NOT NULL DEFAULT '',
+      collection_state TEXT NOT NULL DEFAULT 'collecting',
+      state_revision INTEGER NOT NULL DEFAULT 1,
+      response_revision INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT,
       created_at TEXT NOT NULL,
       finalized_at TEXT
     )
@@ -156,6 +185,18 @@ async function ensureTables(db: any) {
   try { await db.prepare('CREATE INDEX IF NOT EXISTS idx_qr_cards_user ON qr_answer_cards(user_id)').run(); } catch {}
   try { await db.prepare('CREATE INDEX IF NOT EXISTS idx_qr_sessions_creator ON qr_answer_sessions(creator_id, created_at DESC)').run(); } catch {}
   try { await db.prepare('CREATE INDEX IF NOT EXISTS idx_qr_responses_session ON qr_answer_responses(session_id, question_id)').run(); } catch {}
+  for (const alter of [
+    "ALTER TABLE qr_answer_sessions ADD COLUMN join_code TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE qr_answer_sessions ADD COLUMN current_question_index INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE qr_answer_sessions ADD COLUMN current_question_id TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE qr_answer_sessions ADD COLUMN collection_state TEXT NOT NULL DEFAULT 'collecting'",
+    "ALTER TABLE qr_answer_sessions ADD COLUMN state_revision INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE qr_answer_sessions ADD COLUMN response_revision INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE qr_answer_sessions ADD COLUMN updated_at TEXT"
+  ]) {
+    try { await db.prepare(alter).run(); } catch {}
+  }
+  try { await db.prepare('CREATE INDEX IF NOT EXISTS idx_qr_sessions_join_code ON qr_answer_sessions(join_code)').run(); } catch {}
 
   // Tenant cũ có thể chưa đi qua /api/exam/grade kể từ khi bổ sung các cột định danh.
   await db.prepare(`
@@ -235,7 +276,20 @@ async function examForActor(db: any, user: any, admin: boolean, examId: string) 
   if (!exam) throw Object.assign(new Error('Không tìm thấy đề thi.'), { status: 404, code: 'EXAM_NOT_FOUND' });
   if (!admin) {
     const ids = actorIds(user);
-    if (!ids.includes(norm(exam.creator_id))) {
+    const creatorId = norm(exam.creator_id);
+    let allowed = ids.includes(creatorId);
+    if (!allowed && ids.length && creatorId) {
+      const placeholders = ids.map(() => '?').join(',');
+      const params = [...ids, creatorId, creatorId];
+      const alias: any = await db.prepare(`
+        SELECT id FROM accounts
+        WHERE (id IN (${placeholders}) OR user_id IN (${placeholders}))
+          AND (id=? OR user_id=?)
+        LIMIT 1
+      `).bind(...ids,...ids,creatorId,creatorId).first();
+      allowed = !!alias;
+    }
+    if (!allowed) {
       throw Object.assign(new Error('Giáo viên chỉ được dùng chức năng quét thẻ với đề thi do mình tạo.'), { status: 403, code: 'EXAM_SCOPE_DENIED' });
     }
   }
@@ -383,6 +437,86 @@ export const onRequestGet: PagesFunction<Env> = async (context: any) => {
       await assertClassScope(db, user, admin, className, donvi);
       return reply({ data: await classStudents(db, className, donvi), error: null });
     }
+    if (action === 'active-sessions') {
+      const ids = actorIds(user);
+      let rows: any;
+      if (admin) {
+        rows = await db.prepare(`
+          SELECT id,join_code,exam_id,exam_name,class_name,donvi,status,current_question_index,current_question_id,collection_state,state_revision,response_revision,updated_at,created_at
+          FROM qr_answer_sessions
+          WHERE status='open'
+          ORDER BY COALESCE(updated_at,created_at) DESC
+          LIMIT 20
+        `).all();
+      } else if (ids.length) {
+        const placeholders = ids.map(() => '?').join(',');
+        rows = await db.prepare(`
+          SELECT id,join_code,exam_id,exam_name,class_name,donvi,status,current_question_index,current_question_id,collection_state,state_revision,response_revision,updated_at,created_at
+          FROM qr_answer_sessions
+          WHERE status='open' AND creator_id IN (${placeholders})
+          ORDER BY COALESCE(updated_at,created_at) DESC
+          LIMIT 20
+        `).bind(...ids).all();
+      } else rows = { results: [] };
+      return reply({ data: rows.results || [], error: null });
+    }
+    if (action === 'session-state') {
+      const id = norm(url.searchParams.get('id'));
+      const session: any = await ownedSession(db, user, admin, id);
+      const questions = asArray(session.questions_json);
+      const index = Math.max(0, Math.min(questions.length - 1, Number(session.current_question_index || 0)));
+      const current = questions[index] || null;
+      const currentQuestionId = norm(session.current_question_id || current?.id);
+      const stateRevision = Number(session.state_revision || 1);
+      const responseRevision = Number(session.response_revision || 0);
+      const since = norm(url.searchParams.get('since'));
+      const version = stateRevision + ':' + responseRevision;
+      if (since && since === version) {
+        return reply({ data: { unchanged: true, version, status: session.status }, error: null });
+      }
+      const responseRows: any = currentQuestionId ? await db.prepare(`
+        SELECT r.user_id,r.answer,r.stable_hits,r.updated_at,u.full_name,
+          COALESCE((SELECT a.username FROM accounts a WHERE a.user_id=u.id OR a.id=u.id ORDER BY CASE WHEN a.user_id=u.id THEN 0 ELSE 1 END LIMIT 1),u.id) AS student_code
+        FROM qr_answer_responses r
+        JOIN users u ON u.id=r.user_id
+        WHERE r.session_id=? AND r.question_id=?
+        ORDER BY u.full_name
+      `).bind(id,currentQuestionId).all() : { results: [] };
+      const responses = responseRows.results || [];
+      const counts = { A: 0, B: 0, C: 0, D: 0 };
+      for (const row of responses) {
+        const a = norm(row.answer).toUpperCase();
+        if (a in counts) (counts as any)[a]++;
+      }
+      const students = await classStudents(db, session.class_name, session.donvi || '');
+      const answered = new Set(responses.map((row: any) => norm(row.user_id)));
+      const missing = students.filter((st: any) => !answered.has(norm(st.id))).map((st: any) => ({
+        id: st.id, full_name: st.full_name, student_code: st.student_code
+      }));
+      return reply({ data: {
+        unchanged: false,
+        version,
+        id: session.id,
+        join_code: session.join_code,
+        exam_id: session.exam_id,
+        exam_name: session.exam_name,
+        class_name: session.class_name,
+        donvi: session.donvi,
+        status: session.status,
+        current_question_index: index,
+        current_question_id: currentQuestionId,
+        collection_state: session.collection_state || 'collecting',
+        state_revision: stateRevision,
+        response_revision: responseRevision,
+        question_count: questions.length,
+        current_question: current ? publicQuestion(current,index) : null,
+        responses,
+        counts,
+        answered_count: responses.length,
+        student_count: students.length,
+        missing
+      }, error: null });
+    }
     if (action === 'session') {
       const id = norm(url.searchParams.get('id'));
       const session: any = await db.prepare('SELECT * FROM qr_answer_sessions WHERE id = ? LIMIT 1').bind(id).first();
@@ -397,7 +531,16 @@ export const onRequestGet: PagesFunction<Env> = async (context: any) => {
         ORDER BY r.question_id,u.full_name
       `).bind(id).all();
       const questions = asArray(session.questions_json).map((q, i) => publicQuestion(q, i));
-      return reply({ data: { ...session, questions, responses: responseRows.results || [] }, error: null });
+      const students = await classStudents(db, session.class_name, session.donvi || '');
+      return reply({ data: {
+        ...session,
+        questions,
+        responses: responseRows.results || [],
+        students: students.map((st: any) => ({
+          id: st.id, full_name: st.full_name, student_code: st.student_code, lop: st.lop, donvi: st.donvi,
+          card_token: st.card_token, qr_payload: st.card_token ? `KTTTQR1|${st.card_token}|ABCD` : ''
+        }))
+      }, error: null });
     }
     return reply({ error: 'Thao tác không hợp lệ.' }, 400);
   } catch (err: any) {
@@ -466,13 +609,19 @@ export const onRequestPost: PagesFunction<Env> = async (context: any) => {
       const id = crypto.randomUUID();
       const now = new Date().toISOString();
       const ownerId = actorIds(user)[0] || norm(user.id);
+      const joinCode = await makeUniqueJoinCode(db);
+      const firstQuestionId = norm(picked[0]?.id);
       await db.prepare(`
-        INSERT INTO qr_answer_sessions(id,creator_id,exam_id,exam_name,class_name,donvi,questions_json,question_count,points_41,status,created_at)
-        VALUES(?,?,?,?,?,?,?,?,?,'open',?)
-      `).bind(id, ownerId, examId, norm(exam.name), className, donvi, JSON.stringify(picked), picked.length, Number(exam.points_41 || 1) || 1, now).run();
+        INSERT INTO qr_answer_sessions(
+          id,creator_id,exam_id,exam_name,class_name,donvi,questions_json,question_count,points_41,status,
+          join_code,current_question_index,current_question_id,collection_state,state_revision,response_revision,updated_at,created_at
+        )
+        VALUES(?,?,?,?,?,?,?,?,?,'open',?,0,?,'collecting',1,0,?,?)
+      `).bind(id, ownerId, examId, norm(exam.name), className, donvi, JSON.stringify(picked), picked.length, Number(exam.points_41 || 1) || 1, joinCode, firstQuestionId, now, now).run();
       return reply({
         data: {
-          id, exam_id: examId, exam_name: norm(exam.name), class_name: className, donvi,
+          id, join_code: joinCode, exam_id: examId, exam_name: norm(exam.name), class_name: className, donvi,
+          current_question_index: 0, current_question_id: firstQuestionId, collection_state: 'collecting', state_revision: 1, response_revision: 0,
           questions: picked.map(publicQuestion),
           students: students.map((s: any) => ({
             id: s.id, full_name: s.full_name, student_code: s.student_code, lop: s.lop, donvi: s.donvi,
@@ -483,6 +632,71 @@ export const onRequestPost: PagesFunction<Env> = async (context: any) => {
       });
     }
 
+    if (action === 'set-current-question') {
+      const sessionId = norm(body.sessionId);
+      const session: any = await ownedSession(db, user, admin, sessionId);
+      if (session.status !== 'open') return reply({ error: 'Phiên quét không còn ở trạng thái mở.' }, 409);
+      const questions = asArray(session.questions_json);
+      const index = Number(body.index);
+      if (!Number.isInteger(index) || index < 0 || index >= questions.length) return reply({ error: 'Số thứ tự câu hỏi không hợp lệ.' }, 400);
+      if (index !== Number(session.current_question_index || 0) && norm(session.collection_state || 'collecting') !== 'locked') {
+        return reply({ error: 'Hãy khóa câu hiện tại trước khi chuyển câu.', code: 'LOCK_BEFORE_NAVIGATE' }, 409);
+      }
+      const expectedRevision = Number(body.expectedRevision || 0);
+      const qid = norm(questions[index]?.id);
+      const now = new Date().toISOString();
+      let result: any;
+      if (expectedRevision > 0) {
+        result = await db.prepare(`
+          UPDATE qr_answer_sessions
+          SET current_question_index=?,current_question_id=?,collection_state='collecting',state_revision=state_revision+1,updated_at=?
+          WHERE id=? AND status='open' AND state_revision=?
+        `).bind(index,qid,now,sessionId,expectedRevision).run();
+      } else {
+        result = await db.prepare(`
+          UPDATE qr_answer_sessions
+          SET current_question_index=?,current_question_id=?,collection_state='collecting',state_revision=state_revision+1,updated_at=?
+          WHERE id=? AND status='open'
+        `).bind(index,qid,now,sessionId).run();
+      }
+      if (Number(result?.meta?.changes || 0) !== 1) return reply({ error: 'Phiên vừa được thay đổi ở thiết bị khác. Hãy đồng bộ lại.', code: 'SESSION_REVISION_CONFLICT' }, 409);
+      return reply({ data: {
+        current_question_index: index,
+        current_question_id: qid,
+        collection_state: 'collecting',
+        state_revision: expectedRevision > 0 ? expectedRevision + 1 : Number(session.state_revision || 0) + 1
+      }, error: null });
+    }
+
+    if (action === 'set-collection-state') {
+      const sessionId = norm(body.sessionId);
+      const nextState = norm(body.collectionState);
+      if (!['collecting','locked'].includes(nextState)) return reply({ error: 'Trạng thái thu đáp án không hợp lệ.' }, 400);
+      const session: any = await ownedSession(db, user, admin, sessionId);
+      if (session.status !== 'open') return reply({ error: 'Phiên quét không còn ở trạng thái mở.' }, 409);
+      const expectedRevision = Number(body.expectedRevision || 0);
+      const now = new Date().toISOString();
+      let result: any;
+      if (expectedRevision > 0) {
+        result = await db.prepare(`
+          UPDATE qr_answer_sessions
+          SET collection_state=?,state_revision=state_revision+1,updated_at=?
+          WHERE id=? AND status='open' AND state_revision=?
+        `).bind(nextState,now,sessionId,expectedRevision).run();
+      } else {
+        result = await db.prepare(`
+          UPDATE qr_answer_sessions
+          SET collection_state=?,state_revision=state_revision+1,updated_at=?
+          WHERE id=? AND status='open'
+        `).bind(nextState,now,sessionId).run();
+      }
+      if (Number(result?.meta?.changes || 0) !== 1) return reply({ error: 'Phiên vừa được thay đổi ở thiết bị khác. Hãy đồng bộ lại.', code: 'SESSION_REVISION_CONFLICT' }, 409);
+      return reply({ data: {
+        collection_state: nextState,
+        state_revision: expectedRevision > 0 ? expectedRevision + 1 : Number(session.state_revision || 0) + 1
+      }, error: null });
+    }
+
     if (action === 'record-batch') {
       const sessionId = norm(body.sessionId);
       const records = Array.isArray(body.records) ? body.records.slice(0, 40) : [];
@@ -491,7 +705,11 @@ export const onRequestPost: PagesFunction<Env> = async (context: any) => {
       if (!session) return reply({ error: 'Không tìm thấy phiên quét.' }, 404);
       if (!admin && !actorIds(user).includes(norm(session.creator_id))) return reply({ error: 'Không có quyền cập nhật phiên quét này.' }, 403);
       if (session.status !== 'open') return reply({ error: 'Phiên quét đã kết thúc.' }, 409);
-      const allowedQuestions = new Set(asArray(session.questions_json).map((q: any) => norm(q.id)));
+      if (norm(session.collection_state || 'collecting') !== 'collecting') {
+        return reply({ error: 'Câu hỏi hiện đã khóa nhận đáp án.', code: 'QUESTION_LOCKED', current_question_id: session.current_question_id }, 409);
+      }
+      const currentQuestionId = norm(session.current_question_id);
+      if (!currentQuestionId) return reply({ error: 'Phiên chưa xác định câu hỏi hiện tại.', code: 'CURRENT_QUESTION_MISSING' }, 409);
       const accepted: any[] = [];
       const now = new Date().toISOString();
       for (const raw of records) {
@@ -499,7 +717,7 @@ export const onRequestPost: PagesFunction<Env> = async (context: any) => {
         const questionId = norm(raw.questionId);
         const answer = norm(raw.answer).toUpperCase();
         const stableHits = Math.max(3, Math.min(20, Number(raw.stableHits) || 3));
-        if (!cardToken || !allowedQuestions.has(questionId) || !['A','B','C','D'].includes(answer)) continue;
+        if (!cardToken || questionId !== currentQuestionId || !['A','B','C','D'].includes(answer)) continue;
         const student: any = await db.prepare(`
           SELECT u.id,u.full_name,u.lop,u.donvi,c.card_token
           FROM qr_answer_cards c JOIN users u ON u.id=c.user_id
@@ -517,7 +735,11 @@ export const onRequestPost: PagesFunction<Env> = async (context: any) => {
         `).bind(sessionId, questionId, student.id, cardToken, answer, stableHits, now).run();
         accepted.push({ user_id: student.id, full_name: student.full_name, answer, question_id: questionId });
       }
-      return reply({ data: { accepted }, error: null });
+      if (accepted.length) {
+        await db.prepare('UPDATE qr_answer_sessions SET response_revision=response_revision+1,updated_at=? WHERE id=? AND status=\'open\'')
+          .bind(now,sessionId).run();
+      }
+      return reply({ data: { accepted, current_question_id: currentQuestionId }, error: null });
     }
 
     if (action === 'clear-answer') {
@@ -528,8 +750,8 @@ export const onRequestPost: PagesFunction<Env> = async (context: any) => {
       if (!session) return reply({ error: 'Không tìm thấy phiên quét.' }, 404);
       if (!admin && !actorIds(user).includes(norm(session.creator_id))) return reply({ error: 'Không có quyền cập nhật phiên quét này.' }, 403);
       if (session.status !== 'open') return reply({ error: 'Phiên quét đã kết thúc.' }, 409);
-      const allowedQuestions = new Set(asArray(session.questions_json).map((q: any) => norm(q.id)));
-      if (!allowedQuestions.has(questionId)) return reply({ error: 'Câu hỏi không thuộc phiên quét.' }, 400);
+      if (norm(session.collection_state || 'collecting') !== 'collecting') return reply({ error: 'Hãy mở khóa câu hỏi trước khi sửa đáp án.', code: 'QUESTION_LOCKED' }, 409);
+      if (questionId !== norm(session.current_question_id)) return reply({ error: 'Chỉ được sửa đáp án của câu đang được phát.', code: 'STALE_QUESTION' }, 409);
       const student: any = await db.prepare(`
         SELECT id FROM users
         WHERE id=? AND LOWER(TRIM(COALESCE(lop,'')))=LOWER(TRIM(?))
@@ -538,6 +760,8 @@ export const onRequestPost: PagesFunction<Env> = async (context: any) => {
       `).bind(userId, session.class_name, session.donvi || '').first();
       if (!student) return reply({ error: 'Học sinh không thuộc lớp của phiên quét.' }, 400);
       await db.prepare('DELETE FROM qr_answer_responses WHERE session_id=? AND question_id=? AND user_id=?').bind(sessionId, questionId, userId).run();
+      await db.prepare('UPDATE qr_answer_sessions SET response_revision=response_revision+1,updated_at=? WHERE id=? AND status=\'open\'')
+        .bind(new Date().toISOString(),sessionId).run();
       return reply({ data: { cleared: true }, error: null });
     }
 
@@ -547,6 +771,9 @@ export const onRequestPost: PagesFunction<Env> = async (context: any) => {
       const session: any = await db.prepare('SELECT * FROM qr_answer_sessions WHERE id = ? LIMIT 1').bind(sessionId).first();
       if (!session) return reply({ error: 'Không tìm thấy phiên quét.' }, 404);
       if (!admin && !actorIds(user).includes(norm(session.creator_id))) return reply({ error: 'Không có quyền kết thúc phiên quét này.' }, 403);
+      if (session.status === 'open' && norm(session.collection_state || 'collecting') !== 'locked') {
+        return reply({ error: 'Hãy khóa câu hiện tại trước khi kết thúc và chấm điểm.', code: 'LOCK_BEFORE_FINALIZE' }, 409);
+      }
       if (session.status === 'finalized') {
         const existingRows: any = await db.prepare(`
           SELECT l.result_id,r.user_id,r.student_name,r.score,r.correct_count

@@ -22,6 +22,14 @@ let pendingRecords = new Map();
 let flushTimer = null;
 let showMissingOnly = false;
 let lastDetections = [];
+let activeSessions = [];
+let deviceRole = '';
+let syncTimer = null;
+let syncBusy = false;
+let lastSyncVersion = '';
+let stateRevision = 0;
+let collectionState = 'collecting';
+let lastStateAt = 0;
 
 function authToken() {
   return localStorage.getItem(window.tenantStorageKey ? window.tenantStorageKey('auth_token') : 'auth_token') || '';
@@ -61,6 +69,74 @@ function selectedClass() {
 }
 function currentQuestion() {
   return session?.questions?.[questionIndex] || null;
+}
+function stopSyncLoop(){
+  if(syncTimer){clearTimeout(syncTimer);syncTimer=null;}
+  syncBusy=false;
+  lastSyncVersion='';
+}
+function scheduleSync(delay=450){
+  if(!session||!deviceRole)return;
+  if(syncTimer)clearTimeout(syncTimer);
+  syncTimer=setTimeout(syncSessionState,delay);
+}
+function setSyncBadge(ok=true){
+  const ids=deviceRole==='presenter'?['qr-presenter-sync']:['qr-scanner-sync'];
+  for(const id of ids){
+    const el=$(id);if(!el)continue;
+    el.textContent=ok?'Đã đồng bộ':'Đang kết nối lại…';
+    el.className='rounded-full px-3 py-1.5 text-xs font-black '+(ok?'bg-emerald-100 text-emerald-800':'bg-amber-100 text-amber-800');
+  }
+}
+function applyRemoteState(state){
+  if(!state||state.unchanged)return;
+  lastStateAt=Date.now();
+  stateRevision=Number(state.state_revision||0);
+  collectionState=String(state.collection_state||'collecting');
+  const nextIndex=Math.max(0,Number(state.current_question_index||0));
+  const changed=nextIndex!==questionIndex||String(state.current_question_id||'')!==String(currentQuestion()?.id||'');
+  questionIndex=nextIndex;
+  if(session){
+    session.current_question_index=nextIndex;
+    session.current_question_id=state.current_question_id;
+    session.collection_state=collectionState;
+    session.state_revision=stateRevision;
+    session.response_revision=Number(state.response_revision||0);
+  }
+  if(changed){
+    tracking.clear();
+    pendingRecords.clear();
+  }
+  const q=state.current_question||currentQuestion();
+  if(q){
+    const map=answersForQuestion(q.id);map.clear();
+    for(const row of state.responses||[])map.set(String(row.user_id),String(row.answer||'').toUpperCase());
+  }
+  if(deviceRole==='presenter')renderPresenterState(state);
+  if(deviceRole==='scanner')renderScannerState(state);
+}
+async function syncSessionState(){
+  if(!session||!deviceRole||syncBusy)return scheduleSync(500);
+  syncBusy=true;
+  try{
+    const url='/api/qr-cards?action=session-state&id='+encodeURIComponent(session.id)+(lastSyncVersion?'&since='+encodeURIComponent(lastSyncVersion):'');
+    const result=await api('GET',url);
+    const data=result.data||{};
+    if(data.version)lastSyncVersion=String(data.version);
+    if(data.status&&data.status!=='open'){
+      stopCamera();stopSyncLoop();deviceRole='';
+      feedback(data.status==='finalized'?'Phiên quét đã được chốt và lưu kết quả.':'Phiên quét đang kết thúc.');
+      return;
+    }
+    applyRemoteState(data);
+    setSyncBadge(true);
+  }catch(e){
+    console.warn('QR session sync failed',e);
+    setSyncBadge(false);
+  }finally{
+    syncBusy=false;
+    if(session&&deviceRole)scheduleSync(document.hidden?1200:450);
+  }
 }
 function optionText(options, key) {
   if (!options) return '';
@@ -103,6 +179,40 @@ async function loadBootstrap() {
   const result = await api('GET', '/api/qr-cards?action=bootstrap');
   bootstrapData = result.data || { classes: [], exams: [] };
   populateBootstrap();
+  await loadActiveSessions();
+}
+async function loadActiveSessions() {
+  try {
+    const result = await api('GET','/api/qr-cards?action=active-sessions');
+    activeSessions = result.data || [];
+    const select=$('qr-card-active-session');
+    if(select){
+      const current=select.value;
+      select.innerHTML='<option value="">-- Chọn phiên đang mở --</option>'+activeSessions.map(x =>
+        '<option value="'+esc(x.id)+'" data-code="'+esc(x.join_code||'')+'">'+
+        esc((x.join_code?x.join_code+' · ':'')+(x.class_name||'')+' · '+(x.exam_name||''))+'</option>'
+      ).join('');
+      if(current&&activeSessions.some(x=>String(x.id)===String(current)))select.value=current;
+      else if(activeSessions.length===1)select.value=String(activeSessions[0].id);
+    }
+  } catch(e) {
+    console.warn('Cannot load active QR sessions',e);
+  }
+}
+async function loadSession(sessionId) {
+  const result=await api('GET','/api/qr-cards?action=session&id='+encodeURIComponent(sessionId));
+  session=result.data||null;
+  if(!session)throw Error('Không tải được phiên quét.');
+  questionIndex=Math.max(0,Number(session.current_question_index||0));
+  stateRevision=Number(session.state_revision||0);
+  collectionState=String(session.collection_state||'collecting');
+  questionAnswers.clear();
+  for(const row of session.responses||[]){
+    const qid=String(row.question_id||''),uid=String(row.user_id||'');
+    if(!qid||!uid)continue;
+    answersForQuestion(qid).set(uid,String(row.answer||'').toUpperCase());
+  }
+  return session;
 }
 async function loadRoster() {
   const { className, donvi } = selectedClass();
@@ -213,18 +323,123 @@ async function startSession() {
     const result = await api('POST', '/api/qr-cards', { action: 'start-session', className, donvi, examId });
     session = result.data;
     questionIndex = 0;
+    stateRevision=Number(session.state_revision||1);
+    collectionState=String(session.collection_state||'collecting');
     tracking.clear();
     questionAnswers.clear();
     pendingRecords.clear();
-    $('qr-card-scan-workspace')?.classList.remove('hidden');
-    renderQuestion();
-    feedback('Đã tạo phiên quét. Mở camera và yêu cầu học sinh giơ thẻ.');
-    setTimeout(() => $('qr-card-scan-workspace')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
+    await enterPresenter(session);
+    await loadActiveSessions();
+    feedback('Đã tạo phiên '+(session.join_code||'')+'. Máy tính đang ở chế độ trình chiếu; mở điện thoại và chọn phiên này để quét.');
   } catch (e) {
     feedback(e.message, true);
   } finally {
     if (btn) btn.disabled = false;
   }
+}
+async function attachSelectedSession(role){
+  const id=$('qr-card-active-session')?.value||'';
+  if(!id)return feedback('Hãy chọn một phiên đang mở.',true);
+  try{
+    await loadSession(id);
+    if(role==='presenter')await enterPresenter(session);
+    else await enterScanner(session);
+  }catch(e){feedback(e.message,true);}
+}
+async function enterPresenter(data){
+  stopCamera();stopSyncLoop();deviceRole='presenter';session=data;
+  $('qr-card-scan-workspace')?.classList.add('hidden');
+  $('qr-card-presenter-workspace')?.classList.remove('hidden');
+  lastSyncVersion='';
+  renderPresenterBase();
+  await syncSessionState();
+  $('qr-card-presenter-workspace')?.scrollIntoView({behavior:'smooth',block:'start'});
+}
+async function enterScanner(data){
+  stopSyncLoop();deviceRole='scanner';session=data;
+  $('qr-card-presenter-workspace')?.classList.add('hidden');
+  $('qr-card-scan-workspace')?.classList.remove('hidden');
+  lastSyncVersion='';
+  renderQuestion();
+  renderScannerHeader();
+  await syncSessionState();
+  $('qr-card-scan-workspace')?.scrollIntoView({behavior:'smooth',block:'start'});
+}
+function renderPresenterBase(){
+  if(!session)return;
+  if($('qr-presenter-exam'))$('qr-presenter-exam').textContent=session.exam_name||'Đề kiểm tra';
+  if($('qr-presenter-class'))$('qr-presenter-class').textContent=(session.donvi?session.donvi+' · ':'')+(session.class_name||'');
+  if($('qr-presenter-code'))$('qr-presenter-code').textContent=session.join_code||'------';
+}
+function renderScannerHeader(){
+  if(!session)return;
+  if($('qr-scanner-session-title'))$('qr-scanner-session-title').textContent=(session.class_name||'')+' · '+(session.exam_name||'');
+  if($('qr-scanner-session-code'))$('qr-scanner-session-code').textContent='Mã phiên: '+(session.join_code||'------');
+}
+function renderPresenterQuestion(q,index,total){
+  if($('qr-presenter-question-counter'))$('qr-presenter-question-counter').textContent='Câu '+(index+1)+'/'+Math.max(1,total);
+  if($('qr-presenter-question-content'))$('qr-presenter-question-content').innerHTML=rich(q?.content||'');
+  if($('qr-presenter-options'))$('qr-presenter-options').innerHTML=['A','B','C','D'].map(key =>
+    '<div class="qr-presenter-option"><span>'+key+'</span><div>'+rich(optionText(q?.options,key))+'</div></div>'
+  ).join('');
+}
+function renderPresenterState(state){
+  if(!session)return;
+  renderPresenterBase();
+  renderPresenterQuestion(state.current_question||currentQuestion(),Number(state.current_question_index||0),Number(state.question_count||session.questions?.length||0));
+  const locked=String(state.collection_state||'collecting')==='locked';
+  collectionState=locked?'locked':'collecting';
+  const stateEl=$('qr-presenter-state');
+  if(stateEl){
+    stateEl.textContent=locked?'🔒 Đã khóa câu':'● Đang nhận đáp án';
+    stateEl.className='rounded-full border px-3 py-1.5 text-sm font-black '+(locked?'bg-amber-400/20 border-amber-300/30 text-amber-200':'bg-emerald-500/20 border-emerald-400/30 text-emerald-200');
+  }
+  if($('qr-presenter-progress'))$('qr-presenter-progress').textContent=String(state.answered_count||0)+'/'+String(state.student_count||0);
+  const lockBtn=$('qr-presenter-lock');if(lockBtn)lockBtn.textContent=locked?'🔓 Mở lại câu':'🔒 Khóa câu';
+  if($('qr-presenter-prev'))$('qr-presenter-prev').disabled=Number(state.current_question_index||0)<=0;
+  if($('qr-presenter-next'))$('qr-presenter-next').disabled=Number(state.current_question_index||0)>=Number(state.question_count||1)-1;
+  $('qr-presenter-after-lock')?.classList.toggle('hidden',!locked);
+  if($('qr-presenter-missing-count'))$('qr-presenter-missing-count').textContent=String((state.missing||[]).length)+' học sinh chưa trả lời';
+  for(const k of ['A','B','C','D']){const el=$('qr-presenter-count-'+k.toLowerCase());if(el)el.textContent=String(state.counts?.[k]||0);}
+}
+function renderScannerState(state){
+  if(!session)return;
+  renderScannerHeader();
+  collectionState=String(state.collection_state||'collecting');
+  const idx=Number(state.current_question_index||0);
+  if(idx!==questionIndex)questionIndex=idx;
+  renderQuestion();
+  const badge=$('qr-scanner-collection-state');
+  if(badge){
+    const locked=collectionState==='locked';
+    badge.textContent=locked?'ĐÃ KHÓA':'ĐANG NHẬN';
+    badge.className='rounded-full px-3 py-1.5 text-xs font-black '+(locked?'bg-amber-500 text-slate-950':'bg-emerald-700 text-white');
+  }
+  if($('qr-card-progress'))$('qr-card-progress').textContent='Đã nhận '+String(state.answered_count||0)+'/'+String(state.student_count||0);
+  for(const k of ['A','B','C','D']){const el=$('qr-card-count-'+k.toLowerCase());if(el)el.textContent=String(state.counts?.[k]||0);}
+  if($('qr-card-camera-status')&&collectionState==='locked')$('qr-card-camera-status').textContent='Câu đã khóa · chờ câu tiếp theo';
+  renderStudentStatus();
+}
+async function setCollectionState(next){
+  if(!session||deviceRole!=='presenter')return;
+  const result=await api('POST','/api/qr-cards',{action:'set-collection-state',sessionId:session.id,collectionState:next,expectedRevision:stateRevision});
+  collectionState=next;
+  stateRevision=Number(result.data?.state_revision||stateRevision+1);
+  if(session){session.collection_state=next;session.state_revision=stateRevision;}
+  lastSyncVersion='';scheduleSync(0);return result;
+}
+async function presenterNavigate(delta){
+  if(!session||deviceRole!=='presenter')return;
+  try{
+    if(collectionState!=='locked')await setCollectionState('locked');
+    const next=Math.max(0,Math.min((session.questions?.length||1)-1,questionIndex+delta));
+    if(next===questionIndex)return;
+    const result=await api('POST','/api/qr-cards',{action:'set-current-question',sessionId:session.id,index:next,expectedRevision:stateRevision});
+    questionIndex=next;collectionState='collecting';
+    stateRevision=Number(result.data?.state_revision||stateRevision+1);
+    if(session){session.current_question_index=next;session.current_question_id=result.data?.current_question_id||session.questions?.[next]?.id;session.collection_state='collecting';session.state_revision=stateRevision;}
+    lastSyncVersion='';scheduleSync(0);
+  }catch(e){feedback(e.message,true);lastSyncVersion='';await syncSessionState();}
 }
 function answersForQuestion(questionId) {
   if (!questionAnswers.has(String(questionId))) questionAnswers.set(String(questionId), new Map());
@@ -276,7 +491,7 @@ function renderStudentStatus() {
     return '<div class="rounded-xl border bg-white p-2.5 flex items-center gap-2">' +
       '<span class="w-9 h-9 rounded-lg grid place-items-center shrink-0 font-black ' + (answer ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500') + '">' + (answer || '…') + '</span>' +
       '<div class="min-w-0 flex-1"><p class="font-bold truncate">' + esc(s.full_name) + '</p><p class="text-xs text-slate-500 truncate">' + esc(s.student_code) + '</p></div>' +
-      (answer ? '<button type="button" data-qr-clear="' + esc(s.id) + '" class="rounded-lg border px-2 py-1 text-xs text-slate-500">Sửa</button>' : '') + '</div>';
+      (answer && collectionState==='collecting' ? '<button type="button" data-qr-clear="' + esc(s.id) + '" class="rounded-lg border px-2 py-1 text-xs text-slate-500">Sửa</button>' : '') + '</div>';
   }).join('');
 }
 function stopCamera() {
@@ -294,6 +509,7 @@ function stopCamera() {
   clearOverlay();
 }
 async function openCamera() {
+  if(deviceRole!=='scanner'||!session)return feedback('Hãy kết nối điện thoại vào một phiên đang mở trước.',true);
   if (!navigator.mediaDevices?.getUserMedia) return feedback('Trình duyệt này không hỗ trợ camera web.', true);
   stopCamera();
   try {
@@ -380,7 +596,7 @@ async function scanFrame() {
 }
 function processDetections(detections) {
   const q = currentQuestion();
-  if (!q || !session) return;
+  if (!q || !session || deviceRole!=='scanner' || collectionState!=='collecting') return;
   const validStudents = new Map((session.students || []).map(s => [String(s.card_token), s]));
   const seen = new Set();
   const now = performance.now();
@@ -420,7 +636,7 @@ function acceptStableAnswer(questionId, student, answer, hits) {
 }
 function queueFlush() {
   if (flushTimer) return;
-  flushTimer = setTimeout(flushPending, 300);
+  flushTimer = setTimeout(flushPending, 80);
 }
 async function flushPending() {
   if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
@@ -436,6 +652,9 @@ async function flushPending() {
     if (pendingRecords.size) queueFlush();
     return true;
   } catch (e) {
+    if(e?.code==='QUESTION_LOCKED'||e?.code==='STALE_QUESTION'){
+      pendingRecords.clear();tracking.clear();lastSyncVersion='';scheduleSync(0);return false;
+    }
     for (const r of records) {
       const student = session.students.find(s => String(s.card_token) === String(r.cardToken));
       if (student) pendingRecords.set(String(r.questionId) + '|' + String(student.id), r);
@@ -528,16 +747,20 @@ async function clearStudentAnswer(userId) {
 async function finalize() {
   if (!session) return;
   const run = async () => {
-    const btn = $('qr-card-finalize');
+    const btn = $('qr-presenter-finalize');
     if (btn) btn.disabled = true;
     try {
-      await flushAllPending();
+      if(deviceRole==='presenter'&&collectionState!=='locked')await setCollectionState('locked');
+      if(deviceRole==='scanner')await flushAllPending();
       const result = await api('POST', '/api/qr-cards', { action: 'finalize', sessionId: session.id, confirmFinalize: true });
       stopCamera();
       feedback('Đã lưu ' + (result.data?.total_results || 0) + ' bài quét vào Quản lý kết quả.');
       window.showToast?.('Đã chốt kết quả quét thẻ thành công.', 'success');
-      session = null;
+      stopSyncLoop();
+      session = null;deviceRole='';
       $('qr-card-scan-workspace')?.classList.add('hidden');
+      $('qr-card-presenter-workspace')?.classList.add('hidden');
+      await loadActiveSessions();
     } catch (e) {
       feedback(e.message, true);
     } finally {
@@ -557,11 +780,12 @@ function bind() {
   $('qr-card-sync')?.addEventListener('click', ensureCards);
   $('qr-card-print')?.addEventListener('click', printCards);
   $('qr-card-start')?.addEventListener('click', startSession);
+  $('qr-card-refresh-sessions')?.addEventListener('click', loadActiveSessions);
+  $('qr-card-open-presenter')?.addEventListener('click',()=>attachSelectedSession('presenter'));
+  $('qr-card-open-scanner')?.addEventListener('click',()=>attachSelectedSession('scanner'));
   $('qr-card-open-camera')?.addEventListener('click', openCamera);
   $('qr-card-stop-camera')?.addEventListener('click', stopCamera);
   $('qr-card-switch-camera')?.addEventListener('click', async () => { cameraFacing = cameraFacing === 'environment' ? 'user' : 'environment'; await openCamera(); });
-  $('qr-card-prev-question')?.addEventListener('click', () => { if (questionIndex > 0) { questionIndex--; renderQuestion(); } });
-  $('qr-card-next-question')?.addEventListener('click', () => { if (session && questionIndex < session.questions.length - 1) { questionIndex++; renderQuestion(); } });
   $('qr-card-show-missing')?.addEventListener('click', () => {
     showMissingOnly = !showMissingOnly;
     $('qr-card-show-missing').textContent = showMissingOnly ? 'Hiện tất cả' : 'Chưa nhận';
@@ -571,26 +795,37 @@ function bind() {
     const btn = e.target.closest?.('[data-qr-clear]');
     if (btn) void clearStudentAnswer(btn.dataset.qrClear);
   });
-  $('qr-card-finalize')?.addEventListener('click', finalize);
-  document.addEventListener('visibilitychange', () => { if (document.hidden) stopCamera(); });
-  window.addEventListener('pagehide', stopCamera);
+  $('qr-card-leave-scanner')?.addEventListener('click',()=>{stopCamera();stopSyncLoop();deviceRole='';session=null;$('qr-card-scan-workspace')?.classList.add('hidden');loadActiveSessions();});
+  $('qr-presenter-lock')?.addEventListener('click',async()=>{try{await setCollectionState(collectionState==='locked'?'collecting':'locked');}catch(e){feedback(e.message,true);lastSyncVersion='';scheduleSync(0);}});
+  $('qr-presenter-prev')?.addEventListener('click',()=>presenterNavigate(-1));
+  $('qr-presenter-next')?.addEventListener('click',()=>presenterNavigate(1));
+  $('qr-presenter-finalize')?.addEventListener('click',finalize);
+  $('qr-presenter-fullscreen')?.addEventListener('click',async()=>{
+    const el=$('qr-card-presenter-workspace');if(!el)return;
+    try{if(document.fullscreenElement)await document.exitFullscreen();else await el.requestFullscreen();}catch{}
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { if(deviceRole==='scanner') stopCamera(); }
+    else if(session&&deviceRole){ lastSyncVersion='';scheduleSync(0); }
+  });
+  window.addEventListener('pagehide',()=>{stopCamera();stopSyncLoop();});
 }
 export async function initQrAnswerCards(user) {
   actor = user || null;
   bind();
   try {
     await loadBootstrap();
-    feedback('Chọn lớp và đề thi để bắt đầu.');
+    feedback('Máy tính: tạo phiên & trình chiếu. Điện thoại: chọn phiên đang mở rồi bấm Kết nối máy quét.');
   } catch (e) {
     feedback(e.message, true);
   }
 }
 export function connectQrAnswerCards() { bind(); }
 export function resetQrAnswerCards() {
-  stopCamera();
+  stopCamera();stopSyncLoop();
   actor = null;
   roster = [];
-  session = null;
+  session = null;deviceRole='';activeSessions=[];stateRevision=0;collectionState='collecting';lastSyncVersion='';
   questionIndex = 0;
   tracking.clear();
   questionAnswers.clear();

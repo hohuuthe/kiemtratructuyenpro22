@@ -1453,3 +1453,89 @@ html.kttt-modal-open, body.kttt-modal-open { overflow: hidden !important; oversc
 @media (prefers-reduced-motion:reduce) {
   .qr-answer-shell * { scroll-behavior:auto!important; transition:none!important; }
 }
+
+
+/* QR presenter ↔ scanner synchronized classroom mode */
+.qr-presenter-workspace {
+  min-height: min(76vh, 860px);
+}
+.qr-presenter-main {
+  min-height: 56vh;
+  display:flex;
+  flex-direction:column;
+}
+.qr-presenter-option {
+  display:grid;
+  grid-template-columns:52px minmax(0,1fr);
+  align-items:center;
+  gap:14px;
+  min-height:86px;
+  padding:14px 16px;
+  border:1px solid rgba(255,255,255,.14);
+  border-radius:18px;
+  background:rgba(255,255,255,.06);
+  font-size:clamp(18px,2vw,30px);
+  line-height:1.35;
+}
+.qr-presenter-option > span {
+  display:grid;
+  place-items:center;
+  width:48px;
+  height:48px;
+  border-radius:14px;
+  background:#4f46e5;
+  color:#fff;
+  font-weight:900;
+  font-size:24px;
+}
+.qr-presenter-stat {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  min-height:54px;
+  padding:10px 14px;
+  border-radius:14px;
+  background:rgba(255,255,255,.08);
+}
+.qr-presenter-stat span { font-weight:900; color:#c7d2fe; }
+.qr-presenter-stat strong { font-size:24px; }
+.qr-presenter-controls {
+  position:sticky;
+  bottom:0;
+  z-index:20;
+  backdrop-filter:blur(10px);
+}
+#qr-card-presenter-workspace:fullscreen {
+  width:100vw;
+  height:100vh;
+  overflow:auto;
+  border-radius:0;
+}
+#qr-card-presenter-workspace:fullscreen .qr-presenter-main {
+  min-height:calc(100vh - 145px);
+  padding:32px 5vw;
+}
+#qr-card-presenter-workspace:fullscreen #qr-presenter-question-content {
+  font-size:clamp(34px,4vw,64px);
+}
+#qr-card-presenter-workspace:fullscreen .qr-presenter-option {
+  min-height:110px;
+  font-size:clamp(26px,3vw,44px);
+}
+@media (max-width:767px) {
+  #qr-card-session-picker .grid { grid-template-columns:1fr; }
+  #qr-card-open-presenter,
+  #qr-card-open-scanner { width:100%; }
+  .qr-presenter-workspace { min-height:70vh; }
+  .qr-presenter-main { min-height:48vh; padding:14px; }
+  .qr-presenter-option {
+    grid-template-columns:42px minmax(0,1fr);
+    min-height:64px;
+    padding:10px 12px;
+    font-size:16px;
+    border-radius:14px;
+  }
+  .qr-presenter-option > span { width:40px;height:40px;border-radius:11px;font-size:20px; }
+  .qr-presenter-controls > button { flex:1 1 calc(50% - 6px); }
+  #qr-presenter-finalize { flex-basis:100%; }
+}
