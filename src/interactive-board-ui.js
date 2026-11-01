@@ -162,7 +162,7 @@ async function join(b,accessCode='',options={}){
   if(!options.reconnect){objects.clear();remoteStrokes.clear();tokenRefreshAttempts=0;}
   if(options.pageSwitch){undoStack=[];redoStack=[];}
   locked=room.board.status==='locked';
-  renderPageControls();
+  renderPageControls();syncLockUi();
   $('boards-home')?.classList.add('hidden');$('board-room')?.classList.remove('hidden');$('board-room-title').textContent=room.board.name;
   $('board-lock')?.classList.toggle('hidden',!room.board.can_manage);$('board-clear')?.classList.toggle('hidden',!room.board.can_manage);$('board-laser-tool')?.classList.toggle('hidden',!room.board.can_manage);
   for(const id of ['board-ai','board-template','board-timer','board-export-pdf','board-bring-here'])$(id)?.classList.toggle('hidden',!room.board.can_manage);
@@ -203,7 +203,7 @@ function scheduleReconnect(){
  },delay);
 }
 function handleMessage(m){
- if(m.type==='snapshot_begin'){objects.clear();remoteStrokes.clear();snapshotLoading=true;locked=!!m.locked;userLocked=!!m.userLocked;timerState=m.timer||null;renderParticipants(m.participants||[]);syncLockUi();syncTimerUi();applyPageBackground();$('board-room-status').textContent='Đang đồng bộ bảng...';return;}
+ if(m.type==='snapshot_begin'){objects.clear();remoteStrokes.clear();selectedObjectId='';snapshotLoading=true;locked=!!m.locked;userLocked=!!m.userLocked;timerState=m.timer||null;renderParticipants(m.participants||[]);syncLockUi();syncTimerUi();applyPageBackground();syncSelectionButtons();$('board-room-status').textContent='Đang đồng bộ bảng...';return;}
  if(m.type==='snapshot_chunk'){for(const o of m.objects||[])objects.set(o.id,o);scheduleRender();return;}
  if(m.type==='snapshot_end'){snapshotLoading=false;scheduleRender();renderParticipants(participantsCache);$('board-room-status').textContent='Đã kết nối realtime';return;}
  if(m.type==='put'&&m.object){objects.set(m.object.id,m.object);remoteStrokes.delete(m.object.id);scheduleRender();renderParticipants(participantsCache);return;}
@@ -215,7 +215,7 @@ function handleMessage(m){
  if(m.type==='page_deleted'){room.pages=(room.pages||[]).filter(p=>String(p.id)!==String(m.pageId));renderPageControls();if(String(m.pageId)===String(currentPageId)){const next=room.pages[0];if(next)switchPage(next.id);else exitRoom();}return;}
  if(m.type==='op_ack'&&m.clientOpId){pendingReliable.delete(String(m.clientOpId));return;}
  if(m.type==='resync_required'){setTimeout(()=>{if(room&&!manualExit)connectSocket(currentPageId)},120);return;}
- if(m.type==='clear_user_objects'){for(const id of m.objectIds||[])objects.delete(id);scheduleRender();renderParticipants(participantsCache);return;}
+ if(m.type==='clear_user_objects'){for(const id of m.objectIds||[])objects.delete(id);if((m.objectIds||[]).some(id=>String(id)===String(selectedObjectId)))selectedObjectId='';syncSelectionButtons();scheduleRender();renderParticipants(participantsCache);return;}
  if(m.type==='laser'){remoteLasers.set(String(m.userId),{x:m.x,y:m.y,name:m.displayName||'Giáo viên',expires:Date.now()+900});scheduleRender();setTimeout(()=>{const v=remoteLasers.get(String(m.userId));if(v&&v.expires<=Date.now()){remoteLasers.delete(String(m.userId));scheduleRender();}},950);return;}
  if(m.type==='stroke_cancel'){remoteStrokes.delete(m.objectId);scheduleRender();return;}
  if(m.type==='user_lock_state'){userLocked=!!m.blocked;if(userLocked){drawing=null;dragState=null;selectedObjectId='';syncSelectionButtons();scheduleRender();}syncLockUi();window.showToast?.(userLocked?'Giáo viên đã tạm khóa quyền tương tác của bạn.':'Giáo viên đã mở lại quyền tương tác cho bạn.','info');return;}
@@ -255,6 +255,7 @@ function setZoom(value){
  zoomLevel=Math.max(.5,Math.min(2,Math.round(Number(value)*10)/10));
  const wrap=$('board-canvas-wrap');if(wrap){wrap.style.width=(zoomLevel*100)+'%';wrap.style.maxWidth=zoomLevel===1?'100%':'none';}
  if($('board-zoom-label'))$('board-zoom-label').textContent=Math.round(zoomLevel*100)+'%';
+ applyPageBackground();
 }
 function resetView(){setZoom(1);const stage=$('board-stage-scroll');if(stage){stage.scrollLeft=0;stage.scrollTop=0;}}
 function syncTimerUi(){
@@ -482,9 +483,11 @@ function renderParticipants(items){
  }).join('');refreshBoardButtonHelp($('board-participants'));
 }
 function syncLockUi(){
- const overlay=$('board-locked-overlay');overlay?.classList.toggle('hidden',!(locked||userLocked));
- const label=overlay?.querySelector('span');if(label)label.textContent=userLocked?'Giáo viên đang khóa quyền tương tác của bạn':(locked?'Bảng đang khóa chỉnh sửa':'');
- const btn=$('board-lock');if(btn&&!btn.classList.contains('hidden'))btn.textContent=locked?'🔓 Mở cho HS':'🔒 Khóa HS';refreshBoardButtonHelp($('tab-boards'));
+ const manager=!!room?.board?.can_manage,restricted=!manager&&(locked||userLocked);
+ const overlay=$('board-locked-overlay');overlay?.classList.toggle('hidden',!restricted);
+ const label=overlay?.querySelector('span');if(label)label.textContent=userLocked?'Giáo viên đang khóa quyền tương tác của bạn':(locked?'Bảng đang khóa tương tác của học sinh':'');
+ const btn=$('board-lock');if(btn&&!btn.classList.contains('hidden'))btn.textContent=locked?'🔓 Mở cho HS':'🔒 Khóa HS';
+ syncBoardPermissionUi();refreshBoardButtonHelp($('tab-boards'));
 }
 function canvas(){return $('board-canvas');}
 function logicalPointFromClient(clientX,clientY){const c=canvas(),r=c.getBoundingClientRect();return [Math.round((clientX-r.left)*1600/r.width),Math.round((clientY-r.top)*900/r.height)];}
@@ -502,9 +505,10 @@ function scheduleRender(){if(renderQueued)return;renderQueued=true;requestAnimat
 function applyPageBackground(){
  const wrap=$('board-canvas-wrap'),page=(room?.pages||[]).find(p=>String(p.id)===String(currentPageId));if(!wrap)return;
  const type=page?.background_type||'white';wrap.style.backgroundColor='#ffffff';wrap.style.backgroundImage='';wrap.style.backgroundSize='';
- if(type==='grid')wrap.style.backgroundImage='linear-gradient(#e5e7eb 1px, transparent 1px),linear-gradient(90deg,#e5e7eb 1px,transparent 1px)',wrap.style.backgroundSize='32px 32px';
- if(type==='lined')wrap.style.backgroundImage='repeating-linear-gradient(to bottom,transparent 0,transparent 31px,#dbeafe 32px)';
- if(type==='dots')wrap.style.backgroundImage='radial-gradient(#cbd5e1 1.5px,transparent 1.5px)',wrap.style.backgroundSize='24px 24px';
+ const scale=Math.max(.5,Math.min(2,Number(zoomLevel)||1));
+ if(type==='grid')wrap.style.backgroundImage='linear-gradient(#e5e7eb 1px, transparent 1px),linear-gradient(90deg,#e5e7eb 1px,transparent 1px)',wrap.style.backgroundSize=(32*scale)+'px '+(32*scale)+'px';
+ if(type==='lined')wrap.style.backgroundImage='repeating-linear-gradient(to bottom,transparent 0,transparent '+(31*scale)+'px,#dbeafe '+(32*scale)+'px)';
+ if(type==='dots')wrap.style.backgroundImage='radial-gradient(#cbd5e1 1.5px,transparent 1.5px)',wrap.style.backgroundSize=(24*scale)+'px '+(24*scale)+'px';
 }
 function render(){
  const c=canvas();if(!c)return;const ctx=c.getContext('2d');ctx.clearRect(0,0,c.width,c.height);ctx.lineCap='round';ctx.lineJoin='round';
@@ -572,6 +576,30 @@ function applyBoardDeviceDefaults(){
  syncBoardToolButtons();
 }
 function canEdit(){if(snapshotLoading)return false;return room?.board?.can_manage||(!locked&&!userLocked&&room?.board?.student_permission!=='view');}
+function boardToolAllowed(name){
+ if(name==='pan')return true;
+ if(!room)return false;
+ if(room.board?.can_manage)return true;
+ if(locked||userLocked)return false;
+ const permission=String(room.board?.student_permission||'view');
+ if(permission==='draw')return name!=='laser';
+ if(permission==='comment')return ['note','select','eraser','vote'].includes(name);
+ return false;
+}
+function syncBoardPermissionUi(){
+ document.querySelectorAll('[data-board-tool]').forEach(btn=>{
+   const allowed=boardToolAllowed(btn.dataset.boardTool);
+   btn.disabled=!allowed;btn.setAttribute('aria-disabled',allowed?'false':'true');
+ });
+ if(!boardToolAllowed(tool))selectBoardTool('pan');
+ const manager=!!room?.board?.can_manage,permission=String(room?.board?.student_permission||'view');
+ const canComment=manager||(!locked&&!userLocked&&['draw','comment'].includes(permission));
+ const canDraw=manager||(!locked&&!userLocked&&permission==='draw');
+ for(const id of ['board-note-text','board-note-text-mobile'])if($(id))$(id).disabled=!canComment;
+ if($('board-color'))$('board-color').disabled=!canComment;
+ if($('board-width'))$('board-width').disabled=!canDraw;
+ syncSelectionButtons();
+}
 function pointerDown(e){
  if(!room)return;const p=logicalPoint(e);canvas().setPointerCapture?.(e.pointerId);
  const touchGesture=e.pointerType==='touch'&&(tool==='pan'||panPointers.size>0);
@@ -590,12 +618,13 @@ function pointerDown(e){
    if(panPointers.size<=1)panDrag={pointerId:e.pointerId,clientX:e.clientX,clientY:e.clientY,left:stage?.scrollLeft||0,top:stage?.scrollTop||0};
    return;
  }
- if(tool==='vote'){if(locked||userLocked)return;const target=hitVotable(p);if(target)sendOps([{kind:'vote_toggle',pageId:currentPageId,objectId:target.id}]);return;}
+ if(tool==='vote'){const canVote=room.board.can_manage||(!locked&&!userLocked&&room.board.student_permission!=='view');if(!canVote)return;const target=hitVotable(p);if(target)sendOps([{kind:'vote_toggle',pageId:currentPageId,objectId:target.id}]);return;}
  if(!canEdit())return;
  if(tool==='laser'){if(room?.board?.can_manage)sendOps([{kind:'laser',pageId:currentPageId,x:p[0],y:p[1]}]);return;}
  if(tool==='select'){
-   const target=hitObject(p);if(!target)return;
+   const target=hitObject(p);if(!target){clearSelection();return;}
    if(!room.board.can_manage&&room.board.student_permission==='comment'&&!['note','text'].includes(target.type))return;
+   selectedObjectId=target.id;syncSelectionButtons();scheduleRender();
    dragState={id:target.id,start:p,before:cloneObject(target)};
    return;
  }
