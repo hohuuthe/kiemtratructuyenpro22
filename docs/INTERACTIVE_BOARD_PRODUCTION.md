@@ -145,3 +145,9 @@ Không xóa Durable Object namespace khi rollback vì dữ liệu bảng realtim
 - Scope: native multi-QR BarcodeDetector, high-resolution tiled jsQR fallback, adaptive scan cadence, camera resolution fallback, compact V2 QR payload, legacy V1 compatibility.
 - Verification: PR #97 `release:qr-cards:check` passed before merge.
 - Production trigger: this commit is pushed to `main` for Cloudflare Pages Git integration.
+
+## Production redeploy QR scanner 2026-11-01 16:41 +07
+
+- Production source commit: `9b17ffca5924534d8864a5f88dba7bb35a4f53d3`
+- Scope: long-range hybrid QR scanner + reliable ACK queue + Presenter monitor + mobile scanner-only UI.
+- Deployment trigger: push to `main` for Cloudflare Pages Git integration.
