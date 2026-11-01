@@ -147,6 +147,38 @@ async function ensureTables(db: any) {
   try { await db.prepare('CREATE INDEX IF NOT EXISTS idx_qr_cards_user ON qr_answer_cards(user_id)').run(); } catch {}
   try { await db.prepare('CREATE INDEX IF NOT EXISTS idx_qr_sessions_creator ON qr_answer_sessions(creator_id, created_at DESC)').run(); } catch {}
   try { await db.prepare('CREATE INDEX IF NOT EXISTS idx_qr_responses_session ON qr_answer_responses(session_id, question_id)').run(); } catch {}
+
+  // Tenant cũ có thể chưa đi qua /api/exam/grade kể từ khi bổ sung các cột định danh.
+  await db.prepare(`
+    CREATE TABLE IF NOT EXISTS results (
+      id TEXT PRIMARY KEY,
+      user_id TEXT,
+      student_name TEXT,
+      student_class TEXT,
+      lop TEXT,
+      don_vi TEXT,
+      exam_name TEXT,
+      exam_id TEXT,
+      score REAL,
+      time_taken INTEGER,
+      correct_count INTEGER,
+      total_questions INTEGER,
+      details TEXT,
+      loai_thi_sinh TEXT,
+      cheat_warning_count INTEGER DEFAULT 0,
+      ai_grading_summary TEXT,
+      created_at TEXT
+    )
+  `).run();
+  for (const alter of [
+    'ALTER TABLE results ADD COLUMN user_id TEXT',
+    'ALTER TABLE results ADD COLUMN lop TEXT',
+    'ALTER TABLE results ADD COLUMN don_vi TEXT',
+    'ALTER TABLE results ADD COLUMN cheat_warning_count INTEGER DEFAULT 0',
+    'ALTER TABLE results ADD COLUMN ai_grading_summary TEXT'
+  ]) {
+    try { await db.prepare(alter).run(); } catch {}
+  }
 }
 
 async function auth(context: any) {
