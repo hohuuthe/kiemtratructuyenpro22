@@ -42,7 +42,7 @@ test('server API enforces teacher scope, stable ABCD answers and no fake zero re
   assert.match(api,/Chức năng quét thẻ chỉ dành cho Giáo viên\/Admin/);
   assert.match(api,/Bạn chỉ được quét thẻ cho lớp đã được phân công/);
   assert.match(api,/Giáo viên chỉ được dùng chức năng quét thẻ với đề thi do mình tạo/);
-  assert.match(api,/\['A','B','C','D'\]\.includes\(answer\)/);
+  assert.match(api,/\['A','B','C','D'\]\.includes\(row\.answer\)/);
   assert.match(api,/Math\.max\(3,/);
   assert.match(api,/Chưa có học sinh nào được quét ổn định; không tạo kết quả/);
   assert.match(api,/reason: 'Chưa có đáp án quét'/);
@@ -143,7 +143,7 @@ test('final hardening serializes scan writes with lock and avoids hot-path schem
 
   // Row-level SHARE lock linearizes answer write vs presenter lock/update.
   assert.match(api,/FROM qr_answer_sessions[\s\S]*collection_state='collecting'[\s\S]*current_question_id=\?[\s\S]*FOR SHARE/);
-  assert.match(api,/INSERT INTO qr_answer_responses[\s\S]*FROM active_session/);
+  assert.match(api,/INSERT INTO qr_answer_responses[\s\S]*JOIN active_session/);
   assert.match(api,/DELETE FROM qr_answer_responses r[\s\S]*USING active_session/);
 
   // Finalize only wins if the same locked revision is still current.
@@ -228,8 +228,8 @@ test('phone persistence uses durable ACK queue and presenter shows only server-s
   assert.doesNotMatch(ui,/for\(const item of batchEntries\)if\(item\.key\)pendingRecords\.delete/);
 
   // Server gives explicit per-student ACK with identity and persisted timestamp.
-  assert.match(api,/card_token: cardToken/);
-  assert.match(api,/saved_at: now/);
+  assert.match(api,/card_token: row\.card_token/);
+  assert.match(api,/saved_at: row\.updated_at \|\| now/);
   assert.match(api,/SELECT r\.user_id,r\.card_token,r\.answer,r\.stable_hits,r\.updated_at/);
 
   // Presenter monitor is adjacent to the question and renders only state.responses (persisted rows).
@@ -269,4 +269,52 @@ test('long-range scanner uses hybrid native multi-QR and high-resolution tiled f
   assert.match(orientation,/buildQrCardPayload/);
   assert.match(orientation,/parseQrCardPayload/);
   assert.match(orientation,/Legacy V1 cards remain fully supported/);
+});
+
+
+test('QR scanner is VIP-only for teachers and admin bypasses VIP',()=>{
+  const api=fs.readFileSync('functions/api/qr-cards.ts','utf8');
+  const html=fs.readFileSync('index.html','utf8');
+  const main=fs.readFileSync('src/main.js','utf8');
+
+  assert.match(api,/VIP_REQUIRED/);
+  assert.match(api,/0935 078 895/);
+  assert.match(api,/!admin && !Boolean\(user\?\.is_vip\)/);
+
+  assert.match(html,/data-sidebar-tab="qr-cards"[\s\S]*VIP/);
+  assert.match(main,/function canUseQrScannerVip/);
+  assert.match(main,/function showQrScannerVipRequiredModal/);
+  assert.match(main,/0935 078 895/);
+  assert.match(main,/tabName === 'qr-cards'[\s\S]*!canUseQrScannerVip\(\)/);
+});
+
+test('QR hot paths use bounded bulk SQL instead of per-student database loops',()=>{
+  const api=fs.readFileSync('functions/api/qr-cards.ts','utf8');
+
+  // Schema hot path is one probe then a one-shot exec migration only on missing schema.
+  assert.match(api,/Hot path: exactly one lightweight query/);
+  assert.match(api,/if \(typeof db\.exec === 'function'\)/);
+
+  const recordStart=api.indexOf("if (action === 'record-batch')");
+  const clearStart=api.indexOf("if (action === 'clear-answer')",recordStart);
+  const recordBlock=api.slice(recordStart,clearStart);
+  assert.match(recordBlock,/card_token IN \(\$\{cardPlaceholders\}\)/);
+  assert.match(recordBlock,/incoming\(session_id,question_id,user_id,card_token,answer,stable_hits,updated_at\)/);
+  assert.match(recordBlock,/RETURNING user_id,question_id,card_token,answer,stable_hits,updated_at/);
+  assert.doesNotMatch(recordBlock,/for \(const raw of records\)[\s\S]*await db\.prepare/);
+
+  const ensureStart=api.indexOf("if (action === 'ensure-cards')");
+  const startSession=api.indexOf("if (action === 'start-session')",ensureStart);
+  const ensureBlock=api.slice(ensureStart,startSession);
+  assert.match(ensureBlock,/VALUES \$\{valuesSql\}/);
+  assert.doesNotMatch(ensureBlock,/for \(const student of students\)[\s\S]*await db\.prepare/);
+
+  const finalizeStart=api.indexOf("if (action === 'finalize')");
+  const finalizeEnd=api.indexOf("return reply\(\{ error: 'Thao tác không hợp lệ\.'",finalizeStart);
+  const finalizeBlock=api.slice(finalizeStart,finalizeEnd>finalizeStart?finalizeEnd:undefined);
+  assert.match(finalizeBlock,/resultValuesSql/);
+  assert.match(finalizeBlock,/ON CONFLICT\(id\) DO NOTHING/);
+  assert.match(finalizeBlock,/qr_answer_result_links\(session_id,user_id,result_id,created_at\)/);
+  assert.match(finalizeBlock,/for \(const student of students\)[\s\S]*resultDrafts\.push/);
+  assert.match(finalizeBlock,/const resultValuesSql = persistedDrafts\.map/);
 });
