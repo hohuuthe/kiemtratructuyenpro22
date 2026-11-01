@@ -110,3 +110,9 @@ Kết quả đạt phải có:
 Nếu Pages có sự cố, rollback Pages về deployment trước đó.
 Nếu Worker có sự cố, rollback Worker về version trước đó trong Cloudflare Workers.
 Không xóa Durable Object namespace khi rollback vì dữ liệu bảng realtime đang nằm trong namespace này.
+
+## QR Answer Cards production release
+
+- Release commit source: `a71df7e99ff01a70028ec08af9e3d4868358c8f9`
+- Scope: QR A/B/C/D cards, Presenter ↔ Scanner synchronization, atomic late-frame protection, idempotent grading.
+- Release gate: `npm run release:qr-cards:check` passed on PR #93 before merge.
