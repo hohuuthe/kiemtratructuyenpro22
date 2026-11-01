@@ -2139,3 +2139,126 @@ html.kttt-modal-open, body.kttt-modal-open { overflow: hidden !important; oversc
 @media (max-width:900px) {
   .qr-presenter-question-pane { padding:16px; }
 }
+
+
+/* QR presenter compact monitor + edge-to-edge desktop fullscreen */
+.qr-presenter-live-grid {
+  grid-template-columns:minmax(0,1fr) minmax(245px,275px);
+  gap:12px;
+}
+.qr-presenter-monitor-panel {
+  width:100%;
+  max-width:275px;
+  padding:10px;
+}
+.qr-presenter-response-list {
+  gap:6px;
+}
+.qr-presenter-response-row {
+  gap:6px;
+  padding:7px 8px;
+  align-items:flex-start;
+}
+.qr-presenter-student-info {
+  min-width:0;
+}
+.qr-presenter-student-name {
+  white-space:normal;
+  overflow:visible;
+  text-overflow:clip;
+  overflow-wrap:anywhere;
+  word-break:normal;
+  line-height:1.25;
+  font-size:12px;
+}
+.qr-presenter-student-meta {
+  white-space:normal;
+  overflow:visible;
+  text-overflow:clip;
+  overflow-wrap:anywhere;
+  line-height:1.2;
+  margin-top:2px;
+}
+.qr-presenter-student-order {
+  width:26px;
+  height:26px;
+  flex-basis:26px;
+  border-radius:8px;
+  font-size:10px;
+}
+.qr-presenter-answer-pill {
+  width:30px;
+  height:30px;
+  flex-basis:30px;
+  border-radius:9px;
+  font-size:14px;
+}
+.qr-presenter-saved-pill,
+.qr-presenter-waiting-pill,
+.qr-presenter-status-waiting {
+  padding:3px 5px;
+  font-size:9px;
+}
+
+/* Fullscreen must use essentially the whole desktop width; no 5vw side gutters. */
+#qr-card-presenter-workspace:fullscreen {
+  width:100vw;
+  max-width:none;
+  height:100vh;
+  margin:0;
+  padding:0;
+}
+#qr-card-presenter-workspace:fullscreen .qr-presenter-header {
+  padding:8px 10px;
+}
+#qr-card-presenter-workspace:fullscreen .qr-presenter-main {
+  box-sizing:border-box;
+  width:100%;
+  max-width:none;
+  min-height:calc(100vh - 118px);
+  padding:8px 10px 10px;
+}
+#qr-card-presenter-workspace:fullscreen .qr-presenter-live-grid {
+  width:100%;
+  max-width:none;
+  grid-template-columns:minmax(0,1fr) minmax(230px,255px);
+  gap:10px;
+  margin-top:10px;
+}
+#qr-card-presenter-workspace:fullscreen .qr-presenter-question-pane {
+  width:100%;
+  max-width:none;
+  padding:20px;
+}
+#qr-card-presenter-workspace:fullscreen .qr-presenter-monitor-panel {
+  width:100%;
+  max-width:255px;
+  padding:8px;
+  top:4px;
+  max-height:calc(100vh - 170px);
+}
+#qr-card-presenter-workspace:fullscreen .qr-presenter-response-list {
+  max-height:calc(100vh - 260px);
+}
+#qr-card-presenter-workspace:fullscreen #qr-presenter-question-content {
+  font-size:clamp(32px,3.6vw,62px);
+}
+#qr-card-presenter-workspace:fullscreen .qr-presenter-option {
+  min-height:104px;
+  padding:12px 16px;
+  font-size:clamp(24px,2.6vw,42px);
+}
+#qr-card-presenter-workspace:fullscreen .qr-presenter-controls {
+  padding:8px 10px;
+  gap:8px;
+}
+#qr-card-presenter-workspace:fullscreen .qr-presenter-controls > button {
+  min-height:44px;
+  padding-top:8px;
+  padding-bottom:8px;
+}
+@media (min-width:1600px) {
+  #qr-card-presenter-workspace:fullscreen .qr-presenter-live-grid {
+    grid-template-columns:minmax(0,1fr) 250px;
+  }
+}
