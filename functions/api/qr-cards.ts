@@ -126,7 +126,11 @@ function isStudentAudience(value: any) {
   return normLower(value) === 'học sinh';
 }
 
+const qrSchemaReady = new Set<string>();
+
 async function ensureTables(db: any) {
+  const schemaKey = String(db?.connectionUrl || 'default');
+  if (qrSchemaReady.has(schemaKey)) return;
   await db.prepare(`
     CREATE TABLE IF NOT EXISTS qr_answer_cards (
       card_token TEXT PRIMARY KEY,
@@ -229,6 +233,7 @@ async function ensureTables(db: any) {
   ]) {
     try { await db.prepare(alter).run(); } catch {}
   }
+  qrSchemaReady.add(schemaKey);
 }
 
 async function auth(context: any) {
@@ -488,11 +493,6 @@ export const onRequestGet: PagesFunction<Env> = async (context: any) => {
         const a = norm(row.answer).toUpperCase();
         if (a in counts) (counts as any)[a]++;
       }
-      const students = await classStudents(db, session.class_name, session.donvi || '');
-      const answered = new Set(responses.map((row: any) => norm(row.user_id)));
-      const missing = students.filter((st: any) => !answered.has(norm(st.id))).map((st: any) => ({
-        id: st.id, full_name: st.full_name, student_code: st.student_code
-      }));
       return reply({ data: {
         unchanged: false,
         version,
@@ -512,9 +512,7 @@ export const onRequestGet: PagesFunction<Env> = async (context: any) => {
         current_question: current ? publicQuestion(current,index) : null,
         responses,
         counts,
-        answered_count: responses.length,
-        student_count: students.length,
-        missing
+        answered_count: responses.length
       }, error: null });
     }
     if (action === 'session') {
@@ -727,13 +725,22 @@ export const onRequestPost: PagesFunction<Env> = async (context: any) => {
           LIMIT 1
         `).bind(cardToken, session.class_name, session.donvi || '').first();
         if (!student) continue;
-        await db.prepare(`
+        const write = await db.prepare(`
+          WITH active_session AS (
+            SELECT id
+            FROM qr_answer_sessions
+            WHERE id=? AND status='open' AND collection_state='collecting' AND current_question_id=?
+            FOR SHARE
+          )
           INSERT INTO qr_answer_responses(session_id,question_id,user_id,card_token,answer,stable_hits,updated_at)
-          VALUES(?,?,?,?,?,?,?)
+          SELECT ?,?,?,?,?,?,?
+          FROM active_session
           ON CONFLICT(session_id,question_id,user_id) DO UPDATE SET
             card_token=excluded.card_token,answer=excluded.answer,stable_hits=excluded.stable_hits,updated_at=excluded.updated_at
-        `).bind(sessionId, questionId, student.id, cardToken, answer, stableHits, now).run();
-        accepted.push({ user_id: student.id, full_name: student.full_name, answer, question_id: questionId });
+        `).bind(sessionId, questionId, sessionId, questionId, student.id, cardToken, answer, stableHits, now).run();
+        if (Number(write?.meta?.changes || 0) === 1) {
+          accepted.push({ user_id: student.id, full_name: student.full_name, answer, question_id: questionId });
+        }
       }
       if (accepted.length) {
         await db.prepare('UPDATE qr_answer_sessions SET response_revision=response_revision+1,updated_at=? WHERE id=? AND status=\'open\'')
@@ -759,10 +766,23 @@ export const onRequestPost: PagesFunction<Env> = async (context: any) => {
         LIMIT 1
       `).bind(userId, session.class_name, session.donvi || '').first();
       if (!student) return reply({ error: 'Học sinh không thuộc lớp của phiên quét.' }, 400);
-      await db.prepare('DELETE FROM qr_answer_responses WHERE session_id=? AND question_id=? AND user_id=?').bind(sessionId, questionId, userId).run();
-      await db.prepare('UPDATE qr_answer_sessions SET response_revision=response_revision+1,updated_at=? WHERE id=? AND status=\'open\'')
-        .bind(new Date().toISOString(),sessionId).run();
-      return reply({ data: { cleared: true }, error: null });
+      const cleared = await db.prepare(`
+        WITH active_session AS (
+          SELECT id
+          FROM qr_answer_sessions
+          WHERE id=? AND status='open' AND collection_state='collecting' AND current_question_id=?
+          FOR SHARE
+        )
+        DELETE FROM qr_answer_responses r
+        USING active_session
+        WHERE r.session_id=? AND r.question_id=? AND r.user_id=?
+      `).bind(sessionId,questionId,sessionId,questionId,userId).run();
+      const didClear = Number(cleared?.meta?.changes || 0) === 1;
+      if (didClear) {
+        await db.prepare('UPDATE qr_answer_sessions SET response_revision=response_revision+1,updated_at=? WHERE id=? AND status=\'open\'')
+          .bind(new Date().toISOString(),sessionId).run();
+      }
+      return reply({ data: { cleared: didClear }, error: null });
     }
 
     if (action === 'finalize') {
@@ -786,8 +806,16 @@ export const onRequestPost: PagesFunction<Env> = async (context: any) => {
         return reply({ data: { created: existing, skipped: [], total_results: existing.length, already_finalized: true }, error: null });
       }
       if (session.status !== 'open') return reply({ error: 'Phiên quét đang được chốt ở một yêu cầu khác.' }, 409);
-      const lock = await db.prepare("UPDATE qr_answer_sessions SET status='finalizing' WHERE id=? AND status='open'").bind(sessionId).run();
-      if (Number(lock?.meta?.changes || 0) !== 1) return reply({ error: 'Phiên quét đang được chốt ở yêu cầu khác.' }, 409);
+      const finalizeAt = new Date().toISOString();
+      const finalizeRevision = Number(session.state_revision || 0);
+      const lock = await db.prepare(`
+        UPDATE qr_answer_sessions
+        SET status='finalizing',state_revision=state_revision+1,updated_at=?
+        WHERE id=? AND status='open' AND collection_state='locked' AND state_revision=?
+      `).bind(finalizeAt,sessionId,finalizeRevision).run();
+      if (Number(lock?.meta?.changes || 0) !== 1) {
+        return reply({ error: 'Trạng thái phiên vừa thay đổi ở thiết bị khác. Hãy đồng bộ lại trước khi chốt.', code: 'FINALIZE_REVISION_CONFLICT' }, 409);
+      }
       finalizeLockSessionId = sessionId;
       finalizeDb = db;
 
