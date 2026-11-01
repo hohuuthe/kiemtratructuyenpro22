@@ -429,8 +429,8 @@ function renderScannerState(state){
   if($('qr-card-progress'))$('qr-card-progress').textContent='Đã nhận '+String(state.answered_count||0)+'/'+String(session.students?.length||0);
   for(const k of ['A','B','C','D']){const el=$('qr-card-count-'+k.toLowerCase());if(el)el.textContent=String(state.counts?.[k]||0);}
   if(collectionState==='locked'){
-    if($('qr-card-camera-status'))$('qr-card-camera-status').textContent='Câu đã khóa · chờ câu tiếp theo';
-    setPhoneSaveState('locked');
+    if($('qr-card-camera-status'))$('qr-card-camera-status').textContent='CÂU ĐÃ KHÓA · camera chỉ xem, không lưu';
+    setPhoneSaveState('locked','Câu đã khóa trên máy tính · không lưu đáp án');
   }else if(!pendingRecords.size&&!saveInFlight){
     setPhoneSaveState('idle');
   }
@@ -573,7 +573,10 @@ async function openCamera() {
     scanActive = true;
     $('qr-card-stop-camera')?.classList.remove('hidden');
     $('qr-card-camera-empty')?.classList.add('hidden');
-    if ($('qr-card-camera-status')) $('qr-card-camera-status').textContent = cameraFacing === 'environment' ? 'Camera sau · đang quét' : 'Camera trước · đang quét';
+    if ($('qr-card-camera-status')) $('qr-card-camera-status').textContent =
+      collectionState==='collecting'
+        ? (cameraFacing === 'environment' ? 'Camera sau · đang quét & lưu' : 'Camera trước · đang quét & lưu')
+        : 'CÂU ĐÃ KHÓA · camera chỉ xem, không lưu';
     scheduleScan(0);
   } catch (e) {
     feedback('Không thể mở camera: ' + (e?.message || 'hãy kiểm tra quyền camera.'), true);
@@ -792,11 +795,12 @@ function drawOverlay(detections, sourceW, sourceH) {
     const orientation = answerFromQrLocation(d.location);
     const answer = orientation?.answer || '?';
     const uid=String(student.id),key=pendingAnswerKey(q?.id||'',uid);
-    const confirmed = map.get(uid) === answer;
-    const pending = pendingVisualAnswers.get(key)?.answer === answer;
+    const locked=collectionState!=='collecting';
+    const confirmed = !locked && map.get(uid) === answer;
+    const pending = !locked && pendingVisualAnswers.get(key)?.answer === answer;
     const points = [d.location.topLeftCorner,d.location.topRightCorner,d.location.bottomRightCorner,d.location.bottomLeftCorner];
-    ctx.strokeStyle = confirmed ? '#22c55e' : (pending ? '#3b82f6' : '#f59e0b');
-    ctx.fillStyle = confirmed ? 'rgba(34,197,94,.16)' : (pending ? 'rgba(59,130,246,.15)' : 'rgba(245,158,11,.13)');
+    ctx.strokeStyle = locked ? '#94a3b8' : (confirmed ? '#22c55e' : (pending ? '#3b82f6' : '#f59e0b'));
+    ctx.fillStyle = locked ? 'rgba(100,116,139,.15)' : (confirmed ? 'rgba(34,197,94,.16)' : (pending ? 'rgba(59,130,246,.15)' : 'rgba(245,158,11,.13)'));
     ctx.beginPath();
     points.forEach((p,i) => {
       const x = ox + p.x * scale, y = oy + p.y * scale;
@@ -807,10 +811,11 @@ function drawOverlay(detections, sourceW, sourceH) {
     const y = Math.max(18, oy + d.location.topLeftCorner.y * scale - 8);
     const label = String(student.full_name || student.student_code) + ' · ' + answer;
     const width = Math.min(260, ctx.measureText(label).width + 14);
-    ctx.fillStyle = confirmed ? 'rgba(21,128,61,.92)' : (pending ? 'rgba(29,78,216,.92)' : 'rgba(180,83,9,.92)');
+    ctx.fillStyle = locked ? 'rgba(71,85,105,.92)' : (confirmed ? 'rgba(21,128,61,.92)' : (pending ? 'rgba(29,78,216,.92)' : 'rgba(180,83,9,.92)'));
     ctx.fillRect(x, y - 17, width, 20);
     ctx.fillStyle = '#fff';
-    ctx.fillText(label+(pending&&!confirmed?' · đang lưu':''), x + 7, y - 3, width - 10);
+    const suffix=locked?' · ĐÃ KHÓA, KHÔNG LƯU':(pending&&!confirmed?' · đang lưu':'');
+    ctx.fillText(label+suffix, x + 7, y - 3, width - 10);
   }
 }
 function clearOverlay() {
