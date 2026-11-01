@@ -171,8 +171,9 @@ async function printCards() {
       const dataUrl = await QRCode.toDataURL(payload, { errorCorrectionLevel: 'H', margin: 2, width: 440, color: { dark: '#000000', light: '#ffffff' } });
       prepared.push({ ...s, dataUrl });
     }
-    const popup = window.open('', '_blank', 'noopener,noreferrer');
+    const popup = window.open('', '_blank');
     if (!popup) throw Error('Trình duyệt đang chặn cửa sổ in. Hãy cho phép popup rồi thử lại.');
+    try { popup.opener = null; } catch {}
     const cards = prepared.map(s => `
       <article class="card">
         <div class="answer top">A</div><div class="answer right">B</div><div class="answer bottom">C</div><div class="answer left">D</div>
@@ -493,14 +494,21 @@ function clearOverlay() {
   const canvas = $('qr-card-overlay');
   if (canvas) canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
 }
-function clearStudentAnswer(userId) {
+async function clearStudentAnswer(userId) {
   const q = currentQuestion();
-  if (!q) return;
-  const map = answersForQuestion(q.id);
-  map.delete(String(userId));
-  tracking.clear();
-  updateStats();
-  renderStudentStatus();
+  if (!q || !session) return;
+  const uid = String(userId);
+  try {
+    await api('POST', '/api/qr-cards', { action: 'clear-answer', sessionId: session.id, questionId: String(q.id), userId: uid });
+    const map = answersForQuestion(q.id);
+    map.delete(uid);
+    pendingRecords.delete(String(q.id) + '|' + uid);
+    tracking.clear();
+    updateStats();
+    renderStudentStatus();
+  } catch (e) {
+    feedback(e.message, true);
+  }
 }
 async function finalize() {
   if (!session) return;
@@ -546,7 +554,7 @@ function bind() {
   });
   $('qr-card-student-status')?.addEventListener('click', e => {
     const btn = e.target.closest?.('[data-qr-clear]');
-    if (btn) clearStudentAnswer(btn.dataset.qrClear);
+    if (btn) void clearStudentAnswer(btn.dataset.qrClear);
   });
   $('qr-card-finalize')?.addEventListener('click', finalize);
   document.addEventListener('visibilitychange', () => { if (document.hidden) stopCamera(); });
