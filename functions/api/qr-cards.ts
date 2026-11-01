@@ -449,6 +449,27 @@ export const onRequestPost: PagesFunction<Env> = async (context: any) => {
       return reply({ data: { accepted }, error: null });
     }
 
+    if (action === 'clear-answer') {
+      const sessionId = norm(body.sessionId);
+      const questionId = norm(body.questionId);
+      const userId = norm(body.userId);
+      const session: any = await db.prepare('SELECT * FROM qr_answer_sessions WHERE id = ? LIMIT 1').bind(sessionId).first();
+      if (!session) return reply({ error: 'Không tìm thấy phiên quét.' }, 404);
+      if (!admin && !actorIds(user).includes(norm(session.creator_id))) return reply({ error: 'Không có quyền cập nhật phiên quét này.' }, 403);
+      if (session.status !== 'open') return reply({ error: 'Phiên quét đã kết thúc.' }, 409);
+      const allowedQuestions = new Set(asArray(session.questions_json).map((q: any) => norm(q.id)));
+      if (!allowedQuestions.has(questionId)) return reply({ error: 'Câu hỏi không thuộc phiên quét.' }, 400);
+      const student: any = await db.prepare(`
+        SELECT id FROM users
+        WHERE id=? AND LOWER(TRIM(COALESCE(lop,'')))=LOWER(TRIM(?))
+          AND LOWER(TRIM(COALESCE(donvi,'')))=LOWER(TRIM(?))
+        LIMIT 1
+      `).bind(userId, session.class_name, session.donvi || '').first();
+      if (!student) return reply({ error: 'Học sinh không thuộc lớp của phiên quét.' }, 400);
+      await db.prepare('DELETE FROM qr_answer_responses WHERE session_id=? AND question_id=? AND user_id=?').bind(sessionId, questionId, userId).run();
+      return reply({ data: { cleared: true }, error: null });
+    }
+
     if (action === 'finalize') {
       if (body.confirmFinalize !== true) return reply({ error: 'Cần xác nhận trước khi chốt kết quả quét thẻ.' }, 400);
       const sessionId = norm(body.sessionId);
