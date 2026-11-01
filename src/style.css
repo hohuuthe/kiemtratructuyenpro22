@@ -1539,3 +1539,165 @@ html.kttt-modal-open, body.kttt-modal-open { overflow: hidden !important; oversc
   .qr-presenter-controls > button { flex:1 1 calc(50% - 6px); }
   #qr-presenter-finalize { flex-basis:100%; }
 }
+
+
+/* QR phone scanner — overflow-safe persistence UI */
+#qr-card-scan-workspace,
+.qr-scanner-main-grid,
+.qr-scanner-main-grid > *,
+#qr-card-student-status,
+#qr-card-student-status > *,
+.qr-scan-question,
+.qr-camera-wrap {
+  min-width:0;
+  max-width:100%;
+}
+#qr-card-scan-workspace {
+  overflow-x:hidden;
+}
+.qr-scanner-statuses {
+  min-width:0;
+  max-width:100%;
+}
+.qr-scanner-statuses > span {
+  max-width:100%;
+  white-space:normal;
+  overflow-wrap:anywhere;
+  text-align:center;
+}
+#qr-card-question-content,
+#qr-card-options,
+#qr-card-student-status p,
+#qr-card-student-status span {
+  overflow-wrap:anywhere;
+  word-break:break-word;
+}
+.qr-camera-actions > button {
+  min-width:0;
+  width:100%;
+  white-space:normal;
+}
+@media (max-width:767px) {
+  #qr-card-scan-workspace {
+    margin-left:0;
+    margin-right:0;
+    width:100%;
+  }
+  #qr-card-scan-workspace > .rounded-2xl:first-child {
+    display:grid;
+    grid-template-columns:minmax(0,1fr);
+    align-items:start;
+    gap:8px;
+    padding:10px;
+  }
+  .qr-scanner-statuses {
+    display:grid;
+    grid-template-columns:repeat(3,minmax(0,1fr));
+    width:100%;
+    gap:6px;
+  }
+  .qr-scanner-statuses > span {
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    min-height:34px;
+    padding:5px 7px;
+    font-size:10px;
+    line-height:1.2;
+  }
+  .qr-scan-question {
+    position:relative;
+    top:auto;
+    max-height:none;
+    overflow:visible;
+    padding:10px;
+  }
+  #qr-card-question-content {
+    margin-top:8px;
+    font-size:14px;
+    line-height:1.45;
+  }
+  #qr-card-options {
+    margin-top:8px;
+    grid-template-columns:1fr;
+    gap:6px;
+  }
+  #qr-card-options > div {
+    min-width:0;
+    padding:8px 9px;
+  }
+  .qr-camera-wrap {
+    aspect-ratio:3/4;
+    width:100%;
+    min-height:0;
+    height:min(58dvh,520px);
+    max-height:58dvh;
+    border-radius:14px;
+  }
+  #qr-card-video {
+    object-fit:contain;
+  }
+  .qr-answer-stat {
+    min-width:0;
+    min-height:44px;
+    padding:6px 8px;
+    gap:6px;
+  }
+  .qr-answer-stat span {
+    width:28px;
+    height:28px;
+    border-radius:8px;
+    font-size:12px;
+  }
+  .qr-answer-stat strong {
+    font-size:18px;
+  }
+  .qr-camera-actions {
+    grid-template-columns:1fr 1fr;
+  }
+  .qr-camera-actions > button {
+    min-height:44px;
+    padding:8px 9px;
+    font-size:12px;
+    line-height:1.25;
+  }
+  #qr-card-student-status {
+    max-height:34dvh;
+    overflow-y:auto;
+    overflow-x:hidden;
+  }
+  #qr-card-student-status > div {
+    min-width:0;
+    width:100%;
+    gap:7px;
+    padding:8px;
+  }
+  #qr-card-student-status p {
+    max-width:100%;
+  }
+  .qr-scan-footer {
+    display:grid;
+    grid-template-columns:minmax(0,1fr);
+    gap:7px;
+    margin-left:0;
+    margin-right:0;
+    padding-left:0;
+    padding-right:0;
+    position:relative;
+    bottom:auto;
+    box-shadow:none;
+    backdrop-filter:none;
+  }
+  #qr-card-leave-scanner {
+    width:100%;
+  }
+}
+@media (max-width:380px) {
+  .qr-scanner-statuses {
+    grid-template-columns:1fr;
+  }
+  .qr-camera-wrap {
+    height:min(52dvh,460px);
+    max-height:52dvh;
+  }
+}

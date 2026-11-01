@@ -153,5 +153,30 @@ test('final hardening serializes scan writes with lock and avoids hot-path schem
   assert.doesNotMatch(api,/const students = await classStudents\(db, session\.class_name, session\.donvi \|\| ''\);[\s\S]{0,900}answered_count: responses\.length/);
   assert.match(ui,/const studentCount=Number\(session\.students\?\.length\|\|0\)/);
   assert.match(ui,/acceptedKeys/);
-  assert.match(ui,/answersForQuestion\(r\.questionId\)\.delete/);
+  assert.match(ui,/pendingVisualAnswers/);
+  assert.match(ui,/answersForQuestion\(row\.question_id\)\.set/);
+  assert.doesNotMatch(ui,/map\.set\(uid, answer\);\s*pendingRecords\.set/);
+});
+
+
+test('phone scanner only confirms answers after server persistence and distinguishes locked state',()=>{
+  const ui=fs.readFileSync('src/qr-answer-cards-ui.js','utf8');
+  const html=fs.readFileSync('public/components/tab-qr-cards.html','utf8');
+  const css=fs.readFileSync('src/style.css','utf8');
+  const api=fs.readFileSync('functions/api/qr-cards.ts','utf8');
+
+  assert.match(html,/id="qr-card-save-status"/);
+  assert.match(ui,/pendingVisualAnswers/);
+  assert.match(ui,/Đã lưu & đồng bộ/);
+  assert.match(ui,/CÂU ĐÃ KHÓA · camera chỉ xem, không lưu/);
+  assert.match(ui,/ĐÃ KHÓA, KHÔNG LƯU/);
+  assert.match(ui,/result\.data\?\.accepted/);
+  assert.match(ui,/answersForQuestion\(row\.question_id\)\.set/);
+  assert.match(api,/rejected/);
+  assert.match(api,/CARD_NOT_IN_CLASS/);
+  assert.match(api,/STATE_CHANGED/);
+  assert.match(api,/collection_state:/);
+  assert.match(css,/#qr-card-scan-workspace[\s\S]*overflow-x:hidden/);
+  assert.match(css,/\.qr-scanner-statuses[\s\S]*grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
+  assert.match(css,/\.qr-camera-actions[\s\S]*grid-template-columns:1fr 1fr/);
 });
