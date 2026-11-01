@@ -129,3 +129,29 @@ test('presenter locks before navigation and finalization to avoid stale phone fr
   assert.match(ui,/expectedRevision:stateRevision/);
   assert.match(ui,/stateRevision=Number\(result\.data\?\.state_revision/);
 });
+
+
+test('final hardening serializes scan writes with lock and avoids hot-path schema churn',()=>{
+  const api=fs.readFileSync('functions/api/qr-cards.ts','utf8');
+  const ui=fs.readFileSync('src/qr-answer-cards-ui.js','utf8');
+
+  assert.match(api,/const qrSchemaReady = new Set<string>\(\)/);
+  assert.match(api,/if \(qrSchemaReady\.has\(schemaKey\)\) return/);
+  assert.match(api,/qrSchemaReady\.add\(schemaKey\)/);
+
+  // Row-level SHARE lock linearizes answer write vs presenter lock/update.
+  assert.match(api,/FROM qr_answer_sessions[\s\S]*collection_state='collecting'[\s\S]*current_question_id=\?[\s\S]*FOR SHARE/);
+  assert.match(api,/INSERT INTO qr_answer_responses[\s\S]*FROM active_session/);
+  assert.match(api,/DELETE FROM qr_answer_responses r[\s\S]*USING active_session/);
+
+  // Finalize only wins if the same locked revision is still current.
+  assert.match(api,/status='finalizing',state_revision=state_revision\+1/);
+  assert.match(api,/status='open' AND collection_state='locked' AND state_revision=\?/);
+  assert.match(api,/FINALIZE_REVISION_CONFLICT/);
+
+  // Polling no longer reloads the entire class roster; UI derives totals from its session snapshot.
+  assert.doesNotMatch(api,/const students = await classStudents\(db, session\.class_name, session\.donvi \|\| ''\);[\s\S]{0,900}answered_count: responses\.length/);
+  assert.match(ui,/const studentCount=Number\(session\.students\?\.length\|\|0\)/);
+  assert.match(ui,/acceptedKeys/);
+  assert.match(ui,/answersForQuestion\(r\.questionId\)\.delete/);
+});
