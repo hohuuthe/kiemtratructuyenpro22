@@ -1701,3 +1701,183 @@ html.kttt-modal-open, body.kttt-modal-open { overflow: hidden !important; oversc
     max-height:52dvh;
   }
 }
+
+
+/* QR mobile scanner-only mode: phone is a camera tool, not a presenter/admin surface */
+@media (max-width:767px) {
+  #tab-qr-cards.qr-mobile-scanner-mode .qr-desktop-only { display:none!important; }
+  #tab-qr-cards.qr-mobile-scanner-mode .qr-mobile-only { display:block; }
+
+  #tab-qr-cards.qr-mobile-scanner-mode .qr-answer-shell {
+    border-radius:0;
+    box-shadow:none;
+    background:#f8fafc;
+  }
+  #tab-qr-cards.qr-mobile-scanner-mode .qr-answer-head {
+    position:relative;
+    top:auto;
+    z-index:auto;
+    padding:8px 10px;
+    border-radius:0;
+  }
+  #tab-qr-cards.qr-mobile-scanner-mode .qr-answer-head h2 {
+    font-size:15px;
+    line-height:1.2;
+  }
+  #tab-qr-cards.qr-mobile-scanner-mode .qr-answer-body {
+    padding:8px;
+    gap:8px;
+  }
+  #tab-qr-cards.qr-mobile-scanner-mode #qr-card-feedback {
+    margin:0;
+    padding:8px 10px;
+    font-size:11px;
+  }
+
+  #tab-qr-cards.qr-mobile-scanner-mode #qr-card-session-picker {
+    padding:10px;
+    border-radius:12px;
+    margin:0;
+  }
+  #tab-qr-cards.qr-mobile-scanner-mode #qr-card-session-picker > div:first-child {
+    display:grid;
+    grid-template-columns:minmax(0,1fr) auto;
+    gap:6px;
+    align-items:center;
+  }
+  #tab-qr-cards.qr-mobile-scanner-mode #qr-card-refresh-sessions {
+    min-height:38px;
+    padding:6px 9px;
+    font-size:11px;
+  }
+  #tab-qr-cards.qr-mobile-scanner-mode #qr-card-session-picker .mt-3 {
+    margin-top:8px;
+    display:grid;
+    grid-template-columns:minmax(0,1fr);
+    gap:7px;
+  }
+  #tab-qr-cards.qr-mobile-scanner-mode #qr-card-active-session,
+  #tab-qr-cards.qr-mobile-scanner-mode #qr-card-open-scanner {
+    width:100%;
+    min-width:0;
+    min-height:44px;
+  }
+
+  #tab-qr-cards.qr-mobile-scanner-mode #qr-card-scan-workspace {
+    gap:7px;
+  }
+  #tab-qr-cards.qr-mobile-scanner-mode #qr-card-scan-workspace > .rounded-2xl:first-child {
+    padding:8px;
+    border-radius:10px;
+    gap:6px;
+  }
+  #tab-qr-cards.qr-mobile-scanner-mode #qr-scanner-session-title {
+    font-size:13px;
+    line-height:1.2;
+  }
+  #tab-qr-cards.qr-mobile-scanner-mode #qr-scanner-session-code {
+    font-size:10px;
+    line-height:1.2;
+  }
+  #tab-qr-cards.qr-mobile-scanner-mode .qr-scanner-statuses {
+    grid-template-columns:repeat(3,minmax(0,1fr));
+    gap:4px;
+  }
+  #tab-qr-cards.qr-mobile-scanner-mode .qr-scanner-statuses > span {
+    min-height:30px;
+    padding:4px 5px;
+    font-size:9px;
+    line-height:1.15;
+  }
+
+  #tab-qr-cards.qr-mobile-scanner-mode .qr-scan-question {
+    padding:7px 8px;
+    border-radius:10px;
+    background:#eef2ff;
+    border-color:#c7d2fe;
+  }
+  #tab-qr-cards.qr-mobile-scanner-mode .qr-scan-question > div:first-child {
+    gap:6px;
+  }
+  #tab-qr-cards.qr-mobile-scanner-mode #qr-card-question-counter {
+    padding:4px 8px;
+    font-size:10px;
+  }
+  #tab-qr-cards.qr-mobile-scanner-mode #qr-card-progress {
+    font-size:11px;
+  }
+  #tab-qr-cards.qr-mobile-scanner-mode .qr-mobile-question-detail {
+    display:none!important;
+  }
+
+  #tab-qr-cards.qr-mobile-scanner-mode .qr-scanner-main-grid {
+    display:block;
+  }
+  #tab-qr-cards.qr-mobile-scanner-mode .qr-camera-wrap {
+    height:calc(100dvh - 255px);
+    min-height:340px;
+    max-height:calc(100dvh - 255px);
+    aspect-ratio:auto;
+    border-radius:12px;
+    box-shadow:none;
+  }
+  #tab-qr-cards.qr-mobile-scanner-mode #qr-card-video {
+    object-fit:cover;
+  }
+  #tab-qr-cards.qr-mobile-scanner-mode .qr-answer-stats {
+    display:none!important;
+  }
+  #tab-qr-cards.qr-mobile-scanner-mode .qr-student-panel {
+    display:none!important;
+  }
+  #tab-qr-cards.qr-mobile-scanner-mode .qr-camera-actions {
+    margin-top:7px;
+    grid-template-columns:1fr 1fr;
+    gap:6px;
+  }
+  #tab-qr-cards.qr-mobile-scanner-mode .qr-camera-actions > button {
+    min-height:42px;
+    padding:7px 8px;
+    font-size:11px;
+  }
+  #tab-qr-cards.qr-mobile-scanner-mode #qr-card-stop-camera-mobile:not(.hidden) {
+    display:block!important;
+    grid-column:1/-1;
+  }
+  #tab-qr-cards.qr-mobile-scanner-mode .qr-scan-footer {
+    padding-top:7px;
+    gap:5px;
+  }
+  #tab-qr-cards.qr-mobile-scanner-mode .qr-scan-footer > div {
+    display:none;
+  }
+  #tab-qr-cards.qr-mobile-scanner-mode #qr-card-leave-scanner {
+    min-height:40px;
+    font-size:11px;
+    border-color:#cbd5e1;
+  }
+
+  #tab-qr-cards.qr-mobile-scanner-mode #qr-card-camera-status,
+  #tab-qr-cards.qr-mobile-scanner-mode #qr-card-fps-status {
+    font-size:10px;
+    padding:5px 7px;
+    max-width:48%;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+  }
+}
+
+@media (max-width:390px) {
+  #tab-qr-cards.qr-mobile-scanner-mode .qr-camera-wrap {
+    height:calc(100dvh - 275px);
+    min-height:300px;
+    max-height:calc(100dvh - 275px);
+  }
+  #tab-qr-cards.qr-mobile-scanner-mode .qr-scanner-statuses {
+    grid-template-columns:1fr 1fr;
+  }
+  #tab-qr-cards.qr-mobile-scanner-mode #qr-card-save-status {
+    grid-column:1/-1;
+  }
+}
