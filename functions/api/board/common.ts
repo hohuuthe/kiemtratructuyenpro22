@@ -80,10 +80,14 @@ export function boardWindowOpen(board: any, now = Date.now()) {
   return true;
 }
 
-export function canCreateInteractiveBoard(user: any, isAdmin = false, isTeacher = false) {
+export function canUseInteractiveBoardVip(user: any, isAdmin = false, isTeacher = false) {
   if (!user) return false;
   if (isAdmin) return true;
   return isTeacher && Boolean(user.is_vip);
+}
+
+export function canCreateInteractiveBoard(user: any, isAdmin = false, isTeacher = false) {
+  return canUseInteractiveBoardVip(user, isAdmin, isTeacher);
 }
 
 export function canManageBoard(user: any, board: any, isAdmin = false) {

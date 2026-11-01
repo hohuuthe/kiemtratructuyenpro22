@@ -2,7 +2,7 @@ import { resolveTenantRoutingFromRequest } from '../../src/tenant-host-map';
 import {
   boardJson, getBoardRequestContext, cleanText, cleanBoardStatus, cleanBoardAccessMode,
   cleanStudentPermission, normalizeClassList, canManageBoard, canDiscoverBoard,
-  hashBoardAccessCode, boardListProjection, loadBoard, canCreateInteractiveBoard
+  hashBoardAccessCode, boardListProjection, loadBoard, canCreateInteractiveBoard, canUseInteractiveBoardVip
 } from './board/common';
 
 function pageParams(url: string) {
@@ -71,6 +71,9 @@ export const onRequestGet: PagesFunction = async (context: any) => {
   try {
     const { db, user, isAdmin, isTeacher } = await getBoardRequestContext(context);
     if (!user) return boardJson({ error: 'Vui lòng đăng nhập để sử dụng bảng tương tác.' }, 401);
+    if (isTeacher && !isAdmin && !canUseInteractiveBoardVip(user, isAdmin, isTeacher)) {
+      return boardJson({ error: 'Bảng tương tác thông minh chỉ dành cho Giáo viên VIP. Hãy liên hệ 0935 078 895 để nâng cấp tài khoản.', code: 'VIP_REQUIRED' }, 403);
+    }
     const { page, limit, offset } = pageParams(context.request.url);
     const manage = new URL(context.request.url).searchParams.get('manage') === '1';
 
@@ -171,8 +174,11 @@ export const onRequestPost: PagesFunction = async (context: any) => {
 
 export const onRequestPut: PagesFunction = async (context: any) => {
   try {
-    const { db, user, isAdmin } = await getBoardRequestContext(context);
+    const { db, user, isAdmin, isTeacher } = await getBoardRequestContext(context);
     if (!user) return boardJson({ error: 'Phiên đăng nhập không hợp lệ.' }, 401);
+    if (!canUseInteractiveBoardVip(user, isAdmin, isTeacher)) {
+      return boardJson({ error: 'Bảng tương tác thông minh chỉ dành cho Giáo viên VIP. Hãy liên hệ 0935 078 895 để nâng cấp tài khoản.', code: 'VIP_REQUIRED' }, 403);
+    }
     const input: any = await context.request.json();
     const id = String(input.id || '').trim();
     const current = await loadBoard(db, id);
@@ -225,8 +231,11 @@ export const onRequestPut: PagesFunction = async (context: any) => {
 
 export const onRequestDelete: PagesFunction = async (context: any) => {
   try {
-    const { db, user, isAdmin } = await getBoardRequestContext(context);
+    const { db, user, isAdmin, isTeacher } = await getBoardRequestContext(context);
     if (!user) return boardJson({ error: 'Phiên đăng nhập không hợp lệ.' }, 401);
+    if (!canUseInteractiveBoardVip(user, isAdmin, isTeacher)) {
+      return boardJson({ error: 'Bảng tương tác thông minh chỉ dành cho Giáo viên VIP. Hãy liên hệ 0935 078 895 để nâng cấp tài khoản.', code: 'VIP_REQUIRED' }, 403);
+    }
     const id = new URL(context.request.url).searchParams.get('id') || '';
     const current = await loadBoard(db, id);
     if (!current) return boardJson({ error: 'Không tìm thấy bảng.' }, 404);
