@@ -47,6 +47,8 @@ test('server API enforces teacher scope, stable ABCD answers and no fake zero re
   assert.match(api,/loai_thi_sinh/);
   assert.match(api,/'Quét thẻ QR'/);
   assert.match(api,/status='finalizing'/);
+  assert.match(api,/creator_id IN \(SELECT user_id FROM accounts WHERE id = \?\)/);
+  assert.match(api,/lessonAllowed/);
 });
 
 test('printed cards expose identity and A/B/C/D while QR payload stays tokenized', () => {
@@ -63,6 +65,8 @@ test('printed cards expose identity and A/B/C/D while QR payload stays tokenized
   assert.match(ui,/hits >= 3/);
   assert.match(ui,/action: 'record-batch'/);
   assert.match(ui,/action: 'finalize'/);
+  assert.match(ui,/async function flushAllPending/);
+  assert.match(ui,/Promise\.all\(roster\.map/);
 });
 
 test('app integrates QR scanner as lazy teacher/admin tab and resets camera on navigation', () => {
