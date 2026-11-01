@@ -547,7 +547,18 @@ export const onRequestPost: PagesFunction<Env> = async (context: any) => {
       const session: any = await db.prepare('SELECT * FROM qr_answer_sessions WHERE id = ? LIMIT 1').bind(sessionId).first();
       if (!session) return reply({ error: 'Không tìm thấy phiên quét.' }, 404);
       if (!admin && !actorIds(user).includes(norm(session.creator_id))) return reply({ error: 'Không có quyền kết thúc phiên quét này.' }, 403);
-      if (session.status !== 'open') return reply({ error: 'Phiên quét đang được chốt hoặc đã kết thúc trước đó.' }, 409);
+      if (session.status === 'finalized') {
+        const existingRows: any = await db.prepare(`
+          SELECT l.result_id,r.user_id,r.student_name,r.score,r.correct_count
+          FROM qr_answer_result_links l
+          LEFT JOIN results r ON r.id=l.result_id
+          WHERE l.session_id=?
+          ORDER BY r.student_name ASC
+        `).bind(sessionId).all();
+        const existing = (existingRows.results || []).filter((row: any) => row.result_id);
+        return reply({ data: { created: existing, skipped: [], total_results: existing.length, already_finalized: true }, error: null });
+      }
+      if (session.status !== 'open') return reply({ error: 'Phiên quét đang được chốt ở một yêu cầu khác.' }, 409);
       const lock = await db.prepare("UPDATE qr_answer_sessions SET status='finalizing' WHERE id=? AND status='open'").bind(sessionId).run();
       if (Number(lock?.meta?.changes || 0) !== 1) return reply({ error: 'Phiên quét đang được chốt ở yêu cầu khác.' }, 409);
       finalizeLockSessionId = sessionId;
