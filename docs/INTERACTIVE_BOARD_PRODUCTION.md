@@ -151,3 +151,10 @@ Không xóa Durable Object namespace khi rollback vì dữ liệu bảng realtim
 - Production source commit: `9b17ffca5924534d8864a5f88dba7bb35a4f53d3`
 - Scope: long-range hybrid QR scanner + reliable ACK queue + Presenter monitor + mobile scanner-only UI.
 - Deployment trigger: push to `main` for Cloudflare Pages Git integration.
+
+## QR subrequest + VIP gate release 2026-11-01
+
+- Source commit: `fda3c6ce9527c28d0664bfc9cd29f19ac5de8f67`
+- Scope: bounded QR database subrequests, bulk card provisioning, bulk answer persistence/finalization, VIP-only scanner access for teachers, Admin bypass, VIP badge and upgrade notice.
+- Release verification: PR #98 `release:qr-cards:check` passed before merge.
+- Production trigger: this commit is pushed to `main` for Cloudflare Pages Git integration.
