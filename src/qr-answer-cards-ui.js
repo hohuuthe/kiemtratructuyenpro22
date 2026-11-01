@@ -42,6 +42,8 @@ let lastFrameDuration = 0;
 let cameraTrack = null;
 let tileCanvas = null;
 let tileCtx = null;
+let presenterQuestionFontSize = 24;
+let presenterAnswerFontSize = 20;
 
 function isMobileScannerViewport(){
   return window.matchMedia?.('(max-width: 767px)')?.matches || window.innerWidth <= 767;
@@ -178,6 +180,18 @@ function optionText(options, key) {
   const value = options[key] ?? options[key.toLowerCase()] ?? options['option' + key] ?? '';
   return typeof value === 'object' ? String(value?.text ?? value?.content ?? '') : String(value ?? '');
 }
+function optionData(options,key) {
+  if (!options) return { text:'', image:'' };
+  let value;
+  if (Array.isArray(options)) {
+    const idx=['A','B','C','D'].indexOf(key);
+    value=options[idx];
+  } else value=options[key] ?? options[key.toLowerCase()] ?? options['option'+key] ?? '';
+  if (value && typeof value === 'object') {
+    return { text:String(value.text ?? value.content ?? ''), image:String(value.image ?? '') };
+  }
+  return { text:String(value ?? ''), image:'' };
+}
 function rich(value) {
   const raw = String(value ?? '');
   try {
@@ -186,6 +200,38 @@ function rich(value) {
   const div = document.createElement('div');
   div.textContent = raw;
   return div.innerHTML;
+}
+function queueScientificMath(root){
+  try {
+    if (root && typeof window.queueMathJax === 'function') window.queueMathJax(root);
+  } catch {}
+}
+function presenterOptionGridClass(q){
+  const keys=['A','B','C','D'];
+  let hasImage=false,maxLen=0;
+  for(const key of keys){
+    const d=optionData(q?.options,key);
+    if(d.image)hasImage=true;
+    const len=String(d.text||'').replace(/<[^>]*>?/gm,'').replace(/&nbsp;/g,' ').length;
+    if(len>maxLen)maxLen=len;
+  }
+  if(hasImage)return 'grid-cols-1';
+  const visualLength=maxLen*(presenterAnswerFontSize/20);
+  if(visualLength<25)return 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4';
+  if(visualLength<80)return 'grid-cols-1 sm:grid-cols-2';
+  return 'grid-cols-1';
+}
+function applyPresenterTypography(){
+  const root=$('qr-card-presenter-workspace');
+  if(!root)return;
+  root.style.setProperty('--qr-presenter-q-size',presenterQuestionFontSize+'px');
+  root.style.setProperty('--qr-presenter-a-size',presenterAnswerFontSize+'px');
+  const qv=$('qr-presenter-question-size-value'),av=$('qr-presenter-answer-size-value');
+  if(qv)qv.textContent=presenterQuestionFontSize+'px';
+  if(av)av.textContent=presenterAnswerFontSize+'px';
+  const qs=$('qr-presenter-question-size'),as=$('qr-presenter-answer-size');
+  if(qs&&Number(qs.value)!==presenterQuestionFontSize)qs.value=String(presenterQuestionFontSize);
+  if(as&&Number(as.value)!==presenterAnswerFontSize)as.value=String(presenterAnswerFontSize);
 }
 function populateBootstrap() {
   const classSelect = $('qr-card-class');
@@ -421,10 +467,24 @@ function renderScannerHeader(){
 }
 function renderPresenterQuestion(q,index,total){
   if($('qr-presenter-question-counter'))$('qr-presenter-question-counter').textContent='Câu '+(index+1)+'/'+Math.max(1,total);
-  if($('qr-presenter-question-content'))$('qr-presenter-question-content').innerHTML=rich(q?.content||'');
-  if($('qr-presenter-options'))$('qr-presenter-options').innerHTML=['A','B','C','D'].map(key =>
-    '<div class="qr-presenter-option"><span>'+key+'</span><div>'+rich(optionText(q?.options,key))+'</div></div>'
-  ).join('');
+  const content=$('qr-presenter-question-content');
+  if(content)content.innerHTML='<span class="qr-presenter-question-prefix">Câu '+(index+1)+'/'+Math.max(1,total)+':</span> '+rich(q?.content||'')+
+    (q?.image?'<div class="flex justify-center mt-3"><img src="'+esc(q.image)+'" alt="Question image" class="max-w-full h-auto rounded-xl shadow-md max-h-64 border border-gray-200"></div>':'');
+  const options=$('qr-presenter-options');
+  if(options){
+    options.className='mt-5 grid '+presenterOptionGridClass(q)+' gap-2 w-full';
+    options.innerHTML=['A','B','C','D'].map(key=>{
+      const d=optionData(q?.options,key);
+      return '<div class="qr-presenter-option group">'+
+        '<div class="qr-presenter-option-content">'+
+          '<span class="qr-presenter-option-label">'+key+'.</span>'+
+          '<span class="qr-presenter-option-text">'+rich(d.text)+'</span>'+
+          (d.image?'<div class="qr-presenter-option-image-wrap"><img src="'+esc(d.image)+'" alt="Option '+key+'" class="qr-presenter-option-image"></div>':'')+
+        '</div></div>';
+    }).join('');
+  }
+  applyPresenterTypography();
+  queueScientificMath($('qr-card-presenter-workspace'));
 }
 function renderPresenterMonitor(state){
   const root=$('qr-presenter-response-list');
@@ -448,12 +508,14 @@ function renderPresenterMonitor(state){
     const recorded=Boolean(row);
     const answer=String(row?.answer||'').toUpperCase();
     const time=row?.updated_at?new Date(row.updated_at).toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit',second:'2-digit'}):'';
+    const fullName=String(student.full_name||row?.full_name||student.student_code||student.id||'Học sinh');
+    const nameSize=fullName.length>30?9.5:(fullName.length>25?10.5:(fullName.length>20?11.5:12));
     return '<div class="qr-presenter-response-row '+(recorded?'is-recorded':'is-waiting')+'">'+
       '<span class="qr-presenter-student-order">'+String(index+1)+'</span>'+
-      '<div class="qr-presenter-student-info min-w-0 flex-1"><p class="qr-presenter-student-name font-bold text-slate-900">'+esc(student.full_name||row?.full_name||student.student_code||student.id||'Học sinh')+'</p>'+
-      '<p class="qr-presenter-student-meta text-[11px] '+(recorded?'text-emerald-700':'text-slate-500')+'">'+esc(student.student_code||row?.student_code||'')+(time?' · '+esc(time):'')+'</p></div>'+
-      (recorded?'<span class="qr-presenter-answer-pill">'+esc(answer||'?')+'</span>':'<span class="qr-presenter-waiting-pill">Chưa nhận</span>')+
-      '<span class="'+(recorded?'qr-presenter-saved-pill':'qr-presenter-status-waiting')+'">'+(recorded?'Đã ghi nhận':'Chờ quét')+'</span></div>';
+      '<div class="qr-presenter-student-info min-w-0 flex-1"><p class="qr-presenter-student-name font-bold text-slate-900" style="font-size:'+nameSize+'px">'+esc(fullName)+'</p>'+
+      '<p class="qr-presenter-student-meta text-[10px] '+(recorded?'text-emerald-700':'text-slate-500')+'">'+esc(student.student_code||row?.student_code||'')+(time?' · '+esc(time):'')+'</p></div>'+
+      (recorded?'<span class="qr-presenter-answer-pill">'+esc(answer||'?')+'</span>':'')+
+      (recorded?'<span class="qr-presenter-saved-pill">Đã ghi nhận</span>':'')+'</div>';
   }).join('');
 }
 function renderPresenterState(state){
@@ -1232,6 +1294,23 @@ function bind() {
   $('qr-presenter-prev')?.addEventListener('click',()=>presenterNavigate(-1));
   $('qr-presenter-next')?.addEventListener('click',()=>presenterNavigate(1));
   $('qr-presenter-finalize')?.addEventListener('click',finalize);
+  $('qr-presenter-settings')?.addEventListener('click',()=>{
+    applyPresenterTypography();
+    const modal=$('qr-presenter-settings-modal');
+    modal?.classList.remove('hidden');modal?.classList.add('flex');
+  });
+  const closePresenterSettings=()=>{const modal=$('qr-presenter-settings-modal');modal?.classList.add('hidden');modal?.classList.remove('flex');};
+  $('qr-presenter-settings-close')?.addEventListener('click',closePresenterSettings);
+  $('qr-presenter-settings-done')?.addEventListener('click',closePresenterSettings);
+  $('qr-presenter-settings-reset')?.addEventListener('click',()=>{
+    presenterQuestionFontSize=24;presenterAnswerFontSize=20;applyPresenterTypography();renderPresenterQuestion(currentQuestion(),questionIndex,session?.questions?.length||1);
+  });
+  $('qr-presenter-question-size')?.addEventListener('input',e=>{
+    presenterQuestionFontSize=Math.max(18,Math.min(56,Number(e.target.value)||24));applyPresenterTypography();
+  });
+  $('qr-presenter-answer-size')?.addEventListener('input',e=>{
+    presenterAnswerFontSize=Math.max(16,Math.min(48,Number(e.target.value)||20));applyPresenterTypography();renderPresenterQuestion(currentQuestion(),questionIndex,session?.questions?.length||1);
+  });
   $('qr-presenter-fullscreen')?.addEventListener('click',async()=>{
     const el=$('qr-card-presenter-workspace');if(!el)return;
     try{if(document.fullscreenElement)await document.exitFullscreen();else await el.requestFullscreen();}catch{}
@@ -1269,4 +1348,6 @@ export function resetQrAnswerCards() {
   lastSaveError='';
   saveInFlight=false;
   showMissingOnly = false;
+  presenterQuestionFontSize=24;
+  presenterAnswerFontSize=20;
 }
