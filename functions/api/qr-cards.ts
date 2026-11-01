@@ -626,6 +626,9 @@ export const onRequestPost: PagesFunction<Env> = async (context: any) => {
       const questions = asArray(session.questions_json);
       const index = Number(body.index);
       if (!Number.isInteger(index) || index < 0 || index >= questions.length) return reply({ error: 'Số thứ tự câu hỏi không hợp lệ.' }, 400);
+      if (index !== Number(session.current_question_index || 0) && norm(session.collection_state || 'collecting') !== 'locked') {
+        return reply({ error: 'Hãy khóa câu hiện tại trước khi chuyển câu.', code: 'LOCK_BEFORE_NAVIGATE' }, 409);
+      }
       const expectedRevision = Number(body.expectedRevision || 0);
       const qid = norm(questions[index]?.id);
       const now = new Date().toISOString();
