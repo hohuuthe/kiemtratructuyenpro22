@@ -1,6 +1,6 @@
 import { signJWT } from '../exam/utils';
 import { resolveTenantRoutingFromRequest } from '../../../src/tenant-host-map';
-import { boardJson, getBoardRequestContext, cleanId, canEnterBoard, canManageBoard, canUseInteractiveBoardVip, loadBoard } from './common';
+import { boardJson, getBoardRequestContext, cleanId, canEnterBoard, canManageBoard, loadBoard } from './common';
 
 function realtimeSecret(env: any) {
   return String(env?.BOARD_REALTIME_SECRET || '').trim();
@@ -10,11 +10,8 @@ export const onRequestOptions: PagesFunction = async () => boardJson({ ok: true 
 
 export const onRequestPost: PagesFunction = async (context: any) => {
   try {
-    const { db, user, isAdmin, isTeacher } = await getBoardRequestContext(context);
+    const { db, user, isAdmin } = await getBoardRequestContext(context);
     if (!user) return boardJson({ error: 'Vui lòng đăng nhập trước khi vào bảng.' }, 401);
-    if (isTeacher && !isAdmin && !canUseInteractiveBoardVip(user, isAdmin, isTeacher)) {
-      return boardJson({ error: 'Bảng tương tác thông minh chỉ dành cho Giáo viên VIP. Hãy liên hệ 0935 078 895 để nâng cấp tài khoản.', code: 'VIP_REQUIRED' }, 403);
-    }
     const body: any = await context.request.json();
     const boardId = cleanId(body.boardId || body.id);
     if (!boardId) return boardJson({ error: 'Mã bảng không hợp lệ.' }, 400);

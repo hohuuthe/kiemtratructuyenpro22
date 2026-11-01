@@ -126,13 +126,13 @@ function renderList(){
   '<p class="text-sm text-slate-600 min-h-10 line-clamp-2">'+esc(b.description||'Không có mô tả')+'</p>'+
   '<div class="flex flex-wrap gap-1 text-[11px]"><span class="rounded bg-blue-50 text-blue-800 px-2 py-1">'+esc(modeLabel(b.access_mode))+'</span><span class="rounded bg-emerald-50 text-emerald-800 px-2 py-1">'+esc(b.student_permission==='draw'?'Vẽ + ghi':b.student_permission==='comment'?'Ghi chú':'Chỉ xem')+'</span>'+(b.target_lop?'<span class="rounded bg-amber-50 text-amber-900 px-2 py-1">'+esc(b.target_lop)+'</span>':'')+'</div>'+
   '<div class="flex flex-wrap gap-2 pt-2 border-t"><button data-board-enter="'+esc(b.id)+'" class="flex-1 rounded-xl bg-emerald-700 text-white py-2.5 px-3 font-bold text-sm">Vào bảng</button>'+
-  (manage?'<button data-board-edit="'+esc(b.id)+'" class="rounded-xl bg-blue-50 text-blue-700 py-2.5 px-3 font-bold text-sm">Sửa</button><button data-board-delete="'+esc(b.id)+'" class="rounded-xl bg-rose-50 text-rose-700 py-2.5 px-3 font-bold text-sm">Xóa</button>':'')+'</div></article>').join('');
+  (b.can_manage?'<button data-board-edit="'+esc(b.id)+'" class="rounded-xl bg-blue-50 text-blue-700 py-2.5 px-3 font-bold text-sm">Sửa</button><button data-board-delete="'+esc(b.id)+'" class="rounded-xl bg-rose-50 text-rose-700 py-2.5 px-3 font-bold text-sm">Xóa</button>':'')+'</div></article>').join('');
  const pages=Math.max(1,Math.ceil(total/20)),p=$('boards-pagination');if(p){p.innerHTML='<button id="boards-prev" class="rounded-lg border px-3 py-2" '+(page<=1?'disabled':'')+'>‹ Trước</button><span>Trang '+page+' / '+pages+'</span><button id="boards-next" class="rounded-lg border px-3 py-2" '+(page>=pages?'disabled':'')+'>Sau ›</button>';}
  refreshBoardButtonHelp(root?.closest?.('#tab-boards')||$('tab-boards'));
 }
 async function load(){
  const seq=++generation;const root=$('boards-list');if(root)root.innerHTML='<div class="col-span-full text-center p-8 text-slate-500">Đang tải danh sách bảng...</div>';
- try{const result=await api('GET','/api/boards?page='+page+'&limit=20'+(manage?'&manage=1':''));if(seq!==generation)return;list=result.data||[];total=Number(result.total)||0;if(manage&&typeof result.can_create==='boolean'){canCreateBoard=result.can_create;$('boards-new')?.classList.toggle('hidden',!canCreateBoard);}renderList();}
+ try{const result=await api('GET','/api/boards?page='+page+'&limit=20'+(manage?'&manage=1':''));if(seq!==generation)return;list=result.data||[];total=Number(result.total)||0;if(manage&&typeof result.can_create==='boolean')canCreateBoard=result.can_create;$('boards-new')?.classList.toggle('hidden',!manage);renderList();}
  catch(e){if(seq!==generation)return;list=[];renderList();feedback(e.message,true);}
 }
 function toggleAccessFields(){
@@ -142,7 +142,9 @@ function toggleAccessFields(){
 }
 function openEdit(id=''){
  if(!manage)return;
- if(!id&&!canCreateBoard){window.showToast?.('Chỉ Giáo viên VIP mới được phép tạo Bảng tương tác thông minh.','warning');return;}const b=id?list.find(x=>x.id===id):null,f=$('board-edit-form');if(!f)return;f.reset();
+ const b=id?list.find(x=>x.id===id):null;
+ if(id&&!b?.can_manage){window.showToast?.('Bạn chỉ được sửa bảng do mình tạo.','warning');return;}
+ if(!id&&!canCreateBoard){window.showToast?.('Tạo Bảng tương tác thông minh là chức năng VIP. Hãy liên hệ 0935 078 895 để nâng cấp tài khoản.','warning');return;}const f=$('board-edit-form');if(!f)return;f.reset();
  f.elements.namedItem('id').value=b?.id||'';f.elements.namedItem('revision').value=b?.revision||'';
  for(const k of ['name','description','status','access_mode','student_permission','max_participants','target_donvi','target_lop'])if(b&&f.elements.namedItem(k))f.elements.namedItem(k).value=b[k]??'';
  if(!b){f.elements.namedItem('status').value='open';f.elements.namedItem('access_mode').value='public';f.elements.namedItem('student_permission').value='draw';f.elements.namedItem('max_participants').value='60';f.elements.namedItem('target_donvi').value=actor?.donvi||'';}
@@ -704,7 +706,7 @@ export function initInteractiveBoards(user){
  const isTeacher=role==='teacher'||role==='giáo viên'||aud==='giáo viên';
  manage=isAdmin||isTeacher;
  canCreateBoard=isAdmin||(isTeacher&&Boolean(actor?.is_vip));
- $('boards-new')?.classList.toggle('hidden',!canCreateBoard);load();
+ $('boards-new')?.classList.toggle('hidden',!manage);load();
 }
 export function connectInteractiveBoards(){
  if(wired||!$('boards-list'))return;wired=true;installBoardButtonHelp();

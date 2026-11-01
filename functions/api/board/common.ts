@@ -154,7 +154,8 @@ export function boardListProjection(board: any, owner = false) {
     revision: Number(board.revision) || 1,
     created_at: board.created_at,
     updated_at: board.updated_at,
-    protected: board.access_mode === 'protected'
+    protected: board.access_mode === 'protected',
+    can_manage: Boolean(owner)
   };
   if (owner && board.settings_json) {
     try { base.settings = JSON.parse(board.settings_json); } catch { base.settings = {}; }
