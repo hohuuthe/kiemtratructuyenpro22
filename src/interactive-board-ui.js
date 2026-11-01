@@ -184,9 +184,9 @@ function connectSocket(pageId=currentPageId){
  const url=new URL(wsUrl(base));url.searchParams.set('pageId',pageId||currentPageId);
  const socket=new WebSocket(url.href);ws=socket;
  $('board-room-status').textContent=reconnectAttempts?'Đang kết nối lại...':'Đang kết nối realtime...';
- socket.onopen=()=>{reconnectAttempts=0;if(reconnectTimer){clearTimeout(reconnectTimer);reconnectTimer=null;}$('board-room-status').textContent='Đã kết nối realtime';for(const payload of pendingReliable.values()){try{socket.send(payload)}catch{}}};
- socket.onclose=()=>{if(ws!==socket||manualExit)return;$('board-room-status').textContent='Mất kết nối — đang thử kết nối lại...';scheduleReconnect();};
- socket.onerror=()=>{$('board-room-status').textContent='Kết nối realtime không ổn định';};
+ socket.onopen=()=>{reconnectAttempts=0;if(reconnectTimer){clearTimeout(reconnectTimer);reconnectTimer=null;}$('board-room-status').textContent='Đã kết nối realtime';syncBoardPermissionUi();for(const payload of pendingReliable.values()){try{socket.send(payload)}catch{}}};
+ socket.onclose=()=>{if(ws!==socket||manualExit)return;$('board-room-status').textContent='Mất kết nối — đang thử kết nối lại...';syncBoardPermissionUi();scheduleReconnect();};
+ socket.onerror=()=>{$('board-room-status').textContent='Kết nối realtime không ổn định';syncBoardPermissionUi();};
  socket.onmessage=e=>{let m;try{m=JSON.parse(e.data)}catch{return;}handleMessage(m);};
 }
 function scheduleReconnect(){
@@ -577,10 +577,10 @@ function applyBoardDeviceDefaults(){
  const toggle=$('board-participants-toggle');if(toggle)toggle.setAttribute('aria-expanded','false');
  syncBoardToolButtons();
 }
-function canEdit(){if(snapshotLoading)return false;return room?.board?.can_manage||(!locked&&!userLocked&&room?.board?.student_permission!=='view');}
+function canEdit(){if(snapshotLoading||ws?.readyState!==WebSocket.OPEN)return false;return room?.board?.can_manage||(!locked&&!userLocked&&room?.board?.student_permission!=='view');}
 function boardToolAllowed(name){
  if(name==='pan')return true;
- if(!room)return false;
+ if(!room||ws?.readyState!==WebSocket.OPEN)return false;
  if(room.board?.can_manage)return true;
  if(locked||userLocked)return false;
  const permission=String(room.board?.student_permission||'view');
