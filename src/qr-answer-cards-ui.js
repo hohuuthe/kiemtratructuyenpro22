@@ -779,6 +779,10 @@ function queueFlush() {
 }
 async function flushPending() {
   if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+  if(saveInFlight){
+    setTimeout(queueFlush,120);
+    return false;
+  }
   if (!session || !pendingRecords.size) return true;
   if(collectionState!=='collecting'){
     setPhoneSaveState('locked','Câu đã khóa · hàng đợi tạm dừng');
@@ -1063,5 +1067,8 @@ export function resetQrAnswerCards() {
   questionAnswers.clear();
   pendingRecords.clear();
   pendingVisualAnswers.clear();
+  retryCounts.clear();
+  lastSaveError='';
+  saveInFlight=false;
   showMissingOnly = false;
 }
