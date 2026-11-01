@@ -575,16 +575,33 @@ export const onRequestPost: PagesFunction<Env> = async (context: any) => {
       const students = await classStudents(db, className, donvi);
       const creatorId = actorIds(user)[0] || norm(user.id);
       const now = new Date().toISOString();
-      for (const student of students) {
-        if (student.card_token && Number(student.card_active ?? 1) !== 0) continue;
-        const token = randomToken();
+      const missing = students.filter((student: any) => !student.card_token || Number(student.card_active ?? 1) === 0);
+
+      if (missing.length) {
+        const valuesSql = missing.map(() => '(?,?,?,?,1,?,?)').join(',');
+        const params: any[] = [];
+        for (const student of missing) {
+          params.push(
+            randomToken(),
+            student.id,
+            norm(student.student_code || student.id),
+            creatorId,
+            now,
+            now
+          );
+        }
         await db.prepare(`
           INSERT INTO qr_answer_cards(card_token,user_id,student_code,created_by,active,created_at,updated_at)
-          VALUES(?,?,?,?,1,?,?)
+          VALUES ${valuesSql}
           ON CONFLICT(user_id) DO UPDATE SET
-            card_token=excluded.card_token,student_code=excluded.student_code,created_by=excluded.created_by,active=1,updated_at=excluded.updated_at
-        `).bind(token, student.id, norm(student.student_code || student.id), creatorId, now, now).run();
+            card_token=excluded.card_token,
+            student_code=excluded.student_code,
+            created_by=excluded.created_by,
+            active=1,
+            updated_at=excluded.updated_at
+        `).bind(...params).run();
       }
+
       return reply({ data: await classStudents(db, className, donvi), error: null });
     }
 
@@ -914,6 +931,7 @@ export const onRequestPost: PagesFunction<Env> = async (context: any) => {
         return reply({ data: { created: existing, skipped: [], total_results: existing.length, already_finalized: true }, error: null });
       }
       if (session.status !== 'open') return reply({ error: 'Phiên quét đang được chốt ở một yêu cầu khác.' }, 409);
+
       const finalizeAt = new Date().toISOString();
       const finalizeRevision = Number(session.state_revision || 0);
       const lock = await db.prepare(`
@@ -932,8 +950,11 @@ export const onRequestPost: PagesFunction<Env> = async (context: any) => {
         await db.prepare("UPDATE qr_answer_sessions SET status='open' WHERE id=? AND status='finalizing'").bind(sessionId).run();
         return reply({ error: 'Phiên quét không có dữ liệu câu hỏi gốc; không tạo kết quả 0 điểm.' }, 409);
       }
+
       const students = await classStudents(db, session.class_name, session.donvi || '');
-      const responsesResult: any = await db.prepare('SELECT * FROM qr_answer_responses WHERE session_id=?').bind(sessionId).all();
+      const responsesResult: any = await db.prepare(
+        'SELECT question_id,user_id,answer FROM qr_answer_responses WHERE session_id=?'
+      ).bind(sessionId).all();
       const responseRows = responsesResult.results || [];
       const byUser = new Map<string, Map<string, string>>();
       for (const row of responseRows) {
@@ -946,12 +967,13 @@ export const onRequestPost: PagesFunction<Env> = async (context: any) => {
         return reply({ error: 'Chưa có học sinh nào được quét ổn định; không tạo kết quả.' }, 409);
       }
 
-      const created: any[] = [];
-      const skipped: any[] = [];
       const started = new Date(session.created_at).getTime();
       const now = new Date();
+      const nowIso = now.toISOString();
       const timeTaken = Number.isFinite(started) ? Math.max(0, Math.round((now.getTime() - started) / 1000)) : 0;
       const points = Number(session.points_41 || 1) || 1;
+      const skipped: any[] = [];
+      const resultDrafts: any[] = [];
 
       for (const student of students) {
         const answers = byUser.get(norm(student.id));
@@ -959,6 +981,7 @@ export const onRequestPost: PagesFunction<Env> = async (context: any) => {
           skipped.push({ user_id: student.id, full_name: student.full_name, reason: 'Chưa có đáp án quét' });
           continue;
         }
+
         let score = 0, correctCount = 0;
         const details = questions.map((q: any) => {
           const userAnswer = norm(answers.get(norm(q.id))).toUpperCase();
@@ -977,44 +1000,105 @@ export const onRequestPost: PagesFunction<Env> = async (context: any) => {
             captureMethod: 'qr_card'
           };
         });
-        let link: any = await db.prepare(
-          'SELECT result_id FROM qr_answer_result_links WHERE session_id=? AND user_id=? LIMIT 1'
-        ).bind(sessionId, student.id).first();
-        let resultId = norm(link?.result_id);
-        if (!resultId) {
-          resultId = crypto.randomUUID();
-          await db.prepare(`
-            INSERT INTO qr_answer_result_links(session_id,user_id,result_id,created_at)
-            VALUES(?,?,?,?)
-            ON CONFLICT(session_id,user_id) DO NOTHING
-          `).bind(sessionId, student.id, resultId, now.toISOString()).run();
-          link = await db.prepare(
-            'SELECT result_id FROM qr_answer_result_links WHERE session_id=? AND user_id=? LIMIT 1'
-          ).bind(sessionId, student.id).first();
-          resultId = norm(link?.result_id || resultId);
-        }
 
-        const existingResult: any = await db.prepare('SELECT id FROM results WHERE id=? LIMIT 1').bind(resultId).first();
-        if (!existingResult) {
-          await db.prepare(`
-            INSERT INTO results
-            (id,user_id,student_name,student_class,lop,don_vi,exam_name,exam_id,score,time_taken,correct_count,total_questions,details,loai_thi_sinh,cheat_warning_count,created_at)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?)
-          `).bind(
-            resultId, student.id, norm(student.full_name), norm(student.donvi), norm(student.lop), norm(student.donvi),
-            norm(session.exam_name), norm(session.exam_id), Number(score.toFixed(2)), timeTaken, correctCount, questions.length,
-            JSON.stringify(details), 'Quét thẻ QR', now.toISOString()
-          ).run();
-        }
-        created.push({ result_id: resultId, user_id: student.id, full_name: student.full_name, score: Number(score.toFixed(2)), correct_count: correctCount });
+        resultDrafts.push({
+          user_id: norm(student.id),
+          full_name: norm(student.full_name),
+          donvi: norm(student.donvi),
+          lop: norm(student.lop),
+          score: Number(score.toFixed(2)),
+          correct_count: correctCount,
+          details: JSON.stringify(details)
+        });
       }
-      if (!created.length) {
+
+      if (!resultDrafts.length) {
         await db.prepare("UPDATE qr_answer_sessions SET status='open' WHERE id=? AND status='finalizing'").bind(sessionId).run();
         return reply({ error: 'Không có bài quét hợp lệ để lưu kết quả.' }, 409);
       }
-      await db.prepare("UPDATE qr_answer_sessions SET status='finalized',finalized_at=? WHERE id=? AND status='finalizing'").bind(now.toISOString(), sessionId).run();
+
+      const userIds = resultDrafts.map(row => row.user_id);
+      const userPlaceholders = userIds.map(() => '?').join(',');
+      const existingLinks: any = await db.prepare(`
+        SELECT user_id,result_id
+        FROM qr_answer_result_links
+        WHERE session_id=? AND user_id IN (${userPlaceholders})
+      `).bind(sessionId,...userIds).all();
+      const linkMap = new Map((existingLinks.results || []).map((row: any) => [norm(row.user_id), norm(row.result_id)]));
+
+      const missingLinks = resultDrafts.filter(row => !linkMap.has(row.user_id));
+      if (missingLinks.length) {
+        const valuesSql = missingLinks.map(() => '(?,?,?,?)').join(',');
+        const params: any[] = [];
+        for (const row of missingLinks) {
+          const resultId = crypto.randomUUID();
+          row.generated_result_id = resultId;
+          params.push(sessionId,row.user_id,resultId,nowIso);
+        }
+        await db.prepare(`
+          INSERT INTO qr_answer_result_links(session_id,user_id,result_id,created_at)
+          VALUES ${valuesSql}
+          ON CONFLICT(session_id,user_id) DO NOTHING
+        `).bind(...params).run();
+      }
+
+      const authoritativeLinks: any = await db.prepare(`
+        SELECT user_id,result_id
+        FROM qr_answer_result_links
+        WHERE session_id=? AND user_id IN (${userPlaceholders})
+      `).bind(sessionId,...userIds).all();
+      const finalLinkMap = new Map((authoritativeLinks.results || []).map((row: any) => [norm(row.user_id), norm(row.result_id)]));
+
+      const persistedDrafts = resultDrafts
+        .map(row => ({ ...row, result_id: finalLinkMap.get(row.user_id) || row.generated_result_id || '' }))
+        .filter(row => row.result_id);
+
+      if (!persistedDrafts.length) {
+        await db.prepare("UPDATE qr_answer_sessions SET status='open' WHERE id=? AND status='finalizing'").bind(sessionId).run();
+        return reply({ error: 'Không tạo được liên kết kết quả cho phiên quét.' }, 500);
+      }
+
+      const resultValuesSql = persistedDrafts.map(() => '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?)').join(',');
+      const resultParams: any[] = [];
+      for (const row of persistedDrafts) {
+        resultParams.push(
+          row.result_id,
+          row.user_id,
+          row.full_name,
+          row.donvi,
+          row.lop,
+          row.donvi,
+          norm(session.exam_name),
+          norm(session.exam_id),
+          row.score,
+          timeTaken,
+          row.correct_count,
+          questions.length,
+          row.details,
+          'Quét thẻ QR',
+          nowIso
+        );
+      }
+      await db.prepare(`
+        INSERT INTO results
+        (id,user_id,student_name,student_class,lop,don_vi,exam_name,exam_id,score,time_taken,correct_count,total_questions,details,loai_thi_sinh,cheat_warning_count,created_at)
+        VALUES ${resultValuesSql}
+        ON CONFLICT(id) DO NOTHING
+      `).bind(...resultParams).run();
+
+      await db.prepare(
+        "UPDATE qr_answer_sessions SET status='finalized',finalized_at=? WHERE id=? AND status='finalizing'"
+      ).bind(nowIso, sessionId).run();
       finalizeLockSessionId = '';
       finalizeDb = null;
+
+      const created = persistedDrafts.map(row => ({
+        result_id: row.result_id,
+        user_id: row.user_id,
+        full_name: row.full_name,
+        score: row.score,
+        correct_count: row.correct_count
+      }));
       return reply({ data: { created, skipped, total_results: created.length }, error: null });
     }
 
