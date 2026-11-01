@@ -214,6 +214,7 @@ function handleMessage(m){
  if(m.type==='page_created'&&m.page){if(!room.pages.some(p=>String(p.id)===String(m.page.id))){room.pages=[...room.pages,m.page].sort((a,b)=>(a.page_no||0)-(b.page_no||0));renderPageControls();}return;}
  if(m.type==='page_deleted'){room.pages=(room.pages||[]).filter(p=>String(p.id)!==String(m.pageId));renderPageControls();if(String(m.pageId)===String(currentPageId)){const next=room.pages[0];if(next)switchPage(next.id);else exitRoom();}return;}
  if(m.type==='op_ack'&&m.clientOpId){pendingReliable.delete(String(m.clientOpId));return;}
+ if(m.type==='token_expired'){roomTokenExpiresAt=0;if(ws)try{ws.close(4001,'refresh token')}catch{};return;}
  if(m.type==='resync_required'){setTimeout(()=>{if(room&&!manualExit)connectSocket(currentPageId)},120);return;}
  if(m.type==='clear_user_objects'){for(const id of m.objectIds||[])objects.delete(id);if((m.objectIds||[]).some(id=>String(id)===String(selectedObjectId)))selectedObjectId='';syncSelectionButtons();scheduleRender();renderParticipants(participantsCache);return;}
  if(m.type==='laser'){remoteLasers.set(String(m.userId),{x:m.x,y:m.y,name:m.displayName||'Giáo viên',expires:Date.now()+900});scheduleRender();setTimeout(()=>{const v=remoteLasers.get(String(m.userId));if(v&&v.expires<=Date.now()){remoteLasers.delete(String(m.userId));scheduleRender();}},950);return;}
@@ -231,6 +232,7 @@ function handleMessage(m){
 }
 function sendOps(ops){
  if(!ops.length)return;
+ if(ws?.readyState!==WebSocket.OPEN&&!ops.every(op=>op.kind==='laser'||op.kind==='stroke_segment'||op.kind==='stroke_cancel')){window.showToast?.('Đang mất kết nối realtime. Hệ thống sẽ đồng bộ lại trước khi tiếp tục chỉnh sửa.','info');return;}
  const transient=ops.every(op=>op.kind==='stroke_segment'||op.kind==='stroke_cancel'||op.kind==='laser');
  const clientOpId=transient?'':crypto.randomUUID();
  const payload=JSON.stringify({type:'op_batch',clientOpId:clientOpId||undefined,ops});
@@ -477,9 +479,9 @@ function renderParticipants(items){
  $('board-online-count').textContent=currentItems.length+' người';if($('board-participants-toggle-count'))$('board-participants-toggle-count').textContent=String(currentItems.length);
  $('board-participants').innerHTML=currentItems.map(p=>{
    const roleLabel=p.role==='teacher'?'Giáo viên':p.role==='admin'?'Admin':'Học sinh';
-   const canModerate=room?.board?.can_manage&&p.role==='student'&&String(p.userId)!==myId();
+   const canModerate=room?.board?.can_manage&&p.role!=='admin'&&String(p.userId)!==myId();
    const contributionCount=counts.get(String(p.userId))||0;
-   return '<div class="rounded-lg bg-white border px-3 py-2 space-y-1"><div class="flex items-center justify-between gap-2"><div class="min-w-0"><p class="font-bold truncate">'+esc(p.displayName)+'</p><p class="text-[11px] text-slate-500">'+esc(roleLabel)+(p.blocked?' • đang khóa':'')+(p.role==='student'?' • '+contributionCount+' đóng góp':'')+'</p></div>'+(canModerate?'<div class="flex gap-1"><button data-board-user-clear="'+esc(p.userId)+'" class="shrink-0 rounded-md bg-rose-50 text-rose-700 px-2 py-1 text-[11px] font-bold">Xóa nét</button><button data-board-user-lock="'+esc(p.userId)+'" data-blocked="'+(p.blocked?'1':'0')+'" class="shrink-0 rounded-md px-2 py-1 text-[11px] font-bold '+(p.blocked?'bg-emerald-50 text-emerald-700':'bg-amber-50 text-amber-800')+'">'+(p.blocked?'Mở':'Khóa')+'</button></div>':'')+'</div></div>';
+   return '<div class="rounded-lg bg-white border px-3 py-2 space-y-1"><div class="flex items-center justify-between gap-2"><div class="min-w-0"><p class="font-bold truncate">'+esc(p.displayName)+'</p><p class="text-[11px] text-slate-500">'+esc(roleLabel)+(p.blocked?' • đang khóa':'')+(String(p.userId)!==myId()?' • '+contributionCount+' đóng góp':'')+'</p></div>'+(canModerate?'<div class="flex gap-1"><button data-board-user-clear="'+esc(p.userId)+'" class="shrink-0 rounded-md bg-rose-50 text-rose-700 px-2 py-1 text-[11px] font-bold">Xóa nét</button><button data-board-user-lock="'+esc(p.userId)+'" data-blocked="'+(p.blocked?'1':'0')+'" class="shrink-0 rounded-md px-2 py-1 text-[11px] font-bold '+(p.blocked?'bg-emerald-50 text-emerald-700':'bg-amber-50 text-amber-800')+'">'+(p.blocked?'Mở':'Khóa')+'</button></div>':'')+'</div></div>';
  }).join('');refreshBoardButtonHelp($('board-participants'));
 }
 function syncLockUi(){
