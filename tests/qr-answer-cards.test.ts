@@ -47,6 +47,9 @@ test('server API enforces teacher scope, stable ABCD answers and no fake zero re
   assert.match(api,/loai_thi_sinh/);
   assert.match(api,/'Quét thẻ QR'/);
   assert.match(api,/status='finalizing'/);
+  assert.match(api,/qr_answer_result_links/);
+  assert.match(api,/ON CONFLICT\(session_id,user_id\) DO NOTHING/);
+  assert.match(api,/finalizeLockSessionId/);
   assert.match(api,/creator_id IN \(SELECT user_id FROM accounts WHERE id = \?\)/);
   assert.match(api,/lessonAllowed/);
 });
