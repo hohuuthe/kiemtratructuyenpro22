@@ -180,3 +180,30 @@ test('phone scanner only confirms answers after server persistence and distingui
   assert.match(css,/\.qr-scanner-statuses[\s\S]*grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
   assert.match(css,/\.qr-camera-actions[\s\S]*grid-template-columns:1fr 1fr/);
 });
+
+
+test('mobile QR interface is scanner-only and avoids loading desktop setup data',()=>{
+  const html=fs.readFileSync('public/components/tab-qr-cards.html','utf8');
+  const ui=fs.readFileSync('src/qr-answer-cards-ui.js','utf8');
+  const css=fs.readFileSync('src/style.css','utf8');
+
+  assert.match(html,/id="qr-card-setup" class="qr-desktop-only/);
+  assert.match(html,/id="qr-card-class-summary" class="qr-desktop-only/);
+  assert.match(html,/id="qr-card-presenter-workspace" class="qr-desktop-only/);
+  assert.match(html,/id="qr-card-open-presenter"[^>]*qr-desktop-only/);
+  assert.match(html,/id="qr-card-stop-camera-mobile"/);
+  assert.match(html,/qr-mobile-question-detail/);
+  assert.match(html,/qr-answer-stats/);
+  assert.match(html,/qr-student-panel/);
+
+  assert.match(ui,/function isMobileScannerViewport/);
+  assert.match(ui,/if\(mobileScannerMode\)\{[\s\S]*await loadActiveSessions\(\);[\s\S]*return;/);
+  assert.match(ui,/qr-mobile-scanner-mode/);
+  assert.match(ui,/qr-card-stop-camera-mobile/);
+
+  assert.match(css,/qr-mobile-scanner-mode \.qr-desktop-only \{ display:none!important; \}/);
+  assert.match(css,/qr-mobile-scanner-mode \.qr-mobile-question-detail[\s\S]*display:none!important/);
+  assert.match(css,/qr-mobile-scanner-mode \.qr-answer-stats[\s\S]*display:none!important/);
+  assert.match(css,/qr-mobile-scanner-mode \.qr-student-panel[\s\S]*display:none!important/);
+  assert.match(css,/qr-mobile-scanner-mode \.qr-camera-wrap[\s\S]*height:calc\(100dvh - 255px\)/);
+});
