@@ -301,10 +301,11 @@ export class BoardRoom {
   }
 
   participants() {
-    const seen=new Map();
+    const seen=new Map(),now=Math.floor(Date.now()/1000);
     for (const ws of this.ctx.getWebSockets()) {
       const s=stateOf(ws);
       if (!s.userId) continue;
+      if(s.tokenExp&&now>=Number(s.tokenExp)){try{ws.close(4001,'Token expired')}catch{};continue;}
       if (!seen.has(s.userId)) seen.set(s.userId,{
         userId:s.userId,displayName:s.displayName||'Người dùng',role:s.displayRole||'student',
         blocked:Boolean(s.blocked),pageId:s.pageId||''
@@ -314,10 +315,12 @@ export class BoardRoom {
   }
 
   broadcast(payload, except=null, pageId='') {
-    const text=JSON.stringify(payload);
+    const text=JSON.stringify(payload),now=Math.floor(Date.now()/1000);
     const sockets=pageId ? this.ctx.getWebSockets(pageId) : this.ctx.getWebSockets();
     for (const socket of sockets) {
       if (socket===except || socket.readyState!==WebSocket.OPEN) continue;
+      const s=stateOf(socket);
+      if(s.tokenExp&&now>=Number(s.tokenExp)){try{socket.close(4001,'Token expired')}catch{};continue;}
       try { socket.send(text); } catch {}
     }
   }
