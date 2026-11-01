@@ -215,6 +215,14 @@ CREATE TABLE IF NOT EXISTS qr_answer_responses (
     PRIMARY KEY (session_id, question_id, user_id)
 );
 
+CREATE TABLE IF NOT EXISTS qr_answer_result_links (
+    session_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    result_id TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (session_id, user_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_qr_cards_user ON qr_answer_cards(user_id);
 CREATE INDEX IF NOT EXISTS idx_qr_sessions_creator ON qr_answer_sessions(creator_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_qr_responses_session ON qr_answer_responses(session_id, question_id);
