@@ -7,7 +7,7 @@ let roomTokenExpiresAt=0,tokenRefreshAttempts=0,currentPageId='';
 let undoStack=[],redoStack=[],renderQueued=false,lastRateNotice=0,userLocked=false;
 let pendingReliable=new Map(),dragState=null,snapshotLoading=false,participantsCache=[];
 let remoteLasers=new Map(),lastLaserSent=0;
-let zoomLevel=1,panDrag=null,panPointers=new Map(),pinchStart=null,timerState=null,timerTick=null,aiResultText='',aiClusterPlan=null,followTeacher=true,mobileGesture=false;
+let zoomLevel=1,panDrag=null,panPointers=new Map(),pinchStart=null,timerState=null,timerTick=null,aiResultText='',aiClusterPlan=null,followTeacher=true,mobileGesture=false,selectedObjectId='';
 
 function token(){return localStorage.getItem(window.tenantStorageKey?window.tenantStorageKey('auth_token'):'auth_token')||'';}
 async function api(method,url,body){
@@ -41,6 +41,8 @@ const BOARD_BUTTON_HELP={
  'board-exit':'Rời Bảng tương tác và quay về danh sách.',
  'board-undo':'Hoàn tác thao tác gần nhất (Ctrl/Cmd + Z).',
  'board-redo':'Làm lại thao tác vừa hoàn tác (Ctrl/Cmd + Y).',
+ 'board-duplicate-selected':'Nhân bản đối tượng đang chọn và đặt lệch nhẹ để dễ kéo tiếp.',
+ 'board-delete-selected':'Xóa đối tượng đang chọn nếu bạn có quyền chỉnh sửa.',
  'board-page-prev':'Chuyển sang trang trước của bảng.',
  'board-page-next':'Chuyển sang trang tiếp theo của bảng.',
  'board-zoom-out':'Thu nhỏ vùng bảng để xem rộng hơn.',
@@ -205,8 +207,8 @@ function handleMessage(m){
  if(m.type==='snapshot_chunk'){for(const o of m.objects||[])objects.set(o.id,o);scheduleRender();return;}
  if(m.type==='snapshot_end'){snapshotLoading=false;scheduleRender();renderParticipants(participantsCache);$('board-room-status').textContent='Đã kết nối realtime';return;}
  if(m.type==='put'&&m.object){objects.set(m.object.id,m.object);remoteStrokes.delete(m.object.id);scheduleRender();renderParticipants(participantsCache);return;}
- if(m.type==='delete'){objects.delete(m.objectId);remoteStrokes.delete(m.objectId);scheduleRender();renderParticipants(participantsCache);return;}
- if(m.type==='clear_page'){for(const [id,o] of objects)if(o.pageId===m.pageId)objects.delete(id);remoteStrokes.clear();drawing=null;dragState=null;scheduleRender();renderParticipants(participantsCache);return;}
+ if(m.type==='delete'){objects.delete(m.objectId);remoteStrokes.delete(m.objectId);if(String(selectedObjectId)===String(m.objectId))selectedObjectId='';syncSelectionButtons();scheduleRender();renderParticipants(participantsCache);return;}
+ if(m.type==='clear_page'){for(const [id,o] of objects)if(o.pageId===m.pageId)objects.delete(id);remoteStrokes.clear();drawing=null;dragState=null;selectedObjectId='';syncSelectionButtons();scheduleRender();renderParticipants(participantsCache);return;}
  if(m.type==='stroke_segment'){let s=remoteStrokes.get(m.objectId);if(!s){s={id:m.objectId,pageId:m.pageId,type:'stroke',points:[],color:m.color,width:m.width};remoteStrokes.set(m.objectId,s);}s.points.push(...(m.points||[]));scheduleRender();return;}
  if(m.type==='page_updated'&&m.page){room.pages=(room.pages||[]).map(p=>String(p.id)===String(m.page.id)?{...p,...m.page}:p);renderPageControls();return;}
  if(m.type==='page_created'&&m.page){if(!room.pages.some(p=>String(p.id)===String(m.page.id))){room.pages=[...room.pages,m.page].sort((a,b)=>(a.page_no||0)-(b.page_no||0));renderPageControls();}return;}
@@ -216,7 +218,7 @@ function handleMessage(m){
  if(m.type==='clear_user_objects'){for(const id of m.objectIds||[])objects.delete(id);scheduleRender();renderParticipants(participantsCache);return;}
  if(m.type==='laser'){remoteLasers.set(String(m.userId),{x:m.x,y:m.y,name:m.displayName||'Giáo viên',expires:Date.now()+900});scheduleRender();setTimeout(()=>{const v=remoteLasers.get(String(m.userId));if(v&&v.expires<=Date.now()){remoteLasers.delete(String(m.userId));scheduleRender();}},950);return;}
  if(m.type==='stroke_cancel'){remoteStrokes.delete(m.objectId);scheduleRender();return;}
- if(m.type==='user_lock_state'){userLocked=!!m.blocked;if(userLocked){drawing=null;dragState=null;scheduleRender();}syncLockUi();window.showToast?.(userLocked?'Giáo viên đã tạm khóa quyền tương tác của bạn.':'Giáo viên đã mở lại quyền tương tác cho bạn.','info');return;}
+ if(m.type==='user_lock_state'){userLocked=!!m.blocked;if(userLocked){drawing=null;dragState=null;selectedObjectId='';syncSelectionButtons();scheduleRender();}syncLockUi();window.showToast?.(userLocked?'Giáo viên đã tạm khóa quyền tương tác của bạn.':'Giáo viên đã mở lại quyền tương tác cho bạn.','info');return;}
  if(m.type==='page_focus'){if(followTeacher&&!room?.board?.can_manage&&m.pageId&&String(m.pageId)!==String(currentPageId))switchPage(String(m.pageId));return;}
  if(m.type==='vote_state'){const o=objects.get(String(m.objectId));if(o){o.voteCount=Math.max(0,Number(m.voteCount)||0);objects.set(o.id,o);scheduleRender();}return;}
  if(m.type==='timer_state'){timerState=m.timer||null;syncTimerUi();return;}
@@ -240,7 +242,14 @@ function sendOps(ops){
 }
 function myId(){return String(actor?.id||actor?.user_id||'');}
 function remember(action){undoStack.push(action);if(undoStack.length>100)undoStack.shift();redoStack=[];syncHistoryButtons();}
-function syncHistoryButtons(){if($('board-undo'))$('board-undo').disabled=!undoStack.length;if($('board-redo'))$('board-redo').disabled=!redoStack.length;}
+function selectedObject(){return selectedObjectId?objects.get(selectedObjectId)||null:null;}
+function syncSelectionButtons(){
+ const o=selectedObject(),editable=!!o&&canEdit()&&(room?.board?.can_manage||String(o.creatorId||'')===myId());
+ if($('board-duplicate-selected'))$('board-duplicate-selected').disabled=!editable;
+ if($('board-delete-selected'))$('board-delete-selected').disabled=!editable;
+}
+function clearSelection(){selectedObjectId='';syncSelectionButtons();scheduleRender();}
+function syncHistoryButtons(){if($('board-undo'))$('board-undo').disabled=!undoStack.length;if($('board-redo'))$('board-redo').disabled=!redoStack.length;syncSelectionButtons();}
 function safeFileName(value){return String(value||'bang-tuong-tac').normalize('NFC').replace(/[^\p{L}\p{N}._-]+/gu,'-').replace(/^-+|-+$/g,'').slice(0,100)||'bang-tuong-tac';}
 function setZoom(value){
  zoomLevel=Math.max(.5,Math.min(2,Math.round(Number(value)*10)/10));
@@ -502,6 +511,19 @@ function render(){
  const all=[...objects.values(),...remoteStrokes.values()];
  for(const o of all)drawObject(ctx,o);
  if(drawing)drawObject(ctx,drawing);
+ const selected=selectedObject();
+ if(selected&&selected.pageId===currentPageId){
+   ctx.save();ctx.strokeStyle='#0f766e';ctx.lineWidth=2;ctx.setLineDash([8,6]);
+   if(selected.type==='note'||selected.type==='text')ctx.strokeRect(selected.x-6,selected.y-6,(selected.w||220)+12,(selected.h||120)+12);
+   else if(selected.type==='stroke'&&selected.points?.length){
+     const xs=selected.points.map(p=>p[0]),ys=selected.points.map(p=>p[1]),minX=Math.min(...xs),maxX=Math.max(...xs),minY=Math.min(...ys),maxY=Math.max(...ys);
+     ctx.strokeRect(minX-8,minY-8,Math.max(16,maxX-minX+16),Math.max(16,maxY-minY+16));
+   }else if(['rect','ellipse','line','arrow'].includes(selected.type)){
+     const minX=Math.min(selected.x1,selected.x2),minY=Math.min(selected.y1,selected.y2),maxX=Math.max(selected.x1,selected.x2),maxY=Math.max(selected.y1,selected.y2);
+     ctx.strokeRect(minX-8,minY-8,Math.max(16,maxX-minX+16),Math.max(16,maxY-minY+16));
+   }
+   ctx.restore();
+ }
  const now=Date.now();
  for(const [id,l] of remoteLasers){if(l.expires<=now){remoteLasers.delete(id);continue;}ctx.save();ctx.fillStyle='#ef4444';ctx.beginPath();ctx.arc(l.x,l.y,7,0,Math.PI*2);ctx.fill();ctx.font='16px sans-serif';ctx.fillText(l.name,l.x+12,l.y-10);ctx.restore();}
 }
@@ -722,5 +744,17 @@ export function connectInteractiveBoards(){
    if(e.key==='0'){e.preventDefault();resetView();return;}
  };
  window.addEventListener('keydown',boardShortcutHandler);
-  $('board-undo')?.addEventListener('click',undo);$('board-redo')?.addEventListener('click',redo);syncHistoryButtons();
+  $('board-undo')?.addEventListener('click',undo);$('board-redo')?.addEventListener('click',redo);
+  $('board-duplicate-selected')?.addEventListener('click',()=>{
+    const original=selectedObject();if(!original||!canEdit())return;
+    const copy=cloneObject(original);copy.id=crypto.randomUUID();copy.creatorId=myId();copy.voteCount=0;
+    const shifted=translateObject(copy,28,28);objects.set(shifted.id,shifted);selectedObjectId=shifted.id;
+    sendOps([{kind:'put',object:shifted}]);remember({kind:'put',object:shifted});scheduleRender();syncSelectionButtons();
+  });
+  $('board-delete-selected')?.addEventListener('click',()=>{
+    const target=selectedObject();if(!target||!canEdit())return;
+    if(!room.board.can_manage&&String(target.creatorId||'')!==myId())return;
+    sendOps([{kind:'delete',pageId:target.pageId,objectId:target.id}]);objects.delete(target.id);remember({kind:'delete',object:target});selectedObjectId='';syncSelectionButtons();scheduleRender();
+  });
+  syncHistoryButtons();
 }
