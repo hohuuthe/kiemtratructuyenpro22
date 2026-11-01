@@ -304,3 +304,29 @@ test('interactive board professional controls keep selection, cancellation and m
   assert.match(css,/\.board-pseudo-fullscreen/);
   assert.match(css,/\.board-body-fullscreen/);
 });
+
+
+test('interactive board hardening enforces live permissions and session expiry',()=>{
+  const ui=fs.readFileSync('src/interactive-board-ui.js','utf8');
+  const worker=fs.readFileSync('workers/interactive-board-worker.js','utf8');
+  const api=fs.readFileSync('functions/api/boards.ts','utf8');
+  assert.match(ui,/selectedObjectId=target.id/);
+  assert.match(ui,/student_permission!=='view'/);
+  assert.match(ui,/function boardToolAllowed/);
+  assert.match(ui,/ws\?\.readyState!==WebSocket\.OPEN/);
+  assert.match(ui,/syncBoardPermissionUi/);
+  assert.match(ui,/m\.type==='token_expired'/);
+  assert.match(worker,/tokenExp:Math\.max\(0,Number\(claims\.exp\)\|\|0\)/);
+  assert.match(worker,/kind==='vote_toggle'[\s\S]*if\(!canVote\)continue/);
+  assert.match(worker,/Token expired/);
+  assert.match(worker,/s\.tokenExp&&now>=Number\(s\.tokenExp\)/);
+  assert.match(api,/String\(current\?\.status\|\|'\'\)!==String\(updated\?\.status\|\|'\'\)/);
+});
+
+test('board metadata edits preserve a temporary realtime classroom lock',()=>{
+  const api=fs.readFileSync('functions/api/boards.ts','utf8');
+  const worker=fs.readFileSync('workers/interactive-board-worker.js','utf8');
+  assert.match(api,/\.\.\.\(String\(current\?\.status/);
+  assert.match(worker,/const hasLocked=typeof body\?\.locked==='boolean'/);
+  assert.match(worker,/const locked=hasLocked\?body\.locked===true:previousLocked/);
+});
