@@ -353,3 +353,27 @@ test('QR presenter fullscreen uses full desktop width and monitor keeps full stu
   assert.match(css,/#qr-card-presenter-workspace:fullscreen \.qr-presenter-live-grid \{[\s\S]*grid-template-columns:minmax\(0,1fr\) minmax\(230px,255px\)/);
   assert.doesNotMatch(css,/#qr-card-presenter-workspace:fullscreen \.qr-presenter-main \{[\s\S]{0,250}padding:32px 5vw/);
 });
+
+
+test('QR presenter removes waiting badges, keeps one-line names, uses student MC layout and shared math pipeline',()=>{
+  const html=fs.readFileSync('public/components/tab-qr-cards.html','utf8');
+  const ui=fs.readFileSync('src/qr-answer-cards-ui.js','utf8');
+  const css=fs.readFileSync('src/style.css','utf8');
+
+  assert.match(html,/id="qr-presenter-settings"/);
+  assert.match(html,/id="qr-presenter-question-size"/);
+  assert.match(html,/id="qr-presenter-answer-size"/);
+
+  assert.doesNotMatch(ui,/qr-presenter-waiting-pill">Chưa nhận/);
+  assert.doesNotMatch(ui,/qr-presenter-status-waiting[^\n]*Chờ quét/);
+  assert.match(ui,/qr-presenter-option-label/);
+  assert.match(ui,/presenterOptionGridClass/);
+  assert.match(ui,/grid-cols-1 sm:grid-cols-2 lg:grid-cols-4/);
+  assert.match(ui,/window\.renderScientificContent/);
+  assert.match(ui,/window\.queueMathJax/);
+  assert.match(ui,/queueScientificMath\(\$\('qr-card-presenter-workspace'\)\)/);
+
+  assert.match(css,/\.qr-presenter-student-name \{[\s\S]*white-space:nowrap/);
+  assert.match(css,/\.qr-presenter-option-content \{[\s\S]*font-size:var\(--qr-presenter-a-size\)/);
+  assert.match(css,/\.qr-presenter-option-label \{[\s\S]*display:inline/);
+});
