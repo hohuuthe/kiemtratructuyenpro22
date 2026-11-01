@@ -116,3 +116,10 @@ Không xóa Durable Object namespace khi rollback vì dữ liệu bảng realtim
 - Release commit source: `a71df7e99ff01a70028ec08af9e3d4868358c8f9`
 - Scope: QR A/B/C/D cards, Presenter ↔ Scanner synchronization, atomic late-frame protection, idempotent grading.
 - Release gate: `npm run release:qr-cards:check` passed on PR #93 before merge.
+
+## QR phone persistence release 2026-11-01
+
+- Source commit: `00b6a9dad4ad4368d1747d706582331d0e23536a`
+- Scope: phone scanner server-confirmed persistence, Presenter synchronization, locked-state UX, mobile overflow hardening.
+- Verification: PR #94 `release:qr-cards:check` passed; Neon branch smoke verified `qr_answer_responses` insert and `response_revision` increment.
+- Production trigger: this commit is pushed to `main` for Cloudflare Pages Git integration.
