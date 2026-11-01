@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
-  boardWindowOpen, canDiscoverBoard, canManageBoard, canCreateInteractiveBoard, unitAndClassMatch,
+  boardWindowOpen, canDiscoverBoard, canManageBoard, canCreateInteractiveBoard, canUseInteractiveBoardVip, unitAndClassMatch,
   boardListProjection, normalizeClassList
 } from '../functions/api/board/common.ts';
 
@@ -164,6 +164,9 @@ test('VIP teacher policy gates smart board creation server-side',()=>{
   assert.equal(canCreateInteractiveBoard(normalTeacher,false,true),false);
   assert.equal(canCreateInteractiveBoard(admin,true,false),true);
   assert.equal(canCreateInteractiveBoard(studentUser,false,false),false);
+  assert.equal(canUseInteractiveBoardVip(vipTeacher,false,true),true);
+  assert.equal(canUseInteractiveBoardVip(normalTeacher,false,true),false);
+  assert.equal(canUseInteractiveBoardVip(admin,true,false),true);
 });
 
 test('VIP profile field is wired through schema auth APIs and UI',()=>{
@@ -329,4 +332,24 @@ test('board metadata edits preserve a temporary realtime classroom lock',()=>{
   assert.match(api,/\.\.\.\(String\(current\?\.status/);
   assert.match(worker,/const hasLocked=typeof body\?\.locked==='boolean'/);
   assert.match(worker,/const locked=hasLocked\?body\.locked===true:previousLocked/);
+});
+
+
+test('smart board tab is VIP-only for teachers and admin bypasses VIP',()=>{
+  const html=fs.readFileSync('index.html','utf8');
+  const main=fs.readFileSync('src/main.js','utf8');
+  const api=fs.readFileSync('functions/api/boards.ts','utf8');
+  const join=fs.readFileSync('functions/api/board/join.ts','utf8');
+  const pages=fs.readFileSync('functions/api/board/pages.ts','utf8');
+
+  assert.match(html,/data-sidebar-tab="boards"[\s\S]*VIP/);
+  assert.match(main,/function canUseInteractiveBoardVip/);
+  assert.match(main,/function showInteractiveBoardVipRequiredModal/);
+  assert.match(main,/Bảng tương tác thông minh[\s\S]*0935 078 895/);
+  assert.match(main,/tabName === 'boards'[\s\S]*!canUseInteractiveBoardVip\(\)/);
+  assert.match(main,/tabName === 'boards' && currentUser && canUseInteractiveBoardVip\(\)/);
+  assert.match(main,/tab === 'boards'[\s\S]*visible = isTeacher \|\| isAdmin/);
+  assert.match(api,/VIP_REQUIRED/);
+  assert.match(join,/canUseInteractiveBoardVip/);
+  assert.match(pages,/canUseInteractiveBoardVip/);
 });
