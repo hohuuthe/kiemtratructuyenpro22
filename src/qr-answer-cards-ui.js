@@ -122,6 +122,8 @@ function applyRemoteState(state){
     tracking.clear();
     pendingRecords.clear();
     pendingVisualAnswers.clear();
+    retryCounts.clear();
+    clearPersistedPendingQueue();
     setPhoneSaveState(collectionState==='locked'?'locked':'idle');
   }
   const q=state.current_question||currentQuestion();
@@ -394,6 +396,8 @@ async function enterScanner(data){
   lastSyncVersion='';
   renderQuestion();
   renderScannerHeader();
+  restorePendingQueue();
+  if(pendingRecords.size){setPhoneSaveState('pending','Khôi phục '+pendingRecords.size+' đáp án chưa ACK');queueFlush();}
   await syncSessionState();
   $('qr-card-scan-workspace')?.scrollIntoView({behavior:'smooth',block:'start'});
 }
@@ -509,6 +513,40 @@ function answersForQuestion(questionId) {
   return questionAnswers.get(String(questionId));
 }
 function pendingAnswerKey(questionId,userId){return String(questionId)+'|'+String(userId);}
+function pendingQueueStorageKey(sessionId){
+  const base='qr_pending_ack_'+String(sessionId||'');
+  return window.tenantStorageKey ? window.tenantStorageKey(base) : base;
+}
+function persistPendingQueue(){
+  if(!session?.id)return;
+  try{
+    const payload=[...pendingRecords.entries()].map(([key,record])=>({key,record,retry:retryCounts.get(key)||0}));
+    localStorage.setItem(pendingQueueStorageKey(session.id),JSON.stringify(payload));
+  }catch{}
+}
+function restorePendingQueue(){
+  if(!session?.id)return;
+  try{
+    const raw=localStorage.getItem(pendingQueueStorageKey(session.id));
+    const list=JSON.parse(raw||'[]');
+    if(!Array.isArray(list))return;
+    const currentId=String(session.current_question_id||currentQuestion()?.id||'');
+    for(const item of list){
+      const record=item?.record;
+      if(!record||String(record.questionId)!==currentId)continue;
+      const student=session.students?.find(st=>String(st.card_token)===String(record.cardToken));
+      if(!student)continue;
+      const key=pendingAnswerKey(record.questionId,student.id);
+      pendingRecords.set(key,record);
+      pendingVisualAnswers.set(key,{answer:String(record.answer||'').toUpperCase(),at:Date.now()});
+      retryCounts.set(key,Number(item?.retry||0));
+    }
+  }catch{}
+}
+function clearPersistedPendingQueue(){
+  if(!session?.id)return;
+  try{localStorage.removeItem(pendingQueueStorageKey(session.id));}catch{}
+}
 function setPhoneSaveState(state,message=''){
   const el=$('qr-card-save-status');if(!el)return;
   const styles={
@@ -730,6 +768,7 @@ function acceptStableAnswer(questionId, student, answer, hits) {
     answer,
     stableHits: Math.max(3, hits)
   });
+  persistPendingQueue();
   setPhoneSaveState('pending','Đã nhận '+String(student.full_name||student.student_code)+' · '+answer+' · chờ lưu');
   renderStudentStatus();
   queueFlush();
@@ -802,6 +841,7 @@ async function flushPending() {
       retryCounts.set(key,(retryCounts.get(key)||0)+1);
     }
 
+    persistPendingQueue();
     tracking.clear();
     lastSyncVersion='';
     updateStats();
@@ -836,6 +876,7 @@ async function flushPending() {
       lastSyncVersion='';scheduleSync(0);
       return false;
     }
+    persistPendingQueue();
     setPhoneSaveState('error','Mất kết nối · giữ '+pendingRecords.size+' đáp án và tự gửi lại');
     feedback('Chưa lưu được đáp án. Hàng đợi vẫn được giữ và sẽ tự gửi lại.',true);
     setTimeout(queueFlush,650);
@@ -923,6 +964,7 @@ async function clearStudentAnswer(userId) {
     pendingRecords.delete(String(q.id) + '|' + uid);
     retryCounts.delete(String(q.id) + '|' + uid);
     pendingVisualAnswers.delete(String(q.id) + '|' + uid);
+    persistPendingQueue();
     tracking.clear();
     updateStats();
     renderStudentStatus();
@@ -942,6 +984,7 @@ async function finalize() {
       stopCamera();
       feedback('Đã lưu ' + (result.data?.total_results || 0) + ' bài quét vào Quản lý kết quả.');
       window.showToast?.('Đã chốt kết quả quét thẻ thành công.', 'success');
+      clearPersistedPendingQueue();
       stopSyncLoop();
       session = null;deviceRole='';
       $('qr-card-scan-workspace')?.classList.add('hidden');
@@ -982,7 +1025,7 @@ function bind() {
     const btn = e.target.closest?.('[data-qr-clear]');
     if (btn) void clearStudentAnswer(btn.dataset.qrClear);
   });
-  $('qr-card-leave-scanner')?.addEventListener('click',()=>{stopCamera();stopSyncLoop();deviceRole='';session=null;$('qr-card-scan-workspace')?.classList.add('hidden');$('qr-card-session-picker')?.classList.remove('hidden');loadActiveSessions();});
+  $('qr-card-leave-scanner')?.addEventListener('click',()=>{stopCamera();stopSyncLoop();clearPersistedPendingQueue();deviceRole='';session=null;$('qr-card-scan-workspace')?.classList.add('hidden');$('qr-card-session-picker')?.classList.remove('hidden');loadActiveSessions();});
   $('qr-presenter-lock')?.addEventListener('click',async()=>{try{await setCollectionState(collectionState==='locked'?'collecting':'locked');}catch(e){feedback(e.message,true);lastSyncVersion='';scheduleSync(0);}});
   $('qr-presenter-prev')?.addEventListener('click',()=>presenterNavigate(-1));
   $('qr-presenter-next')?.addEventListener('click',()=>presenterNavigate(1));
