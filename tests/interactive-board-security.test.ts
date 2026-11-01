@@ -144,7 +144,8 @@ test('worker prevents student overwrite/delete of objects owned by another actor
   const worker=fs.readFileSync('workers/interactive-board-worker.js','utf8');
   assert.match(worker,/existing && !canManage && existing\.creatorId!==actor\.userId/);
   assert.match(worker,/existing\?\.creatorId/);
-  assert.match(worker,/!existing \|\| \(!canManage && existing\.creatorId!==actor\.userId\)/);
+  assert.match(worker,/if \(!existing\) continue;/);
+  assert.match(worker,/if \(!canManage && existing\.creatorId!==actor\.userId\)/);
 });
 
 test('time helper behaves deterministically for open windows',()=>{
