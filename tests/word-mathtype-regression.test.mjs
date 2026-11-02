@@ -86,6 +86,22 @@ test('Legacy Equation.3 and native OMML remain supported beside MathType',async(
     const r=await inspectScientificDocx(await docx([corpus[0]],{progId:'Equation.3',omml}));
     assert.deepEqual(r.formulas.map(f=>f.sourceType),['mathtype','omml']);assert.equal(r.formulas[1].latex,'\\frac{a}{b}');assert.deepEqual(r.issues,[]);
 });
+test('MT Extra typeface 11 survives DOCX OLE import and replaces the internal WMATH token',async()=>{
+    const mtef=Buffer.from([5,1,0,4,0,0,0,1,0,2,0,139,120,0,0,0]);
+    const entry={number:'MTEXTRA-11',mtef:mtef.toString('base64'),expected:'x'};
+    const r=await inspectScientificDocx(await docx([entry]));
+    assert.equal(r.formulas.length,1);
+    assert.equal(r.formulas[0].sourceType,'mathtype');
+    assert.equal(r.formulas[0].status,'parsed');
+    assert.equal(r.formulas[0].latex,'x');
+    const {verifyImportedWordQuestions,checkWordImportBeforeSave}=await import('../src/word-import-verification.js');
+    const q={id:'mathtype-mtextra-11',type:'TL',level:'NB',content:'Cho tập hợp '+r.formulas[0].token+' và trả lời.',answer:'1',options:{}};
+    const verified=verifyImportedWordQuestions([q],r);
+    assert.equal(verified.stats.pendingQuestions,0);
+    assert.equal(verified.questions[0].content,'Cho tập hợp $x$ và trả lời.');
+    assert.ok(!verified.questions[0].content.includes('__WMATH_'));
+    assert.equal(checkWordImportBeforeSave(verified.questions,verified.documentIssues).ok,true);
+});
 test('Pending Word IDs are literal text, while real math stays math',()=>{
     const token='__WMATH_000004__';for(const s of [token,'$'+token+'$','\\('+token+'\\)','A. '+token]){
         const result=splitScientificContent(s);assert.ok(result.every(t=>t.type==='text'));assert.equal(result.map(t=>t.value).join(''),s);}

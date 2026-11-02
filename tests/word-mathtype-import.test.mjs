@@ -59,6 +59,20 @@ test('MTEF font definition indexes use variable width and preserve following lin
   assert.equal(convertMtefV5ToLatex(source),'x');
 });
 
+test('MTEF standard MT Extra and user typefaces do not fail only because of typeface id',()=>{
+  // CHAR face is stored biased by +128: 139 = fnMTEXTRA (11), 137/138 = USER1/USER2.
+  for (const [encodedFace,label] of [[137,'USER1'],[138,'USER2'],[139,'MTEXTRA']]) {
+    const source=Uint8Array.from([...mtHeader,1,0,2,0,encodedFace,120,0,0,0]);
+    assert.doesNotThrow(()=>convertMtefV5ToLatex(source),label);
+    assert.equal(convertMtefV5ToLatex(source),'x',label);
+  }
+});
+
+test('MTEF MT Extra remains fail-closed for private-use glyphs',()=>{
+  const source=Uint8Array.from([...mtHeader,1,0,2,0,139,0x02,0xef,0,0]);
+  assert.throws(()=>convertMtefV5ToLatex(source),/unmapped MTCode/);
+});
+
 test('MTEF version 5 requires a valid producer version in header',()=>{
   assert.throws(()=>convertMtefV5ToLatex(Uint8Array.from([5,1,0,0,0,0,0,1,0,2,0,133,120,0,0,0])),/header MTEF/);
 });

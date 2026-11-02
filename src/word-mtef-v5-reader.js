@@ -88,6 +88,15 @@ const fenceCodes = [
 ];
 
 /**
+ * Standard MTEF v5 content typefaces. MathType uses 9/10 for user styles,
+ * 11 for MT Extra and 12 for Far-East text. Accepting a standard typeface
+ * does NOT make arbitrary glyphs valid: MTCode still has to pass the strict
+ * Unicode/symbol whitelist below, and private-use/control codes remain blocked.
+ */
+const contentTypefaces = new Set([1,2,3,4,5,6,7,8,9,10,11,12]);
+const romanTextTypefaces = new Set([1,2,12]);
+
+/**
  * Decode the documented format first. A few legacy writers emit an END after
  * a non-final NULL slot. Retry only that explicitly delimited slot variant;
  * never trim trailing bytes or discard unknown records to make a formula pass.
@@ -262,14 +271,14 @@ function decodeMtef(input, allowNullSlotEnd) {
             // Narrow compatibility: actual MathType spacing record, not arbitrary PUA text.
             if (face === 24 && code === 0xef02 && node.options === 0 && !node.embellishments.length) return '\\,';
             if (code < 32 || (code >= 0xd800 && code <= 0xdfff) || (code >= 0xe000 && code <= 0xf8ff)) fail('unmapped MTCode U+' + code.toString(16));
-            if (![1, 2, 3, 4, 5, 6, 7, 8].includes(face)) fail('unsupported typeface ' + face);
+            if (!contentTypefaces.has(face)) fail('unsupported typeface ' + face);
             const char = String.fromCharCode(code);
             if (code === 0x00b0 && script) value = '\\circ{}';
             else if (symbols.has(code)) value = symbols.get(code);
             else if (/^[A-Za-z0-9+\-=.,:;()[\]<>|/*!?]$/.test(char)) value = char;
             else if (char === ' ' && face === 1) value = '\\ ';
             else fail('unmapped MTCode U+' + code.toString(16));
-            if ([1, 2].includes(face) && /^[A-Za-z]$/.test(char)) value = '\\mathrm{' + value + '}';
+            if (romanTextTypefaces.has(face) && /^[A-Za-z]$/.test(char)) value = '\\mathrm{' + value + '}';
             if (face === 7 || ((node.style ?? 0) & 1)) value = '\\boldsymbol{' + value + '}';
             for (const e of node.embellishments) {
                 if (e.kind !== 'embellishment') fail('invalid embellishment list');
