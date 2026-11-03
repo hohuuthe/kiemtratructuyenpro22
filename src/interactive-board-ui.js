@@ -739,7 +739,7 @@ function pointerDown(e){
    if(panPointers.size===2){
      mobileGesture=true;
      if(drawing?.type==='stroke')sendOps([{kind:'stroke_cancel',pageId:drawing.pageId,objectId:drawing.id}]);
-     drawing=null;dragState=null;
+     drawing=null;dragState=null;resizeState=null;
      const pts=[...panPointers.values()],dist=Math.hypot(pts[0].x-pts[1].x,pts[0].y-pts[1].y),stage=$('board-stage-scroll');
      pinchStart={distance:Math.max(1,dist),zoom:zoomLevel,centerX:(pts[0].x+pts[1].x)/2,centerY:(pts[0].y+pts[1].y)/2,left:stage?.scrollLeft||0,top:stage?.scrollTop||0};panDrag=null;return;
    }
