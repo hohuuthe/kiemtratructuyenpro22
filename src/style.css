@@ -1577,6 +1577,44 @@ html.kttt-modal-open, body.kttt-modal-open { overflow: hidden !important; oversc
   width:100%;
   white-space:normal;
 }
+.qr-camera-smart-tools {
+  display:grid;
+  grid-template-columns:auto minmax(180px,1fr);
+  gap:10px;
+  align-items:center;
+}
+.qr-camera-mode-buttons {
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+}
+.qr-camera-mode-buttons > button {
+  min-height:36px;
+  border:1px solid #cbd5e1;
+  border-radius:10px;
+  padding:6px 10px;
+  background:#f8fafc;
+  color:#334155;
+  font-size:12px;
+  font-weight:800;
+}
+.qr-camera-mode-buttons > button.is-active {
+  border-color:#4f46e5;
+  background:#eef2ff;
+  color:#3730a3;
+}
+.qr-camera-zoom {
+  display:grid;
+  grid-template-columns:auto minmax(90px,1fr) auto;
+  gap:8px;
+  align-items:center;
+  min-width:0;
+  font-size:11px;
+  font-weight:800;
+  color:#475569;
+}
+.qr-camera-zoom input { width:100%; min-width:0; accent-color:#4f46e5; }
+.qr-camera-zoom strong { color:#312e81; min-width:38px; text-align:right; }
 @media (max-width:767px) {
   #qr-card-scan-workspace {
     margin-left:0;
@@ -1651,6 +1689,24 @@ html.kttt-modal-open, body.kttt-modal-open { overflow: hidden !important; oversc
   }
   .qr-answer-stat strong {
     font-size:18px;
+  }
+  .qr-camera-smart-tools {
+    grid-template-columns:1fr;
+    gap:7px;
+    padding:7px;
+  }
+  .qr-camera-mode-buttons {
+    display:grid;
+    grid-template-columns:repeat(3,minmax(0,1fr));
+  }
+  .qr-camera-mode-buttons > button {
+    min-width:0;
+    padding:6px 5px;
+    font-size:10px;
+  }
+  .qr-camera-zoom {
+    grid-template-columns:auto minmax(0,1fr) auto;
+    font-size:10px;
   }
   .qr-camera-actions {
     grid-template-columns:1fr 1fr;
