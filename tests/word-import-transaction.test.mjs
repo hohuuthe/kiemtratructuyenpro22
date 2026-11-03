@@ -34,6 +34,9 @@ test('No new table or DDL; deterministic ID source always derived server-side',a
  assert.match(id[0],/^wi-[a-f0-9]{40}-0001$/);
  assert.deepEqual(id,await deriveWordImportIds('teacher-1',b.sourceSha256,1));
  assert.notDeepEqual(id,await deriveWordImportIds('teacher-2',b.sourceSha256,1));
+ const safe=await deriveWordImportIds('teacher-1',b.sourceSha256,1,'safe-copy:fingerprint-a');
+ assert.notDeepEqual(id,safe);
+ assert.deepEqual(safe,await deriveWordImportIds('teacher-1',b.sourceSha256,1,'safe-copy:fingerprint-a'));
  const sql={
    async query(text,params){
      assert.ok(!/CREATE |word_import_batches|word_import_items|question_formula_sources/i.test(text));

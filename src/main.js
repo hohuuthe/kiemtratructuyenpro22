@@ -4867,11 +4867,41 @@ if (contentType && contentType.includes("application/json")) {
                 copyBtn.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>`;
                 copyBtn.className = "hover:text-white/80 focus:outline-none flex-shrink-0 cursor-pointer p-1 rounded hover:bg-white/20 transition";
                 copyBtn.title = "Sao chép thông báo";
-                copyBtn.onclick = () => {
-                    navigator.clipboard.writeText(trimmedMsg);
+                copyBtn.onclick = async () => {
                     const originalHtml = copyBtn.innerHTML;
-                    copyBtn.innerHTML = `<svg class="w-4 h-4 text-emerald-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>`;
-                    setTimeout(() => { copyBtn.innerHTML = originalHtml; }, 1500);
+                    let copied = false;
+                    try {
+                        if (navigator.clipboard && navigator.clipboard.writeText) {
+                            await navigator.clipboard.writeText(trimmedMsg);
+                            copied = true;
+                        }
+                    } catch (error) {
+                        console.warn('[Toast] Clipboard API unavailable, using fallback copy.', error);
+                    }
+                    if (!copied) {
+                        try {
+                            const ta = document.createElement('textarea');
+                            ta.value = trimmedMsg;
+                            ta.setAttribute('readonly', '');
+                            ta.style.position = 'fixed';
+                            ta.style.opacity = '0';
+                            ta.style.pointerEvents = 'none';
+                            document.body.appendChild(ta);
+                            ta.focus();
+                            ta.select();
+                            copied = document.execCommand('copy') === true;
+                            ta.remove();
+                        } catch (error) {
+                            console.warn('[Toast] Fallback copy failed.', error);
+                        }
+                    }
+                    if (copied) {
+                        copyBtn.innerHTML = `<svg class="w-4 h-4 text-emerald-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>`;
+                        showToast('Đã sao chép thông báo.', 'success');
+                        setTimeout(() => { if (copyBtn.isConnected) copyBtn.innerHTML = originalHtml; }, 1500);
+                    } else {
+                        showToast('Không thể sao chép thông báo. Vui lòng chọn và sao chép thủ công.', 'warning');
+                    }
                 };
                 toast.appendChild(copyBtn);
             }
@@ -12575,8 +12605,12 @@ D. Phát biểu SAI</pre>
                     console.warn('[WordImport] Bank refresh failed AFTER successful save:',refreshError);
                 }
                 const baseMessage=receipt.duplicate
-                    ?'Tệp Word đã được nhập trước đó: '+count+' câu khớp dữ liệu.'
-                    :'Đã lưu và đối chiếu thành công '+count+' câu.';
+                    ?(receipt.safeCopy
+                        ?'Bản nhập an toàn của tệp Word đã tồn tại: '+count+' câu khớp dữ liệu.'
+                        :'Tệp Word đã được nhập trước đó: '+count+' câu khớp dữ liệu.')
+                    :(receipt.safeCopy
+                        ?'Đã lưu bản nhập an toàn '+count+' câu; dữ liệu cũ không bị ghi đè.'
+                        :'Đã lưu và đối chiếu thành công '+count+' câu.');
                 showToast(baseMessage+(refreshed
                     ?' Mã xác nhận: '+String(receipt.importKey||receipt.batchId).slice(0,12)
                     :' Không tải lại được danh sách; dữ liệu đã lưu, hãy tải lại trang.'),refreshed?'success':'warning');

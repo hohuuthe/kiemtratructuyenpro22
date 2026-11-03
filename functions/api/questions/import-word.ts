@@ -106,15 +106,35 @@ export function validateBatchPayload(body:any) {
  * Stable per-teacher/per-file IDs make retry after an unknown commit outcome
  * idempotent even without a batch/audit table.
  */
-export async function deriveWordImportIds(userId:string, sourceSha256:string, count:number) {
+export async function deriveWordImportIds(userId:string, sourceSha256:string, count:number, variant='') {
     if (!userId || !/^[0-9a-f]{64}$/i.test(sourceSha256) ||
-        !Number.isInteger(count) || count<1 || count>MAX_WORD_IMPORT_QUESTIONS) {
+        !Number.isInteger(count) || count<1 || count>MAX_WORD_IMPORT_QUESTIONS ||
+        typeof variant!=='string' || variant.length>256) {
         throw new Error('Không thể tạo ID nhập Word từ thông tin nguồn không hợp lệ');
     }
-    const input='verified-word-import-v2\u0000'+userId+'\u0000'+sourceSha256.toLowerCase();
+    // Keep the original v2 namespace for the first import so old exact retries
+    // stay idempotent. A safe-copy variant is used only when those stable IDs
+    // already exist but no longer match the verified preview.
+    const namespace=variant?'verified-word-import-safe-copy-v1':'verified-word-import-v2';
+    const input=namespace+'\u0000'+userId+'\u0000'+sourceSha256.toLowerCase()+
+        (variant?'\u0000'+variant:'');
     const hash=new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(input)));
     const prefix=Array.from(hash).map(value=>value.toString(16).padStart(2,'0')).join('').slice(0,40);
     return Array.from({length:count},(_,i)=>'wi-'+prefix+'-'+String(i+1).padStart(4,'0'));
+}
+
+async function wordImportPayloadFingerprint(body:any) {
+    const stored=(Array.isArray(body?.questions)?body.questions:[]).map((q:any)=>({
+        type:q.type,level:q.level,lesson:q.lesson,content:q.content,
+        options:q.options||{},answer:q.answer,image:q.image||null
+    }));
+    const input=JSON.stringify({
+        sourceSha256:String(body?.sourceSha256||'').toLowerCase(),
+        engineVersion:String(body?.engineVersion||''),
+        questions:stored
+    });
+    const hash=new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(input)));
+    return Array.from(hash).map(value=>value.toString(16).padStart(2,'0')).join('');
 }
 class WordImportConflict extends Error {
     code='WORD_IMPORT_CONFLICT';
@@ -175,18 +195,35 @@ export async function persistVerifiedWordImport(sql:any,userId:string,body:any) 
     const issues=validateBatchPayload(body);
     if (issues.length) throw new Error('Gói Word chưa đạt kiểm chứng: '+issues.slice(0,3).join('; '));
 
-    const ids=await deriveWordImportIds(userId,body.sourceSha256,body.questions.length);
-    const expected=canonicalWordQuestions(body,userId,ids);
-    const existing=await sql.query(readImportedQuestionsQuery,[JSON.stringify(ids),userId]);
+    let ids=await deriveWordImportIds(userId,body.sourceSha256,body.questions.length);
+    let expected=canonicalWordQuestions(body,userId,ids);
+    let existing=await sql.query(readImportedQuestionsQuery,[JSON.stringify(ids),userId]);
     const formulaCount=body.questions.reduce((sum:number,q:any)=>sum+q.formulaSources.length,0);
-    const importKey=ids[0].slice(3,-5);
+    let safeCopy=false;
     const receipt=(duplicate:boolean)=>({
-        success:true,duplicate,batchId:body.batchId,importKey,
+        success:true,duplicate,safeCopy,batchId:body.batchId,
+        importKey:ids[0].slice(3,-5),
         count:expected.length,expected:expected.length,formulaCount
     });
     if(existing.length) {
         if(questionRowsMatch(existing,expected))return receipt(true);
-        throw new WordImportConflict('Tệp Word này đã được nhập hoặc một phần câu hỏi đã bị thay đổi. Không ghi đè dữ liệu cũ.');
+
+        // The original deterministic IDs may point at questions that were
+        // edited after import, or at output produced by an older parser.
+        // Never overwrite them. Instead create one deterministic safe-copy
+        // namespace from the exact verified payload. Exact retries of that
+        // payload remain idempotent and do not multiply questions.
+        const fingerprint=await wordImportPayloadFingerprint(body);
+        ids=await deriveWordImportIds(
+            userId,body.sourceSha256,body.questions.length,'safe-copy:'+fingerprint
+        );
+        expected=canonicalWordQuestions(body,userId,ids);
+        existing=await sql.query(readImportedQuestionsQuery,[JSON.stringify(ids),userId]);
+        safeCopy=true;
+        if(existing.length) {
+            if(questionRowsMatch(existing,expected))return receipt(true);
+            throw new WordImportConflict('Bản nhập an toàn của File Word này cũng đã bị thay đổi. Không ghi đè dữ liệu cũ.');
+        }
     }
     const statements:any[]=[];
     for (const q of expected) {
@@ -231,7 +268,10 @@ export const onRequestPost:PagesFunction<Env> = async(context)=>{
         const response=await persistVerifiedWordImport(sql,String(user.id),body);
         return reply(response,response.duplicate?200:201);
     } catch(e:any) {
-        if(e?.code==='WORD_IMPORT_CONFLICT'||e?.code==='23505')return reply({success:false,error:'File Word đã tồn tại hoặc bị thay đổi. Không có dữ liệu nào bị ghi đè.'},409);
+        if(e?.code==='WORD_IMPORT_CONFLICT'||e?.code==='23505')return reply({
+            success:false,
+            error:'Không thể tạo bản nhập an toàn vì dữ liệu đích đã thay đổi. Không có dữ liệu nào bị ghi đè.'
+        },409);
         console.error('[WordImport] atomic import failed:',String(e?.message||e).slice(0,200));
         return reply({success:false,error:'Không xác nhận được biên nhận Import. Nếu kết nối lỗi sau khi commit, dữ liệu có thể đã lưu; hãy kiểm tra ngân hàng câu hỏi trước khi thử lại chính file Word.'},500);
     }
