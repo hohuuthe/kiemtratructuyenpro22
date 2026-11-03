@@ -1,4 +1,4 @@
 Production release trigger
-word-import-corpus: d64b88d018a389cd1cafb5076809510cceb68646
+word-import-release: ca36497c3e23ef26f108c762b4cd38f9edd06217
 release-date: 2026-11-03
-release: word-formula-corpus-complete
+release: word-formula-production-gate-fixed
