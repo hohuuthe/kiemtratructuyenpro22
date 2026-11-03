@@ -177,6 +177,19 @@ CREATE INDEX IF NOT EXISTS idx_ib_access_status ON interactive_boards(access_mod
 CREATE INDEX IF NOT EXISTS idx_ib_unit_status ON interactive_boards(target_donvi, status, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_ib_pages_board ON interactive_board_pages(board_id, page_no);
 
+CREATE TABLE IF NOT EXISTS interactive_board_blocks (
+    board_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    blocked_by TEXT NOT NULL,
+    reason TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (board_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ib_blocks_board_updated ON interactive_board_blocks(board_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ib_blocks_user ON interactive_board_blocks(user_id, updated_at DESC);
+
 -- BẢNG THẺ TRẢ LỜI QR A/B/C/D
 -- QR chỉ chứa card_token vô danh; họ tên/mã học sinh được in trên thẻ và ánh xạ server-side.
 CREATE TABLE IF NOT EXISTS qr_answer_cards (
