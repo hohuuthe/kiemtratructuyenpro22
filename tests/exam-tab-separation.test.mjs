@@ -27,8 +27,8 @@ test('Exam editor uses the exact new tab name without changing its tab identifie
 test('Nav, authorization and load flow target new editor tab',()=>{
  assert.ok(index.includes('data-sidebar-tab="exam-editor"'));
  assert.ok(index.includes('id="tab-exam-editor"'));
- assert.ok(app.includes("'questions', 'exams', 'exam-editor'"));
- assert.ok(app.includes("tab === 'questions' || tab === 'exams' || tab === 'exam-editor'"));
+ assert.ok(app.includes("tab === 'questions' || tab === 'exams' || tab === 'exam-editor' || tab === 'qr-cards'"));
+ assert.ok(app.includes("visible = isTeacher || isAdmin"));
  assert.ok(app.includes('await openExamEditorTab({newExam:false});'));
  assert.ok(app.includes('window.startNewExamConfig = async function startNewExamConfig()'));
  const openEditor = app.slice(app.indexOf('async function openExamEditorTab('), app.indexOf('window.startNewExamConfig = async function'));
@@ -111,7 +111,8 @@ test('Security invariants: tenant routing, account secrecy and atomic exam revis
  const accounts=read('functions/api/accounts.ts');
  const drafts=read('src/exam-editor-safety.js');
  const hostMap=read('src/tenant-host-map.ts');
- assert.ok(adapter.includes('resolveTenantFromRequest(request, env)'));
+ assert.ok(adapter.includes('resolveTenantRoutingFromRequest(request, env)'));
+ assert.ok(adapter.includes("exactOnly: route.source === 'path'"));
  assert.ok(hostMap.includes('TENANT_HOST_MAP'));
  assert.ok(hostMap.includes('Hostname is not registered'));
  assert.ok(!adapter.includes('extractTenantSlug(req)'));

@@ -37,7 +37,7 @@ test('Three pathways await acknowledged save or readback before focusing',()=>{
 test('New questions have persistent creation times and API pagination is newest first',()=>{
  const api=readFileSync('functions/api/questions.ts','utf8');
  const word=readFileSync('functions/api/questions/import-word.ts','utf8');
- assert.match(api,/ORDER BY created_at DESC NULLS LAST, id DESC/);
+ assert.match(api,/ORDER BY q\.created_at DESC NULLS LAST, q\.id DESC/);
  assert.match(api,/creator_id, created_at\)/);
  assert.match(word,/creator_id,created_at\)/);
 });
