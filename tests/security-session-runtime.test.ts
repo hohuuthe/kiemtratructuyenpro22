@@ -6,7 +6,11 @@ const key='staging-test-secret-with-enough-randomness-123456789';
 function fixture(){
  const row:any={id:'teacher-a',user_id:'user-a',username:'teacher-a',password:'pbkdf2:TEST_A',role:'teacher',
  is_active:1,expiry_date:null,target_audience:'Giáo viên',profile_active:1,profile_expiry_date:null,donvi:'School 1',lop:''};
- const db={prepare(){return {bind(){return {async first(){return {...row};}}}}}};
+ const db={connectionUrl:'fixture-security-session',prepare(sql:string){
+  if(sql.includes('information_schema.columns') && sql.includes("column_name='is_vip'"))
+   return {async first(){return {ok:1}}};
+  return {bind(){return {async first(){return {...row};}}}};
+ }};
  return {row,db};
 }
 test('Signed live account session is valid only before account state changes',async()=>{
