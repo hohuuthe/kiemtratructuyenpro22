@@ -24191,14 +24191,22 @@ CẤU TRÚC JSON:
                 const modalHtml = `
                     <div class="p-2 sm:p-4 md:p-6 w-full max-w-5xl mx-auto flex flex-col max-h-[90vh]">
                         <!-- Header -->
-                        <div class="flex items-center justify-between border-b pb-2 mb-2">
-                            <div class="flex items-center gap-2 sm:gap-3">
+                        <div class="flex items-center justify-between gap-2 border-b pb-2 mb-2">
+                            <div class="flex items-center gap-2 sm:gap-3 min-w-0">
                                 <span class="text-2xl sm:text-3xl">📊</span>
-                                <div>
+                                <div class="min-w-0">
                                     <h3 class="text-base sm:text-xl font-bold text-gray-800">Báo cáo đối chiếu & Tiến độ làm bài</h3>
                                     <p class="text-[10px] sm:text-xs text-gray-500">Đối chiếu danh sách Người dùng để tìm học sinh chưa tham gia thi</p>
                                 </div>
                             </div>
+                            <button id="btn-refresh-exam-report" type="button"
+                                class="shrink-0 inline-flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-indigo-200 bg-white text-indigo-700 hover:bg-indigo-50 hover:border-indigo-300 disabled:opacity-60 disabled:cursor-wait transition shadow-sm text-xs sm:text-sm font-bold"
+                                title="Tải lại bảng bằng dữ liệu mới nhất" aria-label="Tải lại bảng báo cáo bằng dữ liệu mới nhất">
+                                <svg id="report-refresh-icon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                                </svg>
+                                <span class="hidden sm:inline">Làm mới</span>
+                            </button>
                         </div>
 
                         <!-- Filters Grid -->
@@ -24807,9 +24815,50 @@ CẤU TRÚC JSON:
                     document.getElementById('report-stat-percent').textContent = `${percent}%`;
                 };
 
-                // Initialize dropdown options
+                // Initialize dropdown options and restore the current report view after a manual refresh.
+                const savedReportState = window.__examReportRefreshState || null;
                 updateUnitFilterOptions();
+                if (savedReportState?.unit) {
+                    const unitSelect = document.getElementById('report-unit-select');
+                    if (unitSelect && Array.from(unitSelect.options).some(option => option.value === savedReportState.unit)) {
+                        unitSelect.value = savedReportState.unit;
+                    }
+                }
                 updateClassFilterOptions();
+                if (savedReportState?.className) {
+                    const classSelect = document.getElementById('report-class-select');
+                    if (classSelect && Array.from(classSelect.options).some(option => option.value === savedReportState.className)) {
+                        classSelect.value = savedReportState.className;
+                    }
+                }
+                if (savedReportState?.search) {
+                    const searchInput = document.getElementById('report-search');
+                    if (searchInput) searchInput.value = savedReportState.search;
+                }
+                window.__examReportRefreshState = null;
+
+                const refreshReportButton = document.getElementById('btn-refresh-exam-report');
+                if (refreshReportButton) {
+                    refreshReportButton.onclick = async () => {
+                        window.__examReportRefreshState = {
+                            unit: document.getElementById('report-unit-select')?.value || '',
+                            className: document.getElementById('report-class-select')?.value || '',
+                            search: document.getElementById('report-search')?.value || ''
+                        };
+                        const refreshIcon = document.getElementById('report-refresh-icon');
+                        refreshReportButton.disabled = true;
+                        refreshIcon?.classList.add('animate-spin');
+                        try {
+                            await window.openExamReportModal();
+                            showToast('Đã cập nhật bảng báo cáo bằng dữ liệu mới nhất.', 'success');
+                        } finally {
+                            if (refreshReportButton.isConnected) {
+                                refreshReportButton.disabled = false;
+                                refreshIcon?.classList.remove('animate-spin');
+                            }
+                        }
+                    };
+                }
 
                 document.getElementById('report-exam-select')?.addEventListener('change', () => {
                     updateUnitFilterOptions();
