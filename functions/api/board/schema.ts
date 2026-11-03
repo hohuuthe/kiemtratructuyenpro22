@@ -18,6 +18,7 @@ export async function ensureInteractiveBoardSchema(db: any) {
   }
 
   const statements = [
+    `ALTER TABLE interactive_board_pages ADD COLUMN IF NOT EXISTS background_image_url TEXT NOT NULL DEFAULT ''`,
     `CREATE TABLE IF NOT EXISTS interactive_boards (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -47,6 +48,7 @@ export async function ensureInteractiveBoardSchema(db: any) {
       title TEXT NOT NULL DEFAULT '',
       background_type TEXT NOT NULL DEFAULT 'white'
         CHECK (background_type IN ('white','grid','lined','dots')),
+      background_image_url TEXT NOT NULL DEFAULT '',
       canvas_width INTEGER NOT NULL DEFAULT 1600,
       canvas_height INTEGER NOT NULL DEFAULT 900,
       revision INTEGER NOT NULL DEFAULT 1,
