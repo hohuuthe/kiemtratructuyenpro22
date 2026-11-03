@@ -92,8 +92,8 @@ function ensureScanWorker(){
         bottomRightCorner:{x:d.location.bottomRightCorner.x*sx,y:d.location.bottomRightCorner.y*sy},
         bottomLeftCorner:{x:d.location.bottomLeftCorner.x*sx,y:d.location.bottomLeftCorner.y*sy}
       }}));
+      if(mapped.length)processDetections(mapped);
       const merged=rememberDetections(mapped);
-      if(mapped.length)processDetections(merged);
       drawOverlay(merged,video.videoWidth,video.videoHeight);
       updateScannerPerfBadge(merged.length);
     };
@@ -1050,6 +1050,7 @@ async function scanFrame() {
     scanCycle++;
     let native=[];
     native=await decodeNative(video,1,1);
+    if(native.length)processDetections(native);
     let detections=rememberDetections(native);
 
     // Heavy multi-scale decoding runs in a Worker so the camera/UI stays smooth.
@@ -1086,11 +1087,11 @@ async function scanFrame() {
           bottomRightCorner:{x:d.location.bottomRightCorner.x*inv,y:d.location.bottomRightCorner.y*inv},
           bottomLeftCorner:{x:d.location.bottomLeftCorner.x*inv,y:d.location.bottomLeftCorner.y*inv}
         }}));
+        if(mapped.length)processDetections(mapped);
         detections=rememberDetections([...native,...mapped]);
       }
     }
     lastDetections=detections;
-    processDetections(detections);
     drawOverlay(detections,video.videoWidth,video.videoHeight);
     updateScannerPerfBadge(detections.length);
   }catch(e){
