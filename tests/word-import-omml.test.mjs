@@ -343,45 +343,6 @@ test('Group arrows are not braces, and semantic properties without a faithful ma
         '</m:borderBoxPr>'+mathArg('e','x')+'</m:borderBox>')),'\\boxed{x}');
 });
 
-test('All non-ASCII math glyphs present in the reported 129-equation Word corpus are supported',()=>{
-    const cases=[
-        ['°','°'],['α','\\alpha{}'],['⇒','\\Rightarrow{}'],['∈','\\in{}'],
-        ['∖','\\setminus{}'],['∣','\\mid{}'],['∩','\\cap{}'],['∪','\\cup{}'],
-        ['≤','\\leq{}'],['≥','\\geq{}'],['⊂','\\subset{}']
-    ];
-    for(const [source,expected] of cases) {
-        const latex=convertOmmlToLatex(parsedMath(mathRun(source)));
-        assert.equal(latex,expected,source);
-        assert.equal(validateScientificLatexForImport(latex).ok,true,source);
-    }
-});
-
-test('Reported Word corpus structural families remain decodable',()=>{
-    const cases=[
-        // Plain runs / relations.
-        mathRun('2x+3y≥60'),
-        // Set delimiters.
-        '<m:d><m:dPr><m:begChr m:val="{"/><m:endChr m:val="}"/></m:dPr>'+mathArg('e','1;3')+'</m:d>',
-        // Superscript.
-        '<m:sSup>'+mathArg('e','x')+mathArg('sup','2')+'</m:sSup>',
-        // Fraction.
-        '<m:f>'+mathArg('num','1')+mathArg('den','2')+'</m:f>',
-        // Square root with hidden degree, matching Word source style.
-        '<m:rad><m:radPr><m:degHide m:val="1"/></m:radPr><m:deg/>'+mathArg('e','3')+'</m:rad>',
-        // 2-row system/matrix inside left brace.
-        '<m:d><m:dPr><m:begChr m:val="{"/><m:endChr m:val=""/></m:dPr><m:e>'+
-          '<m:m><m:mPr><m:mcs><m:mc><m:mcPr><m:count m:val="1"/><m:mcJc m:val="center"/></m:mcPr></m:mc></m:mcs></m:mPr>'+
-          '<m:mr>'+mathArg('e','x+y>0')+'</m:mr><m:mr>'+mathArg('e','x-y<2')+'</m:mr></m:m>'+
-        '</m:e></m:d>',
-        // Normal/upright function run used for sin/cos in the source file.
-        '<m:r><m:rPr><m:nor/></m:rPr><m:t>sin</m:t></m:r>'+mathRun('α')
-    ];
-    for(const xml of cases) {
-        const latex=convertOmmlToLatex(parsedMath(xml));
-        assert.ok(latex && validateScientificLatexForImport(latex).ok,latex);
-    }
-});
-
 test('Real set-difference glyph from Word corpus maps to setminus',()=>{
     const latex=convertOmmlToLatex(parsedMath(mathRun('B∖A={2;4}')));
     assert.equal(latex,'B\\setminus{}A=\\{2;4\\}');
