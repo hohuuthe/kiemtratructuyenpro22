@@ -78,7 +78,14 @@ const symbols = new Map([
     [0x0398, '\\Theta{}'], [0x039b, '\\Lambda{}'], [0x039e, '\\Xi{}'],
     [0x03a0, '\\Pi{}'], [0x03a6, '\\Phi{}'], [0x03a8, '\\Psi{}'],
     [0x2026, '\\ldots{}'], [0x22ef, '\\cdots{}'], [0x22ee, '\\vdots{}'],
-    [0x22f1, '\\ddots{}'], [0x7b, '\\{'], [0x7d, '\\}']
+    [0x22f1, '\\ddots{}'],
+    // Letterlike symbols emitted by MathType's MT Extra face. These are real
+    // MTCode/Unicode values (not font-position guesses) and are common in
+    // set notation in Vietnamese high-school mathematics.
+    [0x2102, '\\mathbb{C}'], [0x210d, '\\mathbb{H}'], [0x2115, '\\mathbb{N}'],
+    [0x2119, '\\mathbb{P}'], [0x211a, '\\mathbb{Q}'], [0x211d, '\\mathbb{R}'],
+    [0x2124, '\\mathbb{Z}'],
+    [0x7b, '\\{'], [0x7d, '\\}']
 ]);
 const fenceCodes = [
     [0x27e8, 0x27e9, '\\langle', '\\rangle'], [40, 41, '(', ')'],
@@ -173,14 +180,18 @@ function decodeMtef(input, allowNullSlotEnd) {
             }
             if (type === 2) {
                 const opt = options(0x37);
-                if (opt & 2) fail('function-start character requires review');
+                // mtefOPT_CHAR_FUNC_START is metadata marking the first character
+                // of a function such as sin/cos. It adds no payload bytes and does not
+                // alter the character value; fnFUNCTION/typeface styling below preserves
+                // the intended upright text, so it is safe to retain without blocking.
+                const functionStart = !!(opt & 2);
                 if (opt & 32) fail('character without MTCode requires review');
                 if ((opt & 4) && (opt & 16)) fail('conflicting font positions');
                 const face = r.signed(), code = r.word();
                 if (opt & 4) r.byte();
                 if (opt & 16) r.word();
                 const style = face > 0 ? styles[face - 1]?.style : explicitStyles[-face]?.style;
-                nodes.push({ kind: 'char', face, code, style, options: opt,
+                nodes.push({ kind: 'char', face, code, style, options: opt, functionStart,
                     embellishments: (opt & 1) ? list(depth + 1) : [] });
                 continue;
             }
