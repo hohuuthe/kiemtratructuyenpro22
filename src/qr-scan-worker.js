@@ -94,7 +94,7 @@ self.onmessage=e=>{
       const found=decodeMultiple(crop.data,crop.width,crop.height,far?8:6,inversion);
       for(const d of found)all.push({...d,location:mapLocation(d.location,x0,y0,upscale)});
     }
-    self.postMessage({type:'decoded',frameId:msg.frameId,cycle,detections:dedupe(all).slice(0,maxCodes),durationMs:performance.now()-started,width,height});
+    self.postMessage({type:'decoded',frameId:msg.frameId,cycle,cameraEpoch:msg.cameraEpoch,sessionId:msg.sessionId,questionId:msg.questionId,stateRevision:msg.stateRevision,detections:dedupe(all).slice(0,maxCodes),durationMs:performance.now()-started,width,height});
   }catch(error){
     self.postMessage({type:'decode-error',frameId:msg.frameId,message:String(error?.message||error)});
   }
