@@ -40,6 +40,34 @@ async function wordFixture(valid) {
     '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>');
   return Buffer.from(await zip.generateAsync({type:'uint8array'}));
 }
+async function multilineAnswerFixture() {
+  const math='<m:oMath><m:f>'+numerator+denominator+'</m:f></m:oMath>';
+  const xml='<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" '+
+    'xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"><w:body>'+
+    paragraph('Câu 19: [BÀI 1][TH][TL] Chứng minh mệnh đề.')+
+    paragraph('Đáp án:')+
+    paragraph('- Bước 1: Lập luận trực tiếp.')+
+    '<w:p><w:r><w:t>- Công thức: </w:t></w:r>'+math+'</w:p>'+
+    paragraph('Câu 20: [BÀI 2][TH][TL] Liệt kê tập hợp.')+
+    paragraph('Đáp án:')+
+    paragraph('- Liệt kê các phần tử.')+
+    paragraph('- Xác định các tập con cần tìm.')+
+    paragraph('Câu 21: [BÀI 3][VD][TL] Viết bất phương trình và miền nghiệm.')+
+    paragraph('Đáp án:')+
+    paragraph('- Viết bất phương trình.')+
+    '<w:p><w:r><w:t>- Kiểm tra bằng </w:t></w:r>'+math+'</w:p>'+
+    '</w:body></w:document>';
+  const zip=new JSZip();zip.file('word/document.xml',xml);
+  zip.file('[Content_Types].xml','<?xml version="1.0" encoding="UTF-8"?>'+
+    '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'+
+    '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'+
+    '<Default Extension="xml" ContentType="application/xml"/>'+
+    '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>');
+  zip.file('_rels/.rels','<?xml version="1.0" encoding="UTF-8"?>'+
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'+
+    '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>');
+  return Buffer.from(await zip.generateAsync({type:'uint8array'}));
+}
 async function ready(){
   const deadline=Date.now()+30000;
   while(Date.now()<deadline){
@@ -125,6 +153,15 @@ try {
   await page.mouse.move(0,0);
   await page.waitForFunction(()=>!document.querySelector('#toast-container-right .toast, #toast-container-center .toast'),null,{timeout:10000});
   await page.locator('#import-preview-container').screenshot({path:folder+'/corrected-word-import.png'});
+  const multiline=await openAndImport(await multilineAnswerFixture());
+  const multilineStatus=await page.locator('#import-total-count').innerText();
+  check('Multiline TL answers on lines after Đáp án are retained as three questions',
+    multilineStatus.includes('3 câu'),multilineStatus+' '+multiline.slice(0,1200));
+  check('Multiline TL answers do not produce false missing-answer errors',
+    !multiline.includes('thiếu dòng "Đáp án:"'),multiline.slice(0,1200));
+  check('Equations inside multiline TL answers stay attached to their questions',
+    !multiline.includes('Công thức Word không được gắn vào câu hỏi')&&!multiline.includes('__WMATH_'),
+    multiline.slice(0,1200));
   // Deliberately never click LƯU VÀO NGÂN HÀNG. Network guards also block writes.
 } catch(error) {
   result.errors.push({label:'browser-acceptance',detail:String(error.stack||error)});
