@@ -41,7 +41,8 @@ test('Both backends use shared guard and never bypass result history',()=>{
   assert.match(source,/EXAM_DELETE_FORBIDDEN/);
  }
  assert.match(cf,/const isAdmin = checkIsAdmin\(user\)/);
- assert.match(security,/canManageExamConfig\(user,row.creator_id,admin\)/);
+ assert.match(security,/canManageExamConfig\(user,row\.creator_id,role === 'admin'\)/);
+ assert.match(security,/const role = String\(user\.role \|\| ''\)\.trim\(\)\.toLowerCase\(\)/);
  assert.doesNotMatch(ui,/Lỗi khi xóa đề thi! \(Bạn có thể không có quyền xóa đề này\)/);
  assert.match(ui,/showToast\('Không thể xóa đề thi: ' \+ message, 'error'\)/);
 });
