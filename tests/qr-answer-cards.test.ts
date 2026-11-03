@@ -377,3 +377,37 @@ test('QR presenter removes waiting badges, keeps one-line names, uses student MC
   assert.match(css,/\.qr-presenter-option-content \{[\s\S]*font-size:var\(--qr-presenter-a-size\)/);
   assert.match(css,/\.qr-presenter-option-label \{[\s\S]*display:inline/);
 });
+
+
+test('professional classroom scanner runs heavy decoding off the UI thread',()=>{
+  const ui=fs.readFileSync('src/qr-answer-cards-ui.js','utf8');
+  const worker=fs.readFileSync('src/qr-scan-worker.js','utf8');
+  const html=fs.readFileSync('public/components/tab-qr-cards.html','utf8');
+  const css=fs.readFileSync('src/style.css','utf8');
+  const api=fs.readFileSync('functions/api/qr-cards.ts','utf8');
+
+  assert.match(ui,/new Worker\(new URL\('\.\/qr-scan-worker\.js',import\.meta\.url\)/);
+  assert.match(ui,/scanWorkerBusy/);
+  assert.match(ui,/rememberDetections/);
+  assert.match(ui,/detectionMemory/);
+  assert.match(ui,/scanMode==='far'/);
+  assert.match(ui,/applyCameraZoom/);
+  assert.match(ui,/toggleTorch/);
+  assert.match(ui,/cameraCapabilities/);
+  assert.match(ui,/area>=9000&&confidence>=\.82/);
+  assert.match(ui,/hits>=2\|\|score>=1\.55/);
+
+  assert.match(worker,/cols=far\?\(width>=1500\?4:3\)/);
+  assert.match(worker,/overlap=far\?\.28:\.20/);
+  assert.match(worker,/upscale=far\?\(width>=1500\?2\.35:2\.05\)/);
+  assert.match(worker,/inversion=cycle%5===0\?'attemptBoth':'dontInvert'/);
+  assert.match(worker,/maxCodes/);
+
+  assert.match(html,/id="qr-card-mode-auto"/);
+  assert.match(html,/id="qr-card-mode-far"/);
+  assert.match(html,/id="qr-card-torch"/);
+  assert.match(html,/id="qr-card-zoom"/);
+  assert.match(css,/\.qr-camera-smart-tools/);
+  assert.match(css,/\.qr-camera-mode-buttons/);
+  assert.match(api,/body\.records\) \? body\.records\.slice\(0, 80\)/);
+});
