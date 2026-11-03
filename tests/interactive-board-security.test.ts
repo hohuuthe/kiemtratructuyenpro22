@@ -405,3 +405,30 @@ test('board classroom moderation exposes trusted identity and persistent blocks'
   assert.match(tab,/id="board-blocked-users"/);
   assert.match(router,/'board\/moderation': boardModeration/);
 });
+
+
+test('board images and background images are realtime-safe',()=>{
+  const ui=fs.readFileSync('src/interactive-board-ui.js','utf8');
+  const worker=fs.readFileSync('workers/interactive-board-worker.js','utf8');
+  const pages=fs.readFileSync('functions/api/board/pages.ts','utf8');
+  const join=fs.readFileSync('functions/api/board/join.ts','utf8');
+  const schema=fs.readFileSync('functions/api/board/schema.ts','utf8');
+  const html=fs.readFileSync('public/components/tab-boards.html','utf8');
+  const dbSchema=fs.readFileSync('database-schema.sql','utf8');
+
+  assert.match(html,/id="board-insert-image"/);
+  assert.match(html,/id="board-background-image"/);
+  assert.match(html,/id="board-image-input"/);
+  assert.match(ui,/uploadBoardImage/);
+  assert.match(ui,/type:'image'/);
+  assert.match(ui,/setPageBackgroundImage/);
+  assert.match(ui,/background_image_url/);
+  assert.match(ui,/renderObjectsToCanvas/);
+  assert.match(ui,/loadBoardImageForExport/);
+  assert.match(worker,/['stroke','text','note','rect','ellipse','line','arrow','image']/);
+  assert.match(worker,/object\.type==='image'\)\{if\(!canManage\)/);
+  assert.match(pages,/background_image_url/);
+  assert.match(join,/background_image_url/);
+  assert.match(schema,/column_name='background_image_url'/);
+  assert.match(dbSchema,/background_image_url TEXT NOT NULL DEFAULT ''/);
+});
