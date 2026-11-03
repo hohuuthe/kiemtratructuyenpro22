@@ -262,7 +262,7 @@ function renderSelectedOwner(o){
  if(!o||!room?.board?.can_manage){box.classList.add('hidden');box.innerHTML='';return;}
  const creatorId=String(o.creatorId||''),name=o.creatorName||'Không xác định',cls=o.creatorClass||'',unit=o.creatorUnit||'';
  box.classList.remove('hidden');
- box.innerHTML='<p class="font-black text-sky-950">Người tạo đối tượng</p><p class="mt-1 font-bold">'+esc(name)+'</p><p class="text-xs text-slate-600">'+esc([cls,unit].filter(Boolean).join(' • ')||('ID: '+creatorId))+'</p>'+(creatorId&&creatorId!==myId()?'<button type="button" data-board-user-block="'+esc(creatorId)+'" class="mt-2 rounded-lg bg-rose-100 px-3 py-2 text-xs font-black text-rose-800">⛔ Chặn khỏi bảng</button>':'');
+ box.innerHTML='<p class="font-black text-sky-950">Người tạo đối tượng</p><p class="mt-1 font-bold">'+esc(name)+'</p><p class="text-xs text-slate-600">'+esc([cls,unit].filter(Boolean).join(' • ')||('ID: '+creatorId))+'</p>'+(creatorId&&creatorId!==myId()&&String(o.creatorRole||'student')==='student'?'<button type="button" data-board-user-block="'+esc(creatorId)+'" class="mt-2 rounded-lg bg-rose-100 px-3 py-2 text-xs font-black text-rose-800">⛔ Chặn khỏi bảng</button>':'');
  refreshBoardButtonHelp(box);
 }
 async function loadBlockedUsers(){
@@ -515,7 +515,7 @@ function renderParticipants(items){
  $('board-online-count').textContent=currentItems.length+' người';if($('board-participants-toggle-count'))$('board-participants-toggle-count').textContent=String(currentItems.length);
  $('board-participants').innerHTML=currentItems.map(p=>{
    const roleLabel=p.role==='teacher'?'Giáo viên':p.role==='admin'?'Admin':'Học sinh';
-   const canModerate=room?.board?.can_manage&&p.role!=='admin'&&String(p.userId)!==myId();
+   const canModerate=room?.board?.can_manage&&p.role==='student'&&String(p.userId)!==myId();
    const contributionCount=counts.get(String(p.userId))||0;
    const identity=[p.studentClass,p.studentUnit].filter(Boolean).join(' • ');
    return '<div class="rounded-lg bg-white border px-3 py-2 space-y-1"><div class="flex items-start justify-between gap-2"><div class="min-w-0"><p class="font-bold truncate">'+esc(p.displayName)+'</p><p class="text-[11px] text-slate-500">'+esc(roleLabel)+(identity?' • '+esc(identity):'')+(p.blocked?' • đang khóa':'')+(String(p.userId)!==myId()?' • '+contributionCount+' đóng góp':'')+'</p></div>'+(canModerate?'<div class="flex flex-wrap justify-end gap-1"><button data-board-user-clear="'+esc(p.userId)+'" class="shrink-0 rounded-md bg-rose-50 text-rose-700 px-2 py-1 text-[11px] font-bold">Xóa nét</button><button data-board-user-lock="'+esc(p.userId)+'" data-blocked="'+(p.blocked?'1':'0')+'" class="shrink-0 rounded-md px-2 py-1 text-[11px] font-bold '+(p.blocked?'bg-emerald-50 text-emerald-700':'bg-amber-50 text-amber-800')+'">'+(p.blocked?'Mở khóa':'Khóa viết')+'</button><button data-board-user-block="'+esc(p.userId)+'" class="shrink-0 rounded-md bg-slate-900 text-white px-2 py-1 text-[11px] font-bold">Chặn</button></div>':'')+'</div></div>';
