@@ -9523,14 +9523,18 @@ if (contentType && contentType.includes("application/json")) {
             if (document.fullscreenElement) {
                 window.hideFullscreenEnforcer();
                 if (btn) {
-                    btn.className = "group px-2 py-1.5 md:px-3 md:py-2 bg-emerald-50 text-emerald-700 font-bold text-[10px] md:text-xs rounded-lg border border-emerald-300 shadow-sm flex items-center justify-center gap-1.5 cursor-pointer";
-                    btn.innerHTML = `<svg class="w-3.5 h-3.5 md:w-4 md:h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg> <span class="hidden sm:inline">Toàn MH (Khóa)</span><span class="sm:hidden text-[10px]">Toàn MH 🔒</span>`;
+                    btn.className = "group relative w-9 h-8 md:w-10 md:h-9 bg-emerald-50 text-emerald-700 rounded-lg border border-emerald-300 shadow-sm flex items-center justify-center cursor-pointer";
+                    btn.title = 'Đang ở chế độ toàn màn hình khóa';
+                    btn.setAttribute('aria-label', 'Đang ở chế độ toàn màn hình khóa');
+                    btn.innerHTML = `<svg class="w-4 h-4 md:w-[18px] md:h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5h16v11H4zM8 20h8M12 16v4"></path></svg><svg class="absolute -right-0.5 -bottom-0.5 w-3.5 h-3.5 rounded-full bg-white p-[1px] text-emerald-700" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.3" d="M7 10V8a5 5 0 0110 0v2m-9 0h8a2 2 0 012 2v7H6v-7a2 2 0 012-2z"></path></svg>`;
                 }
                 if (elem) elem.classList.add('p-4', 'md:p-8', 'bg-gray-50', 'overflow-y-auto');
             } else {
                 if (btn) {
-                    btn.className = "group px-2 py-1.5 md:px-3 md:py-2 bg-amber-50 text-amber-700 font-bold text-[10px] md:text-xs rounded-lg border border-amber-300 shadow-sm flex items-center justify-center gap-1.5 cursor-pointer animate-pulse";
-                    btn.innerHTML = `<svg class="w-3.5 h-3.5 md:w-4 md:h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"></path></svg> <span class="hidden sm:inline">Vào Toàn MH</span><span class="sm:hidden text-[10px]">Vào Toàn MH</span>`;
+                    btn.className = "group relative w-9 h-8 md:w-10 md:h-9 bg-amber-50 text-amber-700 rounded-lg border border-amber-300 shadow-sm flex items-center justify-center cursor-pointer animate-pulse";
+                    btn.title = 'Vào chế độ toàn màn hình khóa';
+                    btn.setAttribute('aria-label', 'Vào chế độ toàn màn hình khóa');
+                    btn.innerHTML = `<svg class="w-4 h-4 md:w-[18px] md:h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5h16v11H4zM8 20h8M12 16v4"></path></svg><svg class="absolute -right-0.5 -bottom-0.5 w-3.5 h-3.5 rounded-full bg-white p-[1px] text-amber-700" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.3" d="M7 10V8a5 5 0 0110 0v2m-9 0h8a2 2 0 012 2v7H6v-7a2 2 0 012-2z"></path></svg>`;
                 }
                 if (elem) elem.classList.remove('p-4', 'md:p-8', 'bg-gray-50', 'overflow-y-auto');
 
