@@ -50,7 +50,7 @@ const symbolTable = {
     '×': '\\times', '÷': '\\div', '·': '\\cdot', '±': '\\pm', '∓': '\\mp',
     '→': '\\to', '←': '\\leftarrow', '↔': '\\leftrightarrow', '⇒': '\\Rightarrow',
     '∈': '\\in', '∉': '\\notin', '∩': '\\cap', '∪': '\\cup', '⊂': '\\subset',
-    '∣': '\\mid',
+    '∖': '\\setminus', '∣': '\\mid',
     '⊆': '\\subseteq', '⊥': '\\perp', '∥': '\\parallel', '∠': '\\angle',
     '°': '°', '∂': '\\partial', '∇': '\\nabla', '∀': '\\forall',
     '∃': '\\exists', '∅': '\\emptyset',
@@ -67,7 +67,7 @@ const symbolTable = {
 
 const escapeTextRun = value => String(value).replace(/[\\{}%#$&_~^]/g, char =>
     ({'\\':'\\textbackslash{}','~':'\\textasciitilde{}','^':'\\textasciicircum{}'}[char] || '\\'+char));
-const escapeMathRun = value => String(value).replace(/[\\{}%#$&_~^∞∑∏∫∮∬∭√≤≥≠≈×÷·±∓→←↔⇒∈∉∩∪⊂⊆⊥∥∣∠°∂∇∀∃∅α-ωϕϵΓΔΘΛΞΠΣΦΨΩ]/gu,
+const escapeMathRun = value => String(value).replace(/[\\{}%#/[\\{}%#$&_~^∞∑∏∫∮∬∭√≤≥≠≈×÷·±∓→←↔⇒∈∉∩∪⊂⊆⊥∥∣∠°∂∇∀∃∅α-ωϕϵΓΔΘΛΞΠΣΦΨΩ]/gu_~^∞∑∏∫∮∬∭√≤≥≠≈×÷·±∓→←↔⇒∈∉∩∪⊂⊆⊥∥∖∣∠°∂∇∀∃∅α-ωϕϵΓΔΘΛΞΠΣΦΨΩ]/gu,
     char => (symbolTable[char] ? symbolTable[char] + (/^\\[A-Za-z]+$/.test(symbolTable[char]) ? '{}' : '') : null) || (char === bs ? '\\backslash ' :
         char === '{' ? '\\{' : char === '}' ? '\\}' :
         char === '^' ? '\\hat{}' : char === '_' ? '\\_' :
