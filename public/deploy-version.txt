@@ -1,4 +1,4 @@
 Production release trigger
-green-ci-commit: 6197a62f10c9ef22733ff90a96fad97ddf46294f
+interactive-board: 5d96b2b3235dbed0650596dcd138c250ae39042c
 release-date: 2026-11-03
-release: word-mathtype-production-green
+release: board-classroom-moderation
