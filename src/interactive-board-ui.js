@@ -955,13 +955,14 @@ export function connectInteractiveBoards(){
     const images=sortImagesForLayer([...objects.values()].filter(o=>o.pageId===currentPageId));
     const idx=images.findIndex(o=>o.id===current.id),targetIdx=idx+(direction>0?1:-1);
     if(idx<0||targetIdx<0||targetIdx>=images.length)return;
-    const target=images[targetIdx],beforeCurrent=cloneObject(current),beforeTarget=cloneObject(target);
-    const currentZ=imageLayerValue(current),targetZ=imageLayerValue(target);
-    const currentNext={...cloneObject(current),z:targetZ===currentZ?currentZ+(direction>0?1:-1):targetZ};
-    const targetNext={...cloneObject(target),z:targetZ===currentZ?targetZ:currentZ};
-    objects.set(currentNext.id,currentNext);objects.set(targetNext.id,targetNext);
-    sendOps([{kind:'put',object:targetNext},{kind:'put',object:currentNext}]);
-    remember({kind:'update',before:beforeCurrent,after:cloneObject(currentNext)});
+    const target=images[targetIdx],beyondIdx=targetIdx+(direction>0?1:-1),beyond=images[beyondIdx]||null;
+    const targetZ=imageLayerValue(target),beyondZ=beyond?imageLayerValue(beyond):null;
+    let nextZ;
+    if(direction>0)nextZ=beyond?targetZ+(beyondZ-targetZ)/2:targetZ+10;
+    else nextZ=beyond?targetZ-(targetZ-beyondZ)/2:targetZ-10;
+    if(!Number.isFinite(nextZ)||nextZ===imageLayerValue(current))nextZ=targetZ+(direction>0?.5:-.5);
+    const before=cloneObject(current),after={...cloneObject(current),z:nextZ};
+    objects.set(after.id,after);sendOps([{kind:'put',object:after}]);remember({kind:'update',before,after:cloneObject(after)});
     scheduleRender();syncSelectionButtons();
   }
   $('board-image-layer-up')?.addEventListener('click',()=>reorderSelectedImage(1));
