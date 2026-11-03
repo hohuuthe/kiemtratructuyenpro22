@@ -5,7 +5,7 @@ let ws=null,room=null,objects=new Map(),remoteStrokes=new Map(),tool='pen',drawi
 let activeBoard=null,activeAccessCode='',manualExit=false,reconnectTimer=null,reconnectAttempts=0;
 let roomTokenExpiresAt=0,tokenRefreshAttempts=0,currentPageId='';
 let undoStack=[],redoStack=[],renderQueued=false,lastRateNotice=0,userLocked=false;
-let pendingReliable=new Map(),dragState=null,snapshotLoading=false,participantsCache=[];
+let pendingReliable=new Map(),dragState=null,snapshotLoading=false,participantsCache=[],blockedUsers=[];
 let remoteLasers=new Map(),lastLaserSent=0;
 let zoomLevel=1,panDrag=null,panPointers=new Map(),pinchStart=null,timerState=null,timerTick=null,aiResultText='',aiClusterPlan=null,followTeacher=true,mobileGesture=false,selectedObjectId='';
 
@@ -96,6 +96,8 @@ function resolveBoardButtonHelp(btn){
  if(btn.dataset.boardDelete!==undefined)return 'Xóa bảng này sau khi xác nhận.';
  if(btn.dataset.boardUserClear!==undefined)return 'Xóa toàn bộ đóng góp của học sinh này trên trang hiện tại.';
  if(btn.dataset.boardUserLock!==undefined)return btn.dataset.blocked==='1'?'Mở lại quyền tương tác cho học sinh này.':'Tạm khóa quyền tương tác của học sinh này.';
+ if(btn.dataset.boardUserBlock!==undefined)return 'Chặn tài khoản học sinh khỏi bảng này cho tới khi giáo viên mở lại.';
+ if(btn.dataset.boardUserUnblock!==undefined)return 'Cho phép học sinh này tham gia lại bảng.';
  if(btn.dataset.boardTool)return BOARD_TOOL_HELP[btn.dataset.boardTool]||'Chọn công cụ thao tác trên bảng.';
  if(btn.dataset.boardTemplate)return BOARD_TEMPLATE_HELP[btn.dataset.boardTemplate]||'Chèn mẫu hoạt động này lên bảng.';
  if(btn.id==='board-lock')return locked?'Mở lại quyền tương tác cho toàn bộ học sinh.':'Tạm khóa quyền tương tác của toàn bộ học sinh.';
@@ -169,6 +171,7 @@ async function join(b,accessCode='',options={}){
   $('board-lock')?.classList.toggle('hidden',!room.board.can_manage);$('board-clear')?.classList.toggle('hidden',!room.board.can_manage);$('board-laser-tool')?.classList.toggle('hidden',!room.board.can_manage);
   for(const id of ['board-ai','board-template','board-timer','board-export-pdf','board-bring-here'])$(id)?.classList.toggle('hidden',!room.board.can_manage);
   $('board-follow-teacher')?.classList.toggle('hidden',!!room.board.can_manage);applyBoardDeviceDefaults();
+  if(room.board.can_manage)loadBlockedUsers();else{blockedUsers=[];renderBlockedUsers();}
   connectSocket();
  }catch(e){
   if(e.code==='BOARD_ACCESS_CODE_REQUIRED'&&!options.reconnect){openCode(b);return;}
@@ -221,6 +224,7 @@ function handleMessage(m){
  if(m.type==='clear_user_objects'){for(const id of m.objectIds||[])objects.delete(id);if((m.objectIds||[]).some(id=>String(id)===String(selectedObjectId)))selectedObjectId='';syncSelectionButtons();scheduleRender();renderParticipants(participantsCache);return;}
  if(m.type==='laser'){remoteLasers.set(String(m.userId),{x:m.x,y:m.y,name:m.displayName||'Giáo viên',expires:Date.now()+900});scheduleRender();setTimeout(()=>{const v=remoteLasers.get(String(m.userId));if(v&&v.expires<=Date.now()){remoteLasers.delete(String(m.userId));scheduleRender();}},950);return;}
  if(m.type==='stroke_cancel'){remoteStrokes.delete(m.objectId);scheduleRender();return;}
+ if(m.type==='user_blocked'){manualExit=true;window.showToast?.('Giáo viên đã chặn tài khoản của bạn khỏi bảng này.','warning');exitRoom();return;}
  if(m.type==='user_lock_state'){userLocked=!!m.blocked;if(userLocked){drawing=null;dragState=null;selectedObjectId='';syncSelectionButtons();scheduleRender();}syncLockUi();window.showToast?.(userLocked?'Giáo viên đã tạm khóa quyền tương tác của bạn.':'Giáo viên đã mở lại quyền tương tác cho bạn.','info');return;}
  if(m.type==='page_focus'){if(followTeacher&&!room?.board?.can_manage&&m.pageId&&String(m.pageId)!==String(currentPageId))switchPage(String(m.pageId));return;}
  if(m.type==='vote_state'){const o=objects.get(String(m.objectId));if(o){o.voteCount=Math.max(0,Number(m.voteCount)||0);objects.set(o.id,o);scheduleRender();}return;}
@@ -249,8 +253,38 @@ function remember(action){undoStack.push(action);if(undoStack.length>100)undoSta
 function selectedObject(){return selectedObjectId?objects.get(selectedObjectId)||null:null;}
 function syncSelectionButtons(){
  const o=selectedObject(),editable=!!o&&canEdit()&&(room?.board?.can_manage||String(o.creatorId||'')===myId());
+ renderSelectedOwner(o);
  if($('board-duplicate-selected'))$('board-duplicate-selected').disabled=!editable;
  if($('board-delete-selected'))$('board-delete-selected').disabled=!editable;
+}
+function renderSelectedOwner(o){
+ const box=$('board-object-owner');if(!box)return;
+ if(!o||!room?.board?.can_manage){box.classList.add('hidden');box.innerHTML='';return;}
+ const creatorId=String(o.creatorId||''),name=o.creatorName||'Không xác định',cls=o.creatorClass||'',unit=o.creatorUnit||'';
+ box.classList.remove('hidden');
+ box.innerHTML='<p class="font-black text-sky-950">Người tạo đối tượng</p><p class="mt-1 font-bold">'+esc(name)+'</p><p class="text-xs text-slate-600">'+esc([cls,unit].filter(Boolean).join(' • ')||('ID: '+creatorId))+'</p>'+(creatorId&&creatorId!==myId()&&String(o.creatorRole||'student')==='student'?'<button type="button" data-board-user-block="'+esc(creatorId)+'" class="mt-2 rounded-lg bg-rose-100 px-3 py-2 text-xs font-black text-rose-800">⛔ Chặn khỏi bảng</button>':'');
+ refreshBoardButtonHelp(box);
+}
+async function loadBlockedUsers(){
+ if(!room?.board?.can_manage)return;
+ try{const result=await api('GET','/api/board/moderation?boardId='+encodeURIComponent(room.board.id));blockedUsers=result.data||[];renderBlockedUsers();}catch(e){console.warn('[BOARD BLOCK LIST]',e);}
+}
+function renderBlockedUsers(){
+ const section=$('board-blocked-section'),root=$('board-blocked-users'),count=$('board-blocked-count');if(!section||!root)return;
+ const show=!!room?.board?.can_manage;section.classList.toggle('hidden',!show);if(!show)return;
+ if(count)count.textContent=String(blockedUsers.length);
+ root.innerHTML=blockedUsers.length?blockedUsers.map(u=>'<div class="rounded-lg border bg-white p-2"><p class="font-bold truncate">'+esc(u.display_name||u.user_id)+'</p><p class="text-[11px] text-slate-500">'+esc([u.lop,u.donvi].filter(Boolean).join(' • ')||'Đã chặn')+'</p>'+(u.reason?'<p class="mt-1 text-[11px] text-rose-700">'+esc(u.reason)+'</p>':'')+'<button type="button" data-board-user-unblock="'+esc(u.user_id)+'" class="mt-2 rounded-md bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-800">Mở chặn</button></div>').join(''):'<p class="text-xs text-slate-500">Chưa chặn học sinh nào.</p>';
+ refreshBoardButtonHelp(section);
+}
+async function setPersistentBlock(targetUserId,blocked){
+ if(!room?.board?.can_manage||!targetUserId)return;
+ let reason='';
+ if(blocked){reason=String(window.prompt?.('Lý do chặn học sinh khỏi bảng (có thể để trống):','')||'').trim().slice(0,300);}
+ try{
+  await api('POST','/api/board/moderation',{boardId:room.board.id,targetUserId,action:blocked?'block':'unblock',reason});
+  window.showToast?.(blocked?'Đã chặn học sinh khỏi bảng.':'Đã mở chặn học sinh.','success');
+  await loadBlockedUsers();
+ }catch(e){window.showToast?.(e.message||'Không thể cập nhật quyền tham gia.','error');}
 }
 function clearSelection(){selectedObjectId='';syncSelectionButtons();scheduleRender();}
 function syncHistoryButtons(){if($('board-undo'))$('board-undo').disabled=!undoStack.length;if($('board-redo'))$('board-redo').disabled=!redoStack.length;syncSelectionButtons();}
@@ -481,9 +515,10 @@ function renderParticipants(items){
  $('board-online-count').textContent=currentItems.length+' người';if($('board-participants-toggle-count'))$('board-participants-toggle-count').textContent=String(currentItems.length);
  $('board-participants').innerHTML=currentItems.map(p=>{
    const roleLabel=p.role==='teacher'?'Giáo viên':p.role==='admin'?'Admin':'Học sinh';
-   const canModerate=room?.board?.can_manage&&p.role!=='admin'&&String(p.userId)!==myId();
+   const canModerate=room?.board?.can_manage&&p.role==='student'&&String(p.userId)!==myId();
    const contributionCount=counts.get(String(p.userId))||0;
-   return '<div class="rounded-lg bg-white border px-3 py-2 space-y-1"><div class="flex items-center justify-between gap-2"><div class="min-w-0"><p class="font-bold truncate">'+esc(p.displayName)+'</p><p class="text-[11px] text-slate-500">'+esc(roleLabel)+(p.blocked?' • đang khóa':'')+(String(p.userId)!==myId()?' • '+contributionCount+' đóng góp':'')+'</p></div>'+(canModerate?'<div class="flex gap-1"><button data-board-user-clear="'+esc(p.userId)+'" class="shrink-0 rounded-md bg-rose-50 text-rose-700 px-2 py-1 text-[11px] font-bold">Xóa nét</button><button data-board-user-lock="'+esc(p.userId)+'" data-blocked="'+(p.blocked?'1':'0')+'" class="shrink-0 rounded-md px-2 py-1 text-[11px] font-bold '+(p.blocked?'bg-emerald-50 text-emerald-700':'bg-amber-50 text-amber-800')+'">'+(p.blocked?'Mở':'Khóa')+'</button></div>':'')+'</div></div>';
+   const identity=[p.studentClass,p.studentUnit].filter(Boolean).join(' • ');
+   return '<div class="rounded-lg bg-white border px-3 py-2 space-y-1"><div class="flex items-start justify-between gap-2"><div class="min-w-0"><p class="font-bold truncate">'+esc(p.displayName)+'</p><p class="text-[11px] text-slate-500">'+esc(roleLabel)+(identity?' • '+esc(identity):'')+(p.blocked?' • đang khóa':'')+(String(p.userId)!==myId()?' • '+contributionCount+' đóng góp':'')+'</p></div>'+(canModerate?'<div class="flex flex-wrap justify-end gap-1"><button data-board-user-clear="'+esc(p.userId)+'" class="shrink-0 rounded-md bg-rose-50 text-rose-700 px-2 py-1 text-[11px] font-bold">Xóa nét</button><button data-board-user-lock="'+esc(p.userId)+'" data-blocked="'+(p.blocked?'1':'0')+'" class="shrink-0 rounded-md px-2 py-1 text-[11px] font-bold '+(p.blocked?'bg-emerald-50 text-emerald-700':'bg-amber-50 text-amber-800')+'">'+(p.blocked?'Mở khóa':'Khóa viết')+'</button><button data-board-user-block="'+esc(p.userId)+'" class="shrink-0 rounded-md bg-slate-900 text-white px-2 py-1 text-[11px] font-bold">Chặn</button></div>':'')+'</div></div>';
  }).join('');refreshBoardButtonHelp($('board-participants'));
 }
 function syncLockUi(){
@@ -696,7 +731,7 @@ function pointerUp(e){
 function exitRoom(){
  manualExit=true;if(reconnectTimer){clearTimeout(reconnectTimer);reconnectTimer=null;}tool='pen';
  if(ws)try{ws.onclose=null;ws.close(1000,'exit')}catch{};ws=null;room=null;activeBoard=null;activeAccessCode='';reconnectAttempts=0;
- roomTokenExpiresAt=0;tokenRefreshAttempts=0;currentPageId='';userLocked=false;snapshotLoading=false;selectedObjectId='';participantsCache=[];pendingReliable.clear();dragState=null;panDrag=null;panPointers.clear();pinchStart=null;mobileGesture=false;remoteLasers.clear();zoomLevel=1;aiResultText='';aiClusterPlan=null;timerState=null;followTeacher=true;if(timerTick){clearInterval(timerTick);timerTick=null;}undoStack=[];redoStack=[];objects.clear();remoteStrokes.clear();drawing=null;const roomEl=$('board-room');roomEl?.classList.remove('board-pseudo-fullscreen');document.body.classList.remove('board-body-fullscreen');roomEl?.classList.add('hidden');$('boards-home')?.classList.remove('hidden');
+ roomTokenExpiresAt=0;tokenRefreshAttempts=0;currentPageId='';userLocked=false;snapshotLoading=false;selectedObjectId='';participantsCache=[];blockedUsers=[];renderBlockedUsers();renderSelectedOwner(null);pendingReliable.clear();dragState=null;panDrag=null;panPointers.clear();pinchStart=null;mobileGesture=false;remoteLasers.clear();zoomLevel=1;aiResultText='';aiClusterPlan=null;timerState=null;followTeacher=true;if(timerTick){clearInterval(timerTick);timerTick=null;}undoStack=[];redoStack=[];objects.clear();remoteStrokes.clear();drawing=null;const roomEl=$('board-room');roomEl?.classList.remove('board-pseudo-fullscreen');document.body.classList.remove('board-body-fullscreen');roomEl?.classList.add('hidden');$('boards-home')?.classList.remove('hidden');
 }
 
 export function resetInteractiveBoards(){generation++;list=[];actor=null;manage=false;canCreateBoard=false;page=1;total=0;exitRoom();}
@@ -778,11 +813,13 @@ export function connectInteractiveBoards(){
  $('board-page-next')?.addEventListener('click',()=>{const pages=room?.pages||[],i=pages.findIndex(p=>String(p.id)===String(currentPageId));if(i>=0&&i<pages.length-1)switchPage(pages[i+1].id);});
  $('board-add-page')?.addEventListener('click',async()=>{if(!room?.board?.can_manage)return;try{const result=await api('POST','/api/board/pages',{boardId:room.board.id});if(!(room.pages||[]).some(p=>String(p.id)===String(result.data.id)))room.pages=[...(room.pages||[]),result.data];renderPageControls();await join(activeBoard,activeAccessCode,{pageId:result.data.id,pageSwitch:true});}catch(e){window.showToast?.(e.message||'Không thể thêm trang.','error');}});
  $('board-delete-page')?.addEventListener('click',()=>{if(!room?.board?.can_manage||!currentPageId)return;const target=(room.pages||[]).find(p=>String(p.id)===String(currentPageId));window.showConfirmModal?.('Xóa trang “'+(target?.title||'')+'”?',async()=>{try{await api('DELETE','/api/board/pages?id='+encodeURIComponent(currentPageId));room.pages=(room.pages||[]).filter(p=>String(p.id)!==String(currentPageId));const next=room.pages[0];if(next)await switchPage(next.id);renderPageControls();}catch(e){window.showToast?.(e.message||'Không thể xóa trang.','error');}});});
- $('board-participants')?.addEventListener('click',e=>{
-   const lockBtn=e.target.closest('[data-board-user-lock]'),clearBtn=e.target.closest('[data-board-user-clear]');
+ $('board-participants-panel')?.addEventListener('click',e=>{
+   const lockBtn=e.target.closest('[data-board-user-lock]'),clearBtn=e.target.closest('[data-board-user-clear]'),blockBtn=e.target.closest('[data-board-user-block]'),unblockBtn=e.target.closest('[data-board-user-unblock]');
    if(!room?.board?.can_manage)return;
    if(lockBtn)sendOps([{kind:'set_user_lock',targetUserId:lockBtn.dataset.boardUserLock,blocked:lockBtn.dataset.blocked!=='1'}]);
    if(clearBtn)window.showConfirmModal?.('Xóa toàn bộ đóng góp của học sinh này trên trang hiện tại?',()=>sendOps([{kind:'clear_user_objects',targetUserId:clearBtn.dataset.boardUserClear,pageId:currentPageId}]));
+   if(blockBtn)window.showConfirmModal?.('Chặn tài khoản học sinh này khỏi bảng? Học sinh sẽ bị đưa ra khỏi bảng và không thể vào lại cho tới khi mở chặn.',()=>setPersistentBlock(blockBtn.dataset.boardUserBlock,true));
+   if(unblockBtn)setPersistentBlock(unblockBtn.dataset.boardUserUnblock,false);
  });
  const boardShortcutHandler=e=>{
    if(!$('board-room')||$('board-room').classList.contains('hidden'))return;

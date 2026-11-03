@@ -7,9 +7,9 @@ export async function ensureInteractiveBoardSchema(db: any) {
 
   try {
     const existing:any = await db.prepare(
-      "SELECT to_regclass('public.interactive_boards') AS boards, to_regclass('public.interactive_board_pages') AS pages"
+      "SELECT to_regclass('public.interactive_boards') AS boards, to_regclass('public.interactive_board_pages') AS pages, to_regclass('public.interactive_board_blocks') AS blocks"
     ).first();
-    if (existing?.boards && existing?.pages) {
+    if (existing?.boards && existing?.pages && existing?.blocks) {
       initialized.add(key);
       return;
     }
@@ -54,6 +54,15 @@ export async function ensureInteractiveBoardSchema(db: any) {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
       UNIQUE(board_id, page_no)
     )`,
+    `CREATE TABLE IF NOT EXISTS interactive_board_blocks (
+      board_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      blocked_by TEXT NOT NULL,
+      reason TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (board_id, user_id)
+    )`,
     `CREATE INDEX IF NOT EXISTS idx_ib_creator_updated
       ON interactive_boards(creator_id, updated_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_ib_access_status
@@ -61,7 +70,11 @@ export async function ensureInteractiveBoardSchema(db: any) {
     `CREATE INDEX IF NOT EXISTS idx_ib_unit_status
       ON interactive_boards(target_donvi, status, updated_at DESC)`,
     `CREATE INDEX IF NOT EXISTS idx_ib_pages_board
-      ON interactive_board_pages(board_id, page_no)`
+      ON interactive_board_pages(board_id, page_no)`,
+    `CREATE INDEX IF NOT EXISTS idx_ib_blocks_board_updated
+      ON interactive_board_blocks(board_id, updated_at DESC)`,
+    `CREATE INDEX IF NOT EXISTS idx_ib_blocks_user
+      ON interactive_board_blocks(user_id, updated_at DESC)`
   ];
 
   for (const sql of statements) {

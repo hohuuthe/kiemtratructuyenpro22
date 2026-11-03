@@ -19,6 +19,12 @@ export const onRequestPost: PagesFunction = async (context: any) => {
     if (!board) return boardJson({ error: 'Không tìm thấy bảng.' }, 404);
     const gate = await canEnterBoard(user, board, isAdmin, body.accessCode);
     if (!gate.ok) return boardJson({ error: gate.error, code: gate.code || 'BOARD_ACCESS_DENIED' }, gate.status || 403);
+    const userId = String(user.id || user.user_id || '');
+    const owner = canManageBoard(user, board, isAdmin);
+    if (!owner) {
+      const blocked:any = await db.prepare('SELECT reason FROM interactive_board_blocks WHERE board_id=? AND user_id=? LIMIT 1').bind(boardId,userId).first();
+      if (blocked) return boardJson({ error: blocked.reason ? 'Bạn đã bị giáo viên chặn khỏi bảng này: ' + blocked.reason : 'Bạn đã bị giáo viên chặn khỏi bảng này.', code: 'BOARD_USER_BLOCKED' }, 403);
+    }
 
     const { results: pages } = await db.prepare(
       `SELECT id,page_no,title,background_type,canvas_width,canvas_height,revision
@@ -42,7 +48,6 @@ export const onRequestPost: PagesFunction = async (context: any) => {
 
     const route = resolveTenantRoutingFromRequest(context.request, context.env);
     const tenant = String(route.slug || 'default');
-    const owner = canManageBoard(user, board, isAdmin);
     const permission = owner ? 'manage' : board.student_permission;
     // Realtime dùng role tương tác riêng, không dùng trực tiếp role tài khoản (student account thường có role=user).
     const realtimeRole = owner ? 'manager' : 'student';
@@ -54,8 +59,10 @@ export const onRequestPost: PagesFunction = async (context: any) => {
       tokenType: 'board_join',
       tenant,
       boardId,
-      userId: String(user.id || user.user_id || ''),
+      userId,
       displayName: String(user.full_name || user.username || 'Người dùng').slice(0, 100),
+      studentClass: String(user.lop || '').slice(0, 100),
+      studentUnit: String(user.donvi || '').slice(0, 180),
       role: realtimeRole,
       displayRole,
       permission,
