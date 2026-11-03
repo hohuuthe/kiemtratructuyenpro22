@@ -275,6 +275,36 @@ test('Binomial noBar preserves its meaning; a standalone stack cannot become a q
     assert.equal(checkWordImportBeforeSave(audited.questions,audited.documentIssues).ok,false);
 });
 
+test('Real Word mixed double-struck runs from reported file keep operators outside mathbb',()=>{
+    const setC=parsedMath(
+        '<m:r><m:t>C</m:t></m:r>'+
+        '<m:r><m:t>={</m:t></m:r>'+
+        '<m:r><m:t>x</m:t></m:r>'+
+        '<m:r><m:rPr><m:scr m:val="double-struck"/></m:rPr><m:t>∈Z∣-</m:t></m:r>'+
+        '<m:r><m:t>2&lt;</m:t></m:r>'+
+        '<m:r><m:t>x</m:t></m:r>'+
+        '<m:r><m:t>≤3}</m:t></m:r>'
+    );
+    const naturalPair=parsedMath(
+        '<m:r><m:t>x</m:t></m:r>'+
+        '<m:r><m:t>,</m:t></m:r>'+
+        '<m:r><m:t>y</m:t></m:r>'+
+        '<m:r><m:rPr><m:scr m:val="double-struck"/></m:rPr><m:t>∈N</m:t></m:r>'
+    );
+    const cLatex=convertOmmlToLatex(setC);
+    const nLatex=convertOmmlToLatex(naturalPair);
+    assert.equal(cLatex,'C=\\{x\\in{}\\mathbb{Z}\\mid{}-2<x\\leq{}3\\}');
+    assert.equal(nLatex,'x,y\\in{}\\mathbb{N}');
+    assert.equal(validateScientificLatexForImport(cLatex).ok,true);
+    assert.equal(validateScientificLatexForImport(nLatex).ok,true);
+});
+
+test('Math script runs remain fail-closed for unsupported non-ASCII letters',()=>{
+    assert.throws(()=>convertOmmlToLatex(parsedMath(
+        '<m:r><m:rPr><m:scr m:val="double-struck"/></m:rPr><m:t>∈α</m:t></m:r>'
+    )),/Unicode.*xác minh/);
+});
+
 test('Distinct mathematical alphabets and bold vectors survive native Word roundtrip',async()=>{
     const cases=['\\mathbb{R}','\\mathcal{F}','\\mathfrak{g}','\\mathsf{X}','\\mathtt{A}',
         '\\mathbf{v}','\\boldsymbol{v}','\\mathrm{H2O}'];
