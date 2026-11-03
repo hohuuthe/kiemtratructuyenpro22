@@ -56,6 +56,18 @@ export const onRequestPost: PagesFunction=async(context:any)=>{
     if(!board)return boardJson({error:'Không tìm thấy bảng.'},404);
     if(!canManageBoard(user,board,isAdmin))return boardJson({error:'Bạn không có quyền quản lý bảng này.'},403);
     if(targetUserId===actorId(user))return boardJson({error:'Không thể tự chặn tài khoản quản lý bảng.'},400);
+    const target:any=await db.prepare(`
+      SELECT COALESCE(a.role,'user') AS role,COALESCE(u.target_audience,'') AS target_audience
+      FROM accounts a LEFT JOIN users u ON u.id=COALESCE(a.user_id,a.id)
+      WHERE a.id=? OR a.user_id=? OR u.id=?
+      LIMIT 1
+    `).bind(targetUserId,targetUserId,targetUserId).first();
+    if(!target)return boardJson({error:'Không tìm thấy tài khoản học sinh cần kiểm soát.'},404);
+    const targetRole=String(target.role||'').toLocaleLowerCase('vi');
+    const targetAudience=String(target.target_audience||'').toLocaleLowerCase('vi');
+    if(targetRole==='admin'||targetRole==='teacher'||targetRole==='giáo viên'||targetAudience==='giáo viên'||targetAudience==='quản trị viên'){
+      return boardJson({error:'Chức năng chặn khỏi bảng chỉ áp dụng cho tài khoản học sinh.'},403);
+    }
 
     if(action==='block'){
       const reason=cleanText(input.reason||'',300);
