@@ -73,6 +73,33 @@ test('MTEF MT Extra remains fail-closed for private-use glyphs',()=>{
   assert.throws(()=>convertMtefV5ToLatex(source),/unmapped MTCode/);
 });
 
+test('real DSMT7 MathType sources from the reported Word file decode exactly',()=>{
+  const samples=[
+    ['BQEABwREU01UNwAAE1dpbkFsbEJhc2ljQ29kZVBhZ2VzABEFVGltZXMgTmV3IFJvbWFuABEDU3ltYm9sABEFQ291cmllciBOZXcAEQRNVCBFeHRyYQASAAghL0WPRC9BUPQQD0dfQVDyHx5BUPQVD0EA9EX0JfSPQl9BAPQQD0NfQQD0j0X0Kl9I9I9BAPQQD0D0j0F/SPQQD0EqX0RfRfRfRfRfQQ8MAQABAAECAgICAAIAAQEBAAMAAQAEAAAKAQACAINBAAIEhj0APQMAAgMAAQACAIN4AAIEhggizgIEixUhpQIAgnwAAgCDeAACBIY8ADwCAIg0AAACAJZ7AAIAln0AAAAA','A=\\left\\{x\\in{}\\mathbb{N}|x<4\\right\\}'],
+    ['BQEABwREU01UNwAAE1dpbkFsbEJhc2ljQ29kZVBhZ2VzABEFVGltZXMgTmV3IFJvbWFuABEDU3ltYm9sABEFQ291cmllciBOZXcAEQRNVCBFeHRyYQASAAghL0WPRC9BUPQQD0dfQVDyHx5BUPQVD0EA9EX0JfSPQl9BAPQQD0NfQQD0j0X0Kl9I9I9BAPQQD0D0j0F/SPQQD0EqX0RfRfRfRfRfQQ8MAQABAAECAgICAAIAAQEBAAMAAQAEAAAKAQACAINCAAIEhj0APQMAAgMAAQACAIN4AAIEhggizgIEiyQhogIAgnwAAgSGEiItAgCIMQACBIZkIqMCAIN4AAIEhmQiowIAiDIAAAIAlnsAAgCWfQAAAAA=','B=\\left\\{x\\in{}\\mathbb{Z}|-1\\leq{}x\\leq{}2\\right\\}'],
+    ['BQEABwREU01UNwAAE1dpbkFsbEJhc2ljQ29kZVBhZ2VzABEFVGltZXMgTmV3IFJvbWFuABEDU3ltYm9sABEFQ291cmllciBOZXcAEQRNVCBFeHRyYQASAAghL0WPRC9BUPQQD0dfQVDyHx5BUPQVD0EA9EX0JfSPQl9BAPQQD0NfQQD0j0X0Kl9I9I9BAPQQD0D0j0F/SPQQD0EqX0RfRfRfRfRfQQ8MAQABAAECAgICAAIAAQEBAAMAAQAEAAAKAQACBIYFIsYCAIIuAAAA','\\emptyset{}.'],
+    ['BQEABwREU01UNwAAE1dpbkFsbEJhc2ljQ29kZVBhZ2VzABEFVGltZXMgTmV3IFJvbWFuABEDU3ltYm9sABEFQ291cmllciBOZXcAEQRNVCBFeHRyYQASAAghL0WPRC9BUPQQD0dfQVDyHx5BUPQVD0EA9EX0JfSPQl9BAPQQD0NfQQD0j0X0Kl9I9I9BAPQQD0D0j0F/SPQQD0EqX0RfRfRfRfRfQQ8MAQABAAECAgICAAIAAQEBAAMAAQAEAAAKAQACAINBAAIEhj0APQMAAgMAAQACAIN4AAIEhggizgIEix0hoQIAgnwAAgCCKAACAIN4AAIEhhIiLQIAiDEAAgCCKQACAIIoAAIAg3gAAgSGEiItAgCIMwACAIIpAAIEhj0APQIAiDAAAAIAlnsAAgCWfQAAAAA=','A=\\left\\{x\\in{}\\mathbb{R}|(x-1)(x-3)=0\\right\\}']
+  ];
+  for(const [base64,expected] of samples) {
+    const source=Uint8Array.from(Buffer.from(base64,'base64'));
+    assert.equal(convertMtefV5ToLatex(source),expected);
+    const sourceXml=encodeMathTypeSource(source);
+    assert.equal(verifyMathTypeSource(sourceXml,expected,'verified'),true);
+    assert.equal(validateWordFormulaSourceForImport({sourceType:'mathtype',sourceOmml:sourceXml,latex:expected,status:'verified'}).ok,true);
+  }
+});
+
+test('MTEF function-start metadata no longer rejects ordinary function text',()=>{
+  // face 1 = fnTEXT, option bit 2 = mtefOPT_CHAR_FUNC_START on the first character.
+  const source=Uint8Array.from([...mtHeader,1,0,
+    2,2,129,115,0,
+    2,0,129,105,0,
+    2,0,129,110,0,
+    2,0,133,120,0,
+    0,0]);
+  assert.equal(convertMtefV5ToLatex(source),'\\mathrm{s}\\mathrm{i}\\mathrm{n}x');
+});
+
 test('MTEF version 5 requires a valid producer version in header',()=>{
   assert.throws(()=>convertMtefV5ToLatex(Uint8Array.from([5,1,0,0,0,0,0,1,0,2,0,133,120,0,0,0])),/header MTEF/);
 });
