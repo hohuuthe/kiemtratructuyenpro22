@@ -164,8 +164,11 @@ test('Unknown Word styles and complex-script-only bold are never guessed silentl
         paragraph(run('A. Sai','<w:rStyle w:val="Unknown"/>'))+
         plain('B','Đúng')+plain('C','Sai')+plain('D','Sai'),styleDoc(''));
     assert.ok(missing.issues.some(issue=>issue.kind==='style'));
+    // w:bCs applies to complex-script text, not ordinary Latin/Vietnamese runs.
+    // Use Arabic content so the test exercises the ambiguity the resolver is
+    // intentionally required to block.
     const special=await inspect(question+
-        paragraph(run('A. Sai','<w:bCs/>'))+plain('B','Đúng')+plain('C','Sai')+plain('D','Sai'));
+        paragraph(run('A. عربي','<w:bCs/>'))+plain('B','Đúng')+plain('C','Sai')+plain('D','Sai'));
     assert.ok(special.issues.some(issue=>issue.kind==='style'));
 });
 
@@ -182,7 +185,7 @@ test('Import handler uses the original OOXML pipeline for bold, cross-checks exp
     assert.ok(from>=0&&to>from);
     const code=source.slice(from,to);
     assert.match(code,/answerFormat === 'underline' \|\| answerFormat === 'bold' \|\| documentReport\.formulas\.length/);
-    assert.match(code,/parseWordBoldOptionLines\(lines, i, type\)/);
+    assert.match(code,/parseWordBoldOptionLines\(lines,\s*i,\s*type\)/);
     assert.match(code,/mâu thuẫn với dòng Đáp án/);
     assert.match(code,/boldAnalysis\.ambiguities/);
     assert.match(code,/verifyImportedWordQuestions\(parsedQuestions,documentReport\)/);
