@@ -414,6 +414,10 @@ test('professional classroom scanner runs heavy decoding off the UI thread',()=>
   assert.match(worker,/upscale=far\?\(width>=1500\?2\.35:2\.05\)/);
   assert.match(worker,/inversion=cycle%5===0\?'attemptBoth':'dontInvert'/);
   assert.match(worker,/maxCodes/);
+  assert.match(worker,/cameraEpoch:msg\.cameraEpoch/);
+  assert.match(worker,/sessionId:msg\.sessionId/);
+  assert.match(worker,/questionId:msg\.questionId/);
+  assert.match(worker,/stateRevision:msg\.stateRevision/);
 
   assert.match(html,/id="qr-card-mode-auto"/);
   assert.match(html,/id="qr-card-mode-far"/);
