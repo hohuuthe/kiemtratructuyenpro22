@@ -1,4 +1,4 @@
 Production release trigger
-word-import-release: ca36497c3e23ef26f108c762b4cd38f9edd06217
+green-ci-commit: 6197a62f10c9ef22733ff90a96fad97ddf46294f
 release-date: 2026-11-03
-release: word-formula-production-gate-fixed
+release: word-mathtype-production-green
