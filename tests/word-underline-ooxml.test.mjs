@@ -155,11 +155,11 @@ test('underlined marks and equations have one authoritative OOXML pipeline in th
     const end=source.indexOf('window.showImportPreviewModal =',start);
     assert.ok(start>=0&&end>start);
     const section=source.slice(start,end);
-    assert.match(section,/answerFormat === 'underline' \|\| documentReport\.formulas\.length/);
-    assert.match(section,/parseWordUnderlinedOptionLines\(lines, i, type\)/);
-    assert.match(section,/mâu thuẫn với dòng Đáp án/);
-    assert.match(section,/underlineAnalysis\.allFourMarked/);
+    assert.match(section,/answerFormat === 'underline' \|\| answerFormat === 'bold' \|\| documentReport\.formulas\.length>0 \|\| documentReport\.issues\.length>0/);
+    assert.match(section,/parseQuestionsFromObjects\(lines,\s*answerFormat\)/);
+    assert.match(source,/parseWordUnderlinedOptionLines\(lines,\s*i,\s*type\)/);
+    assert.match(source,/mâu thuẫn với dòng Đáp án/);
+    assert.match(source,/underlineAnalysis\.allFourMarked/);
     assert.match(section,/verifyImportedWordQuestions\(parsedQuestions,documentReport\)/);
-    assert.match(section,/answerFormat === 'bold' && window\.JSZip/);
-    assert.doesNotMatch(section,/if \(\(answerFormat === 'underline' \|\| answerFormat === 'bold'\) && window\.JSZip\)/);
+    assert.doesNotMatch(section,/window\.JSZip/);
 });
