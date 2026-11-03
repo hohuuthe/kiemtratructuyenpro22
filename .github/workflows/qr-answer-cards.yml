@@ -8,6 +8,7 @@ on:
     paths:
       - 'functions/api/qr-cards.ts'
       - 'src/qr-answer-cards-ui.js'
+      - 'src/qr-scan-worker.js'
       - 'src/qr-card-orientation.js'
       - 'public/components/tab-qr-cards.html'
       - 'tests/qr-answer-cards.test.ts'
