@@ -1,4 +1,4 @@
 Production release trigger
-interactive-board: 5d96b2b3235dbed0650596dcd138c250ae39042c
+interactive-board: b63253f3f963d85f97efe716fe1aac56db41e199
 release-date: 2026-11-03
-release: board-classroom-moderation
+release: board-images-background
