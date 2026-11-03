@@ -122,14 +122,21 @@ test('Retry same file is idempotent, never creates duplicate questions',async()=
   assert.equal((await isolated.db.query('SELECT COUNT(*)::int AS n FROM questions')).rows[0].n,2);
  }finally{await isolated.close();}
 });
-test('Import collision or prior change is rejected without overwrite',async()=>{
+test('Changed prior import is preserved and retry saves one deterministic safe copy',async()=>{
  const isolated=await isolatedDatabase();
  try{
   const b=batch('changed');
   await persistVerifiedWordImport(isolated.sql,'teacher',b);
   await isolated.db.query('UPDATE questions SET content=$1 WHERE id=$2',['TEACHER EDIT', (await isolated.db.query('SELECT id FROM questions LIMIT 1')).rows[0].id]);
-  await assert.rejects(persistVerifiedWordImport(isolated.sql,'teacher',b),/ghi đè dữ liệu cũ/i);
+  const copied=await persistVerifiedWordImport(isolated.sql,'teacher',b);
+  assert.equal(copied.safeCopy,true);
+  assert.equal(copied.duplicate,false);
   assert.equal((await isolated.db.query("SELECT COUNT(*)::int AS n FROM questions WHERE content='TEACHER EDIT'")).rows[0].n,1);
+  assert.equal((await isolated.db.query('SELECT COUNT(*)::int AS n FROM questions')).rows[0].n,4);
+  const again=await persistVerifiedWordImport(isolated.sql,'teacher',b);
+  assert.equal(again.safeCopy,true);
+  assert.equal(again.duplicate,true);
+  assert.equal((await isolated.db.query('SELECT COUNT(*)::int AS n FROM questions')).rows[0].n,4);
  }finally{await isolated.close();}
 });
 test('Mid-transaction collision rolls back all earlier INSERTs',async()=>{
