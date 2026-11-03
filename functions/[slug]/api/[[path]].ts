@@ -36,6 +36,7 @@ import * as boardJoin from '../../api/board/join';
 import * as boardPages from '../../api/board/pages';
 import * as boardRealtime from '../../api/board/realtime';
 import * as boardHealth from '../../api/board/health';
+import * as boardModeration from '../../api/board/moderation';
 import * as accountId from '../../api/accounts/[id]';
 import * as userId from '../../api/users/[id]';
 
@@ -75,6 +76,7 @@ const handlers: Record<string, any> = {
   'board/pages': boardPages,
   'board/realtime': boardRealtime,
   'board/health': boardHealth,
+  'board/moderation': boardModeration,
 };
 const ALLOWED_METHODS = new Set(['GET','POST','PUT','PATCH','DELETE','OPTIONS','HEAD']);
 
