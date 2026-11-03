@@ -2374,3 +2374,39 @@ html.kttt-modal-open, body.kttt-modal-open { overflow: hidden !important; oversc
   min-height:3.2rem;
   padding:12px 14px;
 }
+
+
+/* Student-selected exam background: works in normal and fullscreen modes. */
+#exam-interface.student-background-active {
+    background-image:
+        linear-gradient(rgba(248, 250, 252, 0.78), rgba(248, 250, 252, 0.78)),
+        var(--student-exam-background-image) !important;
+    background-size: cover !important;
+    background-position: center center !important;
+    background-repeat: no-repeat !important;
+    background-attachment: fixed !important;
+    border-radius: 1rem;
+}
+
+#exam-interface.student-background-active:fullscreen,
+#exam-interface.student-background-active:-webkit-full-screen {
+    background-image:
+        linear-gradient(rgba(248, 250, 252, 0.74), rgba(248, 250, 252, 0.74)),
+        var(--student-exam-background-image) !important;
+    background-size: cover !important;
+    background-position: center center !important;
+    background-repeat: no-repeat !important;
+    background-attachment: scroll !important;
+}
+
+#btn-student-exam-background.student-background-selected {
+    background-color: rgb(240 253 250) !important;
+    color: rgb(4 120 87) !important;
+    border-color: rgb(110 231 183) !important;
+    box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.08);
+}
+
+#exam-interface.student-background-active > * {
+    position: relative;
+    z-index: 1;
+}
