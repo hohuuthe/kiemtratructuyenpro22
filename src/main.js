@@ -21,6 +21,7 @@ import { DEFAULT_EXAM_CONFIG_SORT, nextExamConfigSort, sortExamConfigs } from '.
 import { resolveRankingDeleteExamTargets } from './ranking-delete-exam-targets.js';
 import './pwa-manager.js';
 import './teacher-assignment.js';
+import './student-exam-background.js';
 import { typesetScientificMath } from './scientific-formula-typeset.js';
 import { renderExamDetailQuestion, renderExamDetailOptions, renderExamReviewMath, normalizeExamReviewDetails } from './exam-detail-formula-renderer.js';
 import { examDetailStudentAnswerColor, renderExamDetailAnswerSummary } from './exam-detail-answer-summary.js';
@@ -9491,7 +9492,7 @@ if (contentType && contentType.includes("application/json")) {
         }
 
         document.addEventListener('visibilitychange', () => {
-            if (document.hidden) {
+            if (document.hidden && !window.studentBackgroundPickerActive) {
                 window.handleCheatDetection('tab_switch');
             }
         });
@@ -9533,8 +9534,8 @@ if (contentType && contentType.includes("application/json")) {
                 }
                 if (elem) elem.classList.remove('p-4', 'md:p-8', 'bg-gray-50', 'overflow-y-auto');
 
-                if (isExamActive && !window.intentionalFullscreenExit) {
-                    // Unauthorized exit from fullscreen
+                if (isExamActive && !window.intentionalFullscreenExit && !window.studentBackgroundPickerActive) {
+                    // Unauthorized exit from fullscreen. Native image selection is an allowed student action.
                     window.handleCheatDetection('Thoát toàn màn hình trái phép');
                     window.showFullscreenEnforcer();
                 }
