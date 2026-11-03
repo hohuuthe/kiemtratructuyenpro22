@@ -262,7 +262,10 @@ function syncSelectionButtons(){
  renderSelectedOwner(o);
  if($('board-duplicate-selected'))$('board-duplicate-selected').disabled=!editable;
  const imageEditable=editable&&o?.type==='image'&&!!room?.board?.can_manage;
- for(const id of ['board-image-layer-up','board-image-layer-down']){const btn=$(id);if(btn){btn.classList.toggle('hidden',!imageEditable);btn.disabled=!imageEditable;}}
+ let imageIndex=-1,imageCount=0;if(imageEditable){const layers=sortImagesForLayer([...objects.values()].filter(x=>x.pageId===currentPageId));imageIndex=layers.findIndex(x=>x.id===o.id);imageCount=layers.length;}
+ const up=$('board-image-layer-up'),down=$('board-image-layer-down');
+ if(up){up.classList.toggle('hidden',!imageEditable);up.disabled=!imageEditable||imageIndex<0||imageIndex>=imageCount-1;}
+ if(down){down.classList.toggle('hidden',!imageEditable);down.disabled=!imageEditable||imageIndex<=0;}
  if($('board-delete-selected'))$('board-delete-selected').disabled=!editable;
 }
 function renderSelectedOwner(o){
