@@ -50,6 +50,7 @@ const symbolTable = {
     '×': '\\times', '÷': '\\div', '·': '\\cdot', '±': '\\pm', '∓': '\\mp',
     '→': '\\to', '←': '\\leftarrow', '↔': '\\leftrightarrow', '⇒': '\\Rightarrow',
     '∈': '\\in', '∉': '\\notin', '∩': '\\cap', '∪': '\\cup', '⊂': '\\subset',
+    '∣': '\\mid',
     '⊆': '\\subseteq', '⊥': '\\perp', '∥': '\\parallel', '∠': '\\angle',
     '°': '°', '∂': '\\partial', '∇': '\\nabla', '∀': '\\forall',
     '∃': '\\exists', '∅': '\\emptyset',
@@ -66,11 +67,54 @@ const symbolTable = {
 
 const escapeTextRun = value => String(value).replace(/[\\{}%#$&_~^]/g, char =>
     ({'\\':'\\textbackslash{}','~':'\\textasciitilde{}','^':'\\textasciicircum{}'}[char] || '\\'+char));
-const escapeMathRun = value => String(value).replace(/[\\{}%#$&_~^∞∑∏∫∮∬∭√≤≥≠≈×÷·±∓→←↔⇒∈∉∩∪⊂⊆⊥∥∠°∂∇∀∃∅α-ωϕϵΓΔΘΛΞΠΣΦΨΩ]/gu,
+const escapeMathRun = value => String(value).replace(/[\\{}%#const escapeMathRun = value => String(value).replace(/[\\{}%#$&_~^∞∑∏∫∮∬∭√≤≥≠≈×÷·±∓→←↔⇒∈∉∩∪⊂⊆⊥∥∠°∂∇∀∃∅α-ωϕϵΓΔΘΛΞΠΣΦΨΩ]/gu,_~^∞∑∏∫∮∬∭√≤≥≠≈×÷·±∓→←↔⇒∈∉∩∪⊂⊆⊥∥∣∠°∂∇∀∃∅α-ωϕϵΓΔΘΛΞΠΣΦΨΩ]/gu,
     char => (symbolTable[char] ? symbolTable[char] + (/^\\[A-Za-z]+$/.test(symbolTable[char]) ? '{}' : '') : null) || (char === bs ? '\\backslash ' :
         char === '{' ? '\\{' : char === '}' ? '\\}' :
         char === '^' ? '\\hat{}' : char === '_' ? '\\_' :
         char === '~' ? '\\sim ' : '\\' + char));
+const mathScriptCommands = Object.freeze({
+    'double-struck':'\\mathbb',
+    script:'\\mathcal',
+    fraktur:'\\mathfrak',
+    'sans-serif':'\\mathsf',
+    monospace:'\\mathtt'
+});
+
+/**
+ * OMML m:scr applies a mathematical alphabet to eligible ASCII characters in
+ * the run; operators/punctuation in that same run keep their ordinary meaning.
+ * Microsoft Word can omit m:sty on these runs and can group e.g. "∈Z∣-" or
+ * "∈N" into one m:r. Transform only ASCII alphanumerics and preserve supported
+ * operators exactly; do not reinterpret non-ASCII letters under a script.
+ */
+function renderMathScriptRun(raw, script, style) {
+    const command=mathScriptCommands[script];
+    if(!command || (style && style!=='p')) {
+        throw new Error('Kiểu chữ toán học cần xác minh: '+script+' / '+(style||'default'));
+    }
+    let result='', ascii='';
+    const flush=()=>{
+        if(!ascii)return;
+        result+=command+'{'+ascii+'}';
+        ascii='';
+    };
+    for(const ch of Array.from(raw)) {
+        if(/^[A-Za-z0-9]$/.test(ch)) {
+            ascii+=ch;
+            continue;
+        }
+        flush();
+        // A scripted non-ASCII letter/number may carry a distinct mathematical
+        // alphabet meaning that cannot be reconstructed safely from this subset.
+        if(/[\p{L}\p{N}]/u.test(ch)) {
+            throw new Error('Ký tự Unicode trong kiểu chữ toán học cần xác minh: '+ch);
+        }
+        result+=escapeMathRun(ch);
+    }
+    flush();
+    return result;
+}
+
 const delimiters = open => {
     const map = { '{': '\\{', '}': '\\}', '⟨': '\\langle', '⟩': '\\rangle', '⌊': '\\lfloor', '⌋': '\\rfloor', '⌈': '\\lceil', '⌉': '\\rceil' };
     return open === '' ? '.' : map[open] || open || '.';
@@ -316,13 +360,8 @@ function omml(node, depth = 0) {
             if(raw.includes('\\'))throw new Error('Equation chứa backslash dạng ký tự, không được tự hiểu là lệnh LaTeX');
             if(/[\^√]/u.test(raw))throw new Error('Equation chứa ký hiệu tuyến tính cần xác minh, không tự đổi thành cấu trúc toán');
             const escaped=escapeMathRun(raw);
-            const scripts={ 'double-struck':'\\mathbb', script:'\\mathcal', fraktur:'\\mathfrak',
-                'sans-serif':'\\mathsf', monospace:'\\mathtt' };
             if(script!=='roman') {
-                if(!scripts[script] || style!=='p' || !/^[A-Za-z0-9]+$/.test(raw)) {
-                    throw new Error('Kiểu chữ toán học cần xác minh: '+script+' / '+(style||'default'));
-                }
-                return scripts[script]+'{'+escaped+'}';
+                return renderMathScriptRun(raw,script,style);
             }
             if(style==='b' || style==='bi') {
                 if(style==='b' && !/^[A-Za-z0-9]+$/.test(raw))throw new Error('Ký hiệu in đậm đứng cần xác minh trước khi đổi LaTeX');
