@@ -2406,7 +2406,10 @@ html.kttt-modal-open, body.kttt-modal-open { overflow: hidden !important; oversc
     box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.08);
 }
 
-#exam-interface.student-background-active > * {
-    position: relative;
-    z-index: 1;
-}
+/*
+ * Do not assign positioning to every direct child of the exam interface.
+ * Fullscreen dialogs, confirmation modals, toasts and the fullscreen enforcer
+ * are moved/mounted inside #exam-interface and must keep position: fixed.
+ * The background image is painted on the exam root itself, so no child z-index
+ * override is required for readability.
+ */
