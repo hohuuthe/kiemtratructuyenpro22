@@ -395,6 +395,9 @@ test('professional classroom scanner runs heavy decoding off the UI thread',()=>
   assert.match(ui,/scanWorkerBusy/);
   assert.match(ui,/rememberDetections/);
   assert.match(ui,/detectionMemory/);
+  assert.match(ui,/if\(mapped\.length\)processDetections\(mapped\)/);
+  assert.match(ui,/if\(native\.length\)processDetections\(native\)/);
+  assert.doesNotMatch(ui,/processDetections\(rememberDetections/);
   assert.match(ui,/scanMode==='far'/);
   assert.match(ui,/applyCameraZoom/);
   assert.match(ui,/toggleTorch/);
