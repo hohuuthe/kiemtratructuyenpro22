@@ -1,4 +1,4 @@
 Production release trigger
-interactive-board: b55ad471503f567602e768f32aeeec95e105ab2e
-release-date: 2026-11-01
-release: board-hardening
+word-import-corpus: d64b88d018a389cd1cafb5076809510cceb68646
+release-date: 2026-11-03
+release: word-formula-corpus-complete
