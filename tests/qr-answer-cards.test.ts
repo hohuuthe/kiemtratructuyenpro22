@@ -68,7 +68,7 @@ test('printed cards expose identity and A/B/C/D while QR payload stays tokenized
   assert.doesNotMatch(ui,/buildQrCardPayload\(s\.full_name/);
   assert.match(ui,/getUserMedia/);
   assert.match(ui,/decodeMultiple/);
-  assert.match(ui,/hits >= 2/);
+  assert.match(ui,/hits>=2/);
   assert.match(ui,/action\s*:\s*['"]record-batch['"]/);
   assert.match(ui,/action\s*:\s*['"]finalize['"]/);
   assert.match(ui,/async function flushAllPending/);
@@ -246,19 +246,24 @@ test('phone persistence uses durable ACK queue and presenter shows only server-s
 
 test('long-range scanner uses hybrid native multi-QR and high-resolution tiled fallback',()=>{
   const ui=fs.readFileSync('src/qr-answer-cards-ui.js','utf8');
+  const worker=fs.readFileSync('src/qr-scan-worker.js','utf8');
   const orientation=fs.readFileSync('src/qr-card-orientation.js','utf8');
 
   assert.match(ui,/BarcodeDetector/);
   assert.match(ui,/new window\.BarcodeDetector\(\{formats:\['qr_code'\]\}\)/);
   assert.match(ui,/decodeJsQrTiles/);
-  assert.match(ui,/cols=imageData\.width>=1200\?3:2/);
-  assert.match(ui,/upscale=imageData\.width>=1400\?1\.8:1\.45/);
-  assert.match(ui,/perFrame=nativeQrSupported\?3:Math\.min\(total,6\)/);
-  assert.match(ui,/targetW=nativeQrSupported\?1600:1920/);
+  assert.match(ui,/new Worker\(new URL\('\.\/qr-scan-worker\.js',import\.meta\.url\)/);
+  assert.match(ui,/scanMode==='far'/);
+  assert.match(ui,/targetW=scanMode==='far'\?Math\.min\(2200,video\.videoWidth\)/);
+  assert.match(worker,/cols=far\?\(width>=1500\?4:3\)/);
+  assert.match(worker,/overlap=far\?\.28:\.20/);
+  assert.match(worker,/upscale=far\?\(width>=1500\?2\.35:2\.05\)/);
   assert.match(ui,/width:\{ideal:2560\}/);
   assert.match(ui,/width:\{ideal:1920\}/);
   assert.match(ui,/width:\{ideal:1280\}/);
   assert.match(ui,/focusMode:'continuous'/);
+  assert.match(ui,/applyCameraZoom/);
+  assert.match(ui,/toggleTorch/);
   assert.match(ui,/errorCorrectionLevel: 'M'/);
   assert.match(ui,/margin: 4/);
   assert.match(ui,/width: 640/);
