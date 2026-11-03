@@ -187,8 +187,8 @@ test('Import handler uses the original OOXML pipeline for bold, cross-checks exp
     assert.match(code,/answerFormat === 'underline' \|\| answerFormat === 'bold' \|\| documentReport\.formulas\.length/);
     assert.match(code,/parseQuestionsFromObjects\(lines,\s*answerFormat\)/);
     assert.match(source,/parseWordBoldOptionLines\(lines,\s*i,\s*type\)/);
-    assert.match(code,/mâu thuẫn với dòng Đáp án/);
-    assert.match(code,/boldAnalysis\.ambiguities/);
+    assert.match(source,/mâu thuẫn với dòng Đáp án/);
+    assert.match(source,/boldAnalysis\.ambiguities/);
     assert.match(code,/verifyImportedWordQuestions\(parsedQuestions,documentReport\)/);
     assert.doesNotMatch(code,/zip\.file\("word\/document\.xml", newXmlStr\)/);
     assert.match(source,/checkWordImportBeforeSave\(/);
