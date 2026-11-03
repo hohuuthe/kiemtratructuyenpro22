@@ -7,9 +7,9 @@ export async function ensureInteractiveBoardSchema(db: any) {
 
   try {
     const existing:any = await db.prepare(
-      "SELECT to_regclass('public.interactive_boards') AS boards, to_regclass('public.interactive_board_pages') AS pages, to_regclass('public.interactive_board_blocks') AS blocks"
+      "SELECT to_regclass('public.interactive_boards') AS boards, to_regclass('public.interactive_board_pages') AS pages, to_regclass('public.interactive_board_blocks') AS blocks, EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='interactive_board_pages' AND column_name='background_image_url') AS has_background_image"
     ).first();
-    if (existing?.boards && existing?.pages && existing?.blocks) {
+    if (existing?.boards && existing?.pages && existing?.blocks && existing?.has_background_image) {
       initialized.add(key);
       return;
     }
@@ -18,6 +18,7 @@ export async function ensureInteractiveBoardSchema(db: any) {
   }
 
   const statements = [
+    `ALTER TABLE interactive_board_pages ADD COLUMN IF NOT EXISTS background_image_url TEXT NOT NULL DEFAULT ''`,
     `CREATE TABLE IF NOT EXISTS interactive_boards (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -47,6 +48,7 @@ export async function ensureInteractiveBoardSchema(db: any) {
       title TEXT NOT NULL DEFAULT '',
       background_type TEXT NOT NULL DEFAULT 'white'
         CHECK (background_type IN ('white','grid','lined','dots')),
+      background_image_url TEXT NOT NULL DEFAULT '',
       canvas_width INTEGER NOT NULL DEFAULT 1600,
       canvas_height INTEGER NOT NULL DEFAULT 900,
       revision INTEGER NOT NULL DEFAULT 1,

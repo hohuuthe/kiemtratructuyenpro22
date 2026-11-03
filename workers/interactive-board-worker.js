@@ -41,7 +41,7 @@ function normalizePoints(points) {
 function normalizeObject(input, actor) {
   if (!input || typeof input !== 'object') return null;
   const id=safeId(input.id), pageId=safeId(input.pageId), type=String(input.type||'');
-  if (!id || !pageId || !['stroke','text','note','rect','ellipse','line','arrow'].includes(type)) return null;
+  if (!id || !pageId || !['stroke','text','note','rect','ellipse','line','arrow','image'].includes(type)) return null;
   const base={id,pageId,type,creatorId:String(actor?.userId||''),creatorName:String(actor?.displayName||'Người dùng').slice(0,100),creatorClass:String(actor?.studentClass||'').slice(0,100),creatorUnit:String(actor?.studentUnit||'').slice(0,180),creatorRole:String(actor?.displayRole||'student').slice(0,30),updatedAt:Date.now()};
   if (type==='stroke') {
     const points=normalizePoints(input.points).slice(0,1600);
@@ -52,6 +52,13 @@ function normalizeObject(input, actor) {
     return {...base,x:clamp(input.x,-20000,20000,0),y:clamp(input.y,-20000,20000,0),
       w:clamp(input.w,20,3000,220),h:clamp(input.h,20,3000,120),
       text:String(input.text||'').slice(0,2000),color:safeColor(input.color),fontSize:clamp(input.fontSize,10,96,20)};
+  }
+  if(type==='image'){
+    const url=String(input.url||'').trim();
+    if(!/^https:\/\//i.test(url)||url.length>2048)return null;
+    return {...base,x:clamp(input.x,-20000,20000,0),y:clamp(input.y,-20000,20000,0),
+      w:clamp(input.w,40,3000,640),h:clamp(input.h,40,3000,360),url,
+      background:input.background===true,fit:input.fit==='cover'?'cover':'contain'};
   }
   return {...base,x1:clamp(input.x1,-20000,20000,0),y1:clamp(input.y1,-20000,20000,0),
     x2:clamp(input.x2,-20000,20000,0),y2:clamp(input.y2,-20000,20000,0),
@@ -205,7 +212,7 @@ export class BoardRoom {
       const page=body?.page;if(!page||!safeId(page.id))return new Response('Invalid page',{status:400});
       this.broadcast({type:'page_updated',page:{
         id:String(page.id),page_no:Number(page.page_no)||0,title:String(page.title||'').slice(0,100),
-        background_type:String(page.background_type||'white'),canvas_width:1600,canvas_height:900,revision:Number(page.revision)||1
+        background_type:String(page.background_type||'white'),background_image_url:String(page.background_image_url||'').slice(0,2048),canvas_width:1600,canvas_height:900,revision:Number(page.revision)||1
       }});
       return new Response('OK');
     }
@@ -460,7 +467,8 @@ export class BoardRoom {
       if (kind==='put') {
         const object=normalizeObject(raw.object,actor);
         if (!object || object.pageId!==actor.pageId) continue;
-        if (object.type==='text'||object.type==='note') { if (!canComment) {resyncRequired=true;continue;} }
+        if(object.type==='image'){if(!canManage){resyncRequired=true;continue;}}
+        else if (object.type==='text'||object.type==='note') { if (!canComment) {resyncRequired=true;continue;} }
         else if (!canDraw) {resyncRequired=true;continue;}
         const key='obj:'+object.pageId+':'+object.id;
         const existing=await this.ctx.storage.get(key);
