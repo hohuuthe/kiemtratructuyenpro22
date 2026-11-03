@@ -432,3 +432,21 @@ test('board images and background images are realtime-safe',()=>{
   assert.match(schema,/column_name='background_image_url'/);
   assert.match(dbSchema,/background_image_url TEXT NOT NULL DEFAULT ''/);
 });
+
+
+test('board images support proportional resize handles and realtime image layering',()=>{
+  const ui=fs.readFileSync('src/interactive-board-ui.js','utf8');
+  const worker=fs.readFileSync('workers/interactive-board-worker.js','utf8');
+  const html=fs.readFileSync('public/components/tab-boards.html','utf8');
+
+  assert.match(html,/id="board-image-layer-up"/);
+  assert.match(html,/id="board-image-layer-down"/);
+  assert.match(ui,/function imageResizeHandles/);
+  assert.match(ui,/function hitImageResizeHandle/);
+  assert.match(ui,/resizeState/);
+  assert.match(ui,/aspect:/);
+  assert.match(ui,/sortImagesForLayer/);
+  assert.match(ui,/function reorderSelectedImage/);
+  assert.match(ui,/z:topZ\+10/);
+  assert.match(worker,/z:Math\.round\(clamp\(input\.z,-10000,10000,0\)\)/);
+});
