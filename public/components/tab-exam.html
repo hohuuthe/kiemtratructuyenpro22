@@ -191,6 +191,11 @@
            <p id="cheat-warning-count" class="text-[10px] md:text-[11px] font-black text-amber-900 leading-none">0 lần</p>
          </div>
          <div class="flex gap-2">
+           <input id="student-exam-background-input" type="file" accept="image/*" class="hidden" aria-hidden="true" tabindex="-1">
+           <button type="button" id="btn-student-exam-background" onclick="openStudentExamBackgroundPicker()" class="group px-2 py-1.5 md:px-3 md:py-2 bg-fuchsia-50 text-fuchsia-700 font-bold text-[10px] md:text-xs rounded-lg hover:bg-fuchsia-100 transition-all border border-fuchsia-200 shadow-sm flex items-center justify-center gap-1.5" title="Chọn hình nền giao diện làm bài" aria-label="Chọn hình nền giao diện làm bài">
+             <svg class="w-3.5 h-3.5 md:w-4 md:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+             <span class="hidden sm:inline">Hình nền</span><span class="sm:hidden text-[10px]">Nền</span>
+           </button>
            <button onclick="toggleExamFullscreen()" id="btn-exam-fullscreen" class="group px-2 py-1.5 md:px-3 md:py-2 bg-indigo-50 text-indigo-700 font-bold text-[10px] md:text-xs rounded-lg hover:bg-indigo-100 transition-all border border-indigo-200 shadow-sm flex items-center justify-center gap-1.5">
              <svg class="w-3.5 h-3.5 md:w-4 md:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"></path></svg>
              <span class="hidden sm:inline">Toàn màn hình</span><span class="sm:hidden text-[10px]">Toàn MH</span>
