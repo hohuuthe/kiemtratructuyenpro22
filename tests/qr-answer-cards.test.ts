@@ -395,9 +395,13 @@ test('professional classroom scanner runs heavy decoding off the UI thread',()=>
   assert.match(ui,/scanWorkerBusy/);
   assert.match(ui,/rememberDetections/);
   assert.match(ui,/detectionMemory/);
-  assert.match(ui,/if\(mapped\.length\)processDetections\(mapped\)/);
-  assert.match(ui,/if\(native\.length\)processDetections\(native\)/);
+  assert.match(ui,/if\(mapped\.length\)processDetections\(mapped,Number\(msg\.cycle\)\|\|0\)/);
+  assert.match(ui,/if\(native\.length\)processDetections\(native,scanCycle\)/);
   assert.doesNotMatch(ui,/processDetections\(rememberDetections/);
+  assert.match(ui,/prev&&Number\(prev\.observationCycle\|\|0\)>=Number\(observationCycle\|\|0\)/);
+  assert.match(ui,/Number\(msg\.cameraEpoch\)!==cameraEpoch/);
+  assert.match(ui,/String\(msg\.questionId\|\|''\)!==String\(currentQuestion\(\)\?\.id\|\|''\)/);
+  assert.match(ui,/Number\(msg\.stateRevision\)!==Number\(stateRevision\)/);
   assert.match(ui,/scanMode==='far'/);
   assert.match(ui,/applyCameraZoom/);
   assert.match(ui,/toggleTorch/);
@@ -418,4 +422,24 @@ test('professional classroom scanner runs heavy decoding off the UI thread',()=>
   assert.match(css,/\.qr-camera-smart-tools/);
   assert.match(css,/\.qr-camera-mode-buttons/);
   assert.match(api,/body\.records\) \? body\.records\.slice\(0, 80\)/);
+});
+
+
+test('QR release checks and workflow include the decoder worker',()=>{
+  const pkg=JSON.parse(fs.readFileSync('package.json','utf8'));
+  const workflow=fs.readFileSync('.github/workflows/qr-answer-cards.yml','utf8');
+  assert.match(pkg.scripts['release:qr-cards:check'],/node --check src\/qr-scan-worker\.js/);
+  assert.match(workflow,/src\/qr-scan-worker\.js/);
+});
+
+test('stale worker frames cannot cross camera sessions or question revisions',()=>{
+  const ui=fs.readFileSync('src/qr-answer-cards-ui.js','utf8');
+  assert.match(ui,/cameraEpoch\+\+/);
+  assert.match(ui,/cameraEpoch,/);
+  assert.match(ui,/sessionId:String\(session\.id\|\|''\)/);
+  assert.match(ui,/questionId:String\(currentQuestion\(\)\?\.id\|\|''\)/);
+  assert.match(ui,/stateRevision:Number\(stateRevision\)\|\|0/);
+  assert.match(ui,/Number\(msg\.cameraEpoch\)!==cameraEpoch/);
+  assert.match(ui,/String\(msg\.sessionId\|\|''\)!==String\(session\?\.id\|\|''\)/);
+  assert.match(ui,/collectionState!=='collecting'\)return/);
 });
