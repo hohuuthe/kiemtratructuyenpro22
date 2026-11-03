@@ -7,7 +7,7 @@ let roomTokenExpiresAt=0,tokenRefreshAttempts=0,currentPageId='';
 let undoStack=[],redoStack=[],renderQueued=false,lastRateNotice=0,userLocked=false;
 let pendingReliable=new Map(),dragState=null,snapshotLoading=false,participantsCache=[],blockedUsers=[];
 let remoteLasers=new Map(),lastLaserSent=0,imageCache=new Map(),pendingBoardImageMode='object';
-let zoomLevel=1,panDrag=null,panPointers=new Map(),pinchStart=null,timerState=null,timerTick=null,aiResultText='',aiClusterPlan=null,followTeacher=true,mobileGesture=false,selectedObjectId='';
+let zoomLevel=1,panDrag=null,panPointers=new Map(),pinchStart=null,timerState=null,timerTick=null,aiResultText='',aiClusterPlan=null,followTeacher=true,mobileGesture=false,selectedObjectId='',resizeState=null;
 
 function token(){return localStorage.getItem(window.tenantStorageKey?window.tenantStorageKey('auth_token'):'auth_token')||'';}
 async function api(method,url,body){
@@ -45,6 +45,8 @@ const BOARD_BUTTON_HELP={
  'board-undo':'Hoàn tác thao tác gần nhất (Ctrl/Cmd + Z).',
  'board-redo':'Làm lại thao tác vừa hoàn tác (Ctrl/Cmd + Y).',
  'board-duplicate-selected':'Nhân bản đối tượng đang chọn và đặt lệch nhẹ để dễ kéo tiếp.',
+ 'board-image-layer-up':'Đưa ảnh đang chọn lên trên một ảnh khác.',
+ 'board-image-layer-down':'Đưa ảnh đang chọn xuống dưới một ảnh khác.',
  'board-delete-selected':'Xóa đối tượng đang chọn nếu bạn có quyền chỉnh sửa.',
  'board-page-prev':'Chuyển sang trang trước của bảng.',
  'board-page-next':'Chuyển sang trang tiếp theo của bảng.',
@@ -259,6 +261,8 @@ function syncSelectionButtons(){
  const o=selectedObject(),editable=!!o&&canEdit()&&(room?.board?.can_manage||String(o.creatorId||'')===myId());
  renderSelectedOwner(o);
  if($('board-duplicate-selected'))$('board-duplicate-selected').disabled=!editable;
+ const imageEditable=editable&&o?.type==='image'&&!!room?.board?.can_manage;
+ for(const id of ['board-image-layer-up','board-image-layer-down']){const btn=$(id);if(btn){btn.classList.toggle('hidden',!imageEditable);btn.disabled=!imageEditable;}}
  if($('board-delete-selected'))$('board-delete-selected').disabled=!editable;
 }
 function renderSelectedOwner(o){
@@ -330,7 +334,8 @@ async function handleBoardImageFile(file,mode){
    if(mode==='background'){await setPageBackgroundImage(uploaded.url);window.showToast?.('Đã đặt ảnh làm hình nền của trang.','success');return;}
    const maxW=1200,maxH=700,scale=Math.min(1,maxW/uploaded.width,maxH/uploaded.height);
    const w=Math.max(120,Math.round(uploaded.width*scale)),h=Math.max(80,Math.round(uploaded.height*scale));
-   const o={id:crypto.randomUUID(),pageId:currentPageId,type:'image',x:Math.round((1600-w)/2),y:Math.round((900-h)/2),w,h,url:uploaded.url,fit:'contain',creatorId:myId()};
+   const topZ=Math.max(0,...[...objects.values()].filter(x=>x.pageId===currentPageId&&x.type==='image').map(x=>Number(x.z)||0));
+   const o={id:crypto.randomUUID(),pageId:currentPageId,type:'image',x:Math.round((1600-w)/2),y:Math.round((900-h)/2),w,h,url:uploaded.url,fit:'contain',z:topZ+10,creatorId:myId()};
    objects.set(o.id,o);sendOps([{kind:'put',object:o}]);remember({kind:'put',object:o});selectedObjectId=o.id;ensureBoardImage(o.url);syncSelectionButtons();scheduleRender();
    window.showToast?.('Đã chèn ảnh. Học sinh có thể vẽ và ghi chú trực tiếp trên ảnh.','success');
  }catch(e){window.showToast?.(e.message||'Không thể thêm ảnh.','error');}
@@ -370,9 +375,11 @@ function drawImageContain(ctx,img,x,y,w,h,fit='contain'){
  if(fit==='cover'){ctx.save();ctx.beginPath();ctx.rect(x,y,w,h);ctx.clip();ctx.drawImage(img,dx,dy,dw,dh);ctx.restore();}else ctx.drawImage(img,dx,dy,dw,dh);
 }
 function loadBoardImageForExport(url){return new Promise((resolve,reject)=>{const img=new Image();img.onload=()=>resolve(img);img.onerror=reject;img.src=imageProxyUrl(url);});}
+function imageLayerValue(o){return Number.isFinite(Number(o?.z))?Number(o.z):0;}
+function sortImagesForLayer(items){return [...items].filter(x=>x.type==='image').sort((a,b)=>imageLayerValue(a)-imageLayerValue(b)||String(a.id).localeCompare(String(b.id)));}
 async function renderObjectsToCanvas(pageInfo,pageObjects){
  const out=document.createElement('canvas');out.width=1600;out.height=900;const ctx=out.getContext('2d');await renderBackgroundToCanvas(ctx,pageInfo);
- const items=[...(pageObjects||[])];for(const o of items.filter(x=>x.type==='image')){try{const img=await loadBoardImageForExport(o.url);drawImageContain(ctx,img,o.x,o.y,o.w||640,o.h||360,o.fit||'contain');}catch{}}
+ const items=[...(pageObjects||[])];for(const o of sortImagesForLayer(items)){try{const img=await loadBoardImageForExport(o.url);drawImageContain(ctx,img,o.x,o.y,o.w||640,o.h||360,o.fit||'contain');}catch{}}
  for(const o of items.filter(x=>x.type!=='image'))drawObject(ctx,o);return out;
 }
 async function ensureFreshRoomToken(pageId=currentPageId){
@@ -531,8 +538,26 @@ function hitVotable(point){
  for(const o of items){if(o.pageId!==currentPageId||!['note','text'].includes(o.type))continue;if(x>=o.x&&x<=o.x+(o.w||220)&&y>=o.y&&y<=o.y+(o.h||120))return o;}
  return null;
 }
+function imageResizeHandles(o){
+ if(!o||o.type!=='image')return [];
+ const x=Number(o.x)||0,y=Number(o.y)||0,w=Math.max(40,Number(o.w)||640),h=Math.max(40,Number(o.h)||360);
+ return [
+  {name:'nw',x,y,anchorX:x+w,anchorY:y+h},
+  {name:'ne',x:x+w,y,anchorX:x,anchorY:y+h},
+  {name:'se',x:x+w,y:y+h,anchorX:x,anchorY:y},
+  {name:'sw',x,y:y+h,anchorX:x+w,anchorY:y}
+ ];
+}
+function hitImageResizeHandle(point){
+ const o=selectedObject();if(!o||o.type!=='image'||!room?.board?.can_manage)return null;
+ const [x,y]=point,radius=isCoarseBoardPointer()?26:18;
+ return imageResizeHandles(o).find(h=>Math.hypot(x-h.x,y-h.y)<=radius)||null;
+}
 function hitObject(point){
- const [x,y]=point,items=[...objects.values()].reverse();
+ const [x,y]=point;
+ const images=sortImagesForLayer([...objects.values()].filter(o=>o.pageId===currentPageId)).reverse();
+ const others=[...objects.values()].filter(o=>o.pageId===currentPageId&&o.type!=='image').reverse();
+ const items=[...others,...images];
  for(const o of items){
   if(o.pageId!==currentPageId)continue;
   if(!room?.board?.can_manage && String(o.creatorId||'')!==myId())continue;
@@ -610,13 +635,17 @@ function applyPageBackground(){
 function render(){
  const c=canvas();if(!c)return;const ctx=c.getContext('2d');ctx.clearRect(0,0,c.width,c.height);ctx.lineCap='round';ctx.lineJoin='round';
  const all=[...objects.values(),...remoteStrokes.values()];
- for(const o of all.filter(x=>x.type==='image'))drawObject(ctx,o);
+ for(const o of sortImagesForLayer(all))drawObject(ctx,o);
  for(const o of all.filter(x=>x.type!=='image'))drawObject(ctx,o);
  if(drawing)drawObject(ctx,drawing);
  const selected=selectedObject();
  if(selected&&selected.pageId===currentPageId){
    ctx.save();ctx.strokeStyle='#0f766e';ctx.lineWidth=2;ctx.setLineDash([8,6]);
    if(selected.type==='note'||selected.type==='text'||selected.type==='image')ctx.strokeRect(selected.x-6,selected.y-6,(selected.w||220)+12,(selected.h||120)+12);
+   if(selected.type==='image'&&room?.board?.can_manage){
+     ctx.setLineDash([]);ctx.fillStyle='#ffffff';ctx.strokeStyle='#0f766e';ctx.lineWidth=3;
+     for(const h of imageResizeHandles(selected)){ctx.beginPath();ctx.arc(h.x,h.y,isCoarseBoardPointer()?12:9,0,Math.PI*2);ctx.fill();ctx.stroke();}
+   }
    else if(selected.type==='stroke'&&selected.points?.length){
      const xs=selected.points.map(p=>p[0]),ys=selected.points.map(p=>p[1]),minX=Math.min(...xs),maxX=Math.max(...xs),minY=Math.min(...ys),maxY=Math.max(...ys);
      ctx.strokeRect(minX-8,minY-8,Math.max(16,maxX-minX+16),Math.max(16,maxY-minY+16));
@@ -721,6 +750,12 @@ function pointerDown(e){
  if(!canEdit())return;
  if(tool==='laser'){if(room?.board?.can_manage)sendOps([{kind:'laser',pageId:currentPageId,x:p[0],y:p[1]}]);return;}
  if(tool==='select'){
+   const handle=hitImageResizeHandle(p);
+   if(handle){
+     const target=selectedObject(),before=cloneObject(target);
+     resizeState={id:target.id,handle:handle.name,anchorX:handle.anchorX,anchorY:handle.anchorY,aspect:Math.max(.05,(Number(before.w)||640)/Math.max(1,Number(before.h)||360)),before};
+     dragState=null;return;
+   }
    const target=hitObject(p);if(!target){clearSelection();return;}
    if(!room.board.can_manage&&room.board.student_permission==='comment'&&!['note','text'].includes(target.type))return;
    selectedObjectId=target.id;syncSelectionButtons();scheduleRender();
@@ -750,6 +785,15 @@ function pointerMove(e){
    const now=Date.now();if(now-lastLaserSent>=60){lastLaserSent=now;sendOps([{kind:'laser',pageId:currentPageId,x:p[0],y:p[1]}]);}
    return;
  }
+ if(resizeState){
+   const rs=resizeState,aspect=rs.aspect,rawW=Math.max(1,Math.abs(p[0]-rs.anchorX)),rawH=Math.max(1,Math.abs(p[1]-rs.anchorY));
+   let w=rawW,h=rawW/aspect;if(rawH>h){h=rawH;w=h*aspect;}
+   const scale=Math.min(1,3000/Math.max(w,h));w=Math.max(40,Math.round(w*scale));h=Math.max(40,Math.round(h*scale));
+   if(w/h>aspect){h=Math.max(40,Math.round(w/aspect));}else w=Math.max(40,Math.round(h*aspect));
+   const right=rs.handle.includes('e'),bottom=rs.handle.includes('s');
+   const resized={...cloneObject(rs.before),w,h,x:right?rs.anchorX:rs.anchorX-w,y:bottom?rs.anchorY:rs.anchorY-h};
+   objects.set(resized.id,resized);scheduleRender();return;
+ }
  if(dragState){
    const dx=p[0]-dragState.start[0],dy=p[1]-dragState.start[1],moved=translateObject(dragState.before,dx,dy);
    objects.set(moved.id,moved);scheduleRender();return;
@@ -765,7 +809,7 @@ function pointerMove(e){
 function cancelPointerInteraction(e){
  if(e?.pointerType==='touch')panPointers.delete(e.pointerId);
  if(drawing?.type==='stroke')sendOps([{kind:'stroke_cancel',pageId:drawing.pageId,objectId:drawing.id}]);
- drawing=null;dragState=null;panDrag=null;pinchStart=null;
+ drawing=null;dragState=null;resizeState=null;panDrag=null;pinchStart=null;
  if(panPointers.size===0)mobileGesture=false;
  scheduleRender();
 }
@@ -777,6 +821,11 @@ function pointerUp(e){
    if(panPointers.size===1&&tool==='pan'){const [id,p]=[...panPointers.entries()][0],stage=$('board-stage-scroll');panDrag={pointerId:id,clientX:p.x,clientY:p.y,left:stage?.scrollLeft||0,top:stage?.scrollTop||0};}
    if(panPointers.size===0)mobileGesture=false;
    return;
+ }
+ if(resizeState){
+   const after=objects.get(resizeState.id),before=resizeState.before;resizeState=null;
+   if(after&&JSON.stringify(after)!==JSON.stringify(before)){sendOps([{kind:'put',object:after}]);remember({kind:'update',before,after:cloneObject(after)});}
+   scheduleRender();return;
  }
  if(dragState){
    const after=objects.get(dragState.id),before=dragState.before;dragState=null;
@@ -791,7 +840,7 @@ function pointerUp(e){
 function exitRoom(){
  manualExit=true;if(reconnectTimer){clearTimeout(reconnectTimer);reconnectTimer=null;}tool='pen';
  if(ws)try{ws.onclose=null;ws.close(1000,'exit')}catch{};ws=null;room=null;activeBoard=null;activeAccessCode='';reconnectAttempts=0;
- roomTokenExpiresAt=0;tokenRefreshAttempts=0;currentPageId='';userLocked=false;snapshotLoading=false;selectedObjectId='';participantsCache=[];blockedUsers=[];imageCache.clear();renderBlockedUsers();renderSelectedOwner(null);pendingReliable.clear();dragState=null;panDrag=null;panPointers.clear();pinchStart=null;mobileGesture=false;remoteLasers.clear();zoomLevel=1;aiResultText='';aiClusterPlan=null;timerState=null;followTeacher=true;if(timerTick){clearInterval(timerTick);timerTick=null;}undoStack=[];redoStack=[];objects.clear();remoteStrokes.clear();drawing=null;const roomEl=$('board-room');roomEl?.classList.remove('board-pseudo-fullscreen');document.body.classList.remove('board-body-fullscreen');roomEl?.classList.add('hidden');$('boards-home')?.classList.remove('hidden');
+ roomTokenExpiresAt=0;tokenRefreshAttempts=0;currentPageId='';userLocked=false;snapshotLoading=false;selectedObjectId='';participantsCache=[];blockedUsers=[];imageCache.clear();renderBlockedUsers();renderSelectedOwner(null);pendingReliable.clear();dragState=null;resizeState=null;panDrag=null;panPointers.clear();pinchStart=null;mobileGesture=false;remoteLasers.clear();zoomLevel=1;aiResultText='';aiClusterPlan=null;timerState=null;followTeacher=true;if(timerTick){clearInterval(timerTick);timerTick=null;}undoStack=[];redoStack=[];objects.clear();remoteStrokes.clear();drawing=null;const roomEl=$('board-room');roomEl?.classList.remove('board-pseudo-fullscreen');document.body.classList.remove('board-body-fullscreen');roomEl?.classList.add('hidden');$('boards-home')?.classList.remove('hidden');
 }
 
 export function resetInteractiveBoards(){generation++;list=[];actor=null;manage=false;canCreateBoard=false;page=1;total=0;exitRoom();}
@@ -901,6 +950,22 @@ export function connectInteractiveBoards(){
     const shifted=translateObject(copy,28,28);objects.set(shifted.id,shifted);selectedObjectId=shifted.id;
     sendOps([{kind:'put',object:shifted}]);remember({kind:'put',object:shifted});scheduleRender();syncSelectionButtons();
   });
+  function reorderSelectedImage(direction){
+    const current=selectedObject();if(!current||current.type!=='image'||!room?.board?.can_manage)return;
+    const images=sortImagesForLayer([...objects.values()].filter(o=>o.pageId===currentPageId));
+    const idx=images.findIndex(o=>o.id===current.id),targetIdx=idx+(direction>0?1:-1);
+    if(idx<0||targetIdx<0||targetIdx>=images.length)return;
+    const target=images[targetIdx],beforeCurrent=cloneObject(current),beforeTarget=cloneObject(target);
+    const currentZ=imageLayerValue(current),targetZ=imageLayerValue(target);
+    const currentNext={...cloneObject(current),z:targetZ===currentZ?currentZ+(direction>0?1:-1):targetZ};
+    const targetNext={...cloneObject(target),z:targetZ===currentZ?targetZ:currentZ};
+    objects.set(currentNext.id,currentNext);objects.set(targetNext.id,targetNext);
+    sendOps([{kind:'put',object:targetNext},{kind:'put',object:currentNext}]);
+    remember({kind:'update',before:beforeCurrent,after:cloneObject(currentNext)});
+    scheduleRender();syncSelectionButtons();
+  }
+  $('board-image-layer-up')?.addEventListener('click',()=>reorderSelectedImage(1));
+  $('board-image-layer-down')?.addEventListener('click',()=>reorderSelectedImage(-1));
   $('board-delete-selected')?.addEventListener('click',()=>{
     const target=selectedObject();if(!target||!canEdit())return;
     if(!room.board.can_manage&&String(target.creatorId||'')!==myId())return;
