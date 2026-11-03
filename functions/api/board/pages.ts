@@ -20,7 +20,7 @@ export const onRequestGet: PagesFunction=async(context:any)=>{
     if(!board)return boardJson({error:'Không tìm thấy bảng.'},404);
     if(!canManageBoard(user,board,isAdmin))return boardJson({error:'Chỉ người quản lý bảng được đọc trực tiếp metadata trang.'},403);
     const {results}=await db.prepare(
-      'SELECT id,page_no,title,background_type,canvas_width,canvas_height,revision FROM interactive_board_pages WHERE board_id=? ORDER BY page_no ASC LIMIT 20'
+      'SELECT id,page_no,title,background_type,background_image_url,canvas_width,canvas_height,revision FROM interactive_board_pages WHERE board_id=? ORDER BY page_no ASC LIMIT 20'
     ).bind(boardId).all();
     return boardJson({data:results||[]});
   }catch(error:any){console.error('[BOARD PAGES GET]',error?.message||error);return boardJson({error:'Không thể tải danh sách trang.'},500);}
@@ -47,7 +47,7 @@ export const onRequestPost: PagesFunction=async(context:any)=>{
         await db.prepare(
           'INSERT INTO interactive_board_pages (id,board_id,page_no,title,background_type,canvas_width,canvas_height,revision,created_at,updated_at) VALUES (?,?,?,?,?,1600,900,1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)'
         ).bind(id,boardId,pageNo,title,background(input.background_type)).run();
-        created={id,board_id:boardId,page_no:pageNo,title,background_type:background(input.background_type),canvas_width:1600,canvas_height:900,revision:1};
+        created={id,board_id:boardId,page_no:pageNo,title,background_type:background(input.background_type),background_image_url:'',canvas_width:1600,canvas_height:900,revision:1};
       }catch(error:any){
         const msg=String(error?.message||'').toLowerCase();
         const concurrent=msg.includes('unique')||msg.includes('duplicate');
@@ -81,11 +81,13 @@ export const onRequestPut: PagesFunction=async(context:any)=>{
     const expected=Math.max(1,Number(input.revision||page.revision||1));
     const title=cleanText(input.title,100,page.title||'');
     const bg=background(input.background_type||page.background_type);
+    const rawBgImage=input.background_image_url===undefined?String(page.background_image_url||''):String(input.background_image_url||'').trim();
+    if(rawBgImage&&(!/^https:\/\//i.test(rawBgImage)||rawBgImage.length>2048))return boardJson({error:'Đường dẫn ảnh nền không hợp lệ.'},400);
     const result=await db.prepare(
-      'UPDATE interactive_board_pages SET title=?,background_type=?,revision=revision+1,updated_at=CURRENT_TIMESTAMP WHERE id=? AND revision=?'
-    ).bind(title,bg,pageId,expected).run();
+      'UPDATE interactive_board_pages SET title=?,background_type=?,background_image_url=?,revision=revision+1,updated_at=CURRENT_TIMESTAMP WHERE id=? AND revision=?'
+    ).bind(title,bg,rawBgImage,pageId,expected).run();
     if(!Number(result.meta?.changes||0))return boardJson({error:'Trang vừa được thay đổi ở thiết bị khác. Vui lòng tải lại.'},409);
-    const updated=await db.prepare('SELECT id,page_no,title,background_type,canvas_width,canvas_height,revision FROM interactive_board_pages WHERE id=?').bind(pageId).first();
+    const updated=await db.prepare('SELECT id,page_no,title,background_type,background_image_url,canvas_width,canvas_height,revision FROM interactive_board_pages WHERE id=?').bind(pageId).first();
     try{
       const secret=String(context.env?.BOARD_REALTIME_SECRET||'').trim();
       if(secret&&context.env?.BOARD_REALTIME?.fetch){
