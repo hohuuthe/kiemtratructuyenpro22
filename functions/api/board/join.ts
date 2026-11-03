@@ -27,7 +27,7 @@ export const onRequestPost: PagesFunction = async (context: any) => {
     }
 
     const { results: pages } = await db.prepare(
-      `SELECT id,page_no,title,background_type,canvas_width,canvas_height,revision
+      `SELECT id,page_no,title,background_type,background_image_url,canvas_width,canvas_height,revision
        FROM interactive_board_pages WHERE board_id=? ORDER BY page_no ASC LIMIT 20`
     ).bind(boardId).all();
     if (!pages?.length) return boardJson({ error: 'Bảng chưa có trang hợp lệ.' }, 409);
