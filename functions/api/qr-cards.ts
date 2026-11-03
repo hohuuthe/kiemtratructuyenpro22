@@ -724,7 +724,7 @@ export const onRequestPost: PagesFunction<Env> = async (context: any) => {
 
     if (action === 'record-batch') {
       const sessionId = norm(body.sessionId);
-      const records = Array.isArray(body.records) ? body.records.slice(0, 50) : [];
+      const records = Array.isArray(body.records) ? body.records.slice(0, 80) : [];
       if (!sessionId || !records.length) return reply({ error: 'Không có đáp án ổn định để ghi nhận.' }, 400);
 
       const session: any = await db.prepare(
