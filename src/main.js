@@ -44,7 +44,7 @@ import { generateQuestionBankDocx } from './question-bank-docx-generator.ts';
 import { beginQuestionBankWordSavePicker, writeQuestionBankWordFile, createQuestionBankWordDownload } from './question-bank-word-download.js';
 import { inspectScientificDocx, WORD_IMPORT_ENGINE_VERSION } from './word-omml-reader.js';
 import { parseWordUnderlinedOptionLines, parseWordBoldOptionLines } from './word-underline-answers.js';
-import { verifyImportedWordQuestions, checkWordImportBeforeSave, correctImportedWordEquation, normalizeWordImportAnswer } from './word-import-verification.js';
+import { verifyImportedWordQuestions, checkWordImportBeforeSave, correctImportedWordEquation, normalizeWordImportAnswer, collectWordImportAnswerContinuation } from './word-import-verification.js';
 import { splitScientificContent } from './scientific-formula-tokenizer.js';
 import { buildRankingUnitOptions } from './ranking-unit-filter.js';
 import { splitLabeledScientificRecords } from './scientific-formula-records.js';
@@ -12901,6 +12901,11 @@ D. Phát biểu SAI</pre>
                         if (answerMatch) {
                             answerFound = true;
                             let ans = answerMatch[1].trim();
+                            const collectedAnswer = collectWordImportAnswerContinuation(lines, i, type, ans);
+                            ans = collectedAnswer.answer;
+                            let ansImage = collectedAnswer.answerImage;
+                            let nextIndex = collectedAnswer.nextIndex;
+
                             if (ans && (type === '4-1' || type === 'TF4')) {
                                 explicitAnswerPresent = true;
                                 if ((answerFormat === 'underline' || answerFormat === 'bold') && markedOptionsFound.length > 0 && question.answer) {
@@ -12913,13 +12918,6 @@ D. Phát biểu SAI</pre>
                                         });
                                     }
                                 }
-                            }
-                            let ansImage = '';
-                            if (lines[i].image) {
-                                ansImage = lines[i].image;
-                            } else if (i + 1 < lines.length && !lines[i+1].text && lines[i+1].image) {
-                                ansImage = lines[i+1].image;
-                                i++;
                             }
                             
                             if (answerFormat === 'default' ||
@@ -12943,7 +12941,7 @@ D. Phát biểu SAI</pre>
                                 if (!question.options) question.options = {};
                                 question.options.answerImage = ansImage;
                             }
-                            i++;
+                            i = nextIndex;
                             break;
                         }
                         

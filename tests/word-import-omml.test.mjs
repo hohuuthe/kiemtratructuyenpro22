@@ -6,7 +6,7 @@ import { Math as WordMath } from 'docx/math';
 import { makeWordMathRun } from '../src/exam-docx-generator.ts';
 import { DOMParser } from '@xmldom/xmldom';
 import { inspectScientificDocx, convertOmmlToLatex } from '../src/word-omml-reader.js';
-import { verifyImportedWordQuestions, checkWordImportBeforeSave, validateScientificLatexForImport, correctImportedWordEquation } from '../src/word-import-verification.js';
+import { verifyImportedWordQuestions, checkWordImportBeforeSave, validateScientificLatexForImport, correctImportedWordEquation, collectWordImportAnswerContinuation } from '../src/word-import-verification.js';
 
 const pre='<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" '+
     'xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math" '+
@@ -102,6 +102,29 @@ test('Chemistry and scientific units validate with Word-native editor even when 
     assert.equal(validateScientificLatexForImport('\\ce{SO4^{2-}}').ok,true);
     assert.equal(validateScientificLatexForImport('\\pu{123 kJ*mol-1}').ok,true);
     assert.equal(validateScientificLatexForImport('\\ce{H2O').ok,false);
+});
+
+test('Multiline TL answer collector retains following paragraphs and formula tokens until next question',()=>{
+    const lines=[
+        {text:'Đáp án:',image:''},
+        {text:'- Bước 1: Lập luận.',image:''},
+        {text:'- Công thức: __WMATH_000093__',image:''},
+        {text:'- Kết luận: đúng.',image:''},
+        {text:'Câu 20: [BÀI 2][TH][TL] Câu tiếp theo',image:''}
+    ];
+    const result=collectWordImportAnswerContinuation(lines,0,'TL','');
+    assert.equal(result.answer,'- Bước 1: Lập luận.\n- Công thức: __WMATH_000093__\n- Kết luận: đúng.');
+    assert.equal(result.nextIndex,4);
+    assert.match(result.answer,/__WMATH_000093__/);
+});
+test('Single-line 4-1 answer collector does not consume the next question',()=>{
+    const lines=[
+        {text:'Đáp án: B',image:''},
+        {text:'Câu 2: [BÀI 1][NB][4-1] Câu tiếp theo',image:''}
+    ];
+    const result=collectWordImportAnswerContinuation(lines,0,'4-1','B');
+    assert.equal(result.answer,'B');
+    assert.equal(result.nextIndex,1);
 });
 
 test('Malformed formulas and invalid question fields fail strict gate',()=>{
