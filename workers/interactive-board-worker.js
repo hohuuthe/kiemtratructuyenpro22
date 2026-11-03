@@ -58,7 +58,7 @@ function normalizeObject(input, actor) {
     if(!/^https:\/\//i.test(url)||url.length>2048)return null;
     return {...base,x:clamp(input.x,-20000,20000,0),y:clamp(input.y,-20000,20000,0),
       w:clamp(input.w,40,3000,640),h:clamp(input.h,40,3000,360),url,
-      z:Math.round(clamp(input.z,-10000,10000,0)),background:input.background===true,fit:input.fit==='cover'?'cover':'contain'};
+      z:clamp(input.z,-10000,10000,0),background:input.background===true,fit:input.fit==='cover'?'cover':'contain'};
   }
   return {...base,x1:clamp(input.x1,-20000,20000,0),y1:clamp(input.y1,-20000,20000,0),
     x2:clamp(input.x2,-20000,20000,0),y2:clamp(input.y2,-20000,20000,0),
