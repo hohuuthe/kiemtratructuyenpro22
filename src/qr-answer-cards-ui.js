@@ -53,6 +53,7 @@ let cameraCapabilities = {};
 let currentZoom = 1;
 let torchEnabled = false;
 let detectionMemory = new Map();
+let cameraEpoch = 0;
 
 function isMobileScannerViewport(){
   return window.matchMedia?.('(max-width: 767px)')?.matches || window.innerWidth <= 767;
@@ -82,6 +83,11 @@ function ensureScanWorker(){
       const msg=e.data||{};
       scanWorkerBusy=false;
       if(msg.type!=='decoded'||!scanActive||deviceRole!=='scanner')return;
+      if(Number(msg.cameraEpoch)!==cameraEpoch)return;
+      if(String(msg.sessionId||'')!==String(session?.id||''))return;
+      if(String(msg.questionId||'')!==String(currentQuestion()?.id||''))return;
+      if(Number(msg.stateRevision)!==Number(stateRevision))return;
+      if(collectionState!=='collecting')return;
       lastFallbackDuration=Math.max(0,Number(msg.durationMs)||0);
       const video=$('qr-card-video');
       if(!video?.videoWidth)return;
@@ -92,7 +98,7 @@ function ensureScanWorker(){
         bottomRightCorner:{x:d.location.bottomRightCorner.x*sx,y:d.location.bottomRightCorner.y*sy},
         bottomLeftCorner:{x:d.location.bottomLeftCorner.x*sx,y:d.location.bottomLeftCorner.y*sy}
       }}));
-      if(mapped.length)processDetections(mapped);
+      if(mapped.length)processDetections(mapped,Number(msg.cycle)||0);
       const merged=rememberDetections(mapped);
       drawOverlay(merged,video.videoWidth,video.videoHeight);
       updateScannerPerfBadge(merged.length);
@@ -224,6 +230,8 @@ function applyRemoteState(state){
   }
   if(changed){
     tracking.clear();
+    detectionMemory.clear();
+    lastDetections=[];
     pendingRecords.clear();
     pendingVisualAnswers.clear();
     retryCounts.clear();
@@ -942,6 +950,7 @@ async function tuneCameraTrack(track){
 }
 function stopCamera() {
   scanActive = false;
+  cameraEpoch++;
   if (scanTimer) { clearTimeout(scanTimer); scanTimer = null; }
   if (stream) {
     for (const track of stream.getTracks()) try { track.stop(); } catch {}
@@ -1050,7 +1059,7 @@ async function scanFrame() {
     scanCycle++;
     let native=[];
     native=await decodeNative(video,1,1);
-    if(native.length)processDetections(native);
+    if(native.length)processDetections(native,scanCycle);
     let detections=rememberDetections(native);
 
     // Heavy multi-scale decoding runs in a Worker so the camera/UI stays smooth.
@@ -1075,6 +1084,10 @@ async function scanFrame() {
           frameId:fallbackFrameId,
           cycle:scanCycle,
           mode:scanMode,
+          cameraEpoch,
+          sessionId:String(session.id||''),
+          questionId:String(currentQuestion()?.id||''),
+          stateRevision:Number(stateRevision)||0,
           maxCodes:Math.min(80,Math.max(32,Number(session.students?.length||50))),
           width:w,height:h,buffer:image.data.buffer
         },[image.data.buffer]);
@@ -1087,7 +1100,7 @@ async function scanFrame() {
           bottomRightCorner:{x:d.location.bottomRightCorner.x*inv,y:d.location.bottomRightCorner.y*inv},
           bottomLeftCorner:{x:d.location.bottomLeftCorner.x*inv,y:d.location.bottomLeftCorner.y*inv}
         }}));
-        if(mapped.length)processDetections(mapped);
+        if(mapped.length)processDetections(mapped,scanCycle);
         detections=rememberDetections([...native,...mapped]);
       }
     }
@@ -1102,7 +1115,7 @@ async function scanFrame() {
     scheduleScan();
   }
 }
-function processDetections(detections) {
+function processDetections(detections,observationCycle=scanCycle) {
   const q = currentQuestion();
   if (!q || !session || deviceRole!=='scanner' || collectionState!=='collecting') return;
   const validStudents = new Map((session.students || []).map(s => [String(s.card_token), s]));
@@ -1118,12 +1131,18 @@ function processDetections(detections) {
     const key = String(q.id) + '|' + String(d.cardToken);
     seen.add(key);
     const prev = tracking.get(key);
+    if(prev&&Number(prev.observationCycle||0)>=Number(observationCycle||0)){
+      if(Number(observationCycle||0)===Number(prev.observationCycle||0)){
+        tracking.set(key,{...prev,lastSeen:now,location:d.location,area:Math.max(Number(prev.area||0),area)});
+      }
+      continue;
+    }
     const gap=now-Number(prev?.lastSeen||0);
     const same=prev?.answer===orientation.answer&&gap<950;
     const hits=same?Number(prev.hits||0)+1:1;
     const confidence=Math.max(0,1-(Number(orientation.distance||0)/Math.max(1,tolerance)));
     const score=same?Number(prev.score||0)+confidence:confidence;
-    const next={answer:orientation.answer,hits,score,lastSeen:now,studentId:String(student.id),cardToken:d.cardToken,location:d.location,area};
+    const next={answer:orientation.answer,hits,score,lastSeen:now,observationCycle:Number(observationCycle)||0,studentId:String(student.id),cardToken:d.cardToken,location:d.location,area};
     tracking.set(key,next);
 
     // Large/clear cards can confirm immediately with strong orientation.
@@ -1481,5 +1500,5 @@ export function resetQrAnswerCards() {
   showMissingOnly = false;
   presenterQuestionFontSize=24;
   presenterAnswerFontSize=20;
-  scanMode='auto';cameraCapabilities={};currentZoom=1;torchEnabled=false;detectionMemory.clear();scanWorkerBusy=false;
+  scanMode='auto';cameraCapabilities={};currentZoom=1;torchEnabled=false;detectionMemory.clear();scanWorkerBusy=false;cameraEpoch++;
 }
