@@ -369,3 +369,35 @@ test('admin manages all boards while teachers manage only their own',()=>{
   assert.match(common,/ids\.has\(String\(board\.creator_id \|\| ''\)\)/);
   assert.match(common,/can_manage: Boolean\(owner\)/);
 });
+
+
+test('board classroom moderation exposes trusted identity and persistent blocks',()=>{
+  const schema=fs.readFileSync('functions/api/board/schema.ts','utf8');
+  const join=fs.readFileSync('functions/api/board/join.ts','utf8');
+  const moderation=fs.readFileSync('functions/api/board/moderation.ts','utf8');
+  const worker=fs.readFileSync('workers/interactive-board-worker.js','utf8');
+  const ui=fs.readFileSync('src/interactive-board-ui.js','utf8');
+  const tab=fs.readFileSync('public/components/tab-boards.html','utf8');
+  const router=fs.readFileSync('functions/[slug]/api/[[path]].ts','utf8');
+
+  assert.match(schema,/CREATE TABLE IF NOT EXISTS interactive_board_blocks/);
+  assert.match(join,/BOARD_USER_BLOCKED/);
+  assert.match(join,/studentClass:/);
+  assert.match(join,/studentUnit:/);
+  assert.match(moderation,/interactive_board_blocks/);
+  assert.match(moderation,/canManageBoard/);
+  assert.match(moderation,/board-user-block/);
+  assert.match(worker,/creatorName:/);
+  assert.match(worker,/creatorClass:/);
+  assert.match(worker,/creatorRole:/);
+  assert.match(worker,/studentClass:s\.studentClass/);
+  assert.match(worker,/url\.pathname==='\/internal\/board-user-block'/);
+  assert.match(worker,/type:'user_blocked'/);
+  assert.match(ui,/data-board-user-block/);
+  assert.match(ui,/loadBlockedUsers/);
+  assert.match(ui,/setPersistentBlock/);
+  assert.match(ui,/p\.role==='student'/);
+  assert.match(tab,/id="board-object-owner"/);
+  assert.match(tab,/id="board-blocked-users"/);
+  assert.match(router,/'board\/moderation': boardModeration/);
+});
