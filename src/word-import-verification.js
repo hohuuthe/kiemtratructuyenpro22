@@ -18,6 +18,32 @@ const FIELD_NAMES = ['content', 'answer'];
 const optionText = option => typeof option === 'string' ? option : String(option?.text ?? '');
 const allowedTypes = new Set(['4-1','TF4','SQ','TL']);
 const allowedLevels = new Set(['NB','TH','VD','VDC']);
+export function collectWordImportAnswerContinuation(lines,startIndex,type,initialAnswer='') {
+    const source=Array.isArray(lines)?lines:[];
+    const at=Number.isInteger(startIndex)&&startIndex>=0?startIndex:0;
+    let answer=String(initialAnswer??'').trim();
+    let answerImage=source[at]?.image||'';
+    let nextIndex=at+1;
+    const multiline=type==='TL'||(type==='SQ'&&!answer);
+    if(!multiline) {
+        if(!answerImage && nextIndex<source.length && !String(source[nextIndex]?.text||'').trim() && source[nextIndex]?.image) {
+            answerImage=source[nextIndex].image;
+            nextIndex++;
+        }
+        return {answer,answerImage,nextIndex};
+    }
+    const parts=answer?[answer]:[];
+    while(nextIndex<source.length) {
+        const text=String(source[nextIndex]?.text||'').trim();
+        const structural=text.replace(/\[\[\/?(?:U|B)\]\]/g,'').trim();
+        if(/^Câu\s*\d+[:.]?/i.test(structural)) break;
+        if(text) parts.push(text);
+        if(!answerImage && source[nextIndex]?.image) answerImage=source[nextIndex].image;
+        nextIndex++;
+    }
+    return {answer:parts.join('\n').trim(),answerImage,nextIndex};
+}
+
 /** Answer grammar used by student TF4 grading: correct statement letters joined by &. */
 export function normalizeWordImportAnswer(type, answer) {
     const raw = String(answer ?? '').trim();
