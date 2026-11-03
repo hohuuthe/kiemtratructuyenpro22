@@ -27,6 +27,7 @@ function database(){
    return {
     bind(...values:any[]){bound=values;return this},
     async first(){
+     if(sql.includes('information_schema.columns') && sql.includes("column_name='is_vip'")) return {ok:1};
      if(sql.includes('FROM accounts a'))return Object.values(accounts).find(x=>x.id===bound[0])||null;
      if(sql.includes('COUNT(*)'))return {total:records.filter(x=>bound.includes(x.user_id)).length};
      if(sql.includes('FROM results r')){
@@ -93,8 +94,10 @@ test('Legacy results endpoint denies students before shared-exam routing',()=>{
 test('Student view does not fetch bulk results and clears cross-login data',()=>{
  const src=readFileSync('src/main.js','utf8');
  const html=readFileSync('public/components/tab-ranking.html','utf8');
- assert.ok(src.includes("const resultsQuery = Promise.resolve({ data: [] });"));
- assert.ok(src.includes("const accountsQuery = Promise.resolve({ data: [] });"));
+ const loadData=src.slice(src.indexOf('async function loadData(){'),src.indexOf('let publicTeachersLoaded=false'));
+ assert.ok(loadData.includes("fetch('/api/bootstrap',{cache:'no-store'})"));
+ assert.ok(!loadData.includes("fetch('/api/results"));
+ assert.ok(!loadData.includes("fetch('/api/accounts"));
  assert.ok(src.includes("fetch('/api/results/me?limit=30&offset='"));
  assert.ok(src.includes("resetMyStudentResults();"));
  assert.ok(src.includes('visible = isTeacher || isAdmin || Boolean(currentUser)'));
