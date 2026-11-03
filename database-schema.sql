@@ -164,6 +164,7 @@ CREATE TABLE IF NOT EXISTS interactive_board_pages (
     title TEXT NOT NULL DEFAULT '',
     background_type TEXT NOT NULL DEFAULT 'white'
       CHECK (background_type IN ('white','grid','lined','dots')),
+    background_image_url TEXT NOT NULL DEFAULT '',
     canvas_width INTEGER NOT NULL DEFAULT 1600,
     canvas_height INTEGER NOT NULL DEFAULT 900,
     revision INTEGER NOT NULL DEFAULT 1,
@@ -175,6 +176,7 @@ CREATE TABLE IF NOT EXISTS interactive_board_pages (
 CREATE INDEX IF NOT EXISTS idx_ib_creator_updated ON interactive_boards(creator_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_ib_access_status ON interactive_boards(access_mode, status, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_ib_unit_status ON interactive_boards(target_donvi, status, updated_at DESC);
+ALTER TABLE interactive_board_pages ADD COLUMN IF NOT EXISTS background_image_url TEXT NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS idx_ib_pages_board ON interactive_board_pages(board_id, page_no);
 
 CREATE TABLE IF NOT EXISTS interactive_board_blocks (
