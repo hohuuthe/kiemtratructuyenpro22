@@ -7,9 +7,9 @@ export async function ensureInteractiveBoardSchema(db: any) {
 
   try {
     const existing:any = await db.prepare(
-      "SELECT to_regclass('public.interactive_boards') AS boards, to_regclass('public.interactive_board_pages') AS pages, to_regclass('public.interactive_board_blocks') AS blocks"
+      "SELECT to_regclass('public.interactive_boards') AS boards, to_regclass('public.interactive_board_pages') AS pages, to_regclass('public.interactive_board_blocks') AS blocks, EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='interactive_board_pages' AND column_name='background_image_url') AS has_background_image"
     ).first();
-    if (existing?.boards && existing?.pages && existing?.blocks) {
+    if (existing?.boards && existing?.pages && existing?.blocks && existing?.has_background_image) {
       initialized.add(key);
       return;
     }
