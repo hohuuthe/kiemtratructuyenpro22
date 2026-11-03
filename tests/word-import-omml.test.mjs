@@ -343,6 +343,12 @@ test('Group arrows are not braces, and semantic properties without a faithful ma
         '</m:borderBoxPr>'+mathArg('e','x')+'</m:borderBox>')),'\\boxed{x}');
 });
 
+test('Real set-difference glyph from Word corpus maps to setminus',()=>{
+    const latex=convertOmmlToLatex(parsedMath(mathRun('B∖A={2;4}')));
+    assert.equal(latex,'B\\setminus{}A=\\{2;4\\}');
+    assert.equal(validateScientificLatexForImport(latex).ok,true);
+});
+
 test('Adjacent Unicode symbols do not become different LaTeX command names',()=>{
     assert.equal(convertOmmlToLatex(parsedMath(mathRun('αx'))),'\\alpha{}x');
     const latex=convertOmmlToLatex(parsedMath(mathRun('α')+mathRun('x')));
