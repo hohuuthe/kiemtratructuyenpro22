@@ -38,11 +38,11 @@ function normalizePoints(points) {
     ? [Math.round(clamp(p[0],-20000,20000,0)),Math.round(clamp(p[1],-20000,20000,0))]
     : null).filter(Boolean);
 }
-function normalizeObject(input, actorId) {
+function normalizeObject(input, actor) {
   if (!input || typeof input !== 'object') return null;
   const id=safeId(input.id), pageId=safeId(input.pageId), type=String(input.type||'');
   if (!id || !pageId || !['stroke','text','note','rect','ellipse','line','arrow'].includes(type)) return null;
-  const base={id,pageId,type,creatorId:actorId,updatedAt:Date.now()};
+  const base={id,pageId,type,creatorId:String(actor?.userId||''),creatorName:String(actor?.displayName||'Người dùng').slice(0,100),creatorClass:String(actor?.studentClass||'').slice(0,100),creatorUnit:String(actor?.studentUnit||'').slice(0,180),updatedAt:Date.now()};
   if (type==='stroke') {
     const points=normalizePoints(input.points).slice(0,1600);
     if (points.length<2) return null;
@@ -83,7 +83,7 @@ export default {
         return new Response(JSON.stringify({ok:true,service:'interactive-board-realtime',durable_object:true}),{headers:{'Content-Type':'application/json','Cache-Control':'no-store'}});
       }catch{return new Response('Durable Object unavailable',{status:503});}
     }
-    if (request.method==='POST' && (url.pathname==='/internal/board-reset' || url.pathname==='/internal/board-policy' || url.pathname==='/internal/board-page-reset' || url.pathname==='/internal/board-page-created' || url.pathname==='/internal/board-page-updated')) {
+    if (request.method==='POST' && (url.pathname==='/internal/board-reset' || url.pathname==='/internal/board-policy' || url.pathname==='/internal/board-page-reset' || url.pathname==='/internal/board-page-created' || url.pathname==='/internal/board-page-updated' || url.pathname==='/internal/board-user-block')) {
       const secret=String(env.BOARD_REALTIME_SECRET || '');
       if (!secret || !secureEqualString(request.headers.get('X-Board-Internal-Secret'),secret)) {
         return new Response('Unauthorized',{status:401});
@@ -95,6 +95,14 @@ export default {
       const stub=env.BOARD_ROOM.get(env.BOARD_ROOM.idFromName(roomName));
       if(url.pathname==='/internal/board-reset'){
         return stub.fetch(new Request('https://board.internal/reset',{method:'POST',headers:{'X-Board-Internal-Secret':secret}}));
+      }
+      if(url.pathname==='/internal/board-user-block'){
+        const targetUserId=safeId(body?.targetUserId);
+        if(!targetUserId)return new Response('Invalid user',{status:400});
+        return stub.fetch(new Request('https://board.internal/user-block',{
+          method:'POST',headers:{'Content-Type':'application/json','X-Board-Internal-Secret':secret},
+          body:JSON.stringify({targetUserId,blocked:body?.blocked===true})
+        }));
       }
       if(url.pathname==='/internal/board-page-updated'){
         const page=body?.page;
@@ -174,6 +182,21 @@ export class BoardRoom {
       return new Response(JSON.stringify({pageId,objects}),{
         headers:{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}
       });
+    }
+    if(request.method==='POST'&&url.pathname==='/user-block'){
+      const secret=String(this.env.BOARD_REALTIME_SECRET || '');
+      if(!secret||!secureEqualString(request.headers.get('X-Board-Internal-Secret'),secret))return new Response('Unauthorized',{status:401});
+      let body;try{body=await request.json();}catch{return new Response('Invalid JSON',{status:400});}
+      const targetUserId=safeId(body?.targetUserId),blocked=body?.blocked===true;
+      if(!targetUserId)return new Response('Invalid user',{status:400});
+      if(blocked){
+        for(const socket of this.ctx.getWebSockets()){
+          const s=stateOf(socket);if(s.userId!==targetUserId)continue;
+          try{socket.send(JSON.stringify({type:'user_blocked'}));socket.close(4006,'Blocked from board')}catch{}
+        }
+        this.broadcast({type:'presence',participants:this.participants()});
+      }
+      return new Response('OK');
     }
     if(request.method==='POST'&&url.pathname==='/page-updated'){
       const secret=String(this.env.BOARD_REALTIME_SECRET || '');
@@ -265,6 +288,8 @@ export class BoardRoom {
       displayName:String(claims.displayName||'Người dùng').slice(0,100),
       role:String(claims.role||'student'),
       displayRole:String(claims.displayRole||'student'),
+      studentClass:String(claims.studentClass||'').slice(0,100),
+      studentUnit:String(claims.studentUnit||'').slice(0,180),
       permission:String(claims.permission||'view'),
       blocked:userLocked,
       allowedPages,
@@ -308,7 +333,7 @@ export class BoardRoom {
       if(s.tokenExp&&now>=Number(s.tokenExp)){try{ws.close(4001,'Token expired')}catch{};continue;}
       if (!seen.has(s.userId)) seen.set(s.userId,{
         userId:s.userId,displayName:s.displayName||'Người dùng',role:s.displayRole||'student',
-        blocked:Boolean(s.blocked),pageId:s.pageId||''
+        blocked:Boolean(s.blocked),pageId:s.pageId||'',studentClass:s.studentClass||'',studentUnit:s.studentUnit||''
       });
     }
     return [...seen.values()].slice(0,120);
@@ -433,7 +458,7 @@ export class BoardRoom {
         continue;
       }
       if (kind==='put') {
-        const object=normalizeObject(raw.object,actor.userId);
+        const object=normalizeObject(raw.object,actor);
         if (!object || object.pageId!==actor.pageId) continue;
         if (object.type==='text'||object.type==='note') { if (!canComment) {resyncRequired=true;continue;} }
         else if (!canDraw) {resyncRequired=true;continue;}
