@@ -82,7 +82,7 @@ test('Export Word UI keeps download reachable after async generation and avoids 
     const firstAwait = handler.indexOf('await loadVerifiedQuestionBankWordInventory()');
     assert.ok(picker >= 0 && picker < firstAwait, 'Save picker must start inside the click gesture');
     for (const expected of [
-        'await writeQuestionBankWordFile(choice.handle, blob)',
+        'await writeQuestionBankWordFile(choice.handle, outputBlob)',
         'downloadPanel.appendChild(wordDownload.link)',
         'bankWordDownloadReleases.push(wordDownload.release)',
         'signature[0] !== 0x50',
