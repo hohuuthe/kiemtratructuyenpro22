@@ -444,6 +444,7 @@ test('board images support proportional resize handles and realtime image layeri
   assert.match(ui,/function imageResizeHandles/);
   assert.match(ui,/function hitImageResizeHandle/);
   assert.match(ui,/resizeState/);
+  assert.match(ui,/drawing=null;dragState=null;resizeState=null;/);
   assert.match(ui,/aspect:/);
   assert.match(ui,/sortImagesForLayer/);
   assert.match(ui,/function reorderSelectedImage/);
