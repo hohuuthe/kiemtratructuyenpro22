@@ -68,7 +68,7 @@ test('printed cards expose identity and A/B/C/D while QR payload stays tokenized
   assert.doesNotMatch(ui,/buildQrCardPayload\(s\.full_name/);
   assert.match(ui,/getUserMedia/);
   assert.match(ui,/decodeMultiple/);
-  assert.match(ui,/hits >= 2/);
+  assert.match(ui,/hits>=2/);
   assert.match(ui,/action\s*:\s*['"]record-batch['"]/);
   assert.match(ui,/action\s*:\s*['"]finalize['"]/);
   assert.match(ui,/async function flushAllPending/);
@@ -246,19 +246,24 @@ test('phone persistence uses durable ACK queue and presenter shows only server-s
 
 test('long-range scanner uses hybrid native multi-QR and high-resolution tiled fallback',()=>{
   const ui=fs.readFileSync('src/qr-answer-cards-ui.js','utf8');
+  const worker=fs.readFileSync('src/qr-scan-worker.js','utf8');
   const orientation=fs.readFileSync('src/qr-card-orientation.js','utf8');
 
   assert.match(ui,/BarcodeDetector/);
   assert.match(ui,/new window\.BarcodeDetector\(\{formats:\['qr_code'\]\}\)/);
   assert.match(ui,/decodeJsQrTiles/);
-  assert.match(ui,/cols=imageData\.width>=1200\?3:2/);
-  assert.match(ui,/upscale=imageData\.width>=1400\?1\.8:1\.45/);
-  assert.match(ui,/perFrame=nativeQrSupported\?3:Math\.min\(total,6\)/);
-  assert.match(ui,/targetW=nativeQrSupported\?1600:1920/);
+  assert.match(ui,/new Worker\(new URL\('\.\/qr-scan-worker\.js',import\.meta\.url\)/);
+  assert.match(ui,/scanMode==='far'/);
+  assert.match(ui,/targetW=scanMode==='far'\?Math\.min\(2200,video\.videoWidth\)/);
+  assert.match(worker,/cols=far\?\(width>=1500\?4:3\)/);
+  assert.match(worker,/overlap=far\?\.28:\.20/);
+  assert.match(worker,/upscale=far\?\(width>=1500\?2\.35:2\.05\)/);
   assert.match(ui,/width:\{ideal:2560\}/);
   assert.match(ui,/width:\{ideal:1920\}/);
   assert.match(ui,/width:\{ideal:1280\}/);
   assert.match(ui,/focusMode:'continuous'/);
+  assert.match(ui,/applyCameraZoom/);
+  assert.match(ui,/toggleTorch/);
   assert.match(ui,/errorCorrectionLevel: 'M'/);
   assert.match(ui,/margin: 4/);
   assert.match(ui,/width: 640/);
@@ -376,4 +381,69 @@ test('QR presenter removes waiting badges, keeps one-line names, uses student MC
   assert.match(css,/\.qr-presenter-student-name \{[\s\S]*white-space:nowrap/);
   assert.match(css,/\.qr-presenter-option-content \{[\s\S]*font-size:var\(--qr-presenter-a-size\)/);
   assert.match(css,/\.qr-presenter-option-label \{[\s\S]*display:inline/);
+});
+
+
+test('professional classroom scanner runs heavy decoding off the UI thread',()=>{
+  const ui=fs.readFileSync('src/qr-answer-cards-ui.js','utf8');
+  const worker=fs.readFileSync('src/qr-scan-worker.js','utf8');
+  const html=fs.readFileSync('public/components/tab-qr-cards.html','utf8');
+  const css=fs.readFileSync('src/style.css','utf8');
+  const api=fs.readFileSync('functions/api/qr-cards.ts','utf8');
+
+  assert.match(ui,/new Worker\(new URL\('\.\/qr-scan-worker\.js',import\.meta\.url\)/);
+  assert.match(ui,/scanWorkerBusy/);
+  assert.match(ui,/rememberDetections/);
+  assert.match(ui,/detectionMemory/);
+  assert.match(ui,/if\(mapped\.length\)processDetections\(mapped,Number\(msg\.cycle\)\|\|0\)/);
+  assert.match(ui,/if\(native\.length\)processDetections\(native,scanCycle\)/);
+  assert.doesNotMatch(ui,/processDetections\(rememberDetections/);
+  assert.match(ui,/prev&&Number\(prev\.observationCycle\|\|0\)>=Number\(observationCycle\|\|0\)/);
+  assert.match(ui,/Number\(msg\.cameraEpoch\)!==cameraEpoch/);
+  assert.match(ui,/String\(msg\.questionId\|\|''\)!==String\(currentQuestion\(\)\?\.id\|\|''\)/);
+  assert.match(ui,/Number\(msg\.stateRevision\)!==Number\(stateRevision\)/);
+  assert.match(ui,/scanMode==='far'/);
+  assert.match(ui,/applyCameraZoom/);
+  assert.match(ui,/toggleTorch/);
+  assert.match(ui,/cameraCapabilities/);
+  assert.match(ui,/area>=9000&&confidence>=\.82/);
+  assert.match(ui,/hits>=2\|\|score>=1\.55/);
+
+  assert.match(worker,/cols=far\?\(width>=1500\?4:3\)/);
+  assert.match(worker,/overlap=far\?\.28:\.20/);
+  assert.match(worker,/upscale=far\?\(width>=1500\?2\.35:2\.05\)/);
+  assert.match(worker,/inversion=cycle%5===0\?'attemptBoth':'dontInvert'/);
+  assert.match(worker,/maxCodes/);
+  assert.match(worker,/cameraEpoch:msg\.cameraEpoch/);
+  assert.match(worker,/sessionId:msg\.sessionId/);
+  assert.match(worker,/questionId:msg\.questionId/);
+  assert.match(worker,/stateRevision:msg\.stateRevision/);
+
+  assert.match(html,/id="qr-card-mode-auto"/);
+  assert.match(html,/id="qr-card-mode-far"/);
+  assert.match(html,/id="qr-card-torch"/);
+  assert.match(html,/id="qr-card-zoom"/);
+  assert.match(css,/\.qr-camera-smart-tools/);
+  assert.match(css,/\.qr-camera-mode-buttons/);
+  assert.match(api,/body\.records\) \? body\.records\.slice\(0, 80\)/);
+});
+
+
+test('QR release checks and workflow include the decoder worker',()=>{
+  const pkg=JSON.parse(fs.readFileSync('package.json','utf8'));
+  const workflow=fs.readFileSync('.github/workflows/qr-answer-cards.yml','utf8');
+  assert.match(pkg.scripts['release:qr-cards:check'],/node --check src\/qr-scan-worker\.js/);
+  assert.match(workflow,/src\/qr-scan-worker\.js/);
+});
+
+test('stale worker frames cannot cross camera sessions or question revisions',()=>{
+  const ui=fs.readFileSync('src/qr-answer-cards-ui.js','utf8');
+  assert.match(ui,/cameraEpoch\+\+/);
+  assert.match(ui,/cameraEpoch,/);
+  assert.match(ui,/sessionId:String\(session\.id\|\|''\)/);
+  assert.match(ui,/questionId:String\(currentQuestion\(\)\?\.id\|\|''\)/);
+  assert.match(ui,/stateRevision:Number\(stateRevision\)\|\|0/);
+  assert.match(ui,/Number\(msg\.cameraEpoch\)!==cameraEpoch/);
+  assert.match(ui,/String\(msg\.sessionId\|\|''\)!==String\(session\?\.id\|\|''\)/);
+  assert.match(ui,/collectionState!=='collecting'\)return/);
 });

@@ -44,9 +44,110 @@ let tileCanvas = null;
 let tileCtx = null;
 let presenterQuestionFontSize = 24;
 let presenterAnswerFontSize = 20;
+let scanWorker = null;
+let scanWorkerBusy = false;
+let fallbackFrameId = 0;
+let lastFallbackDuration = 0;
+let scanMode = 'auto';
+let cameraCapabilities = {};
+let currentZoom = 1;
+let torchEnabled = false;
+let detectionMemory = new Map();
+let cameraEpoch = 0;
 
 function isMobileScannerViewport(){
   return window.matchMedia?.('(max-width: 767px)')?.matches || window.innerWidth <= 767;
+}
+function detectionArea(location){
+  if(!location)return 0;
+  const a=location.topLeftCorner,b=location.topRightCorner,d=location.bottomLeftCorner;
+  if(!a||!b||!d)return 0;
+  return Math.abs((b.x-a.x)*(d.y-a.y)-(b.y-a.y)*(d.x-a.x));
+}
+function rememberDetections(items,ttl=520){
+  const now=performance.now();
+  for(const d of items||[])if(d?.cardToken)detectionMemory.set(String(d.cardToken),{d,at:now});
+  for(const [key,value] of detectionMemory)if(now-Number(value.at||0)>ttl)detectionMemory.delete(key);
+  return dedupeDetections([...detectionMemory.values()].map(x=>x.d));
+}
+function scanRemainingCount(){
+  const q=currentQuestion();
+  const saved=q?answersForQuestion(q.id).size:0;
+  return Math.max(0,Number(session?.students?.length||0)-saved);
+}
+function ensureScanWorker(){
+  if(scanWorker)return scanWorker;
+  try{
+    scanWorker=new Worker(new URL('./qr-scan-worker.js',import.meta.url),{type:'module'});
+    scanWorker.onmessage=e=>{
+      const msg=e.data||{};
+      scanWorkerBusy=false;
+      if(msg.type!=='decoded'||!scanActive||deviceRole!=='scanner')return;
+      if(Number(msg.cameraEpoch)!==cameraEpoch)return;
+      if(String(msg.sessionId||'')!==String(session?.id||''))return;
+      if(String(msg.questionId||'')!==String(currentQuestion()?.id||''))return;
+      if(Number(msg.stateRevision)!==Number(stateRevision))return;
+      if(collectionState!=='collecting')return;
+      lastFallbackDuration=Math.max(0,Number(msg.durationMs)||0);
+      const video=$('qr-card-video');
+      if(!video?.videoWidth)return;
+      const sx=video.videoWidth/Math.max(1,Number(msg.width)||1),sy=video.videoHeight/Math.max(1,Number(msg.height)||1);
+      const mapped=(msg.detections||[]).map(d=>({...d,location:{
+        topLeftCorner:{x:d.location.topLeftCorner.x*sx,y:d.location.topLeftCorner.y*sy},
+        topRightCorner:{x:d.location.topRightCorner.x*sx,y:d.location.topRightCorner.y*sy},
+        bottomRightCorner:{x:d.location.bottomRightCorner.x*sx,y:d.location.bottomRightCorner.y*sy},
+        bottomLeftCorner:{x:d.location.bottomLeftCorner.x*sx,y:d.location.bottomLeftCorner.y*sy}
+      }}));
+      if(mapped.length)processDetections(mapped,Number(msg.cycle)||0);
+      const merged=rememberDetections(mapped);
+      drawOverlay(merged,video.videoWidth,video.videoHeight);
+      updateScannerPerfBadge(merged.length);
+    };
+    scanWorker.onerror=()=>{scanWorkerBusy=false;try{scanWorker?.terminate();}catch{}scanWorker=null;};
+  }catch{scanWorker=null;}
+  return scanWorker;
+}
+function updateScannerPerfBadge(count=0){
+  const el=$('qr-card-fps-status');if(!el)return;
+  const video=$('qr-card-video'),settings=cameraTrack?.getSettings?.()||{};
+  const width=Number(settings.width||video?.videoWidth||0),height=Number(settings.height||video?.videoHeight||0);
+  const engine=nativeQrSupported?'Hybrid':'jsQR';
+  const ms=Math.round(Math.max(lastFrameDuration,lastFallbackDuration)||0);
+  el.textContent=count+' thẻ · '+engine+(ms?' · '+ms+'ms':'')+(width&&height?' · '+width+'×'+height:'')+(currentZoom>1.01?' · '+currentZoom.toFixed(1)+'×':'');
+}
+function setScanMode(mode){
+  scanMode=mode==='far'?'far':'auto';
+  $('qr-card-mode-auto')?.classList.toggle('is-active',scanMode==='auto');
+  $('qr-card-mode-far')?.classList.toggle('is-active',scanMode==='far');
+  if(scanMode==='far'&&cameraCapabilities?.zoom?.max){
+    const min=Number(cameraCapabilities.zoom.min||1),max=Number(cameraCapabilities.zoom.max||1);
+    const target=Math.min(max,Math.max(min,1.45));
+    void applyCameraZoom(target);
+  }else if(scanMode==='auto'&&cameraCapabilities?.zoom?.min){
+    void applyCameraZoom(Math.max(1,Number(cameraCapabilities.zoom.min||1)));
+  }
+}
+async function applyCameraZoom(value){
+  if(!cameraTrack||!cameraCapabilities?.zoom)return;
+  const cap=cameraCapabilities.zoom,min=Number(cap.min||1),max=Number(cap.max||1);
+  const next=Math.max(min,Math.min(max,Number(value)||min));
+  try{
+    await cameraTrack.applyConstraints({advanced:[{zoom:next}]});
+    currentZoom=Number(cameraTrack.getSettings?.().zoom||next);
+    const slider=$('qr-card-zoom'),label=$('qr-card-zoom-value');
+    if(slider)slider.value=String(currentZoom);
+    if(label)label.textContent=currentZoom.toFixed(1)+'×';
+    updateScannerPerfBadge(lastDetections.length);
+  }catch{}
+}
+async function toggleTorch(){
+  if(!cameraTrack||!cameraCapabilities?.torch)return;
+  try{
+    torchEnabled=!torchEnabled;
+    await cameraTrack.applyConstraints({advanced:[{torch:torchEnabled}]});
+    const btn=$('qr-card-torch');
+    if(btn){btn.classList.toggle('is-active',torchEnabled);btn.textContent=torchEnabled?'🔦 Đèn bật':'🔦 Đèn';}
+  }catch{torchEnabled=false;}
 }
 function applyMobileScannerMode(){
   mobileScannerMode=isMobileScannerViewport();
@@ -129,6 +230,8 @@ function applyRemoteState(state){
   }
   if(changed){
     tracking.clear();
+    detectionMemory.clear();
+    lastDetections=[];
     pendingRecords.clear();
     pendingVisualAnswers.clear();
     retryCounts.clear();
@@ -827,21 +930,35 @@ async function tuneCameraTrack(track){
   if(!track)return;
   try{
     const caps=track.getCapabilities?.()||{};
+    cameraCapabilities=caps||{};
     const advanced=[];
     if(Array.isArray(caps.focusMode)&&caps.focusMode.includes('continuous'))advanced.push({focusMode:'continuous'});
     if(caps.exposureMode&&Array.isArray(caps.exposureMode)&&caps.exposureMode.includes('continuous'))advanced.push({exposureMode:'continuous'});
     if(caps.whiteBalanceMode&&Array.isArray(caps.whiteBalanceMode)&&caps.whiteBalanceMode.includes('continuous'))advanced.push({whiteBalanceMode:'continuous'});
     if(advanced.length)await track.applyConstraints({advanced});
+    const zoomWrap=$('qr-card-zoom-wrap'),zoom=$('qr-card-zoom'),torch=$('qr-card-torch'),tools=$('qr-camera-smart-tools');
+    tools?.classList.remove('hidden');
+    if(caps.zoom&&zoom&&zoomWrap){
+      const min=Math.max(1,Number(caps.zoom.min||1)),max=Math.max(min,Number(caps.zoom.max||min)),step=Math.max(.05,Number(caps.zoom.step||.1));
+      zoom.min=String(min);zoom.max=String(max);zoom.step=String(step);
+      currentZoom=Number(track.getSettings?.().zoom||min);
+      zoom.value=String(currentZoom);$('qr-card-zoom-value').textContent=currentZoom.toFixed(1)+'×';
+      zoomWrap.classList.remove('hidden');
+    }else zoomWrap?.classList.add('hidden');
+    if(caps.torch)torch?.classList.remove('hidden');else torch?.classList.add('hidden');
   }catch{}
 }
 function stopCamera() {
   scanActive = false;
+  cameraEpoch++;
   if (scanTimer) { clearTimeout(scanTimer); scanTimer = null; }
   if (stream) {
     for (const track of stream.getTracks()) try { track.stop(); } catch {}
     stream = null;
   }
   cameraTrack=null;
+  cameraCapabilities={};currentZoom=1;torchEnabled=false;detectionMemory.clear();scanWorkerBusy=false;
+  const tools=$('qr-camera-smart-tools');tools?.classList.add('hidden');
   const video = $('qr-card-video');
   if (video) video.srcObject = null;
   $('qr-card-stop-camera')?.classList.add('hidden');
@@ -880,6 +997,8 @@ async function openCamera() {
     video.srcObject = stream;
     await video.play();
     scanActive = true;
+    ensureScanWorker();
+    setScanMode(scanMode);
     $('qr-card-stop-camera')?.classList.remove('hidden');
     if(mobileScannerMode)$('qr-card-stop-camera-mobile')?.classList.remove('hidden');
     $('qr-card-camera-empty')?.classList.add('hidden');
@@ -938,44 +1057,56 @@ async function scanFrame() {
   const started=performance.now();
   try{
     scanCycle++;
-    let detections=[];
+    let native=[];
+    native=await decodeNative(video,1,1);
+    if(native.length)processDetections(native,scanCycle);
+    let detections=rememberDetections(native);
 
-    // Fast path: browser-native detector can return multiple QR codes in one pass.
-    detections=await decodeNative(video,1,1);
-
-    // Fallback / enrichment pass: high-resolution jsQR full frame + overlapping upscaled tiles.
-    // Run every frame if native found nothing, otherwise every 3rd frame to catch codes native missed.
-    if(!detections.length || scanCycle%3===0){
-      const targetW=nativeQrSupported?1600:1920;
+    // Heavy multi-scale decoding runs in a Worker so the camera/UI stays smooth.
+    // Run more aggressively in Far mode or while students are still missing.
+    const remaining=scanRemainingCount();
+    const needFallback=scanMode==='far'||!native.length||remaining>Math.max(4,Math.floor((session.students?.length||0)*.12))||scanCycle%3===0;
+    if(needFallback&&!scanWorkerBusy){
+      const targetW=scanMode==='far'?Math.min(2200,video.videoWidth):(nativeQrSupported?1600:1920);
       const scale=Math.min(1,targetW/video.videoWidth);
-      const w=Math.max(640,Math.round(video.videoWidth*scale));
-      const h=Math.max(360,Math.round(video.videoHeight*scale));
+      const w=Math.max(720,Math.round(video.videoWidth*scale));
+      const h=Math.max(405,Math.round(video.videoHeight*scale));
       ensureOffscreen(w,h);
       offctx.imageSmoothingEnabled=false;
       offctx.drawImage(video,0,0,w,h);
       const image=offctx.getImageData(0,0,w,h);
-      const js=decodeJsQrTiles(offscreen,image,40);
-      // Map jsQR coordinates to original video coordinate space so overlay remains correct.
-      const inv=1/scale;
-      const mapped=js.map(d=>({
-        ...d,
-        location:{
+      const worker=ensureScanWorker();
+      if(worker){
+        scanWorkerBusy=true;
+        fallbackFrameId++;
+        worker.postMessage({
+          type:'decode',
+          frameId:fallbackFrameId,
+          cycle:scanCycle,
+          mode:scanMode,
+          cameraEpoch,
+          sessionId:String(session.id||''),
+          questionId:String(currentQuestion()?.id||''),
+          stateRevision:Number(stateRevision)||0,
+          maxCodes:Math.min(80,Math.max(32,Number(session.students?.length||50))),
+          width:w,height:h,buffer:image.data.buffer
+        },[image.data.buffer]);
+      }else{
+        const js=decodeJsQrTiles(offscreen,image,50);
+        const inv=1/scale;
+        const mapped=js.map(d=>({...d,location:{
           topLeftCorner:{x:d.location.topLeftCorner.x*inv,y:d.location.topLeftCorner.y*inv},
           topRightCorner:{x:d.location.topRightCorner.x*inv,y:d.location.topRightCorner.y*inv},
           bottomRightCorner:{x:d.location.bottomRightCorner.x*inv,y:d.location.bottomRightCorner.y*inv},
           bottomLeftCorner:{x:d.location.bottomLeftCorner.x*inv,y:d.location.bottomLeftCorner.y*inv}
-        }
-      }));
-      detections=dedupeDetections([...detections,...mapped]).slice(0,50);
+        }}));
+        if(mapped.length)processDetections(mapped,scanCycle);
+        detections=rememberDetections([...native,...mapped]);
+      }
     }
-
     lastDetections=detections;
-    processDetections(detections);
     drawOverlay(detections,video.videoWidth,video.videoHeight);
-    if($('qr-card-fps-status')){
-      const engine=nativeQrSupported?'Hybrid':'Multi-region';
-      $('qr-card-fps-status').textContent=detections.length+' thẻ · '+engine;
-    }
+    updateScannerPerfBadge(detections.length);
   }catch(e){
     console.warn('QR scan frame error',e);
   }finally{
@@ -984,7 +1115,7 @@ async function scanFrame() {
     scheduleScan();
   }
 }
-function processDetections(detections) {
+function processDetections(detections,observationCycle=scanCycle) {
   const q = currentQuestion();
   if (!q || !session || deviceRole!=='scanner' || collectionState!=='collecting') return;
   const validStudents = new Map((session.students || []).map(s => [String(s.card_token), s]));
@@ -993,20 +1124,35 @@ function processDetections(detections) {
   for (const d of detections) {
     const student = validStudents.get(String(d.cardToken));
     if (!student) continue;
-    const orientation = answerFromQrLocation(d.location);
+    const area=detectionArea(d.location);
+    const tolerance=area<1800?40:(area<5000?38:34);
+    const orientation = answerFromQrLocation(d.location,tolerance);
     if (!orientation) continue;
     const key = String(q.id) + '|' + String(d.cardToken);
     seen.add(key);
     const prev = tracking.get(key);
-    const same = prev?.answer === orientation.answer && now - Number(prev?.lastSeen || 0) < 1200;
-    const hits = same ? Number(prev.hits || 0) + 1 : 1;
-    const next = { answer: orientation.answer, hits, lastSeen: now, studentId: String(student.id), cardToken: d.cardToken, location: d.location };
-    tracking.set(key, next);
-    // Two consistent observations are enough for responsiveness; server still receives stableHits.
-    if (hits >= 2) acceptStableAnswer(q.id, student, orientation.answer, hits);
+    if(prev&&Number(prev.observationCycle||0)>=Number(observationCycle||0)){
+      if(Number(observationCycle||0)===Number(prev.observationCycle||0)){
+        tracking.set(key,{...prev,lastSeen:now,location:d.location,area:Math.max(Number(prev.area||0),area)});
+      }
+      continue;
+    }
+    const gap=now-Number(prev?.lastSeen||0);
+    const same=prev?.answer===orientation.answer&&gap<950;
+    const hits=same?Number(prev.hits||0)+1:1;
+    const confidence=Math.max(0,1-(Number(orientation.distance||0)/Math.max(1,tolerance)));
+    const score=same?Number(prev.score||0)+confidence:confidence;
+    const next={answer:orientation.answer,hits,score,lastSeen:now,observationCycle:Number(observationCycle)||0,studentId:String(student.id),cardToken:d.cardToken,location:d.location,area};
+    tracking.set(key,next);
+
+    // Large/clear cards can confirm immediately with strong orientation.
+    // Small/far cards need two observations or accumulated confidence to avoid answer flips.
+    const instant=area>=9000&&confidence>=.82;
+    const stable=instant||hits>=2||score>=1.55;
+    if(stable)acceptStableAnswer(q.id,student,orientation.answer,Math.max(3,hits));
   }
   for (const [key, value] of tracking) {
-    if (!seen.has(key) && now - Number(value.lastSeen || 0) > 1200) tracking.delete(key);
+    if (!seen.has(key) && now - Number(value.lastSeen || 0) > 900) tracking.delete(key);
   }
 }
 function acceptStableAnswer(questionId, student, answer, hits) {
@@ -1279,6 +1425,10 @@ function bind() {
   $('qr-card-open-camera')?.addEventListener('click', openCamera);
   $('qr-card-stop-camera')?.addEventListener('click', stopCamera);
   $('qr-card-switch-camera')?.addEventListener('click', async () => { cameraFacing = cameraFacing === 'environment' ? 'user' : 'environment'; await openCamera(); });
+  $('qr-card-mode-auto')?.addEventListener('click',()=>setScanMode('auto'));
+  $('qr-card-mode-far')?.addEventListener('click',()=>setScanMode('far'));
+  $('qr-card-torch')?.addEventListener('click',toggleTorch);
+  $('qr-card-zoom')?.addEventListener('input',e=>applyCameraZoom(e.target.value));
   $('qr-card-stop-camera-mobile')?.addEventListener('click',stopCamera);
   $('qr-card-show-missing')?.addEventListener('click', () => {
     showMissingOnly = !showMissingOnly;
@@ -1350,4 +1500,5 @@ export function resetQrAnswerCards() {
   showMissingOnly = false;
   presenterQuestionFontSize=24;
   presenterAnswerFontSize=20;
+  scanMode='auto';cameraCapabilities={};currentZoom=1;torchEnabled=false;detectionMemory.clear();scanWorkerBusy=false;cameraEpoch++;
 }
