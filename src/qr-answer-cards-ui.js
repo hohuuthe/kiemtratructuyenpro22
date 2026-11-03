@@ -922,11 +922,22 @@ async function tuneCameraTrack(track){
   if(!track)return;
   try{
     const caps=track.getCapabilities?.()||{};
+    cameraCapabilities=caps||{};
     const advanced=[];
     if(Array.isArray(caps.focusMode)&&caps.focusMode.includes('continuous'))advanced.push({focusMode:'continuous'});
     if(caps.exposureMode&&Array.isArray(caps.exposureMode)&&caps.exposureMode.includes('continuous'))advanced.push({exposureMode:'continuous'});
     if(caps.whiteBalanceMode&&Array.isArray(caps.whiteBalanceMode)&&caps.whiteBalanceMode.includes('continuous'))advanced.push({whiteBalanceMode:'continuous'});
     if(advanced.length)await track.applyConstraints({advanced});
+    const zoomWrap=$('qr-card-zoom-wrap'),zoom=$('qr-card-zoom'),torch=$('qr-card-torch'),tools=$('qr-camera-smart-tools');
+    tools?.classList.remove('hidden');
+    if(caps.zoom&&zoom&&zoomWrap){
+      const min=Math.max(1,Number(caps.zoom.min||1)),max=Math.max(min,Number(caps.zoom.max||min)),step=Math.max(.05,Number(caps.zoom.step||.1));
+      zoom.min=String(min);zoom.max=String(max);zoom.step=String(step);
+      currentZoom=Number(track.getSettings?.().zoom||min);
+      zoom.value=String(currentZoom);$('qr-card-zoom-value').textContent=currentZoom.toFixed(1)+'×';
+      zoomWrap.classList.remove('hidden');
+    }else zoomWrap?.classList.add('hidden');
+    if(caps.torch)torch?.classList.remove('hidden');else torch?.classList.add('hidden');
   }catch{}
 }
 function stopCamera() {
@@ -937,6 +948,8 @@ function stopCamera() {
     stream = null;
   }
   cameraTrack=null;
+  cameraCapabilities={};currentZoom=1;torchEnabled=false;detectionMemory.clear();scanWorkerBusy=false;
+  const tools=$('qr-camera-smart-tools');tools?.classList.add('hidden');
   const video = $('qr-card-video');
   if (video) video.srcObject = null;
   $('qr-card-stop-camera')?.classList.add('hidden');
@@ -975,6 +988,8 @@ async function openCamera() {
     video.srcObject = stream;
     await video.play();
     scanActive = true;
+    ensureScanWorker();
+    setScanMode(scanMode);
     $('qr-card-stop-camera')?.classList.remove('hidden');
     if(mobileScannerMode)$('qr-card-stop-camera-mobile')?.classList.remove('hidden');
     $('qr-card-camera-empty')?.classList.add('hidden');
@@ -1033,44 +1048,51 @@ async function scanFrame() {
   const started=performance.now();
   try{
     scanCycle++;
-    let detections=[];
+    let native=[];
+    native=await decodeNative(video,1,1);
+    let detections=rememberDetections(native);
 
-    // Fast path: browser-native detector can return multiple QR codes in one pass.
-    detections=await decodeNative(video,1,1);
-
-    // Fallback / enrichment pass: high-resolution jsQR full frame + overlapping upscaled tiles.
-    // Run every frame if native found nothing, otherwise every 3rd frame to catch codes native missed.
-    if(!detections.length || scanCycle%3===0){
-      const targetW=nativeQrSupported?1600:1920;
+    // Heavy multi-scale decoding runs in a Worker so the camera/UI stays smooth.
+    // Run more aggressively in Far mode or while students are still missing.
+    const remaining=scanRemainingCount();
+    const needFallback=scanMode==='far'||!native.length||remaining>Math.max(4,Math.floor((session.students?.length||0)*.12))||scanCycle%3===0;
+    if(needFallback&&!scanWorkerBusy){
+      const targetW=scanMode==='far'?Math.min(2200,video.videoWidth):(nativeQrSupported?1600:1920);
       const scale=Math.min(1,targetW/video.videoWidth);
-      const w=Math.max(640,Math.round(video.videoWidth*scale));
-      const h=Math.max(360,Math.round(video.videoHeight*scale));
+      const w=Math.max(720,Math.round(video.videoWidth*scale));
+      const h=Math.max(405,Math.round(video.videoHeight*scale));
       ensureOffscreen(w,h);
       offctx.imageSmoothingEnabled=false;
       offctx.drawImage(video,0,0,w,h);
       const image=offctx.getImageData(0,0,w,h);
-      const js=decodeJsQrTiles(offscreen,image,40);
-      // Map jsQR coordinates to original video coordinate space so overlay remains correct.
-      const inv=1/scale;
-      const mapped=js.map(d=>({
-        ...d,
-        location:{
+      const worker=ensureScanWorker();
+      if(worker){
+        scanWorkerBusy=true;
+        fallbackFrameId++;
+        worker.postMessage({
+          type:'decode',
+          frameId:fallbackFrameId,
+          cycle:scanCycle,
+          mode:scanMode,
+          maxCodes:Math.min(80,Math.max(32,Number(session.students?.length||50))),
+          width:w,height:h,buffer:image.data.buffer
+        },[image.data.buffer]);
+      }else{
+        const js=decodeJsQrTiles(offscreen,image,50);
+        const inv=1/scale;
+        const mapped=js.map(d=>({...d,location:{
           topLeftCorner:{x:d.location.topLeftCorner.x*inv,y:d.location.topLeftCorner.y*inv},
           topRightCorner:{x:d.location.topRightCorner.x*inv,y:d.location.topRightCorner.y*inv},
           bottomRightCorner:{x:d.location.bottomRightCorner.x*inv,y:d.location.bottomRightCorner.y*inv},
           bottomLeftCorner:{x:d.location.bottomLeftCorner.x*inv,y:d.location.bottomLeftCorner.y*inv}
-        }
-      }));
-      detections=dedupeDetections([...detections,...mapped]).slice(0,50);
+        }}));
+        detections=rememberDetections([...native,...mapped]);
+      }
     }
-
     lastDetections=detections;
     processDetections(detections);
     drawOverlay(detections,video.videoWidth,video.videoHeight);
-    if($('qr-card-fps-status')){
-      const engine=nativeQrSupported?'Hybrid':'Multi-region';
-      $('qr-card-fps-status').textContent=detections.length+' thẻ · '+engine;
-    }
+    updateScannerPerfBadge(detections.length);
   }catch(e){
     console.warn('QR scan frame error',e);
   }finally{
@@ -1088,20 +1110,29 @@ function processDetections(detections) {
   for (const d of detections) {
     const student = validStudents.get(String(d.cardToken));
     if (!student) continue;
-    const orientation = answerFromQrLocation(d.location);
+    const area=detectionArea(d.location);
+    const tolerance=area<1800?40:(area<5000?38:34);
+    const orientation = answerFromQrLocation(d.location,tolerance);
     if (!orientation) continue;
     const key = String(q.id) + '|' + String(d.cardToken);
     seen.add(key);
     const prev = tracking.get(key);
-    const same = prev?.answer === orientation.answer && now - Number(prev?.lastSeen || 0) < 1200;
-    const hits = same ? Number(prev.hits || 0) + 1 : 1;
-    const next = { answer: orientation.answer, hits, lastSeen: now, studentId: String(student.id), cardToken: d.cardToken, location: d.location };
-    tracking.set(key, next);
-    // Two consistent observations are enough for responsiveness; server still receives stableHits.
-    if (hits >= 2) acceptStableAnswer(q.id, student, orientation.answer, hits);
+    const gap=now-Number(prev?.lastSeen||0);
+    const same=prev?.answer===orientation.answer&&gap<950;
+    const hits=same?Number(prev.hits||0)+1:1;
+    const confidence=Math.max(0,1-(Number(orientation.distance||0)/Math.max(1,tolerance)));
+    const score=same?Number(prev.score||0)+confidence:confidence;
+    const next={answer:orientation.answer,hits,score,lastSeen:now,studentId:String(student.id),cardToken:d.cardToken,location:d.location,area};
+    tracking.set(key,next);
+
+    // Large/clear cards can confirm immediately with strong orientation.
+    // Small/far cards need two observations or accumulated confidence to avoid answer flips.
+    const instant=area>=9000&&confidence>=.82;
+    const stable=instant||hits>=2||score>=1.55;
+    if(stable)acceptStableAnswer(q.id,student,orientation.answer,Math.max(3,hits));
   }
   for (const [key, value] of tracking) {
-    if (!seen.has(key) && now - Number(value.lastSeen || 0) > 1200) tracking.delete(key);
+    if (!seen.has(key) && now - Number(value.lastSeen || 0) > 900) tracking.delete(key);
   }
 }
 function acceptStableAnswer(questionId, student, answer, hits) {
@@ -1374,6 +1405,10 @@ function bind() {
   $('qr-card-open-camera')?.addEventListener('click', openCamera);
   $('qr-card-stop-camera')?.addEventListener('click', stopCamera);
   $('qr-card-switch-camera')?.addEventListener('click', async () => { cameraFacing = cameraFacing === 'environment' ? 'user' : 'environment'; await openCamera(); });
+  $('qr-card-mode-auto')?.addEventListener('click',()=>setScanMode('auto'));
+  $('qr-card-mode-far')?.addEventListener('click',()=>setScanMode('far'));
+  $('qr-card-torch')?.addEventListener('click',toggleTorch);
+  $('qr-card-zoom')?.addEventListener('input',e=>applyCameraZoom(e.target.value));
   $('qr-card-stop-camera-mobile')?.addEventListener('click',stopCamera);
   $('qr-card-show-missing')?.addEventListener('click', () => {
     showMissingOnly = !showMissingOnly;
@@ -1445,4 +1480,5 @@ export function resetQrAnswerCards() {
   showMissingOnly = false;
   presenterQuestionFontSize=24;
   presenterAnswerFontSize=20;
+  scanMode='auto';cameraCapabilities={};currentZoom=1;torchEnabled=false;detectionMemory.clear();scanWorkerBusy=false;
 }
