@@ -381,11 +381,15 @@ test('board classroom moderation exposes trusted identity and persistent blocks'
   const router=fs.readFileSync('functions/[slug]/api/[[path]].ts','utf8');
 
   assert.match(schema,/CREATE TABLE IF NOT EXISTS interactive_board_blocks/);
+  const dbSchema=fs.readFileSync('database-schema.sql','utf8');
+  assert.match(dbSchema,/CREATE TABLE IF NOT EXISTS interactive_board_blocks/);
   assert.match(join,/BOARD_USER_BLOCKED/);
   assert.match(join,/studentClass:/);
   assert.match(join,/studentUnit:/);
   assert.match(moderation,/interactive_board_blocks/);
   assert.match(moderation,/canManageBoard/);
+  assert.match(moderation,/Chức năng chặn khỏi bảng chỉ áp dụng cho tài khoản học sinh/);
+  assert.match(moderation,/target_audience/);
   assert.match(moderation,/board-user-block/);
   assert.match(worker,/creatorName:/);
   assert.match(worker,/creatorClass:/);
