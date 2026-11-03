@@ -448,5 +448,6 @@ test('board images support proportional resize handles and realtime image layeri
   assert.match(ui,/sortImagesForLayer/);
   assert.match(ui,/function reorderSelectedImage/);
   assert.match(ui,/z:topZ\+10/);
-  assert.match(worker,/z:Math\.round\(clamp\(input\.z,-10000,10000,0\)\)/);
+  assert.match(worker,/z:clamp\(input\.z,-10000,10000,0\)/);
+  assert.match(ui,/beyond\?targetZ\+\(beyondZ-targetZ\)\/2:targetZ\+10/);
 });
