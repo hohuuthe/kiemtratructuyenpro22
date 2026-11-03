@@ -447,6 +447,8 @@ test('board images support proportional resize handles and realtime image layeri
   assert.match(ui,/aspect:/);
   assert.match(ui,/sortImagesForLayer/);
   assert.match(ui,/function reorderSelectedImage/);
+  assert.match(ui,/imageIndex>=imageCount-1/);
+  assert.match(ui,/imageIndex<=0/);
   assert.match(ui,/z:topZ\+10/);
   assert.match(worker,/z:clamp\(input\.z,-10000,10000,0\)/);
   assert.match(ui,/beyond\?targetZ\+\(beyondZ-targetZ\)\/2:targetZ\+10/);
