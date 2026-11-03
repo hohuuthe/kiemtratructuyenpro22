@@ -212,7 +212,7 @@ export class BoardRoom {
       const page=body?.page;if(!page||!safeId(page.id))return new Response('Invalid page',{status:400});
       this.broadcast({type:'page_updated',page:{
         id:String(page.id),page_no:Number(page.page_no)||0,title:String(page.title||'').slice(0,100),
-        background_type:String(page.background_type||'white'),canvas_width:1600,canvas_height:900,revision:Number(page.revision)||1
+        background_type:String(page.background_type||'white'),background_image_url:String(page.background_image_url||'').slice(0,2048),canvas_width:1600,canvas_height:900,revision:Number(page.revision)||1
       }});
       return new Response('OK');
     }
