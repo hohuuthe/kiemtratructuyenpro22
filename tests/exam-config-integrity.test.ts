@@ -63,5 +63,7 @@ test('API enforces atomically versioned updates, teacher-only deletion and resul
  assert.match(api,/EXAM_VERSION_CONFLICT/);
  assert.match(api,/checkIsTeacherOrAdmin\(user\)/);
  assert.match(api,/EXAM_HAS_RESULTS/);
- assert.match(api,/LEFT JOIN users/);
+ assert.match(api,/EXAM_CREATOR_JOIN_SQL/);
+ const identity=fs.readFileSync('src/exam-creator-identity.js','utf8');
+ assert.match(identity,/LEFT JOIN users/);
 });
