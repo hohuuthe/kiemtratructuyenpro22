@@ -42,7 +42,7 @@ function normalizeObject(input, actor) {
   if (!input || typeof input !== 'object') return null;
   const id=safeId(input.id), pageId=safeId(input.pageId), type=String(input.type||'');
   if (!id || !pageId || !['stroke','text','note','rect','ellipse','line','arrow'].includes(type)) return null;
-  const base={id,pageId,type,creatorId:String(actor?.userId||''),creatorName:String(actor?.displayName||'Người dùng').slice(0,100),creatorClass:String(actor?.studentClass||'').slice(0,100),creatorUnit:String(actor?.studentUnit||'').slice(0,180),updatedAt:Date.now()};
+  const base={id,pageId,type,creatorId:String(actor?.userId||''),creatorName:String(actor?.displayName||'Người dùng').slice(0,100),creatorClass:String(actor?.studentClass||'').slice(0,100),creatorUnit:String(actor?.studentUnit||'').slice(0,180),creatorRole:String(actor?.displayRole||'student').slice(0,30),updatedAt:Date.now()};
   if (type==='stroke') {
     const points=normalizePoints(input.points).slice(0,1600);
     if (points.length<2) return null;
