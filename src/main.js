@@ -44,7 +44,7 @@ import { generateQuestionBankDocx } from './question-bank-docx-generator.ts';
 import { beginQuestionBankWordSavePicker, writeQuestionBankWordFile, createQuestionBankWordDownload } from './question-bank-word-download.js';
 import { inspectScientificDocx, WORD_IMPORT_ENGINE_VERSION } from './word-omml-reader.js';
 import { parseWordUnderlinedOptionLines, parseWordBoldOptionLines } from './word-underline-answers.js';
-import { verifyImportedWordQuestions, checkWordImportBeforeSave, correctImportedWordEquation, normalizeWordImportAnswer } from './word-import-verification.js';
+import { verifyImportedWordQuestions, checkWordImportBeforeSave, correctImportedWordEquation, normalizeWordImportAnswer, collectWordImportAnswerContinuation } from './word-import-verification.js';
 import { splitScientificContent } from './scientific-formula-tokenizer.js';
 import { buildRankingUnitOptions } from './ranking-unit-filter.js';
 import { splitLabeledScientificRecords } from './scientific-formula-records.js';
@@ -12901,32 +12901,10 @@ D. Phát biểu SAI</pre>
                         if (answerMatch) {
                             answerFound = true;
                             let ans = answerMatch[1].trim();
-                            let ansImage = lines[i].image || '';
-                            let nextIndex = i + 1;
-
-                            // SQ/TL may legitimately place "Đáp án:" on its own line,
-                            // with the actual answer (including Equation/MathType tokens)
-                            // in the following paragraphs. TL answers are commonly
-                            // multi-line rubrics, so retain every line until the next
-                            // question header instead of dropping the continuation.
-                            if (type === 'TL' || (type === 'SQ' && !ans)) {
-                                const answerParts = ans ? [ans] : [];
-                                let j = i + 1;
-                                while (j < lines.length) {
-                                    const continuationText = String(lines[j].text || '').trim();
-                                    const continuationStructural = continuationText
-                                        .replace(/\[\[\/?(?:U|B)\]\]/g, '').trim();
-                                    if (continuationStructural.match(/^Câu\s*\d+[:.]?/i)) break;
-                                    if (continuationText) answerParts.push(continuationText);
-                                    if (!ansImage && lines[j].image) ansImage = lines[j].image;
-                                    j++;
-                                }
-                                ans = answerParts.join('\n').trim();
-                                nextIndex = j;
-                            } else if (!ansImage && i + 1 < lines.length && !lines[i+1].text && lines[i+1].image) {
-                                ansImage = lines[i+1].image;
-                                nextIndex = i + 2;
-                            }
+                            const collectedAnswer = collectWordImportAnswerContinuation(lines, i, type, ans);
+                            ans = collectedAnswer.answer;
+                            let ansImage = collectedAnswer.answerImage;
+                            let nextIndex = collectedAnswer.nextIndex;
 
                             if (ans && (type === '4-1' || type === 'TF4')) {
                                 explicitAnswerPresent = true;
