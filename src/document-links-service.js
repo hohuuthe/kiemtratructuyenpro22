@@ -7,7 +7,7 @@
  */
 import {
   DOCUMENT_AUDIENCES, canManageDocument, documentActorRole, documentOwnerId, documentAudienceValues,
-  normalizeDocumentLinkInput, DocumentLinkInputError, canViewDocument
+  documentStudentClassScopes, normalizeDocumentLinkInput, DocumentLinkInputError, canViewDocument
 } from './document-link-policy.js';
 
 export class DocumentLinkServiceError extends Error {
@@ -16,8 +16,8 @@ export class DocumentLinkServiceError extends Error {
   }
 }
 const deny=(status,message)=>{throw new DocumentLinkServiceError(status,message);};
-const managementColumns='id,id_nguoi_tao,tieu_de,duong_link,doi_tuong_duoc_truy_cap,thoi_gian_het_han,hoat_dong,mo_ta,danh_muc,doi_tuong_truy_cap_nhieu,id_nguoi_cap_nhat,thoi_gian_tao,thoi_gian_cap_nhat';
-const readerColumns='id,id_nguoi_tao,tieu_de,duong_link,doi_tuong_duoc_truy_cap,doi_tuong_truy_cap_nhieu,thoi_gian_het_han,hoat_dong,mo_ta,danh_muc,thoi_gian_tao,thoi_gian_cap_nhat';
+const managementColumns='id,id_nguoi_tao,tieu_de,duong_link,doi_tuong_duoc_truy_cap,thoi_gian_het_han,hoat_dong,mo_ta,danh_muc,doi_tuong_truy_cap_nhieu,pham_vi_lop_hoc_sinh,id_nguoi_cap_nhat,thoi_gian_tao,thoi_gian_cap_nhat';
+const readerColumns='id,id_nguoi_tao,tieu_de,duong_link,doi_tuong_duoc_truy_cap,doi_tuong_truy_cap_nhieu,pham_vi_lop_hoc_sinh,thoi_gian_het_han,hoat_dong,mo_ta,danh_muc,thoi_gian_tao,thoi_gian_cap_nhat';
 const eligible={
   guest: ['public'],
   student: ['public','authenticated','student'],
@@ -25,6 +25,46 @@ const eligible={
   admin: ['public','authenticated','student','teacher','admin']
 };
 const postgresArray=values=>'{'+values.join(',')+'}';
+const actorIds=actor=>[...new Set([actor?.id,actor?.user_id].map(v=>String(v??'').trim()).filter(Boolean))];
+const classKey=(item)=>String(item?.donvi??'').trim().toLocaleLowerCase('vi')+'\u001f'+String(item?.lop??'').trim().toLocaleLowerCase('vi');
+async function assertStudentClassScopeAllowed(db,actor,value){
+  const selected=documentStudentClassScopes(value);
+  if(!selected.length)return selected;
+  const allowed=await listDocumentStudentClasses(db,actor);
+  const allowedKeys=new Set(allowed.map(classKey));
+  if(selected.some(item=>!allowedKeys.has(classKey(item))))
+    deny(403,'Bạn chỉ được giới hạn tài liệu cho các lớp được phân công.');
+  return selected;
+}
+export async function listDocumentStudentClasses(db,actor){
+  requireEditor(actor);
+  const role=documentActorRole(actor);
+  let rows=[];
+  if(role==='admin'){
+    rows=await db.all("SELECT DISTINCT TRIM(lop) AS lop,TRIM(COALESCE(donvi,'')) AS donvi FROM users WHERE TRIM(COALESCE(lop,''))<>'' AND LOWER(TRIM(COALESCE(target_audience,'')))=LOWER(TRIM('Học sinh')) AND (is_active IS NULL OR is_active<>0) ORDER BY donvi,lop",[]);
+  }else{
+    const ids=actorIds(actor);
+    if(!ids.length)return [];
+    rows=await db.all('SELECT DISTINCT TRIM(class_name) AS lop,TRIM(COALESCE(donvi,\'\')) AS donvi FROM teacher_classes WHERE teacher_id IN ('+ids.map(()=>'?').join(',')+') ORDER BY donvi,lop',ids);
+  }
+  const seen=new Set(),out=[];
+  for(const row of rows||[]){
+    const item={lop:String(row?.lop??'').trim(),donvi:String(row?.donvi??'').trim()};
+    if(!item.lop)continue;
+    const key=classKey(item);if(seen.has(key))continue;seen.add(key);out.push(item);
+  }
+  return out;
+}
+function studentReaderPredicate(actor,params){
+  const lop=String(actor?.lop??'').trim(),donvi=String(actor?.donvi??'').trim();
+  let sql="(doi_tuong_truy_cap_nhieu && ARRAY[?,?]::TEXT[] OR ('student'=ANY(doi_tuong_truy_cap_nhieu) AND (jsonb_array_length(pham_vi_lop_hoc_sinh)=0";
+  params.push('public','authenticated');
+  if(lop){
+    sql+=" OR EXISTS (SELECT 1 FROM jsonb_array_elements(pham_vi_lop_hoc_sinh) AS sc WHERE LOWER(TRIM(sc->>'lop'))=LOWER(TRIM(?)) AND (TRIM(COALESCE(sc->>'donvi',''))='' OR LOWER(TRIM(sc->>'donvi'))=LOWER(TRIM(?))))";
+    params.push(lop,donvi);
+  }
+  return sql+')))';
+}
 const cleanId=(id)=>{
   if(typeof id!=='string'||!id.trim()||id.length>100)deny(400,'Mã tài liệu không hợp lệ.');
   return id.trim();
@@ -61,8 +101,10 @@ export async function listDocumentLinks(db, actor, {manage=false,includeReadable
     // Owner-only documents must never appear in another user's read response,
     // even when stale data also contains a broadly visible audience.
     const owner=documentOwnerId(actor);
-    query+=' AND ((NOT (doi_tuong_truy_cap_nhieu @> ARRAY[\'owner\']::TEXT[]) AND doi_tuong_truy_cap_nhieu && ARRAY['+audiences.map(()=>'?').join(',')+']::TEXT[])';
-    params.push(...audiences);
+    query+=' AND ((NOT (doi_tuong_truy_cap_nhieu @> ARRAY[\'owner\']::TEXT[]) AND ';
+    if(role==='student') query+=studentReaderPredicate(actor,params);
+    else {query+='doi_tuong_truy_cap_nhieu && ARRAY['+audiences.map(()=>'?').join(',')+']::TEXT[]';params.push(...audiences);}
+    query+=')';
     if(owner){query+=' OR (doi_tuong_truy_cap_nhieu @> ARRAY[\'owner\']::TEXT[] AND id_nguoi_tao = ?)';params.push(owner);}
     query+=')';
   }
@@ -130,8 +172,10 @@ export async function listDocumentLinksPage(db,actor,{manage=false,includeReadab
   }else{
     scope+=' AND hoat_dong = 1 AND (thoi_gian_het_han IS NULL OR thoi_gian_het_han > CURRENT_TIMESTAMP)';
     const allowed=eligible[role]||eligible.guest;
-    scope+=' AND ((NOT ('+ownerArray+') AND doi_tuong_truy_cap_nhieu && ARRAY['+allowed.map(()=>'?').join(',')+']::TEXT[])';
-    params.push(...allowed);
+    scope+=' AND ((NOT ('+ownerArray+') AND ';
+    if(role==='student') scope+=studentReaderPredicate(actor,params);
+    else {scope+='doi_tuong_truy_cap_nhieu && ARRAY['+allowed.map(()=>'?').join(',')+']::TEXT[]';params.push(...allowed);}
+    scope+=')';
     if(owner){scope+=' OR ('+ownerArray+' AND id_nguoi_tao = ?)';params.push(owner);}
     scope+=')';
   }
@@ -158,17 +202,19 @@ export async function listDocumentLinksPage(db,actor,{manage=false,includeReadab
 export async function createDocumentLink(db,actor,payload,makeId=()=>crypto.randomUUID()){
   requireEditor(actor);
   const value=cleanPayload(payload);
+  await assertStudentClassScopeAllowed(db,actor,value);
   const owner=documentOwnerId(actor);
   if(!owner)deny(401,'Phiên đăng nhập không hợp lệ.');
   const id=makeId();
-  const sql='INSERT INTO quan_ly_tai_lieu (id,id_nguoi_tao,tieu_de,duong_link,doi_tuong_duoc_truy_cap,thoi_gian_het_han,hoat_dong,mo_ta,danh_muc,id_nguoi_cap_nhat,doi_tuong_truy_cap_nhieu) VALUES (?,?,?,?,?,?,?,?,?,?,?::TEXT[])';
-  await db.run(sql,[id,owner,value.tieu_de,value.duong_link,value.doi_tuong_duoc_truy_cap,value.thoi_gian_het_han,value.hoat_dong,value.mo_ta,value.danh_muc,owner,postgresArray(value.doi_tuong_truy_cap_nhieu)]);
+  const sql='INSERT INTO quan_ly_tai_lieu (id,id_nguoi_tao,tieu_de,duong_link,doi_tuong_duoc_truy_cap,thoi_gian_het_han,hoat_dong,mo_ta,danh_muc,id_nguoi_cap_nhat,doi_tuong_truy_cap_nhieu,pham_vi_lop_hoc_sinh) VALUES (?,?,?,?,?,?,?,?,?,?,?::TEXT[],?::JSONB)';
+  await db.run(sql,[id,owner,value.tieu_de,value.duong_link,value.doi_tuong_duoc_truy_cap,value.thoi_gian_het_han,value.hoat_dong,value.mo_ta,value.danh_muc,owner,postgresArray(value.doi_tuong_truy_cap_nhieu),JSON.stringify(value.pham_vi_lop_hoc_sinh)]);
   return {id};
 }
 export async function updateDocumentLink(db,actor,payload){
   requireEditor(actor);
   const id=cleanId(payload?.id);
   const value=cleanPayload(payload);
+  await assertStudentClassScopeAllowed(db,actor,value);
   const existing=await db.first('SELECT id,id_nguoi_tao,doi_tuong_truy_cap_nhieu FROM quan_ly_tai_lieu WHERE id = ?',[id]);
   if(!existing)deny(404,'Không tìm thấy tài liệu cần sửa.');
   if(documentAudienceValues(existing).includes('owner') && String(existing.id_nguoi_tao)!==documentOwnerId(actor))
@@ -178,9 +224,9 @@ export async function updateDocumentLink(db,actor,payload){
   const guard=isAdmin?'':' AND id_nguoi_tao = ?';
   const params=[value.tieu_de,value.duong_link,value.doi_tuong_duoc_truy_cap,
     value.thoi_gian_het_han,value.hoat_dong,value.mo_ta,value.danh_muc,
-    documentOwnerId(actor),postgresArray(value.doi_tuong_truy_cap_nhieu),id];
+    documentOwnerId(actor),postgresArray(value.doi_tuong_truy_cap_nhieu),JSON.stringify(value.pham_vi_lop_hoc_sinh),id];
   if(!isAdmin)params.push(documentOwnerId(actor));
-  const sql='UPDATE quan_ly_tai_lieu SET tieu_de=?,duong_link=?,doi_tuong_duoc_truy_cap=?,thoi_gian_het_han=?,hoat_dong=?,mo_ta=?,danh_muc=?,id_nguoi_cap_nhat=?,doi_tuong_truy_cap_nhieu=?::TEXT[] WHERE id=?'+guard;
+  const sql='UPDATE quan_ly_tai_lieu SET tieu_de=?,duong_link=?,doi_tuong_duoc_truy_cap=?,thoi_gian_het_han=?,hoat_dong=?,mo_ta=?,danh_muc=?,id_nguoi_cap_nhat=?,doi_tuong_truy_cap_nhieu=?::TEXT[],pham_vi_lop_hoc_sinh=?::JSONB WHERE id=?'+guard;
   const changed=await db.run(sql,params);
   if(changed < 1)deny(409,'Tài liệu đã thay đổi. Hãy tải lại danh sách.');
   return {id};
