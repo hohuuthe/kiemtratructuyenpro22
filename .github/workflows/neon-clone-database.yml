@@ -1,0 +1,91 @@
+name: Clone Neon database source to target
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_clone:
+        description: 'Type CLONE to replace the target database'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neon-database-clone
+  cancel-in-progress: false
+
+jobs:
+  clone:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      SOURCE_DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
+      TARGET_DATABASE_URL: ${{ secrets.TARGET_NEON_DATABASE_URL }}
+      POSTGRES_IMAGE: postgres:18
+
+    steps:
+      - name: Validate secrets and confirmation
+        shell: bash
+        run: |
+          if [[ "${{ inputs.confirm_clone }}" != "CLONE" ]]; then
+            echo "::error::Confirmation must be exactly CLONE."
+            exit 1
+          fi
+          if [[ -z "${SOURCE_DATABASE_URL}" ]]; then
+            echo "::error::Missing repository secret NEON_DATABASE_URL."
+            exit 1
+          fi
+          if [[ -z "${TARGET_DATABASE_URL}" ]]; then
+            echo "::error::Missing repository secret TARGET_NEON_DATABASE_URL."
+            exit 1
+          fi
+          if [[ "${SOURCE_DATABASE_URL}" == "${TARGET_DATABASE_URL}" ]]; then
+            echo "::error::Source and target URLs must be different."
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Backup source into one archive
+        shell: bash
+        run: |
+          chmod +x scripts/neon-full-backup.sh scripts/neon-full-restore.sh scripts/neon-verify-clone.sh
+          scripts/neon-full-backup.sh "backups/neon-full-backup-${GITHUB_RUN_ID}.tar.gz"
+
+      - name: Restore archive into target
+        shell: bash
+        env:
+          ALLOW_DESTRUCTIVE_RESTORE: YES
+        run: |
+          scripts/neon-full-restore.sh "backups/neon-full-backup-${GITHUB_RUN_ID}.tar.gz"
+
+      - name: Verify source and target
+        shell: bash
+        run: |
+          scripts/neon-verify-clone.sh
+
+      - name: Upload the exact backup used for cloning
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: neon-clone-backup
+          path: backups/neon-full-backup-*.tar.gz
+          if-no-files-found: warn
+          retention-days: 30
+          compression-level: 0
+
+      - name: Summary
+        if: success()
+        shell: bash
+        run: |
+          {
+            echo "## Neon clone verified"
+            echo ""
+            echo "- Backup created from source."
+            echo "- Target restored from that exact backup."
+            echo "- Schema dump matched."
+            echo "- Database object inventory matched."
+            echo "- Exact row counts for every user table matched."
+          } >> "${GITHUB_STEP_SUMMARY}"
