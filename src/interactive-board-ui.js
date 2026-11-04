@@ -285,7 +285,7 @@ function renderSelectedOwner(o){
  if(!o||!room?.board?.can_manage){box.classList.add('hidden');box.innerHTML='';return;}
  const creatorId=String(o.creatorId||''),name=o.creatorName||'Không xác định',cls=o.creatorClass||'',unit=o.creatorUnit||'';
  box.classList.remove('hidden');
- box.innerHTML='<p class="font-black text-sky-950">Người tạo đối tượng</p><p class="mt-1 font-bold">'+esc(name)+'</p><p class="text-xs text-slate-600">'+esc([cls,unit].filter(Boolean).join(' • ')||('ID: '+creatorId))+'</p>'+(creatorId&&creatorId!==myId()&&String(o.creatorRole||'student')==='student'?'<button type="button" data-board-user-block="'+esc(creatorId)+'" class="mt-2 rounded-lg bg-rose-100 px-3 py-2 text-xs font-black text-rose-800">⛔ Chặn khỏi bảng</button>':'');
+ box.innerHTML='<p class="font-black text-sky-950">Người tạo đối tượng</p><p class="mt-1 font-bold">'+esc(name)+'</p><p class="text-xs text-slate-600">'+esc([cls,unit].filter(Boolean).join(' • ')||('ID: '+creatorId))+'</p>'+(creatorId&&creatorId!==myId()&&String(o.creatorRole||'')==='student'?'<button type="button" data-board-user-block="'+esc(creatorId)+'" class="mt-2 rounded-lg bg-rose-100 px-3 py-2 text-xs font-black text-rose-800">⛔ Chặn khỏi bảng</button>':'');
  refreshBoardButtonHelp(box);
 }
 async function loadBlockedUsers(){
