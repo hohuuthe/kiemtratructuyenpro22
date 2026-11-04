@@ -493,6 +493,8 @@ test('board client hardening handles heartbeat locks touch cleanup and transpare
   assert.match(ui,/target\.locked\)return/);
   assert.match(ui,/o\.locked\|\|!room\?\.board\?\.can_manage/);
   assert.match(ui,/outputType=file\.type==='image\/png'/);
+  assert.match(ui,/outputType==='image\/jpeg' \? 0\.88 : 0\.9/);
+  assert.match(ui,/canLock=!!o&&!!room\?\.board\?\.can_manage&&!snapshotLoading&&ws\?\.readyState===WebSocket\.OPEN/);
   assert.match(ui,/resizeState=null;snapshotLoading=true/);
   assert.match(ui,/stopHeartbeat\(\);roomTokenExpiresAt=0/);
 });
