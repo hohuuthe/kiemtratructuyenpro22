@@ -454,3 +454,29 @@ test('board images support proportional resize handles and realtime image layeri
   assert.match(worker,/z:clamp\(input\.z,-10000,10000,0\)/);
   assert.match(ui,/beyond\?targetZ\+\(beyondZ-targetZ\)\/2:targetZ\+10/);
 });
+
+
+test('board hardening preserves creator provenance, normalizes VIP and locks protected objects',()=>{
+  const common=fs.readFileSync('functions/api/board/common.ts','utf8');
+  const worker=fs.readFileSync('workers/interactive-board-worker.js','utf8');
+  const html=fs.readFileSync('public/components/tab-boards.html','utf8');
+  assert.match(common,/function isInteractiveBoardVip/);
+  assert.doesNotMatch(common,/isTeacher && Boolean\(user\.is_vip\)/);
+  assert.match(worker,/object\.creatorName=String\(existing\.creatorName/);
+  assert.match(worker,/object\.creatorClass=String\(existing\.creatorClass/);
+  assert.match(worker,/object\.creatorUnit=String\(existing\.creatorUnit/);
+  assert.match(worker,/existing\?\.locked && !canManage/);
+  assert.match(worker,/if \(!canManage\) object\.locked=Boolean\(existing\?\.locked\)/);
+  assert.match(html,/id="board-lock-selected"/);
+});
+
+test('image proxy only serves configured immutable R2 image origins',()=>{
+  const proxy=fs.readFileSync('functions/api/proxy-image.ts','utf8');
+  assert.match(proxy,/CLOUDFLARE_R2_PUBLIC_URL/);
+  assert.match(proxy,/url\.protocol!=='https:'/);
+  assert.match(proxy,/bases\.some/);
+  assert.match(proxy,/redirect:'error'/);
+  assert.match(proxy,/contentType\.startsWith\('image\/'\)/);
+  assert.match(proxy,/12\*1024\*1024/);
+  assert.match(proxy,/max-age=31536000, immutable/);
+});
