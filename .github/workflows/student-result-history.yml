@@ -1,0 +1,44 @@
+name: Student result history checks
+
+on:
+  push:
+    paths:
+      - 'src/student-results-ui.js'
+      - 'src/student-attempt-history-controller.js'
+      - 'src/student-result-visibility.ts'
+      - 'functions/api/results/me.ts'
+      - 'tests/student-results-*.test.*'
+      - 'src/style.css'
+      - 'index.html'
+      - '.github/workflows/student-result-history.yml'
+  pull_request:
+    paths:
+      - 'src/student-results-ui.js'
+      - 'src/student-attempt-history-controller.js'
+      - 'src/student-result-visibility.ts'
+      - 'functions/api/results/me.ts'
+      - 'tests/student-results-*.test.*'
+      - 'src/style.css'
+      - 'index.html'
+      - '.github/workflows/student-result-history.yml'
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Syntax
+        run: |
+          node --check src/student-results-ui.js
+          node --check src/student-attempt-history-controller.js
+      - name: Student result unit and privacy tests
+        run: node --import tsx --test tests/student-results-modern-ui.test.mjs tests/student-results-duration.test.mjs tests/student-results-privacy.test.ts tests/student-result-visibility.test.ts
+      - name: TypeScript validation
+        run: npm run lint
+      - name: Production build
+        run: npm run build
