@@ -142,6 +142,8 @@ export function renderStudentResultCards(container, rows, { onOpen, onOpenAttemp
             try {
                 if (typeof onOpenAttempts === 'function') {
                     await onOpenAttempts(String(result.exam_id), String(result.exam_name || 'Bài thi'));
+                } else if (typeof window.showStudentAttemptHistory === 'function') {
+                    await window.showStudentAttemptHistory(String(result.exam_id), String(result.exam_name || 'Bài thi'));
                 } else {
                     window.dispatchEvent(new CustomEvent('student-result-attempts-request', {
                         detail: { examId: String(result.exam_id), examName: String(result.exam_name || 'Bài thi') }
