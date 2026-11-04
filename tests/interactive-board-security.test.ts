@@ -608,3 +608,15 @@ test('student shortcuts and selection actions cannot bypass per-button locks',()
   assert.match(ui,/sendOps\(\[\{kind:'put',object:shifted\}\],'button:board-duplicate-selected'\)/);
   assert.match(ui,/sendOps\(\[\{kind:'delete',pageId:target\.pageId,objectId:target\.id\}\],'button:board-delete-selected'\)/);
 });
+
+
+test('board right-click control menu remains usable in native and pseudo fullscreen',()=>{
+  const ui=fs.readFileSync('src/interactive-board-ui.js','utf8');
+  assert.match(ui,/function studentControlMenuHost\(\)/);
+  assert.match(ui,/document\.fullscreenElement/);
+  assert.match(ui,/fs===roomEl\|\|fs\.contains\(roomEl\)\|\|roomEl\.contains\(fs\)/);
+  assert.match(ui,/if\(menu\.parentElement!==host\)host\.appendChild\(menu\)/);
+  assert.match(ui,/addEventListener\('fullscreenchange'/);
+  assert.match(ui,/boardRoom\?\.addEventListener\('contextmenu'/);
+  assert.match(ui,/board-pseudo-fullscreen/);
+});
