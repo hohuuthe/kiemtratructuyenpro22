@@ -1,4 +1,4 @@
-name: Neon full database backup
+name: Sao_luu_CSDL_HOHUUTHE
 
 on:
   workflow_dispatch:
@@ -35,15 +35,15 @@ jobs:
       - name: Create one-file full backup
         shell: bash
         run: |
-          chmod +x scripts/neon-full-backup.sh
-          scripts/neon-full-backup.sh "backups/neon-full-backup-${GITHUB_RUN_ID}.tar.gz"
+          chmod +x scripts/Sao_luu_CSDL_HOHUUTHE.sh
+          scripts/Sao_luu_CSDL_HOHUUTHE.sh "backups/Sao_luu_CSDL_HOHUUTHE-${GITHUB_RUN_ID}.tar.gz"
           ls -lh backups/
 
       - name: Upload protected GitHub artifact
         uses: actions/upload-artifact@v4
         with:
-          name: neon-full-backup
-          path: backups/neon-full-backup-*.tar.gz
+          name: Sao_luu_CSDL_HOHUUTHE
+          path: backups/Sao_luu_CSDL_HOHUUTHE-*.tar.gz
           if-no-files-found: error
           retention-days: 30
           compression-level: 0
@@ -57,6 +57,6 @@ jobs:
             echo ""
             echo "- Run ID: ${GITHUB_RUN_ID}"
             echo "- PostgreSQL client: ${POSTGRES_IMAGE}"
-            echo "- Artifact: neon-full-backup"
+            echo "- Artifact: Sao_luu_CSDL_HOHUUTHE"
             echo "- Retention: 30 days"
           } >> "${GITHUB_STEP_SUMMARY}"

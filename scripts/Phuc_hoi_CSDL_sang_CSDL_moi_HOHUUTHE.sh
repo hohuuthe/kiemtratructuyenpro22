@@ -68,4 +68,4 @@ docker run --rm \
     echo "target_tables=$(psql "$DATABASE_URL" -X -A -t -c "select count(*) from pg_class c join pg_namespace n on n.oid=c.relnamespace where c.relkind in ('"'"'r'"'"','"'"'p'"'"') and n.nspname !~ '"'"'^pg_'"'"' and n.nspname <> '"'"'information_schema'"'"'")"
   '
 
-echo "Restore completed successfully from: ${BACKUP_FILE}"
+echo "Phuc hoi CSDL sang CSDL moi hoan tat tu file: ${BACKUP_FILE}"

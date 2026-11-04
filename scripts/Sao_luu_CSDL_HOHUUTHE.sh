@@ -4,7 +4,7 @@ set -Eeuo pipefail
 SOURCE_DATABASE_URL="${SOURCE_DATABASE_URL:-${NEON_DATABASE_URL:-}}"
 POSTGRES_IMAGE="${POSTGRES_IMAGE:-postgres:18}"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-BACKUP_FILE="${1:-backups/neon-full-backup-${STAMP}.tar.gz}"
+BACKUP_FILE="${1:-backups/Sao_luu_CSDL_HOHUUTHE-${STAMP}.tar.gz}"
 
 if [[ -z "${SOURCE_DATABASE_URL}" ]]; then
   echo "ERROR: SOURCE_DATABASE_URL or NEON_DATABASE_URL is required." >&2
@@ -74,5 +74,5 @@ if [[ ! -s "${BACKUP_FILE}" ]]; then
   exit 4
 fi
 
-echo "Backup created: ${BACKUP_FILE}"
+echo "Sao luu CSDL da tao: ${BACKUP_FILE}"
 echo "Size: $(du -h "${BACKUP_FILE}" | awk '{print $1}')"
