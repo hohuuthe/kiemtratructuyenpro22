@@ -2,7 +2,7 @@ const $=id=>document.getElementById(id);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let actor=null,manage=false,canCreateBoard=false,list=[],page=1,total=0,generation=0,wired=false,pendingBoard=null;
 let ws=null,room=null,objects=new Map(),remoteStrokes=new Map(),tool='pen',drawing=null,lastSegmentIndex=0,locked=false;
-let activeBoard=null,activeAccessCode='',manualExit=false,reconnectTimer=null,reconnectAttempts=0;
+let activeBoard=null,activeAccessCode='',manualExit=false,reconnectTimer=null,reconnectAttempts=0,heartbeatTimer=null,lastPongAt=0;
 let roomTokenExpiresAt=0,tokenRefreshAttempts=0,currentPageId='';
 let undoStack=[],redoStack=[],renderQueued=false,lastRateNotice=0,userLocked=false;
 let pendingReliable=new Map(),dragState=null,snapshotLoading=false,participantsCache=[],blockedUsers=[];
@@ -19,6 +19,7 @@ function feedback(text,error=false){const el=$('boards-feedback');if(!el)return;
 function dateLocal(v){if(!v)return '';const d=new Date(v);if(Number.isNaN(d.getTime()))return '';const pad=n=>String(n).padStart(2,'0');return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+'T'+pad(d.getHours())+':'+pad(d.getMinutes());}
 function statusLabel(v){return {draft:'Nháp',open:'Đang mở',locked:'Đang khóa',closed:'Đã đóng',archived:'Lưu trữ'}[v]||v;}
 function modeLabel(v){return {public:'Công khai',unit:'Theo lớp/đơn vị',protected:'Mã bảo mật'}[v]||v;}
+function vipFlag(value){if(value===true||value===1)return true;const v=String(value??'').trim().toLowerCase();return v==='1'||v==='true'||v==='yes';}
 
 const BOARD_BUTTON_HELP={
  'boards-new':'Tạo một Bảng tương tác thông minh mới.',
@@ -47,6 +48,7 @@ const BOARD_BUTTON_HELP={
  'board-duplicate-selected':'Nhân bản đối tượng đang chọn và đặt lệch nhẹ để dễ kéo tiếp.',
  'board-image-layer-up':'Đưa ảnh đang chọn lên trên một ảnh khác.',
  'board-image-layer-down':'Đưa ảnh đang chọn xuống dưới một ảnh khác.',
+ 'board-lock-selected':'Khóa hoặc mở khóa đối tượng để tránh di chuyển, resize hoặc xóa nhầm.',
  'board-delete-selected':'Xóa đối tượng đang chọn nếu bạn có quyền chỉnh sửa.',
  'board-page-prev':'Chuyển sang trang trước của bảng.',
  'board-page-next':'Chuyển sang trang tiếp theo của bảng.',
@@ -189,16 +191,25 @@ async function join(b,accessCode='',options={}){
  }
 }
 function wsUrl(path){const u=new URL(path,location.href);u.protocol=location.protocol==='https:'?'wss:':'ws:';return u.href;}
+function stopHeartbeat(){if(heartbeatTimer){clearInterval(heartbeatTimer);heartbeatTimer=null;}}
+function startHeartbeat(socket){
+ stopHeartbeat();lastPongAt=Date.now();
+ heartbeatTimer=setInterval(()=>{
+   if(ws!==socket||socket.readyState!==WebSocket.OPEN){stopHeartbeat();return;}
+   if(Date.now()-lastPongAt>45000){try{socket.close(4000,'Heartbeat timeout')}catch{};return;}
+   try{socket.send('ping')}catch{}
+ },15000);
+}
 function connectSocket(pageId=currentPageId){
  if(ws)try{ws.onclose=null;ws.close()}catch{};if(!room)return;
  const base=room.realtime_base_path||room.realtime_path;
  const url=new URL(wsUrl(base));url.searchParams.set('pageId',pageId||currentPageId);
  const socket=new WebSocket(url.href);ws=socket;
  $('board-room-status').textContent=reconnectAttempts?'Đang kết nối lại...':'Đang kết nối realtime...';
- socket.onopen=()=>{reconnectAttempts=0;if(reconnectTimer){clearTimeout(reconnectTimer);reconnectTimer=null;}$('board-room-status').textContent='Đã kết nối realtime';syncBoardPermissionUi();for(const payload of pendingReliable.values()){try{socket.send(payload)}catch{}}};
- socket.onclose=()=>{if(ws!==socket||manualExit)return;$('board-room-status').textContent='Mất kết nối — đang thử kết nối lại...';syncBoardPermissionUi();scheduleReconnect();};
+ socket.onopen=()=>{reconnectAttempts=0;if(reconnectTimer){clearTimeout(reconnectTimer);reconnectTimer=null;}startHeartbeat(socket);$('board-room-status').textContent='Đã kết nối realtime';syncBoardPermissionUi();for(const payload of pendingReliable.values()){try{socket.send(payload)}catch{}}};
+ socket.onclose=()=>{if(ws===socket)stopHeartbeat();if(ws!==socket||manualExit)return;$('board-room-status').textContent='Mất kết nối — đang thử kết nối lại...';syncBoardPermissionUi();scheduleReconnect();};
  socket.onerror=()=>{$('board-room-status').textContent='Kết nối realtime không ổn định';syncBoardPermissionUi();};
- socket.onmessage=e=>{let m;try{m=JSON.parse(e.data)}catch{return;}handleMessage(m);};
+ socket.onmessage=e=>{if(e.data==='pong'){lastPongAt=Date.now();return;}let m;try{m=JSON.parse(e.data)}catch{return;}handleMessage(m);};
 }
 function scheduleReconnect(){
  if(manualExit||!activeBoard||reconnectTimer)return;
@@ -214,12 +225,12 @@ function scheduleReconnect(){
  },delay);
 }
 function handleMessage(m){
- if(m.type==='snapshot_begin'){objects.clear();remoteStrokes.clear();selectedObjectId='';snapshotLoading=true;locked=!!m.locked;userLocked=!!m.userLocked;timerState=m.timer||null;renderParticipants(m.participants||[]);syncLockUi();syncTimerUi();applyPageBackground();syncSelectionButtons();$('board-room-status').textContent='Đang đồng bộ bảng...';return;}
+ if(m.type==='snapshot_begin'){objects.clear();remoteStrokes.clear();selectedObjectId='';dragState=null;resizeState=null;snapshotLoading=true;locked=!!m.locked;userLocked=!!m.userLocked;timerState=m.timer||null;renderParticipants(m.participants||[]);syncLockUi();syncTimerUi();applyPageBackground();syncSelectionButtons();$('board-room-status').textContent='Đang đồng bộ bảng...';return;}
  if(m.type==='snapshot_chunk'){for(const o of m.objects||[])objects.set(o.id,o);scheduleRender();return;}
  if(m.type==='snapshot_end'){snapshotLoading=false;scheduleRender();renderParticipants(participantsCache);$('board-room-status').textContent='Đã kết nối realtime';return;}
  if(m.type==='put'&&m.object){objects.set(m.object.id,m.object);remoteStrokes.delete(m.object.id);scheduleRender();renderParticipants(participantsCache);return;}
  if(m.type==='delete'){objects.delete(m.objectId);remoteStrokes.delete(m.objectId);if(String(selectedObjectId)===String(m.objectId))selectedObjectId='';syncSelectionButtons();scheduleRender();renderParticipants(participantsCache);return;}
- if(m.type==='clear_page'){for(const [id,o] of objects)if(o.pageId===m.pageId)objects.delete(id);remoteStrokes.clear();drawing=null;dragState=null;selectedObjectId='';syncSelectionButtons();scheduleRender();renderParticipants(participantsCache);return;}
+ if(m.type==='clear_page'){for(const [id,o] of objects)if(o.pageId===m.pageId)objects.delete(id);remoteStrokes.clear();drawing=null;dragState=null;resizeState=null;selectedObjectId='';syncSelectionButtons();scheduleRender();renderParticipants(participantsCache);return;}
  if(m.type==='stroke_segment'){let s=remoteStrokes.get(m.objectId);if(!s){s={id:m.objectId,pageId:m.pageId,type:'stroke',points:[],color:m.color,width:m.width};remoteStrokes.set(m.objectId,s);}s.points.push(...(m.points||[]));scheduleRender();return;}
  if(m.type==='page_updated'&&m.page){room.pages=(room.pages||[]).map(p=>String(p.id)===String(m.page.id)?{...p,...m.page}:p);renderPageControls();return;}
  if(m.type==='page_created'&&m.page){if(!room.pages.some(p=>String(p.id)===String(m.page.id))){room.pages=[...room.pages,m.page].sort((a,b)=>(a.page_no||0)-(b.page_no||0));renderPageControls();}return;}
@@ -231,13 +242,13 @@ function handleMessage(m){
  if(m.type==='laser'){remoteLasers.set(String(m.userId),{x:m.x,y:m.y,name:m.displayName||'Giáo viên',expires:Date.now()+900});scheduleRender();setTimeout(()=>{const v=remoteLasers.get(String(m.userId));if(v&&v.expires<=Date.now()){remoteLasers.delete(String(m.userId));scheduleRender();}},950);return;}
  if(m.type==='stroke_cancel'){remoteStrokes.delete(m.objectId);scheduleRender();return;}
  if(m.type==='user_blocked'){manualExit=true;window.showToast?.('Giáo viên đã chặn tài khoản của bạn khỏi bảng này.','warning');exitRoom();return;}
- if(m.type==='user_lock_state'){userLocked=!!m.blocked;if(userLocked){drawing=null;dragState=null;selectedObjectId='';syncSelectionButtons();scheduleRender();}syncLockUi();window.showToast?.(userLocked?'Giáo viên đã tạm khóa quyền tương tác của bạn.':'Giáo viên đã mở lại quyền tương tác cho bạn.','info');return;}
+ if(m.type==='user_lock_state'){userLocked=!!m.blocked;if(userLocked){drawing=null;dragState=null;resizeState=null;selectedObjectId='';syncSelectionButtons();scheduleRender();}syncLockUi();window.showToast?.(userLocked?'Giáo viên đã tạm khóa quyền tương tác của bạn.':'Giáo viên đã mở lại quyền tương tác cho bạn.','info');return;}
  if(m.type==='page_focus'){if(followTeacher&&!room?.board?.can_manage&&m.pageId&&String(m.pageId)!==String(currentPageId))switchPage(String(m.pageId));return;}
  if(m.type==='vote_state'){const o=objects.get(String(m.objectId));if(o){o.voteCount=Math.max(0,Number(m.voteCount)||0);objects.set(o.id,o);scheduleRender();}return;}
  if(m.type==='timer_state'){timerState=m.timer||null;syncTimerUi();return;}
  if(m.type==='rate_limited'){const now=Date.now();if(now-lastRateNotice>5000){lastRateNotice=now;window.showToast?.('Thao tác quá nhanh, hệ thống đang giảm nhịp để bảo vệ lớp học.','info');}const opId=String(m.clientOpId||''),payload=pendingReliable.get(opId);if(opId&&payload){setTimeout(()=>{if(pendingReliable.has(opId)&&ws?.readyState===WebSocket.OPEN)try{ws.send(payload)}catch{}},Math.max(250,Math.min(10000,Number(m.retryAfterMs)||1000)));}return;}
  if(m.type==='presence'){renderParticipants(m.participants||[]);return;}
- if(m.type==='lock_state'){locked=!!m.locked;if(locked&&!room?.board?.can_manage){drawing=null;dragState=null;scheduleRender();}syncLockUi();return;}
+ if(m.type==='lock_state'){locked=!!m.locked;if(locked&&!room?.board?.can_manage){drawing=null;dragState=null;resizeState=null;scheduleRender();}syncLockUi();return;}
  if(m.type==='policy_changed'){locked=!!m.locked;roomTokenExpiresAt=0;syncLockUi();$('board-room-status').textContent='Cấu hình bảng vừa thay đổi — đang xác thực lại...';return;}
  if(m.type==='board_unavailable'){manualExit=true;window.showToast?.('Bảng đã đóng hoặc tạm ngừng truy cập.','info');exitRoom();return;}
  if(m.type==='board_deleted'){manualExit=true;window.showToast?.('Bảng này đã được giáo viên xóa.','info');exitRoom();return;}
@@ -258,9 +269,10 @@ function myId(){return String(actor?.id||actor?.user_id||'');}
 function remember(action){undoStack.push(action);if(undoStack.length>100)undoStack.shift();redoStack=[];syncHistoryButtons();}
 function selectedObject(){return selectedObjectId?objects.get(selectedObjectId)||null:null;}
 function syncSelectionButtons(){
- const o=selectedObject(),editable=!!o&&canEdit()&&(room?.board?.can_manage||String(o.creatorId||'')===myId());
+ const o=selectedObject(),baseEditable=!!o&&canEdit()&&(room?.board?.can_manage||String(o.creatorId||'')===myId()),editable=baseEditable&&!o?.locked;
  renderSelectedOwner(o);
  if($('board-duplicate-selected'))$('board-duplicate-selected').disabled=!editable;
+ const lockBtn=$('board-lock-selected');if(lockBtn){const canLock=!!o&&!!room?.board?.can_manage;lockBtn.classList.toggle('hidden',!canLock);lockBtn.disabled=!canLock;lockBtn.textContent=o?.locked?'🔓 Mở khóa đối tượng':'🔒 Khóa đối tượng';}
  const imageEditable=editable&&o?.type==='image'&&!!room?.board?.can_manage;
  let imageIndex=-1,imageCount=0;if(imageEditable){const layers=sortImagesForLayer([...objects.values()].filter(x=>x.pageId===currentPageId));imageIndex=layers.findIndex(x=>x.id===o.id);imageCount=layers.length;}
  const up=$('board-image-layer-up'),down=$('board-image-layer-down');
@@ -315,7 +327,8 @@ async function fileToBoardImageBase64(file){
  const bitmap=await createImageBitmap(file),maxW=1600,maxH=1200,scale=Math.min(1,maxW/bitmap.width,maxH/bitmap.height);
  const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(bitmap.width*scale));canvas.height=Math.max(1,Math.round(bitmap.height*scale));
  const ctx=canvas.getContext('2d');ctx.drawImage(bitmap,0,0,canvas.width,canvas.height);bitmap.close?.();
- return {base64:canvas.toDataURL('image/jpeg',.88),width:canvas.width,height:canvas.height};
+ const outputType=file.type==='image/png'?'image/png':file.type==='image/webp'?'image/webp':'image/jpeg';
+ return {base64:canvas.toDataURL(outputType,outputType==='image/jpeg'?.88:.9),width:canvas.width,height:canvas.height};
 }
 async function uploadBoardImage(file){
  const prepared=await fileToBoardImageBase64(file);
@@ -520,7 +533,7 @@ async function switchPage(pageId){
  try{
    manualExit=false;
    if(ws)try{ws.onclose=null;ws.close(1000,'switch page')}catch{}
-   ws=null;objects.clear();remoteStrokes.clear();drawing=null;dragState=null;selectedObjectId='';syncSelectionButtons();scheduleRender();
+   ws=null;stopHeartbeat();objects.clear();remoteStrokes.clear();drawing=null;dragState=null;resizeState=null;selectedObjectId='';syncSelectionButtons();scheduleRender();
    const allowed=Array.isArray(room.allowed_page_ids)&&room.allowed_page_ids.includes(String(pageId));
    if(allowed&&Date.now()<roomTokenExpiresAt){
      currentPageId=String(pageId);undoStack=[];redoStack=[];renderPageControls();connectSocket(currentPageId);return;
@@ -552,7 +565,7 @@ function imageResizeHandles(o){
  ];
 }
 function hitImageResizeHandle(point){
- const o=selectedObject();if(!o||o.type!=='image'||!room?.board?.can_manage)return null;
+ const o=selectedObject();if(!o||o.type!=='image'||o.locked||!room?.board?.can_manage)return null;
  const [x,y]=point,radius=isCoarseBoardPointer()?26:18;
  return imageResizeHandles(o).find(h=>Math.hypot(x-h.x,y-h.y)<=radius)||null;
 }
@@ -762,11 +775,12 @@ function pointerDown(e){
    const target=hitObject(p);if(!target){clearSelection();return;}
    if(!room.board.can_manage&&room.board.student_permission==='comment'&&!['note','text'].includes(target.type))return;
    selectedObjectId=target.id;syncSelectionButtons();scheduleRender();
+   if(target.locked)return;
    dragState={id:target.id,start:p,before:cloneObject(target)};
    return;
  }
  if(tool==='note'){if(!room.board.can_manage&&room.board.student_permission==='view')return;const text=noteText();if(!text){window.showToast?.('Nhập nội dung ghi chú trước.','info');return;}const o={id:crypto.randomUUID(),pageId:currentPageId,type:'note',x:p[0],y:p[1],w:260,h:130,text,color:$('board-color').value,fontSize:20,creatorId:myId()};objects.set(o.id,o);sendOps([{kind:'put',object:o}]);remember({kind:'put',object:o});scheduleRender();return;}
- if(tool==='eraser'){const target=hitObject(p);if(target){sendOps([{kind:'delete',pageId:target.pageId,objectId:target.id}]);objects.delete(target.id);remember({kind:'delete',object:target});scheduleRender();}return;}
+ if(tool==='eraser'){const target=hitObject(p);if(target&&!target.locked){sendOps([{kind:'delete',pageId:target.pageId,objectId:target.id}]);objects.delete(target.id);remember({kind:'delete',object:target});scheduleRender();}return;}
  if(!room.board.can_manage&&room.board.student_permission!=='draw')return;
  if(['line','arrow','rect','ellipse'].includes(tool)){drawing={id:crypto.randomUUID(),pageId:currentPageId,type:tool,x1:p[0],y1:p[1],x2:p[0],y2:p[1],color:$('board-color').value,width:Number($('board-width').value)||3};return;}
  drawing={id:crypto.randomUUID(),pageId:currentPageId,type:'stroke',points:[p],color:$('board-color').value,width:Number($('board-width').value)||3};lastSegmentIndex=0;
@@ -843,7 +857,7 @@ function pointerUp(e){
 function exitRoom(){
  manualExit=true;if(reconnectTimer){clearTimeout(reconnectTimer);reconnectTimer=null;}tool='pen';
  if(ws)try{ws.onclose=null;ws.close(1000,'exit')}catch{};ws=null;room=null;activeBoard=null;activeAccessCode='';reconnectAttempts=0;
- roomTokenExpiresAt=0;tokenRefreshAttempts=0;currentPageId='';userLocked=false;snapshotLoading=false;selectedObjectId='';participantsCache=[];blockedUsers=[];imageCache.clear();renderBlockedUsers();renderSelectedOwner(null);pendingReliable.clear();dragState=null;resizeState=null;panDrag=null;panPointers.clear();pinchStart=null;mobileGesture=false;remoteLasers.clear();zoomLevel=1;aiResultText='';aiClusterPlan=null;timerState=null;followTeacher=true;if(timerTick){clearInterval(timerTick);timerTick=null;}undoStack=[];redoStack=[];objects.clear();remoteStrokes.clear();drawing=null;const roomEl=$('board-room');roomEl?.classList.remove('board-pseudo-fullscreen');document.body.classList.remove('board-body-fullscreen');roomEl?.classList.add('hidden');$('boards-home')?.classList.remove('hidden');
+ stopHeartbeat();roomTokenExpiresAt=0;tokenRefreshAttempts=0;currentPageId='';userLocked=false;snapshotLoading=false;selectedObjectId='';participantsCache=[];blockedUsers=[];imageCache.clear();renderBlockedUsers();renderSelectedOwner(null);pendingReliable.clear();dragState=null;resizeState=null;panDrag=null;panPointers.clear();pinchStart=null;mobileGesture=false;remoteLasers.clear();zoomLevel=1;aiResultText='';aiClusterPlan=null;timerState=null;followTeacher=true;if(timerTick){clearInterval(timerTick);timerTick=null;}undoStack=[];redoStack=[];objects.clear();remoteStrokes.clear();drawing=null;const roomEl=$('board-room');roomEl?.classList.remove('board-pseudo-fullscreen');document.body.classList.remove('board-body-fullscreen');roomEl?.classList.add('hidden');$('boards-home')?.classList.remove('hidden');
 }
 
 export function resetInteractiveBoards(){generation++;list=[];actor=null;manage=false;canCreateBoard=false;page=1;total=0;exitRoom();}
@@ -852,7 +866,7 @@ export function initInteractiveBoards(user){
  const isAdmin=role==='admin'||aud==='quản trị viên';
  const isTeacher=role==='teacher'||role==='giáo viên'||aud==='giáo viên';
  manage=isAdmin||isTeacher;
- canCreateBoard=isAdmin||(isTeacher&&Boolean(actor?.is_vip));
+ canCreateBoard=isAdmin||(isTeacher&&vipFlag(actor?.is_vip));
  $('boards-new')?.classList.toggle('hidden',!manage);load();
 }
 export function connectInteractiveBoards(){
@@ -970,8 +984,14 @@ export function connectInteractiveBoards(){
   }
   $('board-image-layer-up')?.addEventListener('click',()=>reorderSelectedImage(1));
   $('board-image-layer-down')?.addEventListener('click',()=>reorderSelectedImage(-1));
+  $('board-lock-selected')?.addEventListener('click',()=>{
+    const current=selectedObject();if(!current||!room?.board?.can_manage)return;
+    const before=cloneObject(current),after={...cloneObject(current),locked:!Boolean(current.locked)};
+    objects.set(after.id,after);sendOps([{kind:'put',object:after}]);remember({kind:'update',before,after:cloneObject(after)});
+    dragState=null;resizeState=null;scheduleRender();syncSelectionButtons();
+  });
   $('board-delete-selected')?.addEventListener('click',()=>{
-    const target=selectedObject();if(!target||!canEdit())return;
+    const target=selectedObject();if(!target||!canEdit()||target.locked)return;
     if(!room.board.can_manage&&String(target.creatorId||'')!==myId())return;
     sendOps([{kind:'delete',pageId:target.pageId,objectId:target.id}]);objects.delete(target.id);remember({kind:'delete',object:target});selectedObjectId='';syncSelectionButtons();scheduleRender();
   });
