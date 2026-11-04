@@ -477,18 +477,31 @@ export const onRequestGet: PagesFunction<Env> = async (context: any) => {
     }
     if (action === 'session-state') {
       const id = norm(url.searchParams.get('id'));
-      const session: any = await ownedSession(db, user, admin, id);
-      const questions = asArray(session.questions_json);
-      const index = Math.max(0, Math.min(questions.length - 1, Number(session.current_question_index || 0)));
-      const current = questions[index] || null;
-      const currentQuestionId = norm(session.current_question_id || current?.id);
-      const stateRevision = Number(session.state_revision || 1);
-      const responseRevision = Number(session.response_revision || 0);
+      const probe: any = await db.prepare(`
+        SELECT id,creator_id,join_code,exam_id,exam_name,class_name,donvi,status,question_count,
+               current_question_index,current_question_id,collection_state,state_revision,response_revision
+        FROM qr_answer_sessions WHERE id=? LIMIT 1
+      `).bind(id).first();
+      if (!probe) return reply({ error: 'Không tìm thấy phiên quét.', code: 'SESSION_NOT_FOUND' }, 404);
+      if (!admin && !actorIds(user).includes(norm(probe.creator_id))) {
+        return reply({ error: 'Không có quyền truy cập phiên quét này.', code: 'SESSION_SCOPE_DENIED' }, 403);
+      }
+      const stateRevision = Number(probe.state_revision || 1);
+      const responseRevision = Number(probe.response_revision || 0);
       const since = norm(url.searchParams.get('since'));
       const version = stateRevision + ':' + responseRevision;
       if (since && since === version) {
-        return reply({ data: { unchanged: true, version, status: session.status }, error: null });
+        return reply({ data: { unchanged: true, version, status: probe.status }, error: null });
       }
+
+      // Only load the potentially large questions_json after the lightweight version probe changes.
+      const questionRow: any = await db.prepare(
+        'SELECT questions_json FROM qr_answer_sessions WHERE id=? LIMIT 1'
+      ).bind(id).first();
+      const questions = asArray(questionRow?.questions_json);
+      const index = Math.max(0, Math.min(Math.max(0, questions.length - 1), Number(probe.current_question_index || 0)));
+      const current = questions[index] || null;
+      const currentQuestionId = norm(probe.current_question_id || current?.id);
       const responseRows: any = currentQuestionId ? await db.prepare(`
         SELECT r.user_id,r.card_token,r.answer,r.stable_hits,r.updated_at,u.full_name,
           COALESCE((SELECT a.username FROM accounts a WHERE a.user_id=u.id OR a.id=u.id ORDER BY CASE WHEN a.user_id=u.id THEN 0 ELSE 1 END LIMIT 1),u.id) AS student_code
@@ -506,19 +519,19 @@ export const onRequestGet: PagesFunction<Env> = async (context: any) => {
       return reply({ data: {
         unchanged: false,
         version,
-        id: session.id,
-        join_code: session.join_code,
-        exam_id: session.exam_id,
-        exam_name: session.exam_name,
-        class_name: session.class_name,
-        donvi: session.donvi,
-        status: session.status,
+        id: probe.id,
+        join_code: probe.join_code,
+        exam_id: probe.exam_id,
+        exam_name: probe.exam_name,
+        class_name: probe.class_name,
+        donvi: probe.donvi,
+        status: probe.status,
         current_question_index: index,
         current_question_id: currentQuestionId,
-        collection_state: session.collection_state || 'collecting',
+        collection_state: probe.collection_state || 'collecting',
         state_revision: stateRevision,
         response_revision: responseRevision,
-        question_count: questions.length,
+        question_count: Number(probe.question_count || questions.length),
         current_question: current ? publicQuestion(current,index) : null,
         responses,
         counts,
