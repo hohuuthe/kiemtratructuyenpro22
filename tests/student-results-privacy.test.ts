@@ -15,9 +15,9 @@ const configs:Record<string,any>={
  'private-exam':{show_score:1,show_details:1}
 };
 const records=[
- {id:'a1',user_id:'student-a',exam_id:'shared-exam',exam_name:'Đề trùng tên',score:9,correct_count:9,total_questions:10,time_taken:120,created_at:'2026-10-24',details:'[{"userAnswer":"A"}]'},
- {id:'a2',user_id:'account-a',exam_id:'private-exam',exam_name:'Đề riêng',score:7,correct_count:7,total_questions:10,time_taken:180,created_at:'2026-10-23',details:'[]'},
- {id:'b1',user_id:'student-b',exam_id:'shared-exam',exam_name:'Đề trùng tên',score:3,correct_count:3,total_questions:10,time_taken:200,created_at:'2026-10-24',details:'[{"userAnswer":"D"}]'}
+ {id:'a1',user_id:'student-a',exam_id:'shared-exam',exam_name:'Đề trùng tên',score:9,correct_count:9,total_questions:10,time_taken:120,created_at:'2026-10-24',cheat_warning_count:2,details:'[{"userAnswer":"A"}]'},
+ {id:'a2',user_id:'account-a',exam_id:'private-exam',exam_name:'Đề riêng',score:7,correct_count:7,total_questions:10,time_taken:180,created_at:'2026-10-23',cheat_warning_count:0,details:'[]'},
+ {id:'b1',user_id:'student-b',exam_id:'shared-exam',exam_name:'Đề trùng tên',score:3,correct_count:3,total_questions:10,time_taken:200,created_at:'2026-10-24',cheat_warning_count:0,details:'[{"userAnswer":"D"}]'}
 ];
 function database(){
  return {
@@ -39,6 +39,10 @@ function database(){
     },
     async all(){
      if(sql.includes('FROM results r') && sql.includes('LEFT JOIN exam_configs')){
+      if(sql.includes('AND r.exam_id = ?')){
+       const requestedExam=bound.at(-1),ids=bound.slice(0,-1);
+       return {results:records.filter(x=>ids.includes(x.user_id)&&x.exam_id===requestedExam).sort((a,b)=>b.created_at.localeCompare(a.created_at)).map(row=>({...row,exam_show_score:configs[row.exam_id]?.show_score,exam_show_details:configs[row.exam_id]?.show_details}))};
+      }
       const ids=bound.slice(0,-2),limit=bound.at(-2),offset=bound.at(-1);
       return {results:records.filter(x=>ids.includes(x.user_id)).sort((a,b)=>b.created_at.localeCompare(a.created_at)).slice(offset,offset+limit).map(row=>({...row,exam_show_score:configs[row.exam_id]?.show_score,exam_show_details:configs[row.exam_id]?.show_details}))};
      }
@@ -103,4 +107,16 @@ test('Student view does not fetch bulk results and clears cross-login data',()=>
  assert.ok(src.includes('visible = isTeacher || isAdmin || Boolean(currentUser)'));
  assert.ok(html.includes('ranking-student-panel'));
  assert.ok(html.includes('ranking-admin-panel'));
+});
+
+test('Attempt history by exam ID is student-scoped, score-sorted and includes violation count only for own attempts',async()=>{
+ const own=await call('a','http://localhost/api/results/me?examId=shared-exam');
+ assert.equal(own.status,200);
+ const payload=await own.json();
+ assert.deepEqual(payload.data.map((x:any)=>x.id),['a1']);
+ assert.equal(payload.data[0].cheat_warning_count,2);
+ assert.ok(payload.data.every((x:any)=>x.exam_id==='shared-exam'));
+ const other=await call('b','http://localhost/api/results/me?examId=shared-exam');
+ const otherPayload=await other.json();
+ assert.deepEqual(otherPayload.data.map((x:any)=>x.id),['b1']);
 });
