@@ -126,9 +126,11 @@ export const onRequestDelete: PagesFunction<Env> = async (context) => {
       return new Response(JSON.stringify({ error: "Không thể tự xóa tài khoản của chính mình!" }), { status: 400, headers: corsHeaders });
     }
 
-    const isTeacher = target.has_teacher_account === true || target.has_teacher_account === 1 ||
-      audience === 'giáo viên' || audience === 'teacher';
     const isStudent = ['học sinh','student'].includes(audience);
+    const isTeacher = !isStudent && (
+      target.has_teacher_account === true || target.has_teacher_account === 1 ||
+      audience === 'giáo viên' || audience === 'teacher'
+    );
 
     if (isTeacher) {
       await db.exec(TEACHER_DELETE_CASCADE_SQL);
