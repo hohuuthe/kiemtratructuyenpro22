@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-SOURCE_DATABASE_URL="\${SOURCE_DATABASE_URL:-\${NEON_DATABASE_URL:-}}"
-POSTGRES_IMAGE="\${POSTGRES_IMAGE:-postgres:18}"
-STAMP="\$(date -u +%Y%m%dT%H%M%SZ)"
-BACKUP_FILE="\${1:-backups/neon-full-backup-\${STAMP}.tar.gz}"
+SOURCE_DATABASE_URL="${SOURCE_DATABASE_URL:-${NEON_DATABASE_URL:-}}"
+POSTGRES_IMAGE="${POSTGRES_IMAGE:-postgres:18}"
+STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+BACKUP_FILE="${1:-backups/neon-full-backup-${STAMP}.tar.gz}"
 
-if [[ -z "\${SOURCE_DATABASE_URL}" ]]; then
+if [[ -z "${SOURCE_DATABASE_URL}" ]]; then
   echo "ERROR: SOURCE_DATABASE_URL or NEON_DATABASE_URL is required." >&2
   exit 2
 fi
@@ -16,17 +16,17 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 3
 fi
 
-mkdir -p "\$(dirname "\${BACKUP_FILE}")"
-WORK_DIR="\$(mktemp -d)"
-trap 'rm -rf "\${WORK_DIR}"' EXIT
-chmod 700 "\${WORK_DIR}"
+mkdir -p "$(dirname "${BACKUP_FILE}")"
+WORK_DIR="$(mktemp -d)"
+trap 'rm -rf "${WORK_DIR}"' EXIT
+chmod 700 "${WORK_DIR}"
 
-echo "Creating complete PostgreSQL database archive with \${POSTGRES_IMAGE} ..."
+echo "Creating complete PostgreSQL database archive with ${POSTGRES_IMAGE} ..."
 
 docker run --rm \
-  -e DATABASE_URL="\${SOURCE_DATABASE_URL}" \
-  -v "\${WORK_DIR}:/backup" \
-  "\${POSTGRES_IMAGE}" \
+  -e DATABASE_URL="${SOURCE_DATABASE_URL}" \
+  -v "${WORK_DIR}:/backup" \
+  "${POSTGRES_IMAGE}" \
   sh -ceu '
     umask 077
 
@@ -61,7 +61,7 @@ docker run --rm \
     sha256sum database.dump database.list globals.sql source_metadata.txt > SHA256SUMS
   '
 
-tar -C "\${WORK_DIR}" -czf "\${BACKUP_FILE}" \
+tar -C "${WORK_DIR}" -czf "${BACKUP_FILE}" \
   database.dump \
   database.list \
   globals.sql \
@@ -69,10 +69,10 @@ tar -C "\${WORK_DIR}" -czf "\${BACKUP_FILE}" \
   source_metadata.txt \
   SHA256SUMS
 
-if [[ ! -s "\${BACKUP_FILE}" ]]; then
+if [[ ! -s "${BACKUP_FILE}" ]]; then
   echo "ERROR: Backup file was not created." >&2
   exit 4
 fi
 
-echo "Backup created: \${BACKUP_FILE}"
-echo "Size: \$(du -h "\${BACKUP_FILE}" | awk '{print $1}')"
+echo "Backup created: ${BACKUP_FILE}"
+echo "Size: $(du -h "${BACKUP_FILE}" | awk '{print $1}')"
