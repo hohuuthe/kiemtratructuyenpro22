@@ -30,6 +30,7 @@ import { processExamResultsDeletion } from './src/exam-results-delete-service';
 import { listExamResultsDeletionTargets } from './src/exam-results-targets-service';
 import { ExamResultsDeletionError } from './src/exam-results-delete-policy';
 import { resolveLiveExamResultsActor } from './src/exam-results-delete-actor';
+import { TEACHER_DELETE_CASCADE_SQL, TEACHER_DELETE_CALL_SQL, parseTeacherDeletionResult, teacherDeleteHttpError } from './src/teacher-delete-cascade';
 
 dotenv.config({ override: true });
 
@@ -1556,55 +1557,78 @@ async function startServer() {
       if (!checkIsAdmin(user)) return res.status(403).json({ error: "Chỉ Quản trị viên mới được xóa hồ sơ người dùng" });
 
       const userId = req.params.id;
+      const targetResult = await executeSqlQuery(
+        `SELECT u.id, u.full_name, u.target_audience,
+                EXISTS(
+                  SELECT 1 FROM accounts a
+                  WHERE (a.user_id = u.id OR a.id = u.id)
+                    AND LOWER(COALESCE(a.role,'')) IN ('teacher','giáo viên')
+                ) AS has_teacher_account,
+                EXISTS(
+                  SELECT 1 FROM accounts a
+                  WHERE (a.user_id = u.id OR a.id = u.id)
+                    AND (
+                      LOWER(COALESCE(a.role,''))='admin'
+                      OR LOWER(COALESCE(a.username,'')) IN ('admin','adminhht')
+                      OR LOWER(COALESCE(a.id,'')) IN ('admin','adminhht')
+                    )
+                ) AS has_admin_account
+         FROM users u WHERE u.id = ? LIMIT 1`,
+        [userId]
+      );
+      const target: any = targetResult.results?.[0];
+      if (!target) return res.status(404).json({ error: "Không tìm thấy hồ sơ người dùng" });
 
-      // KIỂM TRA BẢO MẬT ADMIN: TUYỆT ĐỐI KHÔNG CHO XÓA TÀI KHOẢN HOẶC HỒ SƠ ADMIN
-      const checkAdminAcc = await executeSqlQuery("SELECT id, username, role FROM accounts WHERE user_id = ? OR id = ?", [userId, userId]);
-      const checkAdminUser = await executeSqlQuery("SELECT id, target_audience FROM users WHERE id = ?", [userId]);
-      const isLinkedAdmin = (checkAdminAcc.results && checkAdminAcc.results.some((a: any) => a.role === 'admin' || a.username === 'admin' || a.id === 'admin')) ||
-                            (checkAdminUser.results && checkAdminUser.results.some((u: any) => u.target_audience === 'Quản trị viên'));
-
-      if (isLinkedAdmin) {
+      const audience = String(target.target_audience || '').trim().toLocaleLowerCase('vi');
+      const isAdminTarget = target.has_admin_account === true || target.has_admin_account === 1 ||
+        ['quản trị viên','admin'].includes(audience);
+      if (isAdminTarget) {
         return res.status(400).json({ error: "BẢO MẬT HỆ THỐNG: Tuyệt đối không được xóa tài khoản hoặc hồ sơ Quản trị viên (Admin)!" });
       }
-
-      // 1. Tìm và xóa toàn bộ tài khoản đăng nhập gắn với người dùng này (qua user_id hoặc id)
-      let deletedAccountsCount = 0;
-      try {
-        const findAccounts = await executeSqlQuery("SELECT id, username, role FROM accounts WHERE user_id = ? OR id = ?", [userId, userId]);
-        if (findAccounts.results && findAccounts.results.length > 0) {
-          for (const acc of findAccounts.results) {
-            if (acc.role === 'admin' || acc.username === 'admin' || acc.id === 'admin') {
-              return res.status(400).json({ error: "BẢO MẬT HỆ THỐNG: Tuyệt đối không được xóa tài khoản Quản trị viên (Admin)!" });
-            }
-            if (acc.id === user.id) continue;
-            await executeSqlQuery("DELETE FROM accounts WHERE id = ?", [acc.id]);
-            deletedAccountsCount++;
-          }
-        }
-      } catch (errAcc) {
-        console.warn("Lỗi khi tìm và xóa tài khoản gắn với người dùng:", errAcc);
+      if (userId === user.user_id || userId === user.id) {
+        return res.status(400).json({ error: "Không thể tự xóa tài khoản của chính mình!" });
       }
 
-      // 2. Xóa hồ sơ người dùng khỏi bảng users và phân công lớp nếu có
-      await executeSqlQuery("DELETE FROM users WHERE id = ?", [userId]);
-      try {
-        await executeSqlQuery("DELETE FROM teacher_classes WHERE teacher_id = ?", [userId]);
-      } catch (e) {}
+      const isTeacher = target.has_teacher_account === true || target.has_teacher_account === 1 ||
+        audience === 'giáo viên';
 
-      return res.status(200).json({ 
-        data: { 
-          success: true, 
-          deletedUserId: userId, 
-          deletedAccountsCount: deletedAccountsCount 
-        }, 
-        error: null 
+      if (isTeacher) {
+        await executeSqlQuery(TEACHER_DELETE_CASCADE_SQL, []);
+        const deleted = await executeSqlQuery(TEACHER_DELETE_CALL_SQL, [userId]);
+        const deletion = parseTeacherDeletionResult(deleted.results?.[0]);
+        if (!deletion?.success) throw new Error('TEACHER_DELETE_EMPTY_RESULT');
+        return res.status(200).json({ data: deletion, error: null });
+      }
+
+      // Non-teacher users retain the normal deletion path.
+      const findAccounts = await executeSqlQuery(
+        "SELECT id, username, role FROM accounts WHERE user_id = ? OR id = ?",
+        [userId, userId]
+      );
+      for (const acc of findAccounts.results || []) {
+        if (acc.id === user.id) return res.status(400).json({ error: "Không thể tự xóa tài khoản của chính mình!" });
+        if (String(acc.role || '').toLowerCase() === 'admin') {
+          return res.status(400).json({ error: "BẢO MẬT HỆ THỐNG: Không được xóa tài khoản Quản trị viên!" });
+        }
+      }
+
+      let deletedAccountsCount = 0;
+      for (const acc of findAccounts.results || []) {
+        const deletedAccount = await executeSqlQuery("DELETE FROM accounts WHERE id = ?", [acc.id]);
+        deletedAccountsCount += Number(deletedAccount.changes || 0);
+      }
+      await executeSqlQuery("DELETE FROM teacher_classes WHERE teacher_id = ?", [userId]);
+      const deletedUser = await executeSqlQuery("DELETE FROM users WHERE id = ?", [userId]);
+      if (Number(deletedUser.changes || 0) !== 1) throw new Error('USER_DELETE_PROFILE_CONFLICT');
+
+      return res.status(200).json({
+        data: { success: true, deletedUserId: userId, deletedAccountsCount },
+        error: null
       });
     } catch (e: any) {
-      if (e && e.message && e.message.includes("hạn mức dữ liệu")) {
-        return res.status(400).json({ error: e.message });
-      }
+      const mapped = teacherDeleteHttpError(e);
       console.error("DELETE /api/users error:", e);
-      return res.status(500).json({ error: e.message || 'Lỗi server' });
+      return res.status(mapped.status).json({ error: mapped.error, code: mapped.code });
     }
   });
 
