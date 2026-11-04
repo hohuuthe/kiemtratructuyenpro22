@@ -462,7 +462,9 @@ test('board hardening preserves creator provenance, normalizes VIP and locks pro
   const html=fs.readFileSync('public/components/tab-boards.html','utf8');
   assert.match(common,/function isInteractiveBoardVip/);
   assert.doesNotMatch(common,/isTeacher && Boolean\(user\.is_vip\)/);
-  assert.match(worker,/object\.creatorName=String\(existing\.creatorName/);
+  assert.match(worker,/object\.creatorName=String\(existing\.creatorName\|\|''\)/);
+  assert.doesNotMatch(worker,/existing\.creatorName\|\|object\.creatorName/);
+  assert.match(ui,/String\(o\.creatorRole\|\|'\'\)==='student'/);
   assert.match(worker,/object\.creatorClass=String\(existing\.creatorClass/);
   assert.match(worker,/object\.creatorUnit=String\(existing\.creatorUnit/);
   assert.match(worker,/existing\?\.locked && !canManage/);
