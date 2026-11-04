@@ -1,4 +1,5 @@
 import { verifyAuthSession, getDynamicSecret, getDatabase } from '../exam/utils';
+import { TEACHER_DELETE_CASCADE_SQL, TEACHER_DELETE_CALL_SQL, parseTeacherDeletionResult, teacherDeleteHttpError } from '../../../src/teacher-delete-cascade';
 
 interface Env {
   NEON_DATABASE_URL?: string;
@@ -89,36 +90,91 @@ export const onRequestDelete: PagesFunction<Env> = async (context) => {
 
   const userId = params.id as string;
   try {
-    // 1. Tìm và xóa toàn bộ tài khoản đăng nhập gắn với người dùng này (qua user_id hoặc id)
-    let deletedAccountsCount = 0;
-    try {
-      const { results: findAccounts } = await db.prepare("SELECT id, username, role FROM accounts WHERE user_id = ? OR id = ?").bind(userId, userId).all();
-      if (findAccounts && findAccounts.length > 0) {
-        for (const acc of findAccounts) {
-          if (acc.id === user.id) continue;
-          await db.prepare("DELETE FROM accounts WHERE id = ?").bind(acc.id).run();
-          deletedAccountsCount++;
-        }
-      }
-    } catch (errAcc) {
-      console.warn("Lỗi khi tìm và xóa tài khoản gắn với người dùng:", errAcc);
+    const target: any = await db.prepare(
+      `SELECT u.id, u.full_name, u.target_audience,
+              EXISTS(
+                SELECT 1 FROM accounts a
+                WHERE (a.user_id = u.id OR a.id = u.id)
+                  AND LOWER(COALESCE(a.role,'')) IN ('teacher','giáo viên')
+              ) AS has_teacher_account,
+              EXISTS(
+                SELECT 1 FROM accounts a
+                WHERE (a.user_id = u.id OR a.id = u.id)
+                  AND (
+                    LOWER(COALESCE(a.role,''))='admin'
+                    OR LOWER(COALESCE(a.username,'')) IN ('admin','adminhht')
+                    OR LOWER(COALESCE(a.id,'')) IN ('admin','adminhht')
+                  )
+              ) AS has_admin_account
+       FROM users u WHERE u.id = ? LIMIT 1`
+    ).bind(userId).first();
+
+    if (!target) {
+      return new Response(JSON.stringify({ error: "Không tìm thấy hồ sơ người dùng" }), { status: 404, headers: corsHeaders });
     }
 
-    // 2. Xóa hồ sơ người dùng khỏi bảng users và phân công lớp
-    await db.prepare("DELETE FROM users WHERE id = ?").bind(userId).run();
-    try {
-      await db.prepare("DELETE FROM teacher_classes WHERE teacher_id = ?").bind(userId).run();
-    } catch (e) {}
+    const audience = String(target.target_audience || '').trim().toLocaleLowerCase('vi');
+    const isAdminTarget = target.has_admin_account === true || target.has_admin_account === 1 ||
+      ['quản trị viên','admin'].includes(audience);
+    if (isAdminTarget) {
+      return new Response(JSON.stringify({ error: "BẢO MẬT HỆ THỐNG: Tuyệt đối không được xóa tài khoản hoặc hồ sơ Quản trị viên (Admin)!" }), { status: 400, headers: corsHeaders });
+    }
 
-    return new Response(JSON.stringify({ 
-      data: { 
-        success: true, 
-        deletedUserId: userId, 
-        deletedAccountsCount: deletedAccountsCount 
-      }, 
-      error: null 
+    if (userId === user.user_id || userId === user.id) {
+      return new Response(JSON.stringify({ error: "Không thể tự xóa tài khoản của chính mình!" }), { status: 400, headers: corsHeaders });
+    }
+
+    const isTeacher = target.has_teacher_account === true || target.has_teacher_account === 1 ||
+      audience === 'giáo viên';
+
+    if (isTeacher) {
+      // Install/upgrade the idempotent database-side transaction for this tenant.
+      // The following SELECT is one atomic PostgreSQL statement. Any exception
+      // rolls back every DELETE performed inside delete_teacher_cascade().
+      await db.exec(TEACHER_DELETE_CASCADE_SQL);
+      const row: any = await db.prepare(TEACHER_DELETE_CALL_SQL).bind(userId).first();
+      const deletion = parseTeacherDeletionResult(row);
+      if (!deletion?.success) throw new Error('TEACHER_DELETE_EMPTY_RESULT');
+
+      return new Response(JSON.stringify({
+        data: deletion,
+        error: null
+      }), { status: 200, headers: corsHeaders });
+    }
+
+    // Non-teacher deletion keeps the existing behavior, but no swallowed errors:
+    // accounts -> assignments -> profile.
+    const { results: linkedAccounts } = await db.prepare(
+      "SELECT id, username, role FROM accounts WHERE user_id = ? OR id = ?"
+    ).bind(userId, userId).all();
+
+    for (const acc of linkedAccounts || []) {
+      if (acc.id === user.id) {
+        return new Response(JSON.stringify({ error: "Không thể tự xóa tài khoản của chính mình!" }), { status: 400, headers: corsHeaders });
+      }
+      if (String(acc.role || '').toLowerCase() === 'admin') {
+        return new Response(JSON.stringify({ error: "BẢO MẬT HỆ THỐNG: Không được xóa tài khoản Quản trị viên!" }), { status: 400, headers: corsHeaders });
+      }
+    }
+
+    let deletedAccountsCount = 0;
+    for (const acc of linkedAccounts || []) {
+      const r = await db.prepare("DELETE FROM accounts WHERE id = ?").bind(acc.id).run();
+      deletedAccountsCount += Number(r.meta?.changes || 0);
+    }
+    await db.prepare("DELETE FROM teacher_classes WHERE teacher_id = ?").bind(userId).run();
+    const deletedUser = await db.prepare("DELETE FROM users WHERE id = ?").bind(userId).run();
+    if (Number(deletedUser.meta?.changes || 0) !== 1) throw new Error('USER_DELETE_PROFILE_CONFLICT');
+
+    return new Response(JSON.stringify({
+      data: { success: true, deletedUserId: userId, deletedAccountsCount },
+      error: null
     }), { status: 200, headers: corsHeaders });
   } catch (e: any) {
-    return new Response(JSON.stringify({ error: e.message || 'Lỗi server' }), { status: 500, headers: corsHeaders });
+    const mapped = teacherDeleteHttpError(e);
+    return new Response(JSON.stringify({ error: mapped.error, code: mapped.code }), {
+      status: mapped.status,
+      headers: corsHeaders
+    });
   }
 };
