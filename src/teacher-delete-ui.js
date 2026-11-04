@@ -1,10 +1,10 @@
 const DELETE_STEPS = [
   { key: 'results', label: 'Xóa kết quả bài làm và dữ liệu nộp bài', icon: '1' },
-  { key: 'questions', label: 'Xóa câu hỏi do giáo viên tạo', icon: '2' },
-  { key: 'exams', label: 'Xóa đề kiểm tra do giáo viên tạo', icon: '3' },
+  { key: 'questions', label: 'Xóa câu hỏi/dữ liệu nội dung do người dùng tạo', icon: '2' },
+  { key: 'exams', label: 'Xóa đề kiểm tra do người dùng tạo', icon: '3' },
   { key: 'related', label: 'Xóa dữ liệu liên quan (lớp, tài liệu, bảng, QR)', icon: '4' },
-  { key: 'accounts', label: 'Xóa tài khoản đăng nhập của giáo viên', icon: '5' },
-  { key: 'user', label: 'Xóa hồ sơ người dùng giáo viên', icon: '6' }
+  { key: 'accounts', label: 'Xóa tài khoản đăng nhập', icon: '5' },
+  { key: 'user', label: 'Xóa hồ sơ người dùng', icon: '6' }
 ];
 
 function escapeHtml(value) {
@@ -14,10 +14,12 @@ function escapeHtml(value) {
     .replaceAll("'", '&#039;');
 }
 
-function isTeacherProfile(user) {
+function isProtectedAdminProfile(user) {
   const audience = String(user?.target_audience || '').trim().toLocaleLowerCase('vi');
   const role = String(user?.role || user?.account_role || '').trim().toLocaleLowerCase('vi');
-  return audience === 'giáo viên' || role === 'teacher' || role === 'giáo viên';
+  const username = String(user?.username || user?.account_username || '').trim().toLocaleLowerCase('vi');
+  return audience === 'quản trị viên' || audience === 'admin' || role === 'admin' ||
+    username === 'admin' || username === 'adminhht' || String(user?.id || '').toLowerCase() === 'adminhht';
 }
 
 function tenantKey(name) {
@@ -40,26 +42,26 @@ function stepRows() {
     </div>`).join('');
 }
 
-function ensureTeacherDeleteModal() {
-  let modal = document.getElementById('teacher-delete-cascade-modal');
+function ensureUserDeleteModal() {
+  let modal = document.getElementById('user-delete-cascade-modal');
   if (modal) return modal;
   modal = document.createElement('div');
-  modal.id = 'teacher-delete-cascade-modal';
+  modal.id = 'user-delete-cascade-modal';
   modal.className = 'hidden fixed inset-0 z-[100000] items-center justify-center bg-slate-950/55 p-3 backdrop-blur-[2px]';
   modal.innerHTML = `
-    <div class="w-full max-w-lg overflow-hidden rounded-2xl border border-white/20 bg-slate-50 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="teacher-delete-title">
+    <div class="w-full max-w-lg overflow-hidden rounded-2xl border border-white/20 bg-slate-50 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="user-delete-title">
       <div class="border-b border-rose-100 bg-gradient-to-r from-rose-600 to-red-600 px-4 py-3 text-white">
         <div class="flex items-start gap-3">
           <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/15 text-lg">⚠️</div>
           <div class="min-w-0">
-            <h3 id="teacher-delete-title" class="text-sm sm:text-base font-black">Xóa vĩnh viễn giáo viên và toàn bộ dữ liệu</h3>
+            <h3 id="user-delete-title" class="text-sm sm:text-base font-black">Xóa vĩnh viễn hồ sơ người dùng và toàn bộ dữ liệu</h3>
             <p class="mt-0.5 text-[11px] text-rose-50">Thao tác không thể hoàn tác sau khi giao dịch hoàn tất.</p>
           </div>
         </div>
       </div>
       <div class="max-h-[76vh] overflow-y-auto p-4">
         <div class="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-relaxed text-amber-900">
-          Bạn sắp xóa giáo viên <strong id="teacher-delete-name"></strong>. Hệ thống sẽ xóa tuần tự toàn bộ dữ liệu thuộc giáo viên này. Nếu bất kỳ bước nào lỗi, cơ sở dữ liệu sẽ <strong>ROLLBACK toàn bộ</strong>, không để trạng thái xóa dở dang.
+          Bạn sắp xóa hồ sơ <strong id="teacher-delete-name"></strong>. Hệ thống sẽ xóa tuần tự toàn bộ dữ liệu liên quan đến người dùng này. Nếu bất kỳ bước nào lỗi, cơ sở dữ liệu sẽ <strong>ROLLBACK toàn bộ</strong>, không để trạng thái xóa dở dang.
         </div>
         <div id="teacher-delete-progress-note" class="mt-3 hidden rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-[11px] font-semibold text-blue-800">
           Cơ sở dữ liệu đang chạy một giao dịch nguyên tử. Không đóng trang trong lúc xử lý.
@@ -134,7 +136,7 @@ function closeModal(modal) {
   modal.classList.remove('flex');
 }
 
-async function runTeacherDelete(modal, user) {
+async function runUserDelete(modal, user) {
   if (modal.dataset.busy === '1') return;
   modal.dataset.busy = '1';
   const cancel = modal.querySelector('#teacher-delete-cancel');
@@ -175,7 +177,7 @@ async function runTeacherDelete(modal, user) {
     const byKey = new Map(serverSteps.map(s => [s.key, s]));
     DELETE_STEPS.forEach(s => setStepState(modal, s.key, 'done', byKey.get(s.key)?.count ?? 0));
 
-    success.textContent = 'Đã xóa hoàn toàn giáo viên và toàn bộ dữ liệu liên quan. Kiểm toán sau xóa không phát hiện dữ liệu mồ côi.';
+    success.textContent = 'Đã xóa hoàn toàn hồ sơ và toàn bộ dữ liệu liên quan. Kiểm toán sau xóa không phát hiện dữ liệu mồ côi.';
     success.classList.remove('hidden');
     note.classList.add('hidden');
     confirm.textContent = 'Đã hoàn tất';
@@ -189,12 +191,12 @@ async function runTeacherDelete(modal, user) {
     if (Array.isArray(window.usersList)) window.usersList = window.usersList.filter(x => x.id != user.id);
     try { if (typeof window.renderUsers === 'function') await window.renderUsers(); } catch {}
     if (typeof window.showToast === 'function') {
-      window.showToast('✅ Đã xóa giáo viên và toàn bộ dữ liệu liên quan; không còn dữ liệu mồ côi.', 'success');
+      window.showToast('✅ Đã xóa hồ sơ và toàn bộ dữ liệu liên quan; không còn dữ liệu mồ côi.', 'success');
     }
   } catch (err) {
     clearInterval(timer);
     DELETE_STEPS.forEach((s, idx) => setStepState(modal, s.key, idx === visualIndex ? 'failed' : 'waiting'));
-    error.textContent = (err?.message || 'Xóa giáo viên thất bại.') + ' Toàn bộ giao dịch đã được rollback; không có dữ liệu nào bị xóa một phần.';
+    error.textContent = (err?.message || 'Xóa hồ sơ người dùng thất bại.') + ' Toàn bộ giao dịch đã được rollback; không có dữ liệu nào bị xóa một phần.';
     error.classList.remove('hidden');
     note.classList.add('hidden');
     cancel.disabled = false;
@@ -204,13 +206,13 @@ async function runTeacherDelete(modal, user) {
     confirm.textContent = 'Thử lại';
     modal.dataset.busy = '0';
     if (typeof window.showToast === 'function') {
-      window.showToast('❌ Xóa giáo viên thất bại — dữ liệu đã được rollback toàn bộ.', 'error');
+      window.showToast('❌ Xóa hồ sơ thất bại — dữ liệu đã được rollback toàn bộ.', 'error');
     }
   }
 }
 
-function openTeacherDeleteModal(user) {
-  const modal = ensureTeacherDeleteModal();
+function openUserDeleteModal(user) {
+  const modal = ensureUserDeleteModal();
   resetModal(modal);
   modal.dataset.busy = '0';
   modal.querySelector('#teacher-delete-name').textContent = user.full_name || user.username || user.id || 'giáo viên này';
@@ -223,7 +225,7 @@ function openTeacherDeleteModal(user) {
   cancel.classList.remove('opacity-50','cursor-not-allowed');
   confirm.classList.remove('opacity-60','cursor-wait');
   cancel.onclick = () => closeModal(modal);
-  confirm.onclick = () => runTeacherDelete(modal, user);
+  confirm.onclick = () => runUserDelete(modal, user);
   modal.onclick = (event) => {
     if (event.target === modal && modal.dataset.busy !== '1') closeModal(modal);
   };
@@ -231,24 +233,25 @@ function openTeacherDeleteModal(user) {
   modal.classList.add('flex');
 }
 
-function installTeacherDeleteOverride() {
+function installUserDeleteOverride() {
   const original = window.confirmDeleteUser;
-  if (typeof original !== 'function' || original.__teacherCascadeWrapped) return false;
+  if (typeof original !== 'function' || original.__userCascadeWrapped) return false;
   const wrapped = function(id) {
     const users = Array.isArray(window.usersList) ? window.usersList : [];
     const user = users.find(x => x.id == id);
-    if (!user || !isTeacherProfile(user)) return original(id);
-    openTeacherDeleteModal(user);
+    if (!user) return original(id);
+    if (isProtectedAdminProfile(user)) return original(id);
+    openUserDeleteModal(user);
   };
   wrapped.__teacherCascadeWrapped = true;
   window.confirmDeleteUser = wrapped;
   return true;
 }
 
-if (!installTeacherDeleteOverride()) {
+if (!installUserDeleteOverride()) {
   let tries = 0;
   const timer = setInterval(() => {
     tries += 1;
-    if (installTeacherDeleteOverride() || tries > 100) clearInterval(timer);
+    if (installUserDeleteOverride() || tries > 100) clearInterval(timer);
   }, 100);
 }
