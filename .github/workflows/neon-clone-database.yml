@@ -20,27 +20,27 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
-      SOURCE_DATABASE_URL: \${{ secrets.NEON_DATABASE_URL }}
-      TARGET_DATABASE_URL: \${{ secrets.TARGET_NEON_DATABASE_URL }}
+      SOURCE_DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
+      TARGET_DATABASE_URL: ${{ secrets.TARGET_NEON_DATABASE_URL }}
       POSTGRES_IMAGE: postgres:18
 
     steps:
       - name: Validate secrets and confirmation
         shell: bash
         run: |
-          if [[ "\${{ inputs.confirm_clone }}" != "CLONE" ]]; then
+          if [[ "${{ inputs.confirm_clone }}" != "CLONE" ]]; then
             echo "::error::Confirmation must be exactly CLONE."
             exit 1
           fi
-          if [[ -z "\${SOURCE_DATABASE_URL}" ]]; then
+          if [[ -z "${SOURCE_DATABASE_URL}" ]]; then
             echo "::error::Missing repository secret NEON_DATABASE_URL."
             exit 1
           fi
-          if [[ -z "\${TARGET_DATABASE_URL}" ]]; then
+          if [[ -z "${TARGET_DATABASE_URL}" ]]; then
             echo "::error::Missing repository secret TARGET_NEON_DATABASE_URL."
             exit 1
           fi
-          if [[ "\${SOURCE_DATABASE_URL}" == "\${TARGET_DATABASE_URL}" ]]; then
+          if [[ "${SOURCE_DATABASE_URL}" == "${TARGET_DATABASE_URL}" ]]; then
             echo "::error::Source and target URLs must be different."
             exit 1
           fi
@@ -52,14 +52,14 @@ jobs:
         shell: bash
         run: |
           chmod +x scripts/neon-full-backup.sh scripts/neon-full-restore.sh scripts/neon-verify-clone.sh
-          scripts/neon-full-backup.sh "backups/neon-full-backup-\${GITHUB_RUN_ID}.tar.gz"
+          scripts/neon-full-backup.sh "backups/neon-full-backup-${GITHUB_RUN_ID}.tar.gz"
 
       - name: Restore archive into target
         shell: bash
         env:
           ALLOW_DESTRUCTIVE_RESTORE: YES
         run: |
-          scripts/neon-full-restore.sh "backups/neon-full-backup-\${GITHUB_RUN_ID}.tar.gz"
+          scripts/neon-full-restore.sh "backups/neon-full-backup-${GITHUB_RUN_ID}.tar.gz"
 
       - name: Verify source and target
         shell: bash
@@ -88,4 +88,4 @@ jobs:
             echo "- Schema dump matched."
             echo "- Database object inventory matched."
             echo "- Exact row counts for every user table matched."
-          } >> "\${GITHUB_STEP_SUMMARY}"
+          } >> "${GITHUB_STEP_SUMMARY}"
