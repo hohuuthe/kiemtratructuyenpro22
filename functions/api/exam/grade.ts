@@ -134,6 +134,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             await db.prepare(
                 "CREATE TABLE IF NOT EXISTS _submitted_exam_tokens (token_hash TEXT PRIMARY KEY, exam_id TEXT, student_name TEXT, user_id TEXT, submitted_at TEXT)"
             ).run();
+            await db.prepare(
+                "ALTER TABLE _submitted_exam_tokens ADD COLUMN IF NOT EXISTS user_id TEXT"
+            ).run();
             const existingSubmission = await db.prepare(
                 "SELECT token_hash FROM _submitted_exam_tokens WHERE token_hash = ?"
             ).bind(tokenHash).first();
