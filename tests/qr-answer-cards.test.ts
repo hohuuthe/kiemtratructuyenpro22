@@ -254,13 +254,15 @@ test('long-range scanner uses hybrid native multi-QR and high-resolution tiled f
   assert.match(ui,/decodeJsQrTiles/);
   assert.match(ui,/new Worker\(new URL\('\.\/qr-scan-worker\.js',import\.meta\.url\)/);
   assert.match(ui,/scanMode==='far'/);
-  assert.match(ui,/targetW=scanMode==='far'\?Math\.min\(2200,video\.videoWidth\)/);
+  assert.match(ui,/const plan=scanDecodePlan\(video\.videoWidth\)/);
+  assert.match(ui,/const targetW=plan\.targetW/);
   assert.match(worker,/cols=far\?\(width>=1500\?4:3\)/);
   assert.match(worker,/overlap=far\?\.28:\.20/);
-  assert.match(worker,/upscale=far\?\(width>=1500\?2\.35:2\.05\)/);
-  assert.match(ui,/width:\{ideal:2560\}/);
+  assert.match(worker,/upscaleByTier/);
+  assert.match(worker,/high:\(width>=1500\?2\.35:2\.05\)/);
+  assert.match(ui,/targetW=Math\.min\(maxW,mode==='far'\?2560:1920\)/);
   assert.match(ui,/width:\{ideal:1920\}/);
-  assert.match(ui,/width:\{ideal:1280\}/);
+  assert.match(ui,/height:\{ideal:1080\}/);
   assert.match(ui,/focusMode:'continuous'/);
   assert.match(ui,/applyCameraZoom/);
   assert.match(ui,/toggleTorch/);
@@ -411,7 +413,7 @@ test('professional classroom scanner runs heavy decoding off the UI thread',()=>
 
   assert.match(worker,/cols=far\?\(width>=1500\?4:3\)/);
   assert.match(worker,/overlap=far\?\.28:\.20/);
-  assert.match(worker,/upscale=far\?\(width>=1500\?2\.35:2\.05\)/);
+  assert.match(worker,/upscaleByTier/);
   assert.match(worker,/inversion=cycle%5===0\?'attemptBoth':'dontInvert'/);
   assert.match(worker,/maxCodes/);
   assert.match(worker,/cameraEpoch:msg\.cameraEpoch/);
@@ -482,4 +484,12 @@ test('commercial-grade QR scanner has watchdog adaptive load camera recovery and
   assert.match(ui,/if\(pendingRecords\.size\)queueFlush\(\)/);
   assert.match(ui,/navigator\.vibrate/);
   assert.match(ui,/lastCompletedFeedbackQuestionId/);
+});
+
+
+test('scanner visibly warns about valid QR cards that are not assigned to the current class',()=>{
+  const ui=fs.readFileSync('src/qr-answer-cards-ui.js','utf8');
+  assert.match(ui,/THẺ NGOÀI LỚP/);
+  assert.match(ui,/strokeStyle='#dc2626'/);
+  assert.match(ui,/if \(!student\) \{/);
 });
