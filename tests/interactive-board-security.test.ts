@@ -480,3 +480,19 @@ test('image proxy only serves configured immutable R2 image origins',()=>{
   assert.match(proxy,/12\*1024\*1024/);
   assert.match(proxy,/max-age=31536000, immutable/);
 });
+
+
+test('board client hardening handles heartbeat locks touch cleanup and transparent images',()=>{
+  const ui=fs.readFileSync('src/interactive-board-ui.js','utf8');
+  assert.match(ui,/function vipFlag/);
+  assert.match(ui,/startHeartbeat/);
+  assert.match(ui,/socket\.send\('ping'\)/);
+  assert.match(ui,/e\.data==='pong'/);
+  assert.match(ui,/Heartbeat timeout/);
+  assert.match(ui,/board-lock-selected/);
+  assert.match(ui,/target\.locked\)return/);
+  assert.match(ui,/o\.locked\|\|!room\?\.board\?\.can_manage/);
+  assert.match(ui,/outputType=file\.type==='image\/png'/);
+  assert.match(ui,/resizeState=null;snapshotLoading=true/);
+  assert.match(ui,/stopHeartbeat\(\);roomTokenExpiresAt=0/);
+});
