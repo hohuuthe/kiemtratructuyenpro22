@@ -272,7 +272,7 @@ function syncSelectionButtons(){
  const o=selectedObject(),baseEditable=!!o&&canEdit()&&(room?.board?.can_manage||String(o.creatorId||'')===myId()),editable=baseEditable&&!o?.locked;
  renderSelectedOwner(o);
  if($('board-duplicate-selected'))$('board-duplicate-selected').disabled=!editable;
- const lockBtn=$('board-lock-selected');if(lockBtn){const canLock=!!o&&!!room?.board?.can_manage;lockBtn.classList.toggle('hidden',!canLock);lockBtn.disabled=!canLock;lockBtn.textContent=o?.locked?'🔓 Mở khóa đối tượng':'🔒 Khóa đối tượng';}
+ const lockBtn=$('board-lock-selected');if(lockBtn){const canLock=!!o&&!!room?.board?.can_manage&&!snapshotLoading&&ws?.readyState===WebSocket.OPEN;lockBtn.classList.toggle('hidden',!o||!room?.board?.can_manage);lockBtn.disabled=!canLock;lockBtn.textContent=o?.locked?'🔓 Mở khóa đối tượng':'🔒 Khóa đối tượng';}
  const imageEditable=editable&&o?.type==='image'&&!!room?.board?.can_manage;
  let imageIndex=-1,imageCount=0;if(imageEditable){const layers=sortImagesForLayer([...objects.values()].filter(x=>x.pageId===currentPageId));imageIndex=layers.findIndex(x=>x.id===o.id);imageCount=layers.length;}
  const up=$('board-image-layer-up'),down=$('board-image-layer-down');
@@ -328,7 +328,7 @@ async function fileToBoardImageBase64(file){
  const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(bitmap.width*scale));canvas.height=Math.max(1,Math.round(bitmap.height*scale));
  const ctx=canvas.getContext('2d');ctx.drawImage(bitmap,0,0,canvas.width,canvas.height);bitmap.close?.();
  const outputType=file.type==='image/png'?'image/png':file.type==='image/webp'?'image/webp':'image/jpeg';
- return {base64:canvas.toDataURL(outputType,outputType==='image/jpeg'?.88:.9),width:canvas.width,height:canvas.height};
+ return {base64:canvas.toDataURL(outputType,outputType==='image/jpeg' ? 0.88 : 0.9),width:canvas.width,height:canvas.height};
 }
 async function uploadBoardImage(file){
  const prepared=await fileToBoardImageBase64(file);
@@ -985,7 +985,7 @@ export function connectInteractiveBoards(){
   $('board-image-layer-up')?.addEventListener('click',()=>reorderSelectedImage(1));
   $('board-image-layer-down')?.addEventListener('click',()=>reorderSelectedImage(-1));
   $('board-lock-selected')?.addEventListener('click',()=>{
-    const current=selectedObject();if(!current||!room?.board?.can_manage)return;
+    const current=selectedObject();if(!current||!room?.board?.can_manage||snapshotLoading||ws?.readyState!==WebSocket.OPEN)return;
     const before=cloneObject(current),after={...cloneObject(current),locked:!Boolean(current.locked)};
     objects.set(after.id,after);sendOps([{kind:'put',object:after}]);remember({kind:'update',before,after:cloneObject(after)});
     dragState=null;resizeState=null;scheduleRender();syncSelectionButtons();
