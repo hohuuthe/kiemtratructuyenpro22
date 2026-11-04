@@ -320,7 +320,7 @@ test('interactive board hardening enforces live permissions and session expiry',
   assert.match(ui,/syncBoardPermissionUi/);
   assert.match(ui,/m\.type==='token_expired'/);
   assert.match(worker,/tokenExp:Math\.max\(0,Number\(claims\.exp\)\|\|0\)/);
-  assert.match(worker,/kind==='vote_toggle'[\s\S]*if\(!canVote\)continue/);
+  assert.match(worker,/kind==='vote_toggle'[\s\S]*if\(!canVote\|\|!controlOpen\('tool:vote'\)\)continue/);
   assert.match(worker,/Token expired/);
   assert.match(worker,/s\.tokenExp&&now>=Number\(s\.tokenExp\)/);
   assert.match(api,/String\(current\?\.status\|\|'\'\)!==String\(updated\?\.status\|\|'\'\)/);
@@ -550,4 +550,61 @@ test('board image loading falls back to legacy proxy and direct URL after secure
   assert.match(ui,/Date\.now\(\)-Number\(entry\.failedAt\|\|0\)<5000/);
   assert.match(ui,/loadImageFromSources\(url,\{allowDirect:false\}\)/);
   assert.match(ui,/const display=\/\^https:/);
+});
+
+
+test('teachers can right-click every stable board-room button to lock it for students in realtime',()=>{
+  const ui=fs.readFileSync('src/interactive-board-ui.js','utf8');
+  const worker=fs.readFileSync('workers/interactive-board-worker.js','utf8');
+  const html=fs.readFileSync('public/components/tab-boards.html','utf8');
+  const css=fs.readFileSync('src/style.css','utf8');
+
+  const room=html.slice(html.indexOf('id="board-room"'),html.indexOf('id="board-edit-modal"'));
+  const buttons=[...room.matchAll(/<button\b[^>]*>/g)].map(m=>m[0]);
+  assert.ok(buttons.length>20);
+  for(const tag of buttons)assert.ok(/\bid="board-[^"]+"/.test(tag)||/data-board-tool="[^"]+"/.test(tag),'Every stable room button needs a lock key: '+tag);
+
+  assert.match(ui,/function boardControlKey/);
+  assert.match(ui,/boardRoom\?\.addEventListener\('contextmenu'/);
+  assert.match(ui,/Khóa cho học sinh/);
+  assert.match(ui,/Mở khóa cho học sinh/);
+  assert.match(ui,/studentControlLocks=new Set/);
+  assert.match(ui,/m\.type==='control_lock_state'/);
+  assert.match(ui,/studentControlLocked\('tool:'\+String\(name\|\|''\)\)/);
+  assert.match(ui,/data-student-lock-block/);
+  assert.match(css,/board-student-control-menu/);
+  assert.match(css,/board-student-control-locked/);
+
+  assert.match(worker,/function safeControlKey/);
+  assert.match(worker,/room:studentControlLocks/);
+  assert.match(worker,/kind==='set_control_lock'/);
+  assert.match(worker,/type:'control_lock_state'/);
+  assert.match(worker,/studentControlLocks/);
+});
+
+test('student control locks are enforced server-side for drawing voting selection deletion undo and redo',()=>{
+  const ui=fs.readFileSync('src/interactive-board-ui.js','utf8');
+  const worker=fs.readFileSync('workers/interactive-board-worker.js','utf8');
+  assert.match(ui,/sendOps\(ops,controlKey=''\)/);
+  assert.match(ui,/ops\.map\(op=>\(\{\.\.\.op,controlKey\}\)\):ops/);
+  assert.match(ui,/tool:vote/);
+  assert.match(ui,/tool:pen/);
+  assert.match(ui,/tool:eraser/);
+  assert.match(ui,/tool:select/);
+  assert.match(ui,/button:board-undo/);
+  assert.match(ui,/button:board-redo/);
+  assert.match(worker,/controlOpen\('tool:vote'\)/);
+  assert.match(worker,/controlOpen\('tool:pen'\)/);
+  assert.match(worker,/button:board-delete-selected/);
+  assert.match(worker,/button:board-duplicate-selected/);
+  assert.match(worker,/resyncRequired=true/);
+});
+
+
+test('student shortcuts and selection actions cannot bypass per-button locks',()=>{
+  const ui=fs.readFileSync('src/interactive-board-ui.js','utf8');
+  assert.match(ui,/studentControlLocked\('button:board-undo'\)/);
+  assert.match(ui,/studentControlLocked\('button:board-redo'\)/);
+  assert.match(ui,/sendOps\(\[\{kind:'put',object:shifted\}\],'button:board-duplicate-selected'\)/);
+  assert.match(ui,/sendOps\(\[\{kind:'delete',pageId:target\.pageId,objectId:target\.id\}\],'button:board-delete-selected'\)/);
 });
