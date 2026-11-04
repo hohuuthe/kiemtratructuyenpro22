@@ -1,4 +1,4 @@
 Production release trigger
-interactive-board: b63253f3f963d85f97efe716fe1aac56db41e199
-release-date: 2026-11-03
-release: board-images-background
+interactive-board: 583197d0a0c9682a3c229d5c7826ff37d447348a
+release-date: 2026-11-04
+release: board-image-loading-fallback-fix
