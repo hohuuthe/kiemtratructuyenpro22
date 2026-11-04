@@ -182,7 +182,9 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
       params.push(user.id, user.user_id || user.id);
     }
 
-    query += ` ORDER BY ec.name ASC, ec.id ASC${paginationClause}`;
+    // All exam pickers must receive the newest exam first. Sort before pagination so
+    // page 1 always contains the most recently created exams; legacy NULL dates go last.
+    query += ` ORDER BY ec.created_at DESC NULLS LAST, ec.id DESC${paginationClause}`;
     const { results } = await db.prepare(query).bind(...params).all();
     const mappedResults = (results || []).map(mapRowRead).map((row: any) => ({
       ...row,
