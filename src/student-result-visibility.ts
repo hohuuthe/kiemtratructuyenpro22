@@ -160,6 +160,7 @@ export function projectStudentResultRow(row: any) {
     total_questions: row.total_questions,
     time_taken: row.time_taken,
     created_at: row.created_at,
+    cheat_warning_count: Math.max(0, Math.floor(Number(row.cheat_warning_count) || 0)),
     ...permission
   };
 }
