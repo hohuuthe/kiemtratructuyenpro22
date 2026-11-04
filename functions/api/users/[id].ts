@@ -1,5 +1,5 @@
 import { verifyAuthSession, getDynamicSecret, getDatabase } from '../exam/utils';
-import { TEACHER_DELETE_CASCADE_SQL, TEACHER_DELETE_CALL_SQL, parseTeacherDeletionResult, teacherDeleteHttpError } from '../../../src/teacher-delete-cascade';
+import { USER_DELETE_CASCADE_SQL, USER_DELETE_CALL_SQL, parseUserDeletionResult, userDeleteHttpError } from '../../../src/user-delete-cascade';
 
 interface Env {
   NEON_DATABASE_URL?: string;
@@ -124,54 +124,20 @@ export const onRequestDelete: PagesFunction<Env> = async (context) => {
       return new Response(JSON.stringify({ error: "Không thể tự xóa tài khoản của chính mình!" }), { status: 400, headers: corsHeaders });
     }
 
-    const isTeacher = target.has_teacher_account === true || target.has_teacher_account === 1 ||
-      audience === 'giáo viên';
-
-    if (isTeacher) {
-      // Install/upgrade the idempotent database-side transaction for this tenant.
-      // The following SELECT is one atomic PostgreSQL statement. Any exception
-      // rolls back every DELETE performed inside delete_teacher_cascade().
-      await db.exec(TEACHER_DELETE_CASCADE_SQL);
-      const row: any = await db.prepare(TEACHER_DELETE_CALL_SQL).bind(userId).first();
-      const deletion = parseTeacherDeletionResult(row);
-      if (!deletion?.success) throw new Error('TEACHER_DELETE_EMPTY_RESULT');
-
-      return new Response(JSON.stringify({
-        data: deletion,
-        error: null
-      }), { status: 200, headers: corsHeaders });
-    }
-
-    // Non-teacher deletion keeps the existing behavior, but no swallowed errors:
-    // accounts -> assignments -> profile.
-    const { results: linkedAccounts } = await db.prepare(
-      "SELECT id, username, role FROM accounts WHERE user_id = ? OR id = ?"
-    ).bind(userId, userId).all();
-
-    for (const acc of linkedAccounts || []) {
-      if (acc.id === user.id) {
-        return new Response(JSON.stringify({ error: "Không thể tự xóa tài khoản của chính mình!" }), { status: 400, headers: corsHeaders });
-      }
-      if (String(acc.role || '').toLowerCase() === 'admin') {
-        return new Response(JSON.stringify({ error: "BẢO MẬT HỆ THỐNG: Không được xóa tài khoản Quản trị viên!" }), { status: 400, headers: corsHeaders });
-      }
-    }
-
-    let deletedAccountsCount = 0;
-    for (const acc of linkedAccounts || []) {
-      const r = await db.prepare("DELETE FROM accounts WHERE id = ?").bind(acc.id).run();
-      deletedAccountsCount += Number(r.meta?.changes || 0);
-    }
-    await db.prepare("DELETE FROM teacher_classes WHERE teacher_id = ?").bind(userId).run();
-    const deletedUser = await db.prepare("DELETE FROM users WHERE id = ?").bind(userId).run();
-    if (Number(deletedUser.meta?.changes || 0) !== 1) throw new Error('USER_DELETE_PROFILE_CONFLICT');
+    // Every non-admin profile now uses the same database-side atomic cascade.
+    // This covers students too: results, QR participation/cards, board references,
+    // legacy owned resources, linked accounts, and the profile itself.
+    await db.exec(USER_DELETE_CASCADE_SQL);
+    const row: any = await db.prepare(USER_DELETE_CALL_SQL).bind(userId).first();
+    const deletion = parseUserDeletionResult(row);
+    if (!deletion?.success) throw new Error('USER_DELETE_EMPTY_RESULT');
 
     return new Response(JSON.stringify({
-      data: { success: true, deletedUserId: userId, deletedAccountsCount },
+      data: deletion,
       error: null
     }), { status: 200, headers: corsHeaders });
   } catch (e: any) {
-    const mapped = teacherDeleteHttpError(e);
+    const mapped = userDeleteHttpError(e);
     return new Response(JSON.stringify({ error: mapped.error, code: mapped.code }), {
       status: mapped.status,
       headers: corsHeaders
