@@ -258,7 +258,7 @@ function summaryText(serverSteps) {
 
 function queueRow(entry, index) {
   const u = entry.user || {};
-  const type = entry.isTeacher ? 'Giáo viên' : (entry.isStudent ? 'Học sinh' : 'Người dùng');
+  const type = entry.isStudent ? 'Học sinh' : (entry.isTeacher ? 'Giáo viên' : 'Người dùng');
   return `
     <div data-queue-id="${esc(u.id)}" class="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2">
       <div class="flex items-center justify-between gap-2">
@@ -316,7 +316,7 @@ function addFailure(modal, entry, message) {
   div.className = 'rounded-lg border border-red-200 bg-red-50 px-2.5 py-2';
   div.innerHTML = `
     <div class="text-[11px] font-black text-red-900">✕ ${esc(u.full_name || u.id)}</div>
-    <div class="mt-0.5 text-[10px] leading-relaxed text-red-700">${esc(message || 'Không thể xóa. Dữ liệu giáo viên này đã rollback.')}</div>
+    <div class="mt-0.5 text-[10px] leading-relaxed text-red-700">${esc(message || 'Không thể xóa hồ sơ này. Giao dịch đã rollback toàn bộ.')}</div>
   `;
   box.appendChild(div);
 }
@@ -592,8 +592,8 @@ function installOverride() {
     const deletable = entries.filter(e => !e.isAdmin);
     if (!deletable.length) return original();
 
-    // Mọi hồ sơ không phải Admin đều dùng cùng quy trình xóa nguyên tử,
-    // bao gồm Học sinh, Giáo viên và hồ sơ legacy đổi vai trò.
+    // Mỗi loại hồ sơ dùng đúng quy trình riêng: Học sinh chỉ xóa dữ liệu học sinh,
+    // Giáo viên xóa dữ liệu sở hữu của giáo viên; Admin luôn được bảo vệ.
     openBatchModal(entries);
   };
 
