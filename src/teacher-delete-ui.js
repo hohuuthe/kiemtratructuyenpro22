@@ -170,7 +170,7 @@ async function runUserDelete(modal, user) {
       headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json' }
     });
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok || payload?.error) throw new Error(payload?.error || 'Không thể xóa giáo viên.');
+    if (!response.ok || payload?.error) throw new Error(payload?.error || 'Không thể xóa hồ sơ người dùng.');
 
     clearInterval(timer);
     const serverSteps = Array.isArray(payload?.data?.steps) ? payload.data.steps : [];
@@ -215,7 +215,7 @@ function openUserDeleteModal(user) {
   const modal = ensureUserDeleteModal();
   resetModal(modal);
   modal.dataset.busy = '0';
-  modal.querySelector('#teacher-delete-name').textContent = user.full_name || user.username || user.id || 'giáo viên này';
+  modal.querySelector('#teacher-delete-name').textContent = user.full_name || user.username || user.id || 'người dùng này';
   const cancel = modal.querySelector('#teacher-delete-cancel');
   const confirm = modal.querySelector('#teacher-delete-confirm');
   cancel.textContent = 'Hủy';
