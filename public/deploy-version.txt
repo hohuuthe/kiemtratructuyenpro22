@@ -1,4 +1,4 @@
 Production release trigger
-interactive-board: 583197d0a0c9682a3c229d5c7826ff37d447348a
+exam-select-order: b4f879bff50d82b3671523132f70086674f62802
 release-date: 2026-11-04
-release: board-image-loading-fallback-fix
+release: exam-select-newest-first
