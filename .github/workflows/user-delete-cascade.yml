@@ -1,0 +1,34 @@
+name: User deletion cascade checks
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/user-delete-cascade.ts'
+      - 'src/teacher-delete-ui.js'
+      - 'src/batch-teacher-delete-ui.js'
+      - 'functions/api/users/**'
+      - 'functions/api/exam/grade.ts'
+      - 'server.ts'
+      - 'database-schema.sql'
+      - 'migrations/*user_delete_cascade.sql'
+      - 'tests/user-delete-cascade.test.mjs'
+      - '.github/workflows/user-delete-cascade.yml'
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: User deletion regression tests
+        run: node --test tests/user-delete-cascade.test.mjs
+      - name: TypeScript project check
+        run: npm run lint
+      - name: Production build
+        run: npm run build
