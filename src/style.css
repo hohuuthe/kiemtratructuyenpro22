@@ -2523,3 +2523,80 @@ html.kttt-modal-open, body.kttt-modal-open { overflow: hidden !important; oversc
 .board-student-control-menu button:hover:not(:disabled){background:#f8fafc}
 .board-student-control-menu button:disabled{opacity:.38;cursor:not-allowed}
 .board-student-control-menu p{padding:6px 8px 2px;color:#64748b;font-size:10px;line-height:1.35}
+
+
+/* QL hồ sơ người dùng: cột chọn tối giản, cột thao tác luôn nổi cố định bên phải */
+#th-users-select{
+  width:38px!important;
+  min-width:38px!important;
+  max-width:38px!important;
+  padding-left:5px!important;
+  padding-right:5px!important;
+  text-align:center!important;
+}
+#users-table-body>tr>td:first-child:not([colspan]){
+  width:38px!important;
+  min-width:38px!important;
+  max-width:38px!important;
+  padding-left:5px!important;
+  padding-right:5px!important;
+  text-align:center!important;
+}
+#th-users-actions{
+  position:sticky!important;
+  right:0!important;
+  z-index:35!important;
+  width:124px!important;
+  min-width:124px!important;
+  max-width:124px!important;
+  padding-left:5px!important;
+  padding-right:5px!important;
+  text-align:center!important;
+  white-space:nowrap!important;
+  background:#f9fafb!important;
+  box-shadow:-7px 0 10px -9px rgba(15,23,42,.65);
+}
+#users-table-body>tr>td:last-child:not([colspan]){
+  position:sticky!important;
+  right:0!important;
+  z-index:20!important;
+  width:124px!important;
+  min-width:124px!important;
+  max-width:124px!important;
+  padding:5px!important;
+  text-align:center!important;
+  white-space:nowrap!important;
+  background:#fff;
+  box-shadow:-7px 0 10px -9px rgba(15,23,42,.55);
+}
+#users-table-body>tr:hover>td:last-child:not([colspan]){
+  background:#eff6ff;
+}
+#users-table-body>tr[class*="bg-blue-50"]>td:last-child:not([colspan]){
+  background:#eff6ff;
+}
+#users-table-body>tr>td:last-child:not([colspan])>div{
+  gap:2px!important;
+  flex-wrap:nowrap!important;
+}
+#users-table-body>tr>td:last-child:not([colspan]) button{
+  flex:0 0 auto;
+  padding:5px!important;
+  line-height:1!important;
+}
+@media(max-width:767px){
+  #th-users-select,
+  #users-table-body>tr>td:first-child:not([colspan]){
+    width:34px!important;
+    min-width:34px!important;
+    max-width:34px!important;
+    padding-left:3px!important;
+    padding-right:3px!important;
+  }
+  #th-users-actions,
+  #users-table-body>tr>td:last-child:not([colspan]){
+    width:116px!important;
+    min-width:116px!important;
+    max-width:116px!important;
+  }
+}
