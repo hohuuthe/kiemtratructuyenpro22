@@ -447,3 +447,39 @@ test('stale worker frames cannot cross camera sessions or question revisions',()
   assert.match(ui,/String\(msg\.sessionId\|\|''\)!==String\(session\?\.id\|\|''\)/);
   assert.match(ui,/collectionState!=='collecting'\)return/);
 });
+
+
+test('commercial-grade QR scanner has watchdog adaptive load camera recovery and invalid-answer protection',()=>{
+  const ui=fs.readFileSync('src/qr-answer-cards-ui.js','utf8');
+  const worker=fs.readFileSync('src/qr-scan-worker.js','utf8');
+
+  assert.match(ui,/scanWorkerStartedAt/);
+  assert.match(ui,/function checkScanWorkerWatchdog/);
+  assert.match(ui,/performance\.now\(\)-scanWorkerStartedAt>1400/);
+  assert.match(ui,/resetScanWorker\('watchdog timeout'\)/);
+
+  assert.match(ui,/function performanceTierFromDuration/);
+  assert.match(ui,/ms>=320/);
+  assert.match(ui,/scanDecodePlan/);
+  assert.match(ui,/performanceTier:plan\.tier/);
+  assert.match(worker,/budgetByTier/);
+  assert.match(worker,/upscaleByTier/);
+  assert.match(worker,/\['high','balanced','safe'\]/);
+
+  assert.match(ui,/function applyCameraQualityProfile/);
+  assert.match(ui,/frameRate:\{ideal:30,max:30\}/);
+  assert.match(ui,/function scheduleCameraRecovery/);
+  assert.match(ui,/track\.onended/);
+  assert.match(ui,/track\.onmute/);
+  assert.match(ui,/openCamera\(\{recovery:true\}\)/);
+
+  assert.match(ui,/function validAnswerKeys/);
+  assert.match(ui,/d\.invalidAnswer=!allowed\.has\(orientation\.answer\)/);
+  assert.match(ui,/ĐÁP ÁN KHÔNG HỢP LỆ/);
+  assert.match(ui,/if\(d\.invalidAnswer\)\{tracking\.delete\(key\);continue;\}/);
+
+  assert.match(ui,/window\.addEventListener\('online'/);
+  assert.match(ui,/if\(pendingRecords\.size\)queueFlush\(\)/);
+  assert.match(ui,/navigator\.vibrate/);
+  assert.match(ui,/lastCompletedFeedbackQuestionId/);
+});
