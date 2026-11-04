@@ -59,6 +59,9 @@ docker run --rm \
 
     cd /backup
     sha256sum database.dump database.list globals.sql source_metadata.txt > SHA256SUMS
+
+    # GitHub runner must read these root-created files after Docker exits.
+    chmod 0644 database.dump database.list globals.sql globals.stderr source_metadata.txt SHA256SUMS
   '
 
 tar -C "${WORK_DIR}" -czf "${BACKUP_FILE}" \
