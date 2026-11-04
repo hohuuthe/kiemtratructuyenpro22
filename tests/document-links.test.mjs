@@ -84,6 +84,7 @@ test('responsive markup includes mobile cards, two metadata columns and multi-ch
  assert.match(html,/value="owner"/);
  assert.match(html,/Chính chủ/);
  assert.match(ui,/documents-mobile-list/);
+ assert.match(ui,/documentStudentClassScopes/);
  assert.match(ui,/documents-audience-error/);
  assert.match(ui,/items.some\(x=>x.value==='owner'&&x.checked\)/);
 });
