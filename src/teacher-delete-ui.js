@@ -81,7 +81,7 @@ function ensureUserDeleteModal() {
       </div>
       <div class="max-h-[76vh] overflow-y-auto p-4">
         <div class="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-relaxed text-amber-900">
-          Bạn sắp xóa hồ sơ <strong id="teacher-delete-name"></strong>. Hệ thống sẽ xóa tuần tự toàn bộ dữ liệu liên quan đến người dùng này. Nếu bất kỳ bước nào lỗi, cơ sở dữ liệu sẽ <strong>ROLLBACK toàn bộ</strong>, không để trạng thái xóa dở dang.
+          Bạn sắp xóa hồ sơ <strong id="teacher-delete-name"></strong>. <span id="user-delete-scope-text">Hệ thống sẽ xóa tuần tự đúng dữ liệu thuộc loại hồ sơ này.</span> Nếu bất kỳ bước nào lỗi, cơ sở dữ liệu sẽ <strong>ROLLBACK toàn bộ</strong>, không để trạng thái xóa dở dang.
         </div>
         <div id="teacher-delete-progress-note" class="mt-3 hidden rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-[11px] font-semibold text-blue-800">
           Cơ sở dữ liệu đang chạy một giao dịch nguyên tử. Không đóng trang trong lúc xử lý.
@@ -246,6 +246,10 @@ function openUserDeleteModal(user) {
   modal.querySelector('#teacher-delete-name').textContent = user.full_name || user.username || user.id || 'người dùng này';
   const title = modal.querySelector('#user-delete-title');
   if (title) title.textContent = type === 'student' ? 'Xóa vĩnh viễn hồ sơ học sinh và dữ liệu học sinh' : 'Xóa vĩnh viễn giáo viên và toàn bộ dữ liệu liên quan';
+  const scopeText = modal.querySelector('#user-delete-scope-text');
+  if (scopeText) scopeText.textContent = type === 'student'
+    ? 'Hệ thống chỉ xóa dữ liệu Học sinh thực sự có: kết quả/lần làm bài, dữ liệu nộp bài, QR, trạng thái tham gia bảng, tài khoản và hồ sơ.'
+    : 'Hệ thống sẽ xóa tuần tự toàn bộ dữ liệu thuộc Giáo viên theo quan hệ sở hữu.';
   const cancel = modal.querySelector('#teacher-delete-cancel');
   const confirm = modal.querySelector('#teacher-delete-confirm');
   cancel.textContent = 'Hủy';
@@ -273,7 +277,7 @@ function installUserDeleteOverride() {
     if (isProtectedAdminProfile(user)) return original(id);
     openUserDeleteModal(user);
   };
-  wrapped.__teacherCascadeWrapped = true;
+  wrapped.__userCascadeWrapped = true;
   window.confirmDeleteUser = wrapped;
   return true;
 }
