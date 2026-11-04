@@ -2,12 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
+    buildStudentAttemptHistoryMarkup,
     buildStudentResultDetailMarkup,
     escapeStudentText,
     filterStudentResultPage,
     studentAnswerStatus,
     studentResultDuration,
-    studentResultPageStats
+    studentResultPageStats,
+    sortStudentAttemptHistory
 } from '../src/student-results-ui.js';
 
 const rows = [
@@ -83,4 +85,21 @@ test('Compact student layout follows existing application forms without viewport
     assert.match(css,/\.student-result-detail \.exam-detail-options\{max-width:100%;min-width:0\}/);
     assert.match(source,/modal\.prepend\(modalCloseButton\)/);
     assert.match(source,/modal\.scrollTop = 0/);
+});
+
+
+test('Attempt history is compact, escaped and sorted by highest visible score first',()=>{
+    const attempts=[
+        {id:'a1',exam_id:'e1',exam_name:'Đề <A>',score:7.5,can_view_score:true,time_taken:130,created_at:'2026-10-22T08:00:00Z',cheat_warning_count:2},
+        {id:'a2',exam_id:'e1',exam_name:'Đề <A>',score:9,can_view_score:true,time_taken:80,created_at:'2026-10-21T08:00:00Z',cheat_warning_count:0},
+        {id:'a3',exam_id:'e1',exam_name:'Đề <A>',score:9,can_view_score:true,time_taken:90,created_at:'2026-10-23T08:00:00Z',cheat_warning_count:1}
+    ];
+    assert.deepEqual(sortStudentAttemptHistory(attempts).map(x=>x.id),['a3','a2','a1']);
+    const html=buildStudentAttemptHistoryMarkup(attempts,{examName:'Đề <A>',formatDate:()=> '23/10/2026'});
+    assert.ok(html.includes('Các lần làm bài'));
+    assert.ok(html.includes('Thời gian làm'));
+    assert.ok(html.includes('Vi phạm'));
+    assert.ok(html.includes('2 lần'));
+    assert.ok(html.includes('&lt;A&gt;'));
+    assert.ok(!html.includes('Đề <A>'));
 });
