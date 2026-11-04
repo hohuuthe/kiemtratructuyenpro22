@@ -1,4 +1,4 @@
-name: Neon full database restore
+name: Phuc_hoi_CSDL_sang_CSDL_moi_HOHUUTHE
 
 on:
   workflow_dispatch:
@@ -47,7 +47,7 @@ jobs:
       - name: Download selected backup artifact
         uses: actions/download-artifact@v4
         with:
-          name: neon-full-backup
+          name: Sao_luu_CSDL_HOHUUTHE
           path: restore-input
           github-token: ${{ secrets.GITHUB_TOKEN }}
           run-id: ${{ inputs.backup_run_id }}
@@ -57,13 +57,13 @@ jobs:
         env:
           ALLOW_DESTRUCTIVE_RESTORE: YES
         run: |
-          chmod +x scripts/neon-full-restore.sh
-          BACKUP_FILE="$(find restore-input -type f -name 'neon-full-backup-*.tar.gz' -print -quit)"
+          chmod +x scripts/Phuc_hoi_CSDL_sang_CSDL_moi_HOHUUTHE.sh
+          BACKUP_FILE="$(find restore-input -type f -name 'Sao_luu_CSDL_HOHUUTHE-*.tar.gz' -print -quit)"
           if [[ -z "${BACKUP_FILE}" ]]; then
             echo "::error::Backup archive not found in downloaded artifact."
             exit 1
           fi
-          scripts/neon-full-restore.sh "${BACKUP_FILE}"
+          scripts/Phuc_hoi_CSDL_sang_CSDL_moi_HOHUUTHE.sh "${BACKUP_FILE}"
 
       - name: Summary
         if: success()
