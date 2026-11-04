@@ -25,6 +25,10 @@ function safeId(value) {
   const id = String(value || '').trim();
   return /^[A-Za-z0-9_-]{1,120}$/.test(id) ? id : '';
 }
+function safeControlKey(value) {
+  const key=String(value||'').trim().toLowerCase();
+  return /^(?:tool:[a-z0-9-]{1,32}|button:board-[a-z0-9-]{1,64})$/.test(key)?key:'';
+}
 function safeColor(value, fallback='#111827') {
   const v=String(value || fallback).trim();
   return /^#[0-9A-Fa-f]{6}$/.test(v) ? v : fallback;
@@ -321,9 +325,10 @@ export class BoardRoom {
     const objects=await this.ctx.storage.list({prefix:'obj:'+pageId+':'});
     const snapshot=[...objects.values()].slice(0,600);
     const participants=this.participants();
+    const studentControlLocks=(Array.isArray(await this.ctx.storage.get('room:studentControlLocks'))?await this.ctx.storage.get('room:studentControlLocks'):[]).map(safeControlKey).filter(Boolean).slice(0,80);
     let timer=await this.ctx.storage.get('room:timer')||null;
     if(timer?.endAt&&Number(timer.endAt)<=Date.now()){await this.ctx.storage.delete('room:timer');timer=null;}
-    server.send(JSON.stringify({type:'snapshot_begin',pageId,locked,userLocked,total:snapshot.length,participants,timer}));
+    server.send(JSON.stringify({type:'snapshot_begin',pageId,locked,userLocked,studentControlLocks,total:snapshot.length,participants,timer}));
     for(let i=0;i<snapshot.length;i+=100){
       server.send(JSON.stringify({type:'snapshot_chunk',pageId,objects:snapshot.slice(i,i+100)}));
     }
@@ -395,10 +400,24 @@ export class BoardRoom {
     const canDraw=canManage || (!roomLocked && !userBlocked && actor.permission==='draw');
     const canComment=canManage || (!roomLocked && !userBlocked && ['draw','comment'].includes(actor.permission));
     const canVote=canManage || (!roomLocked && !userBlocked && ['draw','comment'].includes(actor.permission));
+    const storedControlLocks=await this.ctx.storage.get('room:studentControlLocks');
+    const studentControlLocks=new Set((Array.isArray(storedControlLocks)?storedControlLocks:[]).map(safeControlKey).filter(Boolean));
+    const controlOpen=key=>canManage||!studentControlLocks.has(String(key||''));
+    const sourceControl=(raw,fallback='')=>safeControlKey(raw?.controlKey)||fallback;
     let resyncRequired=false;
 
     for (const raw of packet.ops) {
       const kind=String(raw?.kind||'');
+      if (kind==='set_control_lock' && canManage) {
+        const controlKey=safeControlKey(raw.controlKey);if(!controlKey)continue;
+        const nextLocked=raw.locked===true;
+        if(nextLocked)studentControlLocks.add(controlKey);else studentControlLocks.delete(controlKey);
+        const list=[...studentControlLocks].slice(0,80);
+        if(list.length)await this.ctx.storage.put('room:studentControlLocks',list);
+        else await this.ctx.storage.delete('room:studentControlLocks');
+        this.broadcast({type:'control_lock_state',controlKey,locked:nextLocked,studentControlLocks:list});
+        continue;
+      }
       if (kind==='present_page' && canManage) {
         const pageId=safeId(raw.pageId),allowed=Array.isArray(actor.allowedPages)?actor.allowedPages:[actor.pageId];
         if(!pageId||!allowed.includes(pageId)||await this.ctx.storage.get('deletedpage:'+pageId))continue;
@@ -406,7 +425,7 @@ export class BoardRoom {
         continue;
       }
       if (kind==='vote_toggle') {
-        if(!canVote)continue;
+        if(!canVote||!controlOpen('tool:vote'))continue;
         const pageId=safeId(raw.pageId),objectId=safeId(raw.objectId);
         if(!pageId||!objectId||pageId!==actor.pageId)continue;
         const objectKey='obj:'+pageId+':'+objectId;
@@ -441,7 +460,7 @@ export class BoardRoom {
         continue;
       }
       if (kind==='stroke_cancel') {
-        if (!canDraw) continue;
+        if (!canDraw||!controlOpen('tool:pen')) continue;
         const pageId=safeId(raw.pageId),objectId=safeId(raw.objectId);
         if(!pageId||!objectId||pageId!==actor.pageId)continue;
         if(Array.isArray(actor.activeStrokes)&&actor.activeStrokes.includes(objectId)){
@@ -452,7 +471,7 @@ export class BoardRoom {
         continue;
       }
       if (kind==='stroke_segment') {
-        if (!canDraw) continue;
+        if (!canDraw||!controlOpen('tool:pen')) continue;
         const pageId=safeId(raw.pageId); if (!pageId || pageId!==actor.pageId) continue;
         const points=normalizePoints(raw.points).slice(0,120);
         if (!points.length) continue;
@@ -472,6 +491,12 @@ export class BoardRoom {
         else if (!canDraw) {resyncRequired=true;continue;}
         const key='obj:'+object.pageId+':'+object.id;
         const existing=await this.ctx.storage.get(key);
+        if(!canManage){
+          const primary=existing?'tool:select':(object.type==='stroke'?'tool:pen':(object.type==='text'||object.type==='note'?'tool:note':'tool:'+object.type));
+          const source=sourceControl(raw,primary);
+          const allowed=new Set([primary,'tool:select','button:board-undo','button:board-redo','button:board-duplicate-selected']);
+          if(!allowed.has(source)||!controlOpen(source)){resyncRequired=true;continue;}
+        }
         if (existing && !canManage && existing.creatorId!==actor.userId) {resyncRequired=true;continue;}
         if (existing?.locked && !canManage) {resyncRequired=true;continue;}
         if (existing?.creatorId) {
@@ -515,6 +540,10 @@ export class BoardRoom {
       }
       if (kind==='delete') {
         if (!canComment) {resyncRequired=true;continue;}
+        if(!canManage){
+          const source=sourceControl(raw,'tool:eraser');
+          if(!new Set(['tool:eraser','button:board-delete-selected','button:board-undo','button:board-redo']).has(source)||!controlOpen(source)){resyncRequired=true;continue;}
+        }
         const pageId=safeId(raw.pageId), objectId=safeId(raw.objectId);
         if (!pageId||!objectId||pageId!==actor.pageId) continue;
         const key='obj:'+pageId+':'+objectId;
