@@ -72,6 +72,7 @@ self.onmessage=e=>{
     const src=new Uint8ClampedArray(msg.buffer);
     const cycle=Math.max(0,Number(msg.cycle)||0);
     const far=msg.mode==='far';
+    const tier=['high','balanced','safe'].includes(msg.performanceTier)?msg.performanceTier:'balanced';
     const maxCodes=Math.max(16,Math.min(80,Number(msg.maxCodes)||60));
     const inversion=cycle%5===0?'attemptBoth':'dontInvert';
     const all=decodeMultiple(src,width,height,Math.min(18,maxCodes),inversion);
@@ -80,9 +81,15 @@ self.onmessage=e=>{
     const rows=far?(height>=800?3:2):(height>=700?3:2);
     const overlap=far?.28:.20;
     const tileW=width/cols,tileH=height/rows,total=cols*rows;
-    const budget=Math.min(total,far?9:6);
+    const budgetByTier=far
+      ? {high:9,balanced:7,safe:5}
+      : {high:6,balanced:5,safe:4};
+    const budget=Math.min(total,budgetByTier[tier]);
     const offset=(cycle*budget)%Math.max(1,total);
-    const upscale=far?(width>=1500?2.35:2.05):(width>=1400?1.9:1.55);
+    const upscaleByTier=far
+      ? {high:(width>=1500?2.35:2.05),balanced:1.9,safe:1.65}
+      : {high:(width>=1400?1.9:1.55),balanced:1.5,safe:1.3};
+    const upscale=upscaleByTier[tier];
 
     for(let n=0;n<budget&&all.length<maxCodes;n++){
       const idx=(offset+n)%total,ry=Math.floor(idx/cols),cx=idx%cols;
