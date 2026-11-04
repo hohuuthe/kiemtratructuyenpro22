@@ -1,4 +1,4 @@
-import {DOCUMENT_AUDIENCES,documentAudienceValues,canManageDocument,canEditDocumentRow} from './document-link-policy.js';
+import {DOCUMENT_AUDIENCES,documentAudienceValues,documentStudentClassScopes,canManageDocument,canEditDocumentRow} from './document-link-policy.js';
 const $=id=>document.getElementById(id);
 const clean=t=>String(t??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const active=v=>v===1||v===true||v==='1';
@@ -9,7 +9,7 @@ function dateLabel(iso){if(!iso)return 'Không giới hạn';const d=new Date(is
 function expirationLocal(iso){if(!iso)return '';const d=new Date(iso);return Number.isNaN(d.getTime())?'':new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Ho_Chi_Minh',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(d).replace(' ','T');}
 const classKey=item=>String(item?.donvi??'').trim().toLocaleLowerCase('vi')+'\u001f'+String(item?.lop??'').trim().toLocaleLowerCase('vi');
 function classScopeText(row){
- const scopes=Array.isArray(row?.pham_vi_lop_hoc_sinh)?row.pham_vi_lop_hoc_sinh:[];
+ const scopes=documentStudentClassScopes(row);
  if(!documentAudienceValues(row).includes('student')||!scopes.length)return '';
  return ' · Lớp: '+scopes.map(x=>(x.donvi?x.donvi+' / ':'')+x.lop).join(', ');
 }
@@ -47,7 +47,7 @@ function render(){
 }
 function renderStudentClassScope(selected=[]){
  const root=$('documents-student-class-list'),empty=$('documents-class-scope-empty');if(!root)return;
- const selectedKeys=new Set((selected||[]).map(classKey));
+ const selectedKeys=new Set(documentStudentClassScopes(selected).map(classKey));
  if(!studentClasses.length){root.innerHTML='';empty?.classList.remove('hidden');return;}
  empty?.classList.add('hidden');
  root.innerHTML=studentClasses.map((item,index)=>'<label class="flex items-center gap-3 rounded-xl border border-blue-100 bg-white p-3 cursor-pointer"><input type="checkbox" name="pham_vi_lop_hoc_sinh" value="'+index+'" class="w-5 h-5 accent-blue-700" '+(selectedKeys.has(classKey(item))?'checked':'')+'><span class="min-w-0"><strong class="block text-sm text-slate-900">'+clean(item.lop)+'</strong><span class="block text-[11px] text-slate-500 truncate">'+clean(item.donvi||'Không ghi đơn vị')+'</span></span></label>').join('');
@@ -74,7 +74,7 @@ async function modal(id){
  const selections=found?documentAudienceValues(found):['authenticated'];
  f.querySelectorAll('[name="doi_tuong_truy_cap_nhieu"]').forEach(box=>{box.checked=selections.includes(box.value);box.disabled=selections.includes('owner') && box.value!=='owner';});
  $('documents-audience-error')?.classList.add('hidden');
- renderStudentClassScope(found?.pham_vi_lop_hoc_sinh||[]);
+ renderStudentClassScope(found||[]);
  syncStudentClassScopeVisibility();
  f.elements.namedItem('thoi_gian_het_han').value=expirationLocal(found?.thoi_gian_het_han);
  f.elements.namedItem('hoat_dong').checked=!found||active(found.hoat_dong);
