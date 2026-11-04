@@ -84,7 +84,7 @@ const arrowIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18
 const calendarIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg>';
 const clockIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
 
-export function renderStudentResultCards(container, rows, { onOpen, formatDate, formatDuration } = {}) {
+export function renderStudentResultCards(container, rows, { onOpen, onOpenAttempts, formatDate, formatDuration } = {}) {
     if (!container) return;
     container.replaceChildren();
     const values = Array.isArray(rows) ? rows : [];
@@ -126,23 +126,97 @@ export function renderStudentResultCards(container, rows, { onOpen, formatDate, 
                 '<div class="student-result-progress-track" role="progressbar" aria-label="Tỉ lệ câu đúng" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + progress + '">' +
                     '<span style="width:' + progress + '%"></span></div>' +
             '</div>' : '') +
-            (canDetail ? '<button type="button" class="student-result-open" aria-label="Xem chi tiết bài làm ' +
-                escapeStudentText(result.exam_name || 'Bài thi') + '"><span>Xem chi tiết bài làm</span>' + arrowIcon + '</button>' : '<div class="student-result-access-note">Giáo viên chưa cho phép xem chi tiết bài làm.</div>');
-        const button = card.querySelector('button');
-        if (button) button.addEventListener('click', async () => {
-            if (button.disabled || typeof onOpen !== 'function') return;
-            button.disabled = true;
-            const label = button.querySelector('span');
-            if (label) label.textContent = 'Đang mở bài làm...';
+            '<div class="student-result-actions">' +
+                (result.exam_id ? '<button type="button" class="student-result-attempts" aria-label="Xem các lần làm của ' +
+                    escapeStudentText(result.exam_name || 'Bài thi') + '"><span>Xem các lần làm</span></button>' : '') +
+                (canDetail ? '<button type="button" class="student-result-open" aria-label="Xem chi tiết bài làm ' +
+                    escapeStudentText(result.exam_name || 'Bài thi') + '"><span>Xem chi tiết</span>' + arrowIcon + '</button>' :
+                    '<div class="student-result-access-note">Giáo viên chưa cho phép xem chi tiết bài làm.</div>') +
+            '</div>';
+        const attemptsButton = card.querySelector('.student-result-attempts');
+        if (attemptsButton) attemptsButton.addEventListener('click', async () => {
+            if (attemptsButton.disabled || typeof onOpenAttempts !== 'function') return;
+            attemptsButton.disabled = true;
+            const label = attemptsButton.querySelector('span');
+            if (label) label.textContent = 'Đang tải...';
+            try { await onOpenAttempts(String(result.exam_id), String(result.exam_name || 'Bài thi')); }
+            finally {
+                if (label) label.textContent = 'Xem các lần làm';
+                attemptsButton.disabled = false;
+            }
+        });
+        const detailButton = card.querySelector('.student-result-open');
+        if (detailButton) detailButton.addEventListener('click', async () => {
+            if (detailButton.disabled || typeof onOpen !== 'function') return;
+            detailButton.disabled = true;
+            const label = detailButton.querySelector('span');
+            if (label) label.textContent = 'Đang mở...';
             try { await onOpen(String(result.id)); }
             finally {
-                if (label) label.textContent = 'Xem chi tiết bài làm';
-                button.disabled = false;
+                if (label) label.textContent = 'Xem chi tiết';
+                detailButton.disabled = false;
             }
         });
         fragment.appendChild(card);
     });
     container.appendChild(fragment);
+}
+
+
+export function sortStudentAttemptHistory(rows) {
+    const byDate = row => {
+        const parsed = Date.parse(String(row && row.created_at || ''));
+        return Number.isFinite(parsed) ? parsed : 0;
+    };
+    return [...(Array.isArray(rows) ? rows : [])].sort((a, b) => {
+        const aScore = a && a.can_view_score === true ? studentResultScore(a.score) : null;
+        const bScore = b && b.can_view_score === true ? studentResultScore(b.score) : null;
+        const scoreOrder = (bScore ?? -Infinity) - (aScore ?? -Infinity);
+        return scoreOrder || byDate(b) - byDate(a) || String(b && b.id || '').localeCompare(String(a && a.id || ''));
+    });
+}
+
+export function buildStudentAttemptHistoryMarkup(rows, { examName = 'Bài thi', formatDate, formatDuration } = {}) {
+    const attempts = sortStudentAttemptHistory(rows);
+    const visibleScores = attempts.filter(row => row.can_view_score === true)
+        .map(row => studentResultScore(row.score)).filter(score => score !== null);
+    const best = visibleScores.length ? Math.max(...visibleScores) : null;
+    const formatViolation = value => {
+        const count = Math.max(0, Math.floor(Number(value) || 0));
+        return count > 0 ? count + ' lần' : 'Không';
+    };
+    const body = attempts.map((row, index) => {
+        const score = row.can_view_score === true ? studentResultScore(row.score) : null;
+        const scoreText = row.can_view_score === true ? scoreDisplay(score) : 'Đã ẩn';
+        const duration = formatDuration ? formatDuration(row.time_taken) : studentResultDuration(row.time_taken);
+        const created = formatDate ? formatDate(row.created_at) : String(row.created_at || 'Chưa xác định');
+        const violationCount = Math.max(0, Math.floor(Number(row.cheat_warning_count) || 0));
+        return '<tr>' +
+            '<td data-label="STT">' + (index + 1) + '</td>' +
+            '<td data-label="Tên đề thi" class="student-attempt-name">' + escapeStudentText(row.exam_name || examName) + '</td>' +
+            '<td data-label="Điểm"><strong class="student-attempt-score">' + escapeStudentText(scoreText) + '</strong></td>' +
+            '<td data-label="Thời gian làm">' + escapeStudentText(duration) + '</td>' +
+            '<td data-label="Làm lúc">' + escapeStudentText(created) + '</td>' +
+            '<td data-label="Vi phạm"><span class="student-attempt-violation ' + (violationCount > 0 ? 'has-violation' : '') + '">' +
+                escapeStudentText(formatViolation(violationCount)) + '</span></td>' +
+        '</tr>';
+    }).join('');
+    return '<section class="student-attempt-history" aria-label="Các lần làm bài của đề thi">' +
+        '<header class="student-attempt-history-head">' +
+            '<div><span class="student-attempt-overline">LỊCH SỬ LÀM BÀI · CHỈ MÌNH BẠN</span>' +
+            '<h2>Các lần làm bài</h2><p>' + escapeStudentText(examName) + '</p></div>' +
+            '<div class="student-attempt-summary">' +
+                '<div><span>Số lượt</span><strong>' + attempts.length + '</strong></div>' +
+                '<div><span>Điểm cao nhất</span><strong>' + (best === null ? 'Đã ẩn' : escapeStudentText(scoreDisplay(best))) + '</strong></div>' +
+            '</div>' +
+        '</header>' +
+        '<div class="student-attempt-table-wrap"><table class="student-attempt-table">' +
+            '<thead><tr><th>STT</th><th>Tên đề thi</th><th>Điểm</th><th>Thời gian làm</th><th>Làm lúc</th><th>Vi phạm</th></tr></thead>' +
+            '<tbody>' + (body || '<tr><td colspan="6" class="student-attempt-empty">Chưa có lượt làm nào cho đề thi này.</td></tr>') + '</tbody>' +
+        '</table></div>' +
+        '<footer class="student-attempt-footer"><span>Sắp xếp theo điểm cao nhất; nếu bằng điểm, lần làm mới hơn đứng trước.</span>' +
+            '<button type="button" class="student-attempt-close">Đóng</button></footer>' +
+    '</section>';
 }
 
 function safeStudentImage(source) {
