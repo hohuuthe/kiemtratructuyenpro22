@@ -145,7 +145,7 @@ test('worker prevents student overwrite/delete of objects owned by another actor
   assert.match(worker,/existing && !canManage && existing\.creatorId!==actor\.userId/);
   assert.match(worker,/existing\?\.creatorId/);
   assert.match(worker,/if \(!existing\) continue;/);
-  assert.match(worker,/if \(!canManage && existing\.creatorId!==actor\.userId\)/);
+  assert.match(worker,/if \(!canManage && \(existing\.creatorId!==actor\.userId \|\| existing\.locked\)\)/);
 });
 
 test('time helper behaves deterministically for open windows',()=>{
@@ -350,7 +350,7 @@ test('smart board tab is open to logged users while creation is VIP-only',()=>{
   assert.match(main,/tabName === 'boards' && currentUser/);
   assert.doesNotMatch(main,/showInteractiveBoardVipRequiredModal/);
   assert.doesNotMatch(main,/tabName === 'boards'[\s\S]{0,300}!canUseInteractiveBoardVip/);
-  assert.match(ui,/canCreateBoard=isAdmin\|\|\(isTeacher&&Boolean\(actor\?\.is_vip\)\)/);
+  assert.match(ui,/canCreateBoard=isAdmin\|\|\(isTeacher&&vipFlag\(actor\?\.is_vip\)\)/);
   assert.match(ui,/boards-new'[\s\S]*!manage/);
   assert.match(ui,/b\.can_manage\?'<button data-board-edit/);
   assert.match(ui,/Bạn chỉ được sửa bảng do mình tạo/);
@@ -475,6 +475,7 @@ test('board hardening preserves creator provenance, normalizes VIP and locks pro
 test('image proxy only serves configured immutable R2 image origins',()=>{
   const proxy=fs.readFileSync('functions/api/board/image-proxy.ts','utf8');
   const genericProxy=fs.readFileSync('functions/api/proxy-image.ts','utf8');
+  const ui=fs.readFileSync('src/interactive-board-ui.js','utf8');
   assert.match(proxy,/CLOUDFLARE_R2_PUBLIC_URL/);
   assert.match(proxy,/url\.protocol!=='https:'/);
   assert.match(proxy,/bases\.some/);
