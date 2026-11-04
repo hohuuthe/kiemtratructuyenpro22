@@ -372,7 +372,12 @@ async function setPersistentBlock(targetUserId,blocked){
  }catch(e){window.showToast?.(e.message||'Không thể cập nhật quyền tham gia.','error');}
 }
 function clearSelection(){selectedObjectId='';syncSelectionButtons();scheduleRender();}
-function syncHistoryButtons(){if($('board-undo'))$('board-undo').disabled=!undoStack.length;if($('board-redo'))$('board-redo').disabled=!redoStack.length;syncSelectionButtons();}
+function syncHistoryButtons(){
+ const manager=!!room?.board?.can_manage;
+ if($('board-undo'))$('board-undo').disabled=!undoStack.length||(!manager&&studentControlLocked('button:board-undo'));
+ if($('board-redo'))$('board-redo').disabled=!redoStack.length||(!manager&&studentControlLocked('button:board-redo'));
+ syncSelectionButtons();
+}
 function safeFileName(value){return String(value||'bang-tuong-tac').normalize('NFC').replace(/[^\p{L}\p{N}._-]+/gu,'-').replace(/^-+|-+$/g,'').slice(0,100)||'bang-tuong-tac';}
 function imageProxyUrl(url){return '/api/board/image-proxy?url='+encodeURIComponent(String(url||''));}
 function legacyImageProxyUrl(url){return '/api/proxy-image?url='+encodeURIComponent(String(url||''));}
@@ -678,6 +683,7 @@ function hitObject(point){
  return null;
 }
 async function undo(){
+ if(room&&!room?.board?.can_manage&&studentControlLocked('button:board-undo'))return;
  const action=undoStack.pop();if(!action)return;
  if(action.kind==='put'){sendOps([{kind:'delete',pageId:action.object.pageId,objectId:action.object.id}],'button:board-undo');objects.delete(action.object.id);}
  else if(action.kind==='delete'){sendOps([{kind:'put',object:action.object}],'button:board-undo');objects.set(action.object.id,action.object);}
@@ -685,6 +691,7 @@ async function undo(){
  redoStack.push(action);syncHistoryButtons();scheduleRender();
 }
 async function redo(){
+ if(room&&!room?.board?.can_manage&&studentControlLocked('button:board-redo'))return;
  const action=redoStack.pop();if(!action)return;
  if(action.kind==='put'){sendOps([{kind:'put',object:action.object}],'button:board-redo');objects.set(action.object.id,action.object);}
  else if(action.kind==='delete'){sendOps([{kind:'delete',pageId:action.object.pageId,objectId:action.object.id}],'button:board-redo');objects.delete(action.object.id);}
@@ -1088,7 +1095,7 @@ export function connectInteractiveBoards(){
     const original=selectedObject();if(!original||!canEdit())return;
     const copy=cloneObject(original);copy.id=crypto.randomUUID();copy.creatorId=myId();copy.voteCount=0;
     const shifted=translateObject(copy,28,28);objects.set(shifted.id,shifted);selectedObjectId=shifted.id;
-    sendOps([{kind:'put',object:shifted}]);remember({kind:'put',object:shifted});scheduleRender();syncSelectionButtons();
+    sendOps([{kind:'put',object:shifted}],'button:board-duplicate-selected');remember({kind:'put',object:shifted});scheduleRender();syncSelectionButtons();
   });
   function reorderSelectedImage(direction){
     const current=selectedObject();if(!current||current.type!=='image'||!room?.board?.can_manage)return;
@@ -1116,7 +1123,7 @@ export function connectInteractiveBoards(){
   $('board-delete-selected')?.addEventListener('click',()=>{
     const target=selectedObject();if(!target||!canEdit()||target.locked)return;
     if(!room.board.can_manage&&String(target.creatorId||'')!==myId())return;
-    sendOps([{kind:'delete',pageId:target.pageId,objectId:target.id}]);objects.delete(target.id);remember({kind:'delete',object:target});selectedObjectId='';syncSelectionButtons();scheduleRender();
+    sendOps([{kind:'delete',pageId:target.pageId,objectId:target.id}],'button:board-delete-selected');objects.delete(target.id);remember({kind:'delete',object:target});selectedObjectId='';syncSelectionButtons();scheduleRender();
   });
   syncHistoryButtons();
 }
