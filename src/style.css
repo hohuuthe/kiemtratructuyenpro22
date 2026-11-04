@@ -2504,3 +2504,22 @@ html.kttt-modal-open, body.kttt-modal-open { overflow: hidden !important; oversc
  .student-attempt-table td::before{content:attr(data-label);font-size:10px;font-weight:800;color:#64748b;text-align:left}
  .student-attempt-name{max-width:none}.student-attempt-footer{align-items:flex-start;flex-direction:column;padding:10px 12px 14px}.student-attempt-close{width:100%}
 }
+
+/* Per-control student locks for Interactive Board */
+#board-room button.board-student-control-locked{position:relative}
+#board-room button.board-student-control-locked::after{
+ content:"🔒";position:absolute;right:-4px;top:-7px;display:grid;place-items:center;
+ width:18px;height:18px;border-radius:999px;background:#fff7ed;border:1px solid #fdba74;
+ font-size:10px;line-height:1;box-shadow:0 2px 7px rgba(15,23,42,.16);z-index:5
+}
+#board-room button[data-student-lock-block="true"]{opacity:.48;filter:saturate(.55);cursor:not-allowed!important}
+.board-student-control-menu{
+ position:fixed;z-index:100000;width:220px;padding:7px;border-radius:12px;border:1px solid #e2e8f0;
+ background:#fff;box-shadow:0 16px 40px rgba(15,23,42,.22);font-size:12px;color:#334155
+}
+.board-student-control-menu.hidden{display:none!important}
+.board-student-control-menu-title{padding:6px 8px 8px;font-weight:850;color:#0f172a;border-bottom:1px solid #f1f5f9;margin-bottom:4px;overflow-wrap:anywhere}
+.board-student-control-menu button{display:flex;width:100%;align-items:center;gap:7px;padding:8px 9px;border-radius:8px;font-weight:750;text-align:left}
+.board-student-control-menu button:hover:not(:disabled){background:#f8fafc}
+.board-student-control-menu button:disabled{opacity:.38;cursor:not-allowed}
+.board-student-control-menu p{padding:6px 8px 2px;color:#64748b;font-size:10px;line-height:1.35}
