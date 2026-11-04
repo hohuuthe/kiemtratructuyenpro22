@@ -1592,9 +1592,11 @@ async function startServer() {
         return res.status(400).json({ error: "Không thể tự xóa tài khoản của chính mình!" });
       }
 
-      const isTeacher = target.has_teacher_account === true || target.has_teacher_account === 1 ||
-        audience === 'giáo viên' || audience === 'teacher';
       const isStudent = ['học sinh','student'].includes(audience);
+      const isTeacher = !isStudent && (
+        target.has_teacher_account === true || target.has_teacher_account === 1 ||
+        audience === 'giáo viên' || audience === 'teacher'
+      );
 
       if (isTeacher) {
         await executeSqlQuery(TEACHER_DELETE_CASCADE_SQL, []);
