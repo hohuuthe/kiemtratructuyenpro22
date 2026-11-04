@@ -1,7 +1,7 @@
 const BATCH_DELETE_STEPS = Object.freeze([
   { key: 'results', label: 'Kết quả bài làm và dữ liệu nộp bài' },
-  { key: 'questions', label: 'Câu hỏi do giáo viên tạo' },
-  { key: 'exams', label: 'Đề kiểm tra do giáo viên tạo' },
+  { key: 'questions', label: 'Câu hỏi/dữ liệu nội dung do người dùng tạo' },
+  { key: 'exams', label: 'Đề kiểm tra do người dùng tạo' },
   { key: 'related', label: 'Dữ liệu liên quan (lớp, tài liệu, bảng, QR)' },
   { key: 'accounts', label: 'Tài khoản đăng nhập' },
   { key: 'user', label: 'Hồ sơ người dùng' }
@@ -74,8 +74,8 @@ function ensureModal() {
     <div class="w-full max-w-6xl max-h-[94vh] overflow-hidden rounded-2xl border border-white/20 bg-slate-50 shadow-2xl" role="dialog" aria-modal="true">
       <div class="flex items-start justify-between gap-3 border-b border-rose-100 bg-gradient-to-r from-rose-700 to-red-600 px-4 py-3 text-white">
         <div>
-          <h3 class="text-sm sm:text-base font-black">Xóa nhiều giáo viên và toàn bộ dữ liệu liên quan</h3>
-          <p class="mt-0.5 text-[11px] text-rose-50">Xử lý tuần tự từng giáo viên. Mỗi giáo viên là một giao dịch nguyên tử riêng: lỗi ở đâu sẽ rollback toàn bộ giáo viên đó.</p>
+          <h3 class="text-sm sm:text-base font-black">Xóa nhiều hồ sơ người dùng và toàn bộ dữ liệu liên quan</h3>
+          <p class="mt-0.5 text-[11px] text-rose-50">Xử lý tuần tự từng hồ sơ. Mỗi người dùng là một giao dịch nguyên tử riêng: lỗi ở đâu sẽ rollback toàn bộ người dùng đó.</p>
         </div>
         <div id="batch-delete-header-count" class="shrink-0 rounded-full bg-white/15 px-3 py-1 text-xs font-black">0 hồ sơ</div>
       </div>
@@ -105,7 +105,7 @@ function ensureModal() {
         <div class="mt-3 grid gap-3 lg:grid-cols-3">
           <section class="rounded-xl border border-slate-200 bg-white">
             <div class="border-b border-slate-100 px-3 py-2">
-              <h4 class="text-xs font-black text-slate-800">Danh sách giáo viên / hồ sơ cần xóa</h4>
+              <h4 class="text-xs font-black text-slate-800">Danh sách hồ sơ cần xóa</h4>
             </div>
             <div id="batch-delete-queue" class="max-h-52 overflow-y-auto p-2 space-y-1.5"></div>
           </section>
@@ -115,7 +115,7 @@ function ensureModal() {
               <h4 class="text-xs font-black text-emerald-800">Danh sách đã xóa thành công</h4>
             </div>
             <div id="batch-delete-success-list" class="max-h-52 overflow-y-auto p-2 space-y-1.5">
-              <div class="py-4 text-center text-[11px] italic text-slate-400">Chưa có giáo viên nào hoàn tất.</div>
+              <div class="py-4 text-center text-[11px] italic text-slate-400">Chưa có hồ sơ nào hoàn tất.</div>
             </div>
           </section>
 
@@ -132,7 +132,7 @@ function ensureModal() {
         <section class="mt-3 overflow-hidden rounded-xl border border-slate-200 bg-white">
           <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-3 py-2">
             <div>
-              <h4 class="text-xs font-black text-slate-800">Trình tự xóa giáo viên hiện tại</h4>
+              <h4 class="text-xs font-black text-slate-800">Trình tự xóa người dùng hiện tại</h4>
               <div id="batch-delete-current-name" class="mt-0.5 text-[11px] font-semibold text-blue-700">Chưa bắt đầu</div>
             </div>
             <div id="batch-delete-transaction-note" class="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold text-slate-600">Chờ xác nhận</div>
@@ -163,7 +163,7 @@ function ensureModal() {
 
       <div class="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 bg-white px-4 py-3">
         <div class="text-[10px] leading-relaxed text-slate-500">
-          Không chạy song song. Giáo viên tiếp theo chỉ bắt đầu sau khi giáo viên hiện tại đã commit hoặc rollback xong.
+          Không chạy song song. Người dùng tiếp theo chỉ bắt đầu sau khi người dùng hiện tại đã commit hoặc rollback xong.
         </div>
         <div class="flex items-center gap-2">
           <button id="batch-delete-cancel" type="button" class="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">Hủy</button>
@@ -469,7 +469,7 @@ async function runBatch(modal, deletable, protectedEntries) {
     final.classList.remove('hidden', 'border-emerald-200', 'bg-emerald-50', 'text-emerald-800', 'border-amber-200', 'bg-amber-50', 'text-amber-800');
     if (failCount === 0) {
       final.classList.add('border-emerald-200', 'bg-emerald-50', 'text-emerald-800');
-      final.textContent = `Hoàn tất: đã xóa thành công ${successCount}/${deletable.length} hồ sơ. Tất cả giáo viên đã qua kiểm toán chống dữ liệu mồ côi.`;
+      final.textContent = `Hoàn tất: đã xóa thành công ${successCount}/${deletable.length} hồ sơ. Tất cả hồ sơ đã qua kiểm toán chống dữ liệu mồ côi.`;
     } else {
       final.classList.add('border-amber-200', 'bg-amber-50', 'text-amber-800');
       final.textContent = `Đã xóa thành công ${successCount}/${deletable.length}; ${failCount} hồ sơ lỗi đã rollback toàn bộ và được giữ lại trong trạng thái chọn để có thể thử lại.`;
@@ -516,7 +516,7 @@ function openBatchModal(entries) {
   const successList = modal.querySelector('#batch-delete-success-list');
   if (successList) {
     successList.dataset.hasItems = '0';
-    successList.innerHTML = '<div class="py-4 text-center text-[11px] italic text-slate-400">Chưa có giáo viên nào hoàn tất.</div>';
+    successList.innerHTML = '<div class="py-4 text-center text-[11px] italic text-slate-400">Chưa có hồ sơ nào hoàn tất.</div>';
   }
   const failList = modal.querySelector('#batch-delete-fail-list');
   if (failList) {
@@ -581,12 +581,10 @@ function installOverride() {
     if (!entries.length) return original();
 
     const deletable = entries.filter(e => !e.isAdmin);
-    const teacherCount = deletable.filter(e => e.isTeacher).length;
+    if (!deletable.length) return original();
 
-    // Chỉ kích hoạt form nâng cấp khi lựa chọn có Giáo viên.
-    // Các trường hợp chỉ chọn học sinh/người dùng thường giữ nguyên hành vi cũ.
-    if (teacherCount === 0) return original();
-
+    // Mọi hồ sơ không phải Admin đều dùng cùng quy trình xóa nguyên tử,
+    // bao gồm Học sinh, Giáo viên và hồ sơ legacy đổi vai trò.
     openBatchModal(entries);
   };
 
