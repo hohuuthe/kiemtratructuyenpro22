@@ -4,6 +4,7 @@ on:
     branches: [main]
     paths:
       - 'src/user-delete-cascade.ts'
+      - 'src/student-delete-cascade.ts'
       - 'src/teacher-delete-ui.js'
       - 'src/batch-teacher-delete-ui.js'
       - 'functions/api/users/**'
@@ -11,6 +12,7 @@ on:
       - 'server.ts'
       - 'database-schema.sql'
       - 'migrations/*user_delete_cascade.sql'
+      - 'migrations/*student_delete_cascade.sql'
       - 'tests/user-delete-cascade.test.mjs'
       - '.github/workflows/user-delete-cascade.yml'
 permissions:

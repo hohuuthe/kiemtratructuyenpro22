@@ -1,11 +1,23 @@
-const BATCH_DELETE_STEPS = Object.freeze([
+const TEACHER_BATCH_STEPS = Object.freeze([
   { key: 'results', label: 'Kết quả bài làm và dữ liệu nộp bài' },
-  { key: 'questions', label: 'Câu hỏi/dữ liệu nội dung do người dùng tạo' },
-  { key: 'exams', label: 'Đề kiểm tra do người dùng tạo' },
+  { key: 'questions', label: 'Câu hỏi do giáo viên tạo' },
+  { key: 'exams', label: 'Đề kiểm tra do giáo viên tạo' },
   { key: 'related', label: 'Dữ liệu liên quan (lớp, tài liệu, bảng, QR)' },
   { key: 'accounts', label: 'Tài khoản đăng nhập' },
-  { key: 'user', label: 'Hồ sơ người dùng' }
+  { key: 'user', label: 'Hồ sơ giáo viên' }
 ]);
+
+const STUDENT_BATCH_STEPS = Object.freeze([
+  { key: 'results', label: 'Kết quả và các lần làm bài' },
+  { key: 'submissions', label: 'Dữ liệu phiên/nộp bài chống nộp trùng' },
+  { key: 'participation', label: 'Dữ liệu tham gia quét thẻ và bảng tương tác' },
+  { key: 'accounts', label: 'Tài khoản đăng nhập' },
+  { key: 'user', label: 'Hồ sơ học sinh' }
+]);
+
+function stepsForEntry(entry) {
+  return entry?.isStudent ? STUDENT_BATCH_STEPS : TEACHER_BATCH_STEPS;
+}
 
 const esc = value => String(value ?? '')
   .replaceAll('&', '&amp;')
@@ -50,8 +62,9 @@ function classifyUser(user) {
     accountId === 'admin' || accountId === 'adminhht';
 
   const isTeacher = audience === 'giáo viên' || role === 'teacher' || role === 'giáo viên';
+  const isStudent = audience === 'học sinh' || audience === 'student';
 
-  return { user, account, isAdmin, isTeacher };
+  return { user, account, isAdmin, isTeacher, isStudent };
 }
 
 function selectedEntries() {
@@ -150,7 +163,7 @@ function ensureModal() {
               <tbody id="batch-delete-step-body"></tbody>
               <tfoot class="border-t border-slate-200 bg-slate-50">
                 <tr>
-                  <td colspan="3" class="px-3 py-2 text-right text-[11px] font-black text-slate-600">Tổng cộng của giáo viên hiện tại</td>
+                  <td colspan="3" class="px-3 py-2 text-right text-[11px] font-black text-slate-600">Tổng cộng của hồ sơ hiện tại</td>
                   <td id="batch-delete-current-total" class="px-3 py-2 text-right font-black text-slate-900">0</td>
                 </tr>
               </tfoot>
@@ -176,10 +189,10 @@ function ensureModal() {
   return modal;
 }
 
-function renderStepTable(modal) {
+function renderStepTable(modal, steps) {
   const tbody = modal.querySelector('#batch-delete-step-body');
   if (!tbody) return;
-  tbody.innerHTML = BATCH_DELETE_STEPS.map((step, index) => `
+  tbody.innerHTML = steps.map((step, index) => `
     <tr data-batch-step="${step.key}" class="border-t border-slate-100">
       <td class="px-3 py-2 text-center font-bold text-slate-400">${index + 1}</td>
       <td class="px-3 py-2 font-semibold text-slate-700">${esc(step.label)}</td>
@@ -208,8 +221,9 @@ function setStep(modal, key, state, count = null) {
   row.classList.toggle('bg-red-50/50', state === 'rollback');
 }
 
-function resetSteps(modal) {
-  BATCH_DELETE_STEPS.forEach(s => setStep(modal, s.key, 'waiting'));
+function resetSteps(modal, steps) {
+  renderStepTable(modal, steps);
+  steps.forEach(s => setStep(modal, s.key, 'waiting'));
   const total = modal.querySelector('#batch-delete-current-total');
   if (total) total.textContent = '0';
 }
@@ -218,11 +232,11 @@ function isTruthy(v) {
   return v === true || v === 1 || v === '1' || v === 'true';
 }
 
-function normalizeServerSteps(payload) {
+function normalizeServerSteps(payload, steps) {
   const source = Array.isArray(payload?.data?.steps) ? payload.data.steps : [];
   if (source.length) {
     const map = new Map(source.map(s => [s.key, { ...s, count: Number(s.count || 0) }]));
-    return BATCH_DELETE_STEPS.map(step => ({
+    return steps.map(step => ({
       key: step.key,
       label: step.label,
       count: Number(map.get(step.key)?.count || 0)
@@ -231,7 +245,7 @@ function normalizeServerSteps(payload) {
 
   // User thường không có chuỗi dữ liệu giáo viên; vẫn thể hiện đúng kết quả API.
   const accountCount = Number(payload?.data?.deletedAccountsCount || 0);
-  return BATCH_DELETE_STEPS.map(step => ({
+  return steps.map(step => ({
     key: step.key,
     label: step.label,
     count: step.key === 'accounts' ? accountCount : (step.key === 'user' ? 1 : 0)
@@ -239,18 +253,12 @@ function normalizeServerSteps(payload) {
 }
 
 function summaryText(serverSteps) {
-  const map = new Map(serverSteps.map(s => [s.key, Number(s.count || 0)]));
-  return [
-    `${map.get('results') || 0} kết quả`,
-    `${map.get('questions') || 0} câu hỏi`,
-    `${map.get('exams') || 0} đề`,
-    `${map.get('accounts') || 0} tài khoản`
-  ].join(' · ');
+  return serverSteps.map(s => `${Number(s.count || 0)} ${s.label.toLocaleLowerCase('vi')}`).join(' · ');
 }
 
 function queueRow(entry, index) {
   const u = entry.user || {};
-  const type = entry.isTeacher ? 'Giáo viên' : 'Người dùng';
+  const type = entry.isStudent ? 'Học sinh' : (entry.isTeacher ? 'Giáo viên' : 'Người dùng');
   return `
     <div data-queue-id="${esc(u.id)}" class="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2">
       <div class="flex items-center justify-between gap-2">
@@ -308,7 +316,7 @@ function addFailure(modal, entry, message) {
   div.className = 'rounded-lg border border-red-200 bg-red-50 px-2.5 py-2';
   div.innerHTML = `
     <div class="text-[11px] font-black text-red-900">✕ ${esc(u.full_name || u.id)}</div>
-    <div class="mt-0.5 text-[10px] leading-relaxed text-red-700">${esc(message || 'Không thể xóa. Dữ liệu giáo viên này đã rollback.')}</div>
+    <div class="mt-0.5 text-[10px] leading-relaxed text-red-700">${esc(message || 'Không thể xóa hồ sơ này. Giao dịch đã rollback toàn bộ.')}</div>
   `;
   box.appendChild(div);
 }
@@ -320,7 +328,7 @@ function setCurrentHeader(modal, entry, index, total) {
   const note = modal.querySelector('#batch-delete-transaction-note');
   if (note) {
     note.className = 'rounded-full bg-blue-100 px-2.5 py-1 text-[10px] font-black text-blue-700';
-    note.textContent = entry.isTeacher ? 'Giao dịch nguyên tử đang chạy' : 'Đang xóa hồ sơ người dùng';
+    note.textContent = entry.isStudent ? 'Đang xóa đúng dữ liệu Học sinh' : (entry.isTeacher ? 'Đang xóa dữ liệu Giáo viên' : 'Đang xóa hồ sơ người dùng');
   }
 }
 
@@ -354,17 +362,18 @@ async function refreshAfterBatch(token) {
 }
 
 async function deleteOne(modal, entry, index, total, token) {
-  resetSteps(modal);
+  const stepsConfig = stepsForEntry(entry);
+  resetSteps(modal, stepsConfig);
   setCurrentHeader(modal, entry, index, total);
   setQueueState(modal, entry.user.id, 'running');
 
   let visualIndex = 0;
-  setStep(modal, BATCH_DELETE_STEPS[0].key, 'running');
+  setStep(modal, stepsConfig[0].key, 'running');
   const activity = setInterval(() => {
-    if (visualIndex < BATCH_DELETE_STEPS.length - 1) {
-      setStep(modal, BATCH_DELETE_STEPS[visualIndex].key, 'waiting');
+    if (visualIndex < stepsConfig.length - 1) {
+      setStep(modal, stepsConfig[visualIndex].key, 'waiting');
       visualIndex += 1;
-      setStep(modal, BATCH_DELETE_STEPS[visualIndex].key, 'running');
+      setStep(modal, stepsConfig[visualIndex].key, 'running');
     }
   }, 650);
 
@@ -379,7 +388,7 @@ async function deleteOne(modal, entry, index, total, token) {
     }
 
     clearInterval(activity);
-    const steps = normalizeServerSteps(payload);
+    const steps = normalizeServerSteps(payload, stepsConfig);
     let totalDeleted = 0;
     for (const step of steps) {
       totalDeleted += Number(step.count || 0);
@@ -391,7 +400,7 @@ async function deleteOne(modal, entry, index, total, token) {
     return { ok: true, payload, steps, totalDeleted };
   } catch (error) {
     clearInterval(activity);
-    BATCH_DELETE_STEPS.forEach((step, idx) => {
+    stepsConfig.forEach((step, idx) => {
       setStep(modal, step.key, idx <= visualIndex ? 'rollback' : 'waiting');
     });
     const totalEl = modal.querySelector('#batch-delete-current-total');
@@ -538,7 +547,7 @@ function openBatchModal(entries) {
     }
   }
 
-  renderStepTable(modal);
+  renderStepTable(modal, deletable.length ? stepsForEntry(deletable[0]) : TEACHER_BATCH_STEPS);
   const final = modal.querySelector('#batch-delete-final-message');
   if (final) final.classList.add('hidden');
 
@@ -583,8 +592,8 @@ function installOverride() {
     const deletable = entries.filter(e => !e.isAdmin);
     if (!deletable.length) return original();
 
-    // Mọi hồ sơ không phải Admin đều dùng cùng quy trình xóa nguyên tử,
-    // bao gồm Học sinh, Giáo viên và hồ sơ legacy đổi vai trò.
+    // Mỗi loại hồ sơ dùng đúng quy trình riêng: Học sinh chỉ xóa dữ liệu học sinh,
+    // Giáo viên xóa dữ liệu sở hữu của giáo viên; Admin luôn được bảo vệ.
     openBatchModal(entries);
   };
 

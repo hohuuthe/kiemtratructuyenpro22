@@ -1,4 +1,6 @@
 import { verifyAuthSession, getDynamicSecret, getDatabase } from '../exam/utils';
+import { TEACHER_DELETE_CASCADE_SQL, TEACHER_DELETE_CALL_SQL, parseTeacherDeletionResult, teacherDeleteHttpError } from '../../../src/teacher-delete-cascade';
+import { STUDENT_DELETE_CASCADE_SQL, STUDENT_DELETE_CALL_SQL, parseStudentDeletionResult, studentDeleteHttpError } from '../../../src/student-delete-cascade';
 import { USER_DELETE_CASCADE_SQL, USER_DELETE_CALL_SQL, parseUserDeletionResult, userDeleteHttpError } from '../../../src/user-delete-cascade';
 
 interface Env {
@@ -124,20 +126,41 @@ export const onRequestDelete: PagesFunction<Env> = async (context) => {
       return new Response(JSON.stringify({ error: "Không thể tự xóa tài khoản của chính mình!" }), { status: 400, headers: corsHeaders });
     }
 
-    // Every non-admin profile now uses the same database-side atomic cascade.
-    // This covers students too: results, QR participation/cards, board references,
-    // legacy owned resources, linked accounts, and the profile itself.
+    const isStudent = ['học sinh','student'].includes(audience);
+    const isTeacher = !isStudent && (
+      target.has_teacher_account === true || target.has_teacher_account === 1 ||
+      audience === 'giáo viên' || audience === 'teacher'
+    );
+
+    if (isTeacher) {
+      await db.exec(TEACHER_DELETE_CASCADE_SQL);
+      const row: any = await db.prepare(TEACHER_DELETE_CALL_SQL).bind(userId).first();
+      const deletion = parseTeacherDeletionResult(row);
+      if (!deletion?.success) throw new Error('TEACHER_DELETE_EMPTY_RESULT');
+      return new Response(JSON.stringify({ data: deletion, error: null }), { status: 200, headers: corsHeaders });
+    }
+
+    if (isStudent) {
+      await db.exec(STUDENT_DELETE_CASCADE_SQL);
+      const row: any = await db.prepare(STUDENT_DELETE_CALL_SQL).bind(userId).first();
+      const deletion = parseStudentDeletionResult(row);
+      if (!deletion?.success) throw new Error('STUDENT_DELETE_EMPTY_RESULT');
+      return new Response(JSON.stringify({ data: deletion, error: null }), { status: 200, headers: corsHeaders });
+    }
+
+    // Legacy/other profile types keep the generic fail-closed cleanup.
     await db.exec(USER_DELETE_CASCADE_SQL);
     const row: any = await db.prepare(USER_DELETE_CALL_SQL).bind(userId).first();
     const deletion = parseUserDeletionResult(row);
     if (!deletion?.success) throw new Error('USER_DELETE_EMPTY_RESULT');
-
-    return new Response(JSON.stringify({
-      data: deletion,
-      error: null
-    }), { status: 200, headers: corsHeaders });
+    return new Response(JSON.stringify({ data: deletion, error: null }), { status: 200, headers: corsHeaders });
   } catch (e: any) {
-    const mapped = userDeleteHttpError(e);
+    const message = String(e?.message || e || '');
+    const mapped = message.includes('STUDENT_DELETE_')
+      ? studentDeleteHttpError(e)
+      : message.includes('TEACHER_DELETE_')
+        ? teacherDeleteHttpError(e)
+        : userDeleteHttpError(e);
     return new Response(JSON.stringify({ error: mapped.error, code: mapped.code }), {
       status: mapped.status,
       headers: corsHeaders

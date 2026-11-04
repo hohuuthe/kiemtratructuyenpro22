@@ -30,6 +30,8 @@ import { processExamResultsDeletion } from './src/exam-results-delete-service';
 import { listExamResultsDeletionTargets } from './src/exam-results-targets-service';
 import { ExamResultsDeletionError } from './src/exam-results-delete-policy';
 import { resolveLiveExamResultsActor } from './src/exam-results-delete-actor';
+import { TEACHER_DELETE_CASCADE_SQL, TEACHER_DELETE_CALL_SQL, parseTeacherDeletionResult, teacherDeleteHttpError } from './src/teacher-delete-cascade';
+import { STUDENT_DELETE_CASCADE_SQL, STUDENT_DELETE_CALL_SQL, parseStudentDeletionResult, studentDeleteHttpError } from './src/student-delete-cascade';
 import { USER_DELETE_CASCADE_SQL, USER_DELETE_CALL_SQL, parseUserDeletionResult, userDeleteHttpError } from './src/user-delete-cascade';
 
 dotenv.config({ override: true });
@@ -1563,6 +1565,11 @@ async function startServer() {
                 EXISTS(
                   SELECT 1 FROM accounts a
                   WHERE (a.user_id = u.id OR a.id = u.id)
+                    AND LOWER(COALESCE(a.role,'')) IN ('teacher','giáo viên')
+                ) AS has_teacher_account,
+                EXISTS(
+                  SELECT 1 FROM accounts a
+                  WHERE (a.user_id = u.id OR a.id = u.id)
                     AND (
                       LOWER(COALESCE(a.role,''))='admin'
                       OR LOWER(COALESCE(a.username,'')) IN ('admin','adminhht')
@@ -1585,13 +1592,40 @@ async function startServer() {
         return res.status(400).json({ error: "Không thể tự xóa tài khoản của chính mình!" });
       }
 
+      const isStudent = ['học sinh','student'].includes(audience);
+      const isTeacher = !isStudent && (
+        target.has_teacher_account === true || target.has_teacher_account === 1 ||
+        audience === 'giáo viên' || audience === 'teacher'
+      );
+
+      if (isTeacher) {
+        await executeSqlQuery(TEACHER_DELETE_CASCADE_SQL, []);
+        const deleted = await executeSqlQuery(TEACHER_DELETE_CALL_SQL, [userId]);
+        const deletion = parseTeacherDeletionResult(deleted.results?.[0]);
+        if (!deletion?.success) throw new Error('TEACHER_DELETE_EMPTY_RESULT');
+        return res.status(200).json({ data: deletion, error: null });
+      }
+
+      if (isStudent) {
+        await executeSqlQuery(STUDENT_DELETE_CASCADE_SQL, []);
+        const deleted = await executeSqlQuery(STUDENT_DELETE_CALL_SQL, [userId]);
+        const deletion = parseStudentDeletionResult(deleted.results?.[0]);
+        if (!deletion?.success) throw new Error('STUDENT_DELETE_EMPTY_RESULT');
+        return res.status(200).json({ data: deletion, error: null });
+      }
+
       await executeSqlQuery(USER_DELETE_CASCADE_SQL, []);
       const deleted = await executeSqlQuery(USER_DELETE_CALL_SQL, [userId]);
       const deletion = parseUserDeletionResult(deleted.results?.[0]);
       if (!deletion?.success) throw new Error('USER_DELETE_EMPTY_RESULT');
       return res.status(200).json({ data: deletion, error: null });
     } catch (e: any) {
-      const mapped = userDeleteHttpError(e);
+      const message = String(e?.message || e || '');
+      const mapped = message.includes('STUDENT_DELETE_')
+        ? studentDeleteHttpError(e)
+        : message.includes('TEACHER_DELETE_')
+          ? teacherDeleteHttpError(e)
+          : userDeleteHttpError(e);
       console.error("DELETE /api/users error:", e);
       return res.status(mapped.status).json({ error: mapped.error, code: mapped.code });
     }
