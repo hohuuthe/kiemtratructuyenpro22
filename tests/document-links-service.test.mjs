@@ -62,7 +62,8 @@ test('student and teacher audience query uses SQL array overlap',async()=>{
  calls.length=0;
  await listDocumentLinks(db,{id:'s',role:'student'});
  assert.match(calls[0].sql,/doi_tuong_truy_cap_nhieu && ARRAY/);
- assert.deepEqual(calls[0].args,['public','authenticated','student']);
+ assert.match(calls[0].sql,/'student'=ANY\(doi_tuong_truy_cap_nhieu\)/);
+ assert.deepEqual(calls[0].args,['public','authenticated','s']);
  calls.length=0;
  await createDocumentLink(db,actor,{...base,doi_tuong_truy_cap_nhieu:['student','teacher']},()=> 'multi-id');
  const insert=calls.find(c=>c.sql.startsWith('INSERT'));
@@ -127,7 +128,8 @@ test('documents tab requests combined library after selection and both APIs forw
  const ui=readFileSync('src/document-links-ui.js','utf8');
  const cf=readFileSync('functions/api/documents.ts','utf8');
  const express=readFileSync('server.ts','utf8');
- assert.match(ui,/manage=1&includeReadable=1/);
+ assert.match(ui,/params\.set\('manage','1'\)/);
+ assert.match(ui,/params\.set\('includeReadable','1'\)/);
  assert.match(cf,/includeReadable:manage&&/);
  assert.match(express,/includeReadable:req\.query\.manage==='1'&&/);
 });
