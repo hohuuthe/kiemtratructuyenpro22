@@ -471,7 +471,7 @@ async function startServer() {
   }
 
   try {
-    await executeSqlQuery("CREATE TABLE IF NOT EXISTS _submitted_exam_tokens (token_hash TEXT PRIMARY KEY, exam_id TEXT, student_name TEXT, submitted_at TEXT)", []);
+    await executeSqlQuery("CREATE TABLE IF NOT EXISTS _submitted_exam_tokens (token_hash TEXT PRIMARY KEY, exam_id TEXT, student_name TEXT, user_id TEXT, submitted_at TEXT)", []);
   } catch (err: any) {
     console.log("Migration _submitted_exam_tokens warning:", err);
   }
@@ -5460,8 +5460,8 @@ YÊU CẦU:
           // BẢO MẬT: Đánh dấu token đã nộp bài thành công vào bảng kiểm soát để ngăn chặn nộp lại
           try {
               await executeSqlQuery(
-                  `INSERT INTO _submitted_exam_tokens (token_hash, exam_id, student_name, submitted_at) VALUES (?, ?, ?, ?)`,
-                  [tokenHash, String(examConfig.id || studentInfo.examName || ''), studentInfo.name || '', new Date().toISOString()]
+                  `INSERT INTO _submitted_exam_tokens (token_hash, exam_id, student_name, user_id, submitted_at) VALUES (?, ?, ?, ?, ?)`,
+                  [tokenHash, String(examConfig.id || studentInfo.examName || ''), studentInfo.name || '', authenticatedUserId || null, new Date().toISOString()]
               );
           } catch(markErr) {
               console.error('Error marking token as submitted in server.ts:', markErr);
