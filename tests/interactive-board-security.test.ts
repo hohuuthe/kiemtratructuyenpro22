@@ -518,3 +518,12 @@ test('board performance caches completed stroke geometry and respects locks in A
   assert.match(ui,/strokePathCache\.clear\(\)/);
   assert.match(ui,/if\(!original\|\|original\.locked\)return/);
 });
+
+
+test('board realtime can recover indefinitely after token refreshes and network return',()=>{
+  const ui=fs.readFileSync('src/interactive-board-ui.js','utf8');
+  assert.match(ui,/socket\.onopen=\(\)=>\{reconnectAttempts=0;tokenRefreshAttempts=0/);
+  assert.match(ui,/addEventListener\('online',boardOnlineRecoveryHandler\)/);
+  assert.match(ui,/visibilitychange/);
+  assert.match(ui,/scheduleReconnect\(\)/);
+});
