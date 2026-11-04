@@ -320,7 +320,7 @@ test('interactive board hardening enforces live permissions and session expiry',
   assert.match(ui,/syncBoardPermissionUi/);
   assert.match(ui,/m\.type==='token_expired'/);
   assert.match(worker,/tokenExp:Math\.max\(0,Number\(claims\.exp\)\|\|0\)/);
-  assert.match(worker,/kind==='vote_toggle'[\s\S]*if\(!canVote\)continue/);
+  assert.match(worker,/kind==='vote_toggle'[\s\S]*if\(!canVote\|\|!controlOpen\('tool:vote'\)\)continue/);
   assert.match(worker,/Token expired/);
   assert.match(worker,/s\.tokenExp&&now>=Number\(s\.tokenExp\)/);
   assert.match(api,/String\(current\?\.status\|\|'\'\)!==String\(updated\?\.status\|\|'\'\)/);
@@ -586,7 +586,7 @@ test('student control locks are enforced server-side for drawing voting selectio
   const ui=fs.readFileSync('src/interactive-board-ui.js','utf8');
   const worker=fs.readFileSync('workers/interactive-board-worker.js','utf8');
   assert.match(ui,/sendOps\(ops,controlKey=''\)/);
-  assert.match(ui,/controlKey\}\):ops/);
+  assert.match(ui,/ops\.map\(op=>\(\{\.\.\.op,controlKey\}\)\):ops/);
   assert.match(ui,/tool:vote/);
   assert.match(ui,/tool:pen/);
   assert.match(ui,/tool:eraser/);
