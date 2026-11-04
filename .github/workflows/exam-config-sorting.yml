@@ -3,6 +3,7 @@ on:
   push:
     paths:
       - 'src/exam-config-sorting.js'
+      - 'functions/api/exams.ts'
       - 'src/main.js'
       - 'src/style.css'
       - 'public/components/tab-exams.html'
@@ -11,6 +12,7 @@ on:
   pull_request:
     paths:
       - 'src/exam-config-sorting.js'
+      - 'functions/api/exams.ts'
       - 'src/main.js'
       - 'src/style.css'
       - 'public/components/tab-exams.html'
