@@ -23,6 +23,26 @@ export function documentAudienceValues(rowOrValue) {
   return [...new Set(values.filter(value => typeof value === 'string' && Object.hasOwn(DOCUMENT_AUDIENCES, value)))];
 }
 
+export function documentStudentClassScopes(rowOrValue) {
+  let source = rowOrValue && typeof rowOrValue === 'object' && !Array.isArray(rowOrValue)
+    ? rowOrValue.pham_vi_lop_hoc_sinh : rowOrValue;
+  if (typeof source === 'string') {
+    try { source = JSON.parse(source); } catch { source = []; }
+  }
+  if (!Array.isArray(source)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const item of source) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+    const lop = String(item.lop ?? '').trim();
+    const donvi = String(item.donvi ?? '').trim();
+    if (!lop || lop.length > 120 || donvi.length > 180) continue;
+    const key = donvi.toLocaleLowerCase('vi')+'\u001f'+lop.toLocaleLowerCase('vi');
+    if (seen.has(key)) continue;
+    seen.add(key); out.push({lop,donvi});
+  }
+  return out;
+}
 export class DocumentLinkInputError extends Error {
   constructor(message) { super(message); this.name = 'DocumentLinkInputError'; }
 }
@@ -72,10 +92,19 @@ export function canViewDocument(actor, row, at = Date.now()) {
       documentOwnerId(actor) === String(row.id_nguoi_tao || '');
   }
   if (role === 'admin') return true;
-  return audiences.includes('public') ||
-    (audiences.includes('authenticated') && role !== 'guest') ||
-    audiences.includes(role);
-
+  if (audiences.includes('public')) return true;
+  if (audiences.includes('authenticated') && role !== 'guest') return true;
+  if (!audiences.includes(role)) return false;
+  if (role !== 'student') return true;
+  const scopes = documentStudentClassScopes(row);
+  if (!scopes.length) return true;
+  const actorClass = String(actor?.lop ?? '').trim().toLocaleLowerCase('vi');
+  const actorUnit = String(actor?.donvi ?? '').trim().toLocaleLowerCase('vi');
+  if (!actorClass) return false;
+  return scopes.some(scope =>
+    scope.lop.toLocaleLowerCase('vi') === actorClass &&
+    (!scope.donvi || scope.donvi.toLocaleLowerCase('vi') === actorUnit)
+  );
 }
 export function normalizeDocumentLinkInput(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
@@ -113,6 +142,30 @@ export function normalizeDocumentLinkInput(input) {
       input.doi_tuong_duoc_truy_cap !== audiences[0]) {
     throw new DocumentLinkInputError('Đối tượng truy cập không nhất quán.');
   }
+  const rawScopes = input.pham_vi_lop_hoc_sinh ?? [];
+  if (!Array.isArray(rawScopes) || rawScopes.length > 100) {
+    throw new DocumentLinkInputError('Danh sách lớp học sinh không hợp lệ.');
+  }
+  const phamViLopHocSinh = [];
+  const seenScopes = new Set();
+  for (const item of rawScopes) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw new DocumentLinkInputError('Phạm vi lớp học sinh không hợp lệ.');
+    }
+    const lop = String(item.lop ?? '').trim();
+    const donvi = String(item.donvi ?? '').trim();
+    if (!lop || lop.length > 120 || donvi.length > 180 || /[\u0000-\u001f\u007f]/.test(lop+donvi)) {
+      throw new DocumentLinkInputError('Tên lớp hoặc đơn vị trong phạm vi học sinh không hợp lệ.');
+    }
+    const key = donvi.toLocaleLowerCase('vi')+'\u001f'+lop.toLocaleLowerCase('vi');
+    if (!seenScopes.has(key)) {
+      seenScopes.add(key);
+      phamViLopHocSinh.push({lop,donvi});
+    }
+  }
+  if (phamViLopHocSinh.length && !audiences.includes('student')) {
+    throw new DocumentLinkInputError('Chỉ được giới hạn lớp khi đối tượng Học sinh được chọn.');
+  }
   let expires = null;
   if (input.thoi_gian_het_han !== null && input.thoi_gian_het_han !== undefined && input.thoi_gian_het_han !== '') {
     const raw = input.thoi_gian_het_han;
@@ -131,7 +184,8 @@ export function normalizeDocumentLinkInput(input) {
     mo_ta: String(input.mo_ta ?? '').trim().slice(0,4000),
     danh_muc: String(input.danh_muc ?? 'Chung').trim().slice(0,100) || 'Chung',
     tieu_de:title, duong_link:url.href,
-    doi_tuong_duoc_truy_cap:audiences[0], doi_tuong_truy_cap_nhieu:audiences, thoi_gian_het_han:expires,
+    doi_tuong_duoc_truy_cap:audiences[0], doi_tuong_truy_cap_nhieu:audiences,
+    pham_vi_lop_hoc_sinh:phamViLopHocSinh, thoi_gian_het_han:expires,
     hoat_dong:active === true || active === 1 ? 1 : 0
   };
 }

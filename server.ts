@@ -3,7 +3,7 @@ import {QUESTION_CREATOR_JOIN_SQL,QUESTION_CREATOR_NAME_SQL,QUESTION_CREATOR_USE
 import {EXAM_CREATOR_JOIN_SQL,EXAM_CREATOR_NAME_SQL} from './src/exam-creator-identity.js';
 import {parseManagementPage,accountsPageQuery,resultsPageQuery,resolveTeacherManagementScope,accountsFacetQueries,resultsFacetQuery,teacherOwnedExamNamesQuery} from './src/management-page-queries.js';
 import {isExamOwner,redactExamForPublic,examAccessChallenge,isProtectedExamForUser,protectedExamPreview,accessCodeMatches} from './functions/api/exam/security';
-import {listDocumentLinks,listDocumentLinksPage,parseDocumentLinkPage,createDocumentLink,updateDocumentLink,deleteDocumentLink,DocumentLinkServiceError} from './src/document-links-service.js';
+import {listDocumentLinks,listDocumentLinksPage,parseDocumentLinkPage,listDocumentStudentClasses,createDocumentLink,updateDocumentLink,deleteDocumentLink,DocumentLinkServiceError} from './src/document-links-service.js';
 import { accountSessionMaterial, isAccountEnabled, isUnexpiredAccountToken } from './src/security-session';
 import { resolveTenantRoutingFromRequest } from './src/tenant-host-map';
 import crypto from 'crypto';
@@ -1924,8 +1924,14 @@ async function startServer() {
     const header = req.headers.authorization || '';
     if (!header) return null;
     if (!header.startsWith('Bearer ')) throw new DocumentLinkServiceError(401,'Phiên đăng nhập không hợp lệ.');
-    const user = verifyJWTSync(header.slice(7), await getServerSecret());
+    let user = verifyJWTSync(header.slice(7), await getServerSecret());
     if (!user) throw new DocumentLinkServiceError(401,'Phiên đăng nhập không hợp lệ.');
+    const ids=[user.user_id,user.id].map((v:any)=>String(v??'').trim()).filter(Boolean);
+    if(ids.length){
+      const placeholders=ids.map(()=>'?').join(',');
+      const profile=(await executeSqlQuery('SELECT lop,donvi,target_audience FROM users WHERE id IN ('+placeholders+') LIMIT 1',ids)).results?.[0];
+      if(profile)user={...user,lop:profile.lop||user.lop,donvi:profile.donvi||user.donvi,target_audience:profile.target_audience||user.target_audience};
+    }
     return user;
   }
   async function documentApiReply(req: any,res: any,action: (actor: any)=>Promise<any>,created=false) {
@@ -1941,9 +1947,11 @@ async function startServer() {
     }
   }
   app.get('/api/documents',(req,res)=>documentApiReply(req,res,
-    actor=>req.query.paged==='1'
-      ? listDocumentLinksPage(documentDb,actor,{...parseDocumentLinkPage(req.originalUrl),manage:req.query.manage==='1',includeReadable:req.query.manage==='1'&&req.query.includeReadable==='1'})
-      : listDocumentLinks(documentDb,actor,{manage:req.query.manage==='1',includeReadable:req.query.manage==='1'&&req.query.includeReadable==='1'})));
+    actor=>req.query.scope==='student-classes'
+      ? listDocumentStudentClasses(documentDb,actor)
+      : req.query.paged==='1'
+        ? listDocumentLinksPage(documentDb,actor,{...parseDocumentLinkPage(req.originalUrl),manage:req.query.manage==='1',includeReadable:req.query.manage==='1'&&req.query.includeReadable==='1'})
+        : listDocumentLinks(documentDb,actor,{manage:req.query.manage==='1',includeReadable:req.query.manage==='1'&&req.query.includeReadable==='1'})));
   app.post('/api/documents',(req,res)=>documentApiReply(req,res,
     actor=>createDocumentLink(documentDb,actor,req.body),true));
   app.put('/api/documents',(req,res)=>documentApiReply(req,res,

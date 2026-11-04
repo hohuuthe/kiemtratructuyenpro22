@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {DOCUMENT_AUDIENCES,documentAudienceValues,documentActorRole,canManageDocument,canEditDocumentRow,canViewDocument,normalizeDocumentLinkInput,DocumentLinkInputError} from '../src/document-link-policy.js';
+import {DOCUMENT_AUDIENCES,documentAudienceValues,documentStudentClassScopes,documentActorRole,canManageDocument,canEditDocumentRow,canViewDocument,normalizeDocumentLinkInput,DocumentLinkInputError} from '../src/document-link-policy.js';
 import {DOCUMENT_LINK_SCHEMA_STATEMENTS,ensureDocumentLinkSchema} from '../src/document-links-schema.js';
 const admin={id:'a',role:'admin'};
 const teacher={id:'t',role:'teacher'};
@@ -84,6 +84,7 @@ test('responsive markup includes mobile cards, two metadata columns and multi-ch
  assert.match(html,/value="owner"/);
  assert.match(html,/Chính chủ/);
  assert.match(ui,/documents-mobile-list/);
+ assert.match(ui,/documentStudentClassScopes/);
  assert.match(ui,/documents-audience-error/);
  assert.match(ui,/items.some\(x=>x.value==='owner'&&x.checked\)/);
 });
@@ -115,4 +116,30 @@ test('owner-only audience hides private document from non-creators including adm
 test('owner-only schema upgrade remains available for old tenant databases',()=>{
  assert.ok(DOCUMENT_LINK_SCHEMA_STATEMENTS.some(sql=>sql.includes('qltl_owner_constraints')));
  assert.ok(DOCUMENT_LINK_SCHEMA_STATEMENTS.some(sql=>sql.includes("'owner'=ANY(doi_tuong_truy_cap_nhieu)")));
+});
+
+
+test('student class scope is validated and enforced in document policy',()=>{
+ const scoped={...row('student'),doi_tuong_truy_cap_nhieu:['student'],pham_vi_lop_hoc_sinh:[{lop:'12A1',donvi:'THPT Lê Hoàn'}]};
+ assert.deepEqual(documentStudentClassScopes(scoped),[{lop:'12A1',donvi:'THPT Lê Hoàn'}]);
+ assert.equal(canViewDocument({...student,lop:'12A1',donvi:'THPT Lê Hoàn'},scoped),true);
+ assert.equal(canViewDocument({...student,lop:'12A2',donvi:'THPT Lê Hoàn'},scoped),false);
+ assert.equal(canViewDocument({...student,lop:'12A1',donvi:'Trường khác'},scoped),false);
+ assert.equal(canViewDocument({...student,lop:'12A2',donvi:'THPT Lê Hoàn'},{...scoped,doi_tuong_truy_cap_nhieu:['public','student']}),true);
+ const input={tieu_de:'Theo lớp',duong_link:'https://example.com/class',doi_tuong_duoc_truy_cap:'student',doi_tuong_truy_cap_nhieu:['student'],pham_vi_lop_hoc_sinh:[{lop:'12A1',donvi:'THPT Lê Hoàn'}],hoat_dong:true};
+ assert.deepEqual(normalizeDocumentLinkInput(input).pham_vi_lop_hoc_sinh,[{lop:'12A1',donvi:'THPT Lê Hoàn'}]);
+ assert.throws(()=>normalizeDocumentLinkInput({...input,doi_tuong_duoc_truy_cap:'teacher',doi_tuong_truy_cap_nhieu:['teacher']}),DocumentLinkInputError);
+});
+
+test('document schema and form include optional student class restriction',()=>{
+ const schema=readFileSync('src/document-links-schema.js','utf8');
+ const html=readFileSync('public/components/tab-documents.html','utf8');
+ const ui=readFileSync('src/document-links-ui.js','utf8');
+ assert.match(schema,/pham_vi_lop_hoc_sinh JSONB/);
+ assert.match(schema,/idx_qltl_student_classes/);
+ assert.match(html,/id="documents-student-class-scope"/);
+ assert.match(html,/id="documents-student-class-list"/);
+ assert.match(ui,/scope=student-classes/);
+ assert.match(ui,/studentClasses/);
+ assert.match(ui,/pham_vi_lop_hoc_sinh:selectedClasses/);
 });

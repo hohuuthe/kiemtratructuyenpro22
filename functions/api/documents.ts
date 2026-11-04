@@ -1,6 +1,6 @@
 import {verifyAuthSession,getDynamicSecret,getDatabase} from './exam/utils';
 import {ensureDocumentLinkSchema} from '../../src/document-links-schema.js';
-import {listDocumentLinks,listDocumentLinksPage,parseDocumentLinkPage,createDocumentLink,updateDocumentLink,deleteDocumentLink,DocumentLinkServiceError} from '../../src/document-links-service.js';
+import {listDocumentLinks,listDocumentLinksPage,parseDocumentLinkPage,listDocumentStudentClasses,createDocumentLink,updateDocumentLink,deleteDocumentLink,DocumentLinkServiceError} from '../../src/document-links-service.js';
 const headers={'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'};
 const reply=(data,status=200)=>new Response(JSON.stringify(data),{status,headers});
 async function state(context:any){
@@ -13,6 +13,11 @@ async function state(context:any){
   const secret=await getDynamicSecret(db,context.env?.JWT_SECRET);
   user=await verifyAuthSession(bearer.slice(7),secret,db);
   if(!user)return {db,user,invalid:true};
+  const ids=[user.user_id,user.id].map(v=>String(v??'').trim()).filter(Boolean);
+  if(ids.length){
+   const profile=await db.prepare('SELECT lop,donvi,target_audience FROM users WHERE id IN ('+ids.map(()=>'?').join(',')+') LIMIT 1').bind(...ids).first();
+   if(profile)user={...user,lop:profile.lop||user.lop,donvi:profile.donvi||user.donvi,target_audience:profile.target_audience||user.target_audience};
+  }
  }
  await ensureDocumentLinkSchema(db,db.connectionUrl);
  return {db,user,invalid:false};
@@ -27,9 +32,11 @@ export const onRequestGet:PagesFunction=async context=>{
  try{
   const {db,user,invalid}=await state(context);
   if(invalid)return reply({error:'Phiên đăng nhập không hợp lệ.'},401);
-  const manage=new URL(context.request.url).searchParams.get('manage')==='1';
-  const includeReadable=manage&&new URL(context.request.url).searchParams.get('includeReadable')==='1';
-  if(new URL(context.request.url).searchParams.get('paged')==='1'){
+  const url=new URL(context.request.url);
+  if(url.searchParams.get('scope')==='student-classes')return reply({data:await listDocumentStudentClasses(adapter(db),user),error:null});
+  const manage=url.searchParams.get('manage')==='1';
+  const includeReadable=manage&&url.searchParams.get('includeReadable')==='1';
+  if(url.searchParams.get('paged')==='1'){
    const page=parseDocumentLinkPage(context.request.url);
    return reply({...await listDocumentLinksPage(adapter(db),user,{manage,includeReadable,...page}),error:null});
   }
