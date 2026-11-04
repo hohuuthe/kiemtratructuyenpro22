@@ -458,6 +458,7 @@ test('board images support proportional resize handles and realtime image layeri
 
 test('board hardening preserves creator provenance, normalizes VIP and locks protected objects',()=>{
   const common=fs.readFileSync('functions/api/board/common.ts','utf8');
+  const ui=fs.readFileSync('src/interactive-board-ui.js','utf8');
   const worker=fs.readFileSync('workers/interactive-board-worker.js','utf8');
   const html=fs.readFileSync('public/components/tab-boards.html','utf8');
   assert.match(common,/function isInteractiveBoardVip/);
