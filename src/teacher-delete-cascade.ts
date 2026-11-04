@@ -24,6 +24,7 @@ DECLARE
   v_counts JSONB := '{}'::JSONB;
   v_account_count BIGINT := 0;
   v_user_count BIGINT := 0;
+  v_has_orphans BOOLEAN := FALSE;
 BEGIN
   IF p_user_id IS NULL OR BTRIM(p_user_id) = '' THEN
     RAISE EXCEPTION 'TEACHER_DELETE_ID_REQUIRED';
@@ -276,60 +277,108 @@ BEGIN
     RAISE EXCEPTION 'TEACHER_DELETE_ORPHAN_AUDIT_FAILED';
   END IF;
 
-  IF to_regclass('public.quan_ly_tai_lieu') IS NOT NULL AND EXISTS (
-    SELECT 1 FROM public.quan_ly_tai_lieu
-    WHERE id_nguoi_tao = ANY(v_identity_ids) OR id_nguoi_cap_nhat = ANY(v_identity_ids)
-  ) THEN
-    RAISE EXCEPTION 'TEACHER_DELETE_DOCUMENT_AUDIT_FAILED';
+  IF to_regclass('public.quan_ly_tai_lieu') IS NOT NULL THEN
+    EXECUTE
+      'SELECT EXISTS (
+         SELECT 1 FROM public.quan_ly_tai_lieu
+         WHERE id_nguoi_tao = ANY($1) OR id_nguoi_cap_nhat = ANY($1)
+       )'
+      INTO v_has_orphans
+      USING v_identity_ids;
+    IF v_has_orphans THEN
+      RAISE EXCEPTION 'TEACHER_DELETE_DOCUMENT_AUDIT_FAILED';
+    END IF;
   END IF;
 
-  IF to_regclass('public.interactive_boards') IS NOT NULL AND EXISTS (
-    SELECT 1 FROM public.interactive_boards WHERE creator_id = ANY(v_identity_ids)
-  ) THEN
-    RAISE EXCEPTION 'TEACHER_DELETE_BOARD_AUDIT_FAILED';
+  IF to_regclass('public.interactive_boards') IS NOT NULL THEN
+    EXECUTE
+      'SELECT EXISTS (
+         SELECT 1 FROM public.interactive_boards WHERE creator_id = ANY($1)
+       )'
+      INTO v_has_orphans
+      USING v_identity_ids;
+    IF v_has_orphans THEN
+      RAISE EXCEPTION 'TEACHER_DELETE_BOARD_AUDIT_FAILED';
+    END IF;
   END IF;
 
-  IF to_regclass('public.qr_answer_sessions') IS NOT NULL AND EXISTS (
-    SELECT 1 FROM public.qr_answer_sessions
-    WHERE creator_id = ANY(v_identity_ids) OR exam_id = ANY(v_exam_ids)
-  ) THEN
-    RAISE EXCEPTION 'TEACHER_DELETE_QR_SESSION_AUDIT_FAILED';
+  IF to_regclass('public.qr_answer_sessions') IS NOT NULL THEN
+    EXECUTE
+      'SELECT EXISTS (
+         SELECT 1 FROM public.qr_answer_sessions
+         WHERE creator_id = ANY($1) OR exam_id = ANY($2)
+       )'
+      INTO v_has_orphans
+      USING v_identity_ids, v_exam_ids;
+    IF v_has_orphans THEN
+      RAISE EXCEPTION 'TEACHER_DELETE_QR_SESSION_AUDIT_FAILED';
+    END IF;
   END IF;
 
-  IF to_regclass('public.qr_answer_cards') IS NOT NULL AND EXISTS (
-    SELECT 1 FROM public.qr_answer_cards
-    WHERE created_by = ANY(v_identity_ids) OR user_id = ANY(v_identity_ids)
-  ) THEN
-    RAISE EXCEPTION 'TEACHER_DELETE_QR_CARD_AUDIT_FAILED';
+  IF to_regclass('public.qr_answer_cards') IS NOT NULL THEN
+    EXECUTE
+      'SELECT EXISTS (
+         SELECT 1 FROM public.qr_answer_cards
+         WHERE created_by = ANY($1) OR user_id = ANY($1)
+       )'
+      INTO v_has_orphans
+      USING v_identity_ids;
+    IF v_has_orphans THEN
+      RAISE EXCEPTION 'TEACHER_DELETE_QR_CARD_AUDIT_FAILED';
+    END IF;
   END IF;
 
-  IF to_regclass('public.qr_answer_responses') IS NOT NULL AND EXISTS (
-    SELECT 1 FROM public.qr_answer_responses
-    WHERE session_id = ANY(v_qr_session_ids) OR user_id = ANY(v_identity_ids)
-  ) THEN
-    RAISE EXCEPTION 'TEACHER_DELETE_QR_RESPONSE_AUDIT_FAILED';
+  IF to_regclass('public.qr_answer_responses') IS NOT NULL THEN
+    EXECUTE
+      'SELECT EXISTS (
+         SELECT 1 FROM public.qr_answer_responses
+         WHERE session_id = ANY($1) OR user_id = ANY($2)
+       )'
+      INTO v_has_orphans
+      USING v_qr_session_ids, v_identity_ids;
+    IF v_has_orphans THEN
+      RAISE EXCEPTION 'TEACHER_DELETE_QR_RESPONSE_AUDIT_FAILED';
+    END IF;
   END IF;
 
-  IF to_regclass('public.qr_answer_result_links') IS NOT NULL AND EXISTS (
-    SELECT 1 FROM public.qr_answer_result_links
-    WHERE session_id = ANY(v_qr_session_ids) OR user_id = ANY(v_identity_ids)
-  ) THEN
-    RAISE EXCEPTION 'TEACHER_DELETE_QR_RESULT_LINK_AUDIT_FAILED';
+  IF to_regclass('public.qr_answer_result_links') IS NOT NULL THEN
+    EXECUTE
+      'SELECT EXISTS (
+         SELECT 1 FROM public.qr_answer_result_links
+         WHERE session_id = ANY($1) OR user_id = ANY($2)
+       )'
+      INTO v_has_orphans
+      USING v_qr_session_ids, v_identity_ids;
+    IF v_has_orphans THEN
+      RAISE EXCEPTION 'TEACHER_DELETE_QR_RESULT_LINK_AUDIT_FAILED';
+    END IF;
   END IF;
 
-  IF to_regclass('public.interactive_board_pages') IS NOT NULL AND EXISTS (
-    SELECT 1 FROM public.interactive_board_pages WHERE board_id = ANY(v_board_ids)
-  ) THEN
-    RAISE EXCEPTION 'TEACHER_DELETE_BOARD_PAGE_AUDIT_FAILED';
+  IF to_regclass('public.interactive_board_pages') IS NOT NULL THEN
+    EXECUTE
+      'SELECT EXISTS (
+         SELECT 1 FROM public.interactive_board_pages WHERE board_id = ANY($1)
+       )'
+      INTO v_has_orphans
+      USING v_board_ids;
+    IF v_has_orphans THEN
+      RAISE EXCEPTION 'TEACHER_DELETE_BOARD_PAGE_AUDIT_FAILED';
+    END IF;
   END IF;
 
-  IF to_regclass('public.interactive_board_blocks') IS NOT NULL AND EXISTS (
-    SELECT 1 FROM public.interactive_board_blocks
-    WHERE board_id = ANY(v_board_ids)
-       OR user_id = ANY(v_identity_ids)
-       OR blocked_by = ANY(v_identity_ids)
-  ) THEN
-    RAISE EXCEPTION 'TEACHER_DELETE_BOARD_BLOCK_AUDIT_FAILED';
+  IF to_regclass('public.interactive_board_blocks') IS NOT NULL THEN
+    EXECUTE
+      'SELECT EXISTS (
+         SELECT 1 FROM public.interactive_board_blocks
+         WHERE board_id = ANY($1)
+            OR user_id = ANY($2)
+            OR blocked_by = ANY($2)
+       )'
+      INTO v_has_orphans
+      USING v_board_ids, v_identity_ids;
+    IF v_has_orphans THEN
+      RAISE EXCEPTION 'TEACHER_DELETE_BOARD_BLOCK_AUDIT_FAILED';
+    END IF;
   END IF;
 
   RETURN jsonb_build_object(
