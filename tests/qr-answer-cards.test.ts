@@ -254,13 +254,15 @@ test('long-range scanner uses hybrid native multi-QR and high-resolution tiled f
   assert.match(ui,/decodeJsQrTiles/);
   assert.match(ui,/new Worker\(new URL\('\.\/qr-scan-worker\.js',import\.meta\.url\)/);
   assert.match(ui,/scanMode==='far'/);
-  assert.match(ui,/targetW=scanMode==='far'\?Math\.min\(2200,video\.videoWidth\)/);
+  assert.match(ui,/const plan=scanDecodePlan\(video\.videoWidth\)/);
+  assert.match(ui,/const targetW=plan\.targetW/);
   assert.match(worker,/cols=far\?\(width>=1500\?4:3\)/);
   assert.match(worker,/overlap=far\?\.28:\.20/);
-  assert.match(worker,/upscale=far\?\(width>=1500\?2\.35:2\.05\)/);
-  assert.match(ui,/width:\{ideal:2560\}/);
+  assert.match(worker,/upscaleByTier/);
+  assert.match(worker,/high:\(width>=1500\?2\.35:2\.05\)/);
+  assert.match(ui,/targetW=Math\.min\(maxW,mode==='far'\?2560:1920\)/);
   assert.match(ui,/width:\{ideal:1920\}/);
-  assert.match(ui,/width:\{ideal:1280\}/);
+  assert.match(ui,/height:\{ideal:1080\}/);
   assert.match(ui,/focusMode:'continuous'/);
   assert.match(ui,/applyCameraZoom/);
   assert.match(ui,/toggleTorch/);
@@ -411,7 +413,7 @@ test('professional classroom scanner runs heavy decoding off the UI thread',()=>
 
   assert.match(worker,/cols=far\?\(width>=1500\?4:3\)/);
   assert.match(worker,/overlap=far\?\.28:\.20/);
-  assert.match(worker,/upscale=far\?\(width>=1500\?2\.35:2\.05\)/);
+  assert.match(worker,/upscaleByTier/);
   assert.match(worker,/inversion=cycle%5===0\?'attemptBoth':'dontInvert'/);
   assert.match(worker,/maxCodes/);
   assert.match(worker,/cameraEpoch:msg\.cameraEpoch/);
@@ -446,4 +448,65 @@ test('stale worker frames cannot cross camera sessions or question revisions',()
   assert.match(ui,/Number\(msg\.cameraEpoch\)!==cameraEpoch/);
   assert.match(ui,/String\(msg\.sessionId\|\|''\)!==String\(session\?\.id\|\|''\)/);
   assert.match(ui,/collectionState!=='collecting'\)return/);
+});
+
+
+test('commercial-grade QR scanner has watchdog adaptive load camera recovery and invalid-answer protection',()=>{
+  const ui=fs.readFileSync('src/qr-answer-cards-ui.js','utf8');
+  const worker=fs.readFileSync('src/qr-scan-worker.js','utf8');
+
+  assert.match(ui,/scanWorkerStartedAt/);
+  assert.match(ui,/function checkScanWorkerWatchdog/);
+  assert.match(ui,/performance\.now\(\)-scanWorkerStartedAt>1400/);
+  assert.match(ui,/resetScanWorker\('watchdog timeout'\)/);
+
+  assert.match(ui,/function performanceTierFromDuration/);
+  assert.match(ui,/ms>=320/);
+  assert.match(ui,/scanDecodePlan/);
+  assert.match(ui,/performanceTier:plan\.tier/);
+  assert.match(worker,/budgetByTier/);
+  assert.match(worker,/upscaleByTier/);
+  assert.match(worker,/\['high','balanced','safe'\]/);
+
+  assert.match(ui,/function applyCameraQualityProfile/);
+  assert.match(ui,/frameRate:\{ideal:30,max:30\}/);
+  assert.match(ui,/function scheduleCameraRecovery/);
+  assert.match(ui,/track\.onended/);
+  assert.match(ui,/track\.onmute/);
+  assert.match(ui,/openCamera\(\{recovery:true\}\)/);
+
+  assert.match(ui,/function validAnswerKeys/);
+  assert.match(ui,/d\.invalidAnswer=!allowed\.has\(orientation\.answer\)/);
+  assert.match(ui,/ĐÁP ÁN KHÔNG HỢP LỆ/);
+  assert.match(ui,/if\(d\.invalidAnswer\)\{tracking\.delete\(key\);continue;\}/);
+
+  assert.match(ui,/window\.addEventListener\('online'/);
+  assert.match(ui,/if\(pendingRecords\.size\)queueFlush\(\)/);
+  assert.match(ui,/navigator\.vibrate/);
+  assert.match(ui,/lastCompletedFeedbackQuestionId/);
+});
+
+
+test('scanner visibly warns about valid QR cards that are not assigned to the current class',()=>{
+  const ui=fs.readFileSync('src/qr-answer-cards-ui.js','utf8');
+  assert.match(ui,/THẺ NGOÀI LỚP/);
+  assert.match(ui,/strokeStyle='#dc2626'/);
+  assert.match(ui,/if \(!student\) \{/);
+});
+
+
+test('session-state polling probes lightweight revisions before loading questions JSON and responses',()=>{
+  const api=fs.readFileSync('functions/api/qr-cards.ts','utf8');
+  const start=api.indexOf("if (action === 'session-state')");
+  const end=api.indexOf("if (action === 'session')",start);
+  const block=api.slice(start,end);
+  assert.match(block,/SELECT id,creator_id,join_code,exam_id,exam_name,class_name,donvi,status,question_count/);
+  assert.match(block,/if \(since && since === version\)/);
+  assert.match(block,/unchanged: true/);
+  const unchangedAt=block.indexOf('if (since && since === version)');
+  const questionsAt=block.indexOf("SELECT questions_json");
+  const responsesAt=block.indexOf("FROM qr_answer_responses");
+  assert.ok(unchangedAt>=0&&questionsAt>unchangedAt,'questions_json must load only after version mismatch');
+  assert.ok(responsesAt>questionsAt,'responses must load only after version mismatch');
+  assert.doesNotMatch(block,/ownedSession\(db, user, admin, id\)/);
 });

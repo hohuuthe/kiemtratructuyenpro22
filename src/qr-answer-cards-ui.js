@@ -54,6 +54,12 @@ let currentZoom = 1;
 let torchEnabled = false;
 let detectionMemory = new Map();
 let cameraEpoch = 0;
+let scanWorkerStartedAt = 0;
+let scanWorkerRestartCount = 0;
+let scanPerformanceTier = 'high';
+let cameraRecoveryTimer = null;
+let cameraOpening = false;
+let lastCompletedFeedbackQuestionId = '';
 
 function isMobileScannerViewport(){
   return window.matchMedia?.('(max-width: 767px)')?.matches || window.innerWidth <= 767;
@@ -75,13 +81,48 @@ function scanRemainingCount(){
   const saved=q?answersForQuestion(q.id).size:0;
   return Math.max(0,Number(session?.students?.length||0)-saved);
 }
+function validAnswerKeys(q=currentQuestion()){
+  const keys=['A','B','C','D'];
+  if(!q)return new Set(keys);
+  const present=keys.filter(key=>{
+    const data=optionData(q.options,key);
+    return String(data.text||'').trim()||String(data.image||'').trim();
+  });
+  return new Set(present.length?present:keys);
+}
+function performanceTierFromDuration(){
+  const ms=Math.max(0,Number(lastFallbackDuration)||0);
+  if(ms>=320)return 'safe';
+  if(ms>=190)return 'balanced';
+  return 'high';
+}
+function scanDecodePlan(videoWidth){
+  scanPerformanceTier=performanceTierFromDuration();
+  const far=scanMode==='far';
+  const widths=far
+    ? {high:2200,balanced:1900,safe:1600}
+    : {high:(nativeQrSupported?1600:1920),balanced:1500,safe:1280};
+  return {tier:scanPerformanceTier,targetW:Math.min(Number(videoWidth)||1280,widths[scanPerformanceTier])};
+}
+function resetScanWorker(reason='restart'){
+  scanWorkerBusy=false;scanWorkerStartedAt=0;
+  if(scanWorker){try{scanWorker.terminate();}catch{}}
+  scanWorker=null;scanWorkerRestartCount++;
+  console.warn('QR decoder worker restarted:',reason);
+}
+function checkScanWorkerWatchdog(){
+  if(scanWorkerBusy&&scanWorkerStartedAt&&performance.now()-scanWorkerStartedAt>1400)resetScanWorker('watchdog timeout');
+}
+function haptic(pattern=18){
+  try{if(mobileScannerMode&&navigator.vibrate)navigator.vibrate(pattern);}catch{}
+}
 function ensureScanWorker(){
   if(scanWorker)return scanWorker;
   try{
     scanWorker=new Worker(new URL('./qr-scan-worker.js',import.meta.url),{type:'module'});
     scanWorker.onmessage=e=>{
       const msg=e.data||{};
-      scanWorkerBusy=false;
+      scanWorkerBusy=false;scanWorkerStartedAt=0;
       if(msg.type!=='decoded'||!scanActive||deviceRole!=='scanner')return;
       if(Number(msg.cameraEpoch)!==cameraEpoch)return;
       if(String(msg.sessionId||'')!==String(session?.id||''))return;
@@ -103,7 +144,7 @@ function ensureScanWorker(){
       drawOverlay(merged,video.videoWidth,video.videoHeight);
       updateScannerPerfBadge(merged.length);
     };
-    scanWorker.onerror=()=>{scanWorkerBusy=false;try{scanWorker?.terminate();}catch{}scanWorker=null;};
+    scanWorker.onerror=()=>resetScanWorker('worker error');
   }catch{scanWorker=null;}
   return scanWorker;
 }
@@ -113,12 +154,14 @@ function updateScannerPerfBadge(count=0){
   const width=Number(settings.width||video?.videoWidth||0),height=Number(settings.height||video?.videoHeight||0);
   const engine=nativeQrSupported?'Hybrid':'jsQR';
   const ms=Math.round(Math.max(lastFrameDuration,lastFallbackDuration)||0);
-  el.textContent=count+' thẻ · '+engine+(ms?' · '+ms+'ms':'')+(width&&height?' · '+width+'×'+height:'')+(currentZoom>1.01?' · '+currentZoom.toFixed(1)+'×':'');
+  const tierLabel={high:'Cao',balanced:'Cân bằng',safe:'Ổn định'}[scanPerformanceTier]||'Cân bằng';
+  el.textContent=count+' thẻ · '+engine+' · '+tierLabel+(ms?' · '+ms+'ms':'')+(width&&height?' · '+width+'×'+height:'')+(currentZoom>1.01?' · '+currentZoom.toFixed(1)+'×':'');
 }
 function setScanMode(mode){
   scanMode=mode==='far'?'far':'auto';
   $('qr-card-mode-auto')?.classList.toggle('is-active',scanMode==='auto');
   $('qr-card-mode-far')?.classList.toggle('is-active',scanMode==='far');
+  if(cameraTrack)void applyCameraQualityProfile(cameraTrack,scanMode);
   if(scanMode==='far'&&cameraCapabilities?.zoom?.max){
     const min=Number(cameraCapabilities.zoom.min||1),max=Number(cameraCapabilities.zoom.max||1);
     const target=Math.min(max,Math.max(min,1.45));
@@ -926,11 +969,48 @@ async function decodeNative(video,scaleX=1,scaleY=1){
     return dedupeDetections(out);
   }catch{return [];}
 }
+async function applyCameraQualityProfile(track,mode=scanMode){
+  if(!track)return;
+  try{
+    const caps=track.getCapabilities?.()||cameraCapabilities||{};
+    const maxW=Number(caps.width?.max||2560),maxH=Number(caps.height?.max||1440);
+    const targetW=Math.min(maxW,mode==='far'?2560:1920);
+    const targetH=Math.min(maxH,Math.round(targetW*9/16));
+    const advanced=[];
+    if(Array.isArray(caps.focusMode)&&caps.focusMode.includes('continuous'))advanced.push({focusMode:'continuous'});
+    if(Array.isArray(caps.exposureMode)&&caps.exposureMode.includes('continuous'))advanced.push({exposureMode:'continuous'});
+    if(Array.isArray(caps.whiteBalanceMode)&&caps.whiteBalanceMode.includes('continuous'))advanced.push({whiteBalanceMode:'continuous'});
+    await track.applyConstraints({
+      width:{ideal:Math.max(1280,targetW)},
+      height:{ideal:Math.max(720,targetH)},
+      frameRate:{ideal:30,max:30},
+      ...(advanced.length?{advanced}:{})
+    });
+  }catch{}
+}
+function scheduleCameraRecovery(reason='camera interrupted'){
+  if(cameraRecoveryTimer||deviceRole!=='scanner'||!session)return;
+  cameraRecoveryTimer=setTimeout(async()=>{
+    cameraRecoveryTimer=null;
+    if(deviceRole!=='scanner'||!session||document.hidden)return;
+    const track=cameraTrack;
+    const unhealthy=!stream||!stream.active||!track||track.readyState==='ended'||track.muted;
+    if(!unhealthy)return;
+    console.warn('Recovering QR camera:',reason);
+    await openCamera({recovery:true});
+  },900);
+}
+function bindCameraHealth(track){
+  if(!track)return;
+  track.onended=()=>{if(scanActive)scheduleCameraRecovery('track ended');};
+  track.onmute=()=>{if(scanActive)scheduleCameraRecovery('track muted');};
+}
 async function tuneCameraTrack(track){
   if(!track)return;
   try{
     const caps=track.getCapabilities?.()||{};
     cameraCapabilities=caps||{};
+    await applyCameraQualityProfile(track,scanMode);
     const advanced=[];
     if(Array.isArray(caps.focusMode)&&caps.focusMode.includes('continuous'))advanced.push({focusMode:'continuous'});
     if(caps.exposureMode&&Array.isArray(caps.exposureMode)&&caps.exposureMode.includes('continuous'))advanced.push({exposureMode:'continuous'});
@@ -951,6 +1031,7 @@ async function tuneCameraTrack(track){
 function stopCamera() {
   scanActive = false;
   cameraEpoch++;
+  if(cameraRecoveryTimer){clearTimeout(cameraRecoveryTimer);cameraRecoveryTimer=null;}
   if (scanTimer) { clearTimeout(scanTimer); scanTimer = null; }
   if (stream) {
     for (const track of stream.getTracks()) try { track.stop(); } catch {}
@@ -968,29 +1049,26 @@ function stopCamera() {
   clearOverlay();
 }
 async function acquireCameraStream(){
-  const profiles=[
-    {width:{ideal:2560},height:{ideal:1440},frameRate:{ideal:30,max:60}},
-    {width:{ideal:1920},height:{ideal:1080},frameRate:{ideal:30,max:30}},
-    {width:{ideal:1280},height:{ideal:720},frameRate:{ideal:30,max:30}}
-  ];
-  let lastError=null;
-  for(const profile of profiles){
-    try{
-      return await navigator.mediaDevices.getUserMedia({
-        audio:false,
-        video:{facingMode:{ideal:cameraFacing},...profile}
-      });
-    }catch(e){lastError=e;}
-  }
-  throw lastError||new Error('Không thể mở camera.');
+  return navigator.mediaDevices.getUserMedia({
+    audio:false,
+    video:{
+      facingMode:{ideal:cameraFacing},
+      width:{ideal:1920},
+      height:{ideal:1080},
+      frameRate:{ideal:30,max:30}
+    }
+  });
 }
-async function openCamera() {
+async function openCamera({recovery=false}={}) {
+  if(cameraOpening)return;
   if(deviceRole!=='scanner'||!session)return feedback('Hãy kết nối điện thoại vào một phiên đang mở trước.',true);
   if (!navigator.mediaDevices?.getUserMedia) return feedback('Trình duyệt này không hỗ trợ camera web.', true);
+  cameraOpening=true;
   stopCamera();
   try {
     stream = await acquireCameraStream();
     cameraTrack=stream.getVideoTracks?.()[0]||null;
+    bindCameraHealth(cameraTrack);
     await tuneCameraTrack(cameraTrack);
     await initNativeQrDetector();
     const video = $('qr-card-video');
@@ -1008,7 +1086,9 @@ async function openCamera() {
         : 'CÂU ĐÃ KHÓA · camera chỉ xem, không lưu';
     scheduleScan(0);
   } catch (e) {
-    feedback('Không thể mở camera: ' + (e?.message || 'hãy kiểm tra quyền camera.'), true);
+    feedback((recovery?'Camera bị gián đoạn. ':'Không thể mở camera: ') + (e?.message || 'hãy kiểm tra quyền camera.'), true);
+  } finally {
+    cameraOpening=false;
   }
 }
 function scheduleScan(delay) {
@@ -1065,9 +1145,11 @@ async function scanFrame() {
     // Heavy multi-scale decoding runs in a Worker so the camera/UI stays smooth.
     // Run more aggressively in Far mode or while students are still missing.
     const remaining=scanRemainingCount();
+    checkScanWorkerWatchdog();
     const needFallback=scanMode==='far'||!native.length||remaining>Math.max(4,Math.floor((session.students?.length||0)*.12))||scanCycle%3===0;
     if(needFallback&&!scanWorkerBusy){
-      const targetW=scanMode==='far'?Math.min(2200,video.videoWidth):(nativeQrSupported?1600:1920);
+      const plan=scanDecodePlan(video.videoWidth);
+      const targetW=plan.targetW;
       const scale=Math.min(1,targetW/video.videoWidth);
       const w=Math.max(720,Math.round(video.videoWidth*scale));
       const h=Math.max(405,Math.round(video.videoHeight*scale));
@@ -1077,13 +1159,14 @@ async function scanFrame() {
       const image=offctx.getImageData(0,0,w,h);
       const worker=ensureScanWorker();
       if(worker){
-        scanWorkerBusy=true;
+        scanWorkerBusy=true;scanWorkerStartedAt=performance.now();
         fallbackFrameId++;
         worker.postMessage({
           type:'decode',
           frameId:fallbackFrameId,
           cycle:scanCycle,
           mode:scanMode,
+          performanceTier:plan.tier,
           cameraEpoch,
           sessionId:String(session.id||''),
           questionId:String(currentQuestion()?.id||''),
@@ -1128,7 +1211,10 @@ function processDetections(detections,observationCycle=scanCycle) {
     const tolerance=area<1800?40:(area<5000?38:34);
     const orientation = answerFromQrLocation(d.location,tolerance);
     if (!orientation) continue;
+    const allowed=validAnswerKeys(q);
+    d.invalidAnswer=!allowed.has(orientation.answer);
     const key = String(q.id) + '|' + String(d.cardToken);
+    if(d.invalidAnswer){tracking.delete(key);continue;}
     seen.add(key);
     const prev = tracking.get(key);
     if(prev&&Number(prev.observationCycle||0)>=Number(observationCycle||0)){
@@ -1254,6 +1340,12 @@ async function flushPending() {
     renderStudentStatus();
 
     if(acceptedRows.length){
+      haptic(18);
+      const qid=String(currentQuestion()?.id||'');
+      const savedCount=answersForQuestion(qid).size,totalStudents=Number(session?.students?.length||0);
+      if(qid&&totalStudents>0&&savedCount>=totalStudents&&lastCompletedFeedbackQuestionId!==qid){
+        lastCompletedFeedbackQuestionId=qid;haptic([35,35,55]);
+      }
       setPhoneSaveState('saved','Đã lưu '+acceptedRows.length+' đáp án · còn '+pendingRecords.size+' chờ');
       scheduleSync(0);
     }
@@ -1332,16 +1424,27 @@ function drawOverlay(detections, sourceW, sourceH) {
   ctx.font = '700 13px system-ui,sans-serif';
   for (const d of detections) {
     const student = students.get(String(d.cardToken));
-    if (!student) continue;
+    if (!student) {
+      const points=[d.location?.topLeftCorner,d.location?.topRightCorner,d.location?.bottomRightCorner,d.location?.bottomLeftCorner].filter(Boolean);
+      if(points.length===4){
+        ctx.strokeStyle='#dc2626';ctx.fillStyle='rgba(220,38,38,.12)';ctx.beginPath();
+        points.forEach((p,i)=>{const x=ox+p.x*scale,y=oy+p.y*scale;if(i)ctx.lineTo(x,y);else ctx.moveTo(x,y);});
+        ctx.closePath();ctx.fill();ctx.stroke();
+        const x=ox+points[0].x*scale,y=Math.max(18,oy+points[0].y*scale-8);
+        ctx.fillStyle='rgba(185,28,28,.94)';ctx.fillRect(x,y-17,118,20);ctx.fillStyle='#fff';ctx.fillText('THẺ NGOÀI LỚP',x+7,y-3,108);
+      }
+      continue;
+    }
     const orientation = answerFromQrLocation(d.location);
     const answer = orientation?.answer || '?';
+    const invalid=Boolean(d.invalidAnswer)||!validAnswerKeys(q).has(answer);
     const uid=String(student.id),key=pendingAnswerKey(q?.id||'',uid);
     const locked=collectionState!=='collecting';
-    const confirmed = !locked && map.get(uid) === answer;
-    const pending = !locked && pendingVisualAnswers.get(key)?.answer === answer;
+    const confirmed = !invalid && !locked && map.get(uid) === answer;
+    const pending = !invalid && !locked && pendingVisualAnswers.get(key)?.answer === answer;
     const points = [d.location.topLeftCorner,d.location.topRightCorner,d.location.bottomRightCorner,d.location.bottomLeftCorner];
-    ctx.strokeStyle = locked ? '#94a3b8' : (confirmed ? '#22c55e' : (pending ? '#3b82f6' : '#f59e0b'));
-    ctx.fillStyle = locked ? 'rgba(100,116,139,.15)' : (confirmed ? 'rgba(34,197,94,.16)' : (pending ? 'rgba(59,130,246,.15)' : 'rgba(245,158,11,.13)'));
+    ctx.strokeStyle = invalid ? '#64748b' : (locked ? '#94a3b8' : (confirmed ? '#22c55e' : (pending ? '#3b82f6' : '#f59e0b')));
+    ctx.fillStyle = invalid ? 'rgba(100,116,139,.18)' : (locked ? 'rgba(100,116,139,.15)' : (confirmed ? 'rgba(34,197,94,.16)' : (pending ? 'rgba(59,130,246,.15)' : 'rgba(245,158,11,.13)')));
     ctx.beginPath();
     points.forEach((p,i) => {
       const x = ox + p.x * scale, y = oy + p.y * scale;
@@ -1352,10 +1455,10 @@ function drawOverlay(detections, sourceW, sourceH) {
     const y = Math.max(18, oy + d.location.topLeftCorner.y * scale - 8);
     const label = String(student.full_name || student.student_code) + ' · ' + answer;
     const width = Math.min(260, ctx.measureText(label).width + 14);
-    ctx.fillStyle = locked ? 'rgba(71,85,105,.92)' : (confirmed ? 'rgba(21,128,61,.92)' : (pending ? 'rgba(29,78,216,.92)' : 'rgba(180,83,9,.92)'));
+    ctx.fillStyle = invalid ? 'rgba(71,85,105,.95)' : (locked ? 'rgba(71,85,105,.92)' : (confirmed ? 'rgba(21,128,61,.92)' : (pending ? 'rgba(29,78,216,.92)' : 'rgba(180,83,9,.92)')));
     ctx.fillRect(x, y - 17, width, 20);
     ctx.fillStyle = '#fff';
-    const suffix=locked?' · ĐÃ KHÓA, KHÔNG LƯU':(pending&&!confirmed?' · đang lưu':'');
+    const suffix=invalid?' · ĐÁP ÁN KHÔNG HỢP LỆ':(locked?' · ĐÃ KHÓA, KHÔNG LƯU':(pending&&!confirmed?' · đang lưu':''));
     ctx.fillText(label+suffix, x + 7, y - 3, width - 10);
   }
 }
@@ -1466,9 +1569,19 @@ function bind() {
     try{if(document.fullscreenElement)await document.exitFullscreen();else await el.requestFullscreen();}catch{}
   });
   window.addEventListener('resize',applyMobileScannerMode,{passive:true});
+  window.addEventListener('online',()=>{
+    if(!session||!deviceRole)return;
+    lastSyncVersion='';scheduleSync(0);
+    if(pendingRecords.size)queueFlush();
+    if(deviceRole==='scanner'&&!scanActive)void openCamera({recovery:true});
+  });
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) { if(deviceRole==='scanner') stopCamera(); }
-    else if(session&&deviceRole){ lastSyncVersion='';scheduleSync(0); }
+    else if(session&&deviceRole){
+      lastSyncVersion='';scheduleSync(0);
+      if(pendingRecords.size)queueFlush();
+      if(deviceRole==='scanner'&&!scanActive)void openCamera({recovery:true});
+    }
   });
   window.addEventListener('pagehide',()=>{stopCamera();stopSyncLoop();});
 }
@@ -1500,5 +1613,5 @@ export function resetQrAnswerCards() {
   showMissingOnly = false;
   presenterQuestionFontSize=24;
   presenterAnswerFontSize=20;
-  scanMode='auto';cameraCapabilities={};currentZoom=1;torchEnabled=false;detectionMemory.clear();scanWorkerBusy=false;cameraEpoch++;
+  scanMode='auto';cameraCapabilities={};currentZoom=1;torchEnabled=false;detectionMemory.clear();scanWorkerBusy=false;scanWorkerStartedAt=0;scanPerformanceTier='high';cameraEpoch++;lastCompletedFeedbackQuestionId='';
 }
