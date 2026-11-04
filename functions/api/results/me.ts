@@ -42,7 +42,7 @@ export async function queryOwnResultHistory(db: any, user: any, url: URL) {
       if (!id.trim()) return reply({ error: 'Thiếu mã bài làm.' }, 400);
       // Read visibility from the live exam config by exact ID, never by a duplicated name.
       const sql = 'SELECT r.id, r.exam_id, r.exam_name, r.score, r.correct_count, r.total_questions, ' +
-        'r.time_taken, r.created_at, r.details, ec.show_score AS exam_show_score, ' +
+        'r.time_taken, r.created_at, r.cheat_warning_count, r.details, ec.show_score AS exam_show_score, ' +
         'ec.show_details AS exam_show_details FROM results r ' +
         'LEFT JOIN exam_configs ec ON ec.id = r.exam_id ' +
         'WHERE r.id = ? AND r.' + scope + ' LIMIT 1';
@@ -60,6 +60,34 @@ export async function queryOwnResultHistory(db: any, user: any, url: URL) {
       });
     }
 
+    const examId = url.searchParams.get('examId');
+    if (examId !== null) {
+      const requestedExamId = examId.trim();
+      if (!requestedExamId || requestedExamId.length > 160) {
+        return reply({ error: 'Mã đề thi không hợp lệ.' }, 400);
+      }
+      const response: any = await db.prepare(
+        'SELECT r.id, r.exam_id, r.exam_name, r.score, r.correct_count, r.total_questions, ' +
+        'r.time_taken, r.created_at, r.cheat_warning_count, ec.show_score AS exam_show_score, ' +
+        'ec.show_details AS exam_show_details FROM results r ' +
+        'LEFT JOIN exam_configs ec ON ec.id = r.exam_id WHERE r.' + scope +
+        ' AND r.exam_id = ? ORDER BY r.created_at DESC, r.id DESC LIMIT 100'
+      ).bind(...ids, requestedExamId).all();
+      const projected = (Array.isArray(response?.results) ? response.results : []).map(projectStudentResultRow);
+      projected.sort((a: any, b: any) => {
+        const aScore = a.can_view_score === true && Number.isFinite(Number(a.score)) ? Number(a.score) : null;
+        const bScore = b.can_view_score === true && Number.isFinite(Number(b.score)) ? Number(b.score) : null;
+        if (aScore !== null || bScore !== null) {
+          const byScore = (bScore ?? -Infinity) - (aScore ?? -Infinity);
+          if (byScore) return byScore;
+        }
+        const aTime = Date.parse(String(a.created_at || '')) || 0;
+        const bTime = Date.parse(String(b.created_at || '')) || 0;
+        return bTime - aTime || String(b.id || '').localeCompare(String(a.id || ''));
+      });
+      return reply({ data: projected, total: projected.length, exam_id: requestedExamId, error: null });
+    }
+
     // Small, bounded pages prevent large database dumps to student browsers.
     const limitRaw = Number(url.searchParams.get('limit') || 30);
     const offsetRaw = Number(url.searchParams.get('offset') || 0);
@@ -72,7 +100,7 @@ export async function queryOwnResultHistory(db: any, user: any, url: URL) {
     ).bind(...ids).first();
     const response: any = await db.prepare(
       'SELECT r.id, r.exam_id, r.exam_name, r.score, r.correct_count, r.total_questions, ' +
-      'r.time_taken, r.created_at, ec.show_score AS exam_show_score, ' +
+      'r.time_taken, r.created_at, r.cheat_warning_count, ec.show_score AS exam_show_score, ' +
       'ec.show_details AS exam_show_details FROM results r ' +
       'LEFT JOIN exam_configs ec ON ec.id = r.exam_id WHERE r.' + scope +
       ' ORDER BY r.created_at DESC, r.id DESC LIMIT ? OFFSET ?'
