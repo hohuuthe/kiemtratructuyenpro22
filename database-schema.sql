@@ -256,8 +256,10 @@ CREATE TABLE IF NOT EXISTS _submitted_exam_tokens (
     token_hash TEXT PRIMARY KEY,
     exam_id TEXT,
     student_name TEXT,
+    user_id TEXT,
     submitted_at TEXT
 );
+ALTER TABLE _submitted_exam_tokens ADD COLUMN IF NOT EXISTS user_id TEXT;
 
 -- 7. BẢNG LƯU TRỮ KHÓA BẢO MẬT HỆ THỐNG (_internal_secrets)
 CREATE TABLE IF NOT EXISTS _internal_secrets (
@@ -357,6 +359,7 @@ CREATE INDEX IF NOT EXISTS idx_exam_configs_shared_name ON exam_configs(is_share
 
 -- BẢNG TOKENS & THỐNG KÊ
 CREATE INDEX IF NOT EXISTS idx_tokens_exam_student ON _submitted_exam_tokens(exam_id, student_name);
+CREATE INDEX IF NOT EXISTS idx_tokens_user_id ON _submitted_exam_tokens(user_id);
 CREATE INDEX IF NOT EXISTS idx_tokens_submitted_at ON _submitted_exam_tokens(submitted_at DESC);
 
 -- BẢNG PHÂN CÔNG GIÁO VIÊN - LỚP HỌC
