@@ -527,3 +527,12 @@ test('board realtime can recover indefinitely after token refreshes and network 
   assert.match(ui,/visibilitychange/);
   assert.match(ui,/scheduleReconnect\(\)/);
 });
+
+
+test('board worker avoids stroke point storage I/O for non-stroke object updates',()=>{
+  const worker=fs.readFileSync('workers/interactive-board-worker.js','utf8');
+  assert.match(worker,/if\(object\.type==='stroke'\|\|existing\?\.type==='stroke'\)/);
+  const block=worker.match(/if\(object\.type==='stroke'\|\|existing\?\.type==='stroke'\)\{[\s\S]*?\n        \}/)?.[0]||'';
+  assert.match(block,/storage\.get\(pointsKey\)/);
+  assert.match(block,/storage\.put\(pointsKey/);
+});
