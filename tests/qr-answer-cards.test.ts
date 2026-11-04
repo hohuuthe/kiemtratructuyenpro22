@@ -493,3 +493,20 @@ test('scanner visibly warns about valid QR cards that are not assigned to the cu
   assert.match(ui,/strokeStyle='#dc2626'/);
   assert.match(ui,/if \(!student\) \{/);
 });
+
+
+test('session-state polling probes lightweight revisions before loading questions JSON and responses',()=>{
+  const api=fs.readFileSync('functions/api/qr-cards.ts','utf8');
+  const start=api.indexOf("if (action === 'session-state')");
+  const end=api.indexOf("if (action === 'session')",start);
+  const block=api.slice(start,end);
+  assert.match(block,/SELECT id,creator_id,join_code,exam_id,exam_name,class_name,donvi,status,question_count/);
+  assert.match(block,/if \(since && since === version\)/);
+  assert.match(block,/unchanged: true/);
+  const unchangedAt=block.indexOf('if (since && since === version)');
+  const questionsAt=block.indexOf("SELECT questions_json");
+  const responsesAt=block.indexOf("FROM qr_answer_responses");
+  assert.ok(unchangedAt>=0&&questionsAt>unchangedAt,'questions_json must load only after version mismatch');
+  assert.ok(responsesAt>questionsAt,'responses must load only after version mismatch');
+  assert.doesNotMatch(block,/ownedSession\(db, user, admin, id\)/);
+});
