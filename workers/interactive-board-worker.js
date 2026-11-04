@@ -42,7 +42,7 @@ function normalizeObject(input, actor) {
   if (!input || typeof input !== 'object') return null;
   const id=safeId(input.id), pageId=safeId(input.pageId), type=String(input.type||'');
   if (!id || !pageId || !['stroke','text','note','rect','ellipse','line','arrow','image'].includes(type)) return null;
-  const base={id,pageId,type,creatorId:String(actor?.userId||''),creatorName:String(actor?.displayName||'Người dùng').slice(0,100),creatorClass:String(actor?.studentClass||'').slice(0,100),creatorUnit:String(actor?.studentUnit||'').slice(0,180),creatorRole:String(actor?.displayRole||'student').slice(0,30),updatedAt:Date.now()};
+  const base={id,pageId,type,creatorId:String(actor?.userId||''),creatorName:String(actor?.displayName||'Người dùng').slice(0,100),creatorClass:String(actor?.studentClass||'').slice(0,100),creatorUnit:String(actor?.studentUnit||'').slice(0,180),creatorRole:String(actor?.displayRole||'student').slice(0,30),locked:input.locked===true,updatedAt:Date.now()};
   if (type==='stroke') {
     const points=normalizePoints(input.points).slice(0,1600);
     if (points.length<2) return null;
@@ -473,7 +473,15 @@ export class BoardRoom {
         const key='obj:'+object.pageId+':'+object.id;
         const existing=await this.ctx.storage.get(key);
         if (existing && !canManage && existing.creatorId!==actor.userId) {resyncRequired=true;continue;}
-        if (existing?.creatorId) object.creatorId=existing.creatorId;
+        if (existing?.locked && !canManage) {resyncRequired=true;continue;}
+        if (existing?.creatorId) {
+          object.creatorId=existing.creatorId;
+          object.creatorName=String(existing.creatorName||object.creatorName||'Người dùng').slice(0,100);
+          object.creatorClass=String(existing.creatorClass||object.creatorClass||'').slice(0,100);
+          object.creatorUnit=String(existing.creatorUnit||object.creatorUnit||'').slice(0,180);
+          object.creatorRole=String(existing.creatorRole||object.creatorRole||'student').slice(0,30);
+        }
+        if (!canManage) object.locked=Boolean(existing?.locked);
         if (Number.isFinite(Number(existing?.voteCount))) object.voteCount=Math.max(0,Number(existing.voteCount)||0);
         const countKey='count:'+object.pageId;
         const pointsKey='points:'+object.pageId;
@@ -510,7 +518,7 @@ export class BoardRoom {
         const key='obj:'+pageId+':'+objectId;
         const existing=await this.ctx.storage.get(key);
         if (!existing) continue;
-        if (!canManage && existing.creatorId!==actor.userId) {resyncRequired=true;continue;}
+        if (!canManage && (existing.creatorId!==actor.userId || existing.locked)) {resyncRequired=true;continue;}
         await this.ctx.storage.delete(key);
         const voteRows=await this.ctx.storage.list({prefix:'vote:'+pageId+':'+objectId+':'});
         if(voteRows.size)await this.ctx.storage.delete([...voteRows.keys()]);
