@@ -33,7 +33,18 @@ docker run --rm \
         --no-owner \
         --no-privileges \
         --file="$out"
-      sed -i "/^--/d;/^[[:space:]]*$/d" "$out"
+      sed -i "/^--/d;/^\\\\restrict /d;/^\\\\unrestrict /d;/^[[:space:]]*$/d" "$out"
+    }
+
+    data_dump() {
+      url="$1"
+      out="$2"
+      pg_dump "$url" \
+        --data-only \
+        --no-owner \
+        --no-privileges \
+        --file="$out"
+      sed -i "/^--/d;/^\\\\restrict /d;/^\\\\unrestrict /d;/^[[:space:]]*$/d" "$out"
     }
 
     row_counts() {
@@ -71,6 +82,8 @@ SQL
 
     schema_dump "$SOURCE_URL" /verify/source-schema.sql
     schema_dump "$TARGET_URL" /verify/target-schema.sql
+    data_dump "$SOURCE_URL" /verify/source-data.sql
+    data_dump "$TARGET_URL" /verify/target-data.sql
     object_inventory "$SOURCE_URL" /verify/source-objects.txt
     object_inventory "$TARGET_URL" /verify/target-objects.txt
     row_counts "$SOURCE_URL" /verify/source-row-counts.txt
@@ -79,11 +92,17 @@ SQL
     diff -u /verify/source-objects.txt /verify/target-objects.txt
     diff -u /verify/source-row-counts.txt /verify/target-row-counts.txt
 
+    if ! diff -u /verify/source-data.sql /verify/target-data.sql >/verify/data.diff; then
+      head -n 200 /verify/data.diff >&2
+      echo "ERROR: Source and target logical data dumps differ." >&2
+      exit 9
+    fi
+
     if ! diff -u /verify/source-schema.sql /verify/target-schema.sql >/verify/schema.diff; then
       cat /verify/schema.diff >&2
       echo "ERROR: Source and target schema dumps differ." >&2
       exit 10
     fi
 
-    echo "Clone verification passed: schema, object inventory and exact row counts match."
+    echo "Clone verification passed: schema, logical data dump, object inventory and exact row counts match."
   '
