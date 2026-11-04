@@ -206,7 +206,7 @@ function connectSocket(pageId=currentPageId){
  const url=new URL(wsUrl(base));url.searchParams.set('pageId',pageId||currentPageId);
  const socket=new WebSocket(url.href);ws=socket;
  $('board-room-status').textContent=reconnectAttempts?'Đang kết nối lại...':'Đang kết nối realtime...';
- socket.onopen=()=>{reconnectAttempts=0;if(reconnectTimer){clearTimeout(reconnectTimer);reconnectTimer=null;}startHeartbeat(socket);$('board-room-status').textContent='Đã kết nối realtime';syncBoardPermissionUi();for(const payload of pendingReliable.values()){try{socket.send(payload)}catch{}}};
+ socket.onopen=()=>{reconnectAttempts=0;tokenRefreshAttempts=0;if(reconnectTimer){clearTimeout(reconnectTimer);reconnectTimer=null;}startHeartbeat(socket);$('board-room-status').textContent='Đã kết nối realtime';syncBoardPermissionUi();for(const payload of pendingReliable.values()){try{socket.send(payload)}catch{}}};
  socket.onclose=()=>{if(ws===socket)stopHeartbeat();if(ws!==socket||manualExit)return;$('board-room-status').textContent='Mất kết nối — đang thử kết nối lại...';syncBoardPermissionUi();scheduleReconnect();};
  socket.onerror=()=>{$('board-room-status').textContent='Kết nối realtime không ổn định';syncBoardPermissionUi();};
  socket.onmessage=e=>{if(e.data==='pong'){lastPongAt=Date.now();return;}let m;try{m=JSON.parse(e.data)}catch{return;}handleMessage(m);};
@@ -972,7 +972,18 @@ export function connectInteractiveBoards(){
    if(e.key==='-'){e.preventDefault();setZoom(zoomLevel-.1);return;}
    if(e.key==='0'){e.preventDefault();resetView();return;}
  };
- window.addEventListener('keydown',boardShortcutHandler);
+ const boardOnlineRecoveryHandler=()=>{
+   if(!room||manualExit)return;
+   reconnectAttempts=0;tokenRefreshAttempts=0;
+   if(ws?.readyState!==WebSocket.OPEN){if(reconnectTimer){clearTimeout(reconnectTimer);reconnectTimer=null;}scheduleReconnect();}
+ };
+ const boardVisibilityRecoveryHandler=()=>{
+   if(document.visibilityState!=='visible'||!room||manualExit)return;
+   if(ws?.readyState!==WebSocket.OPEN){reconnectAttempts=0;if(reconnectTimer){clearTimeout(reconnectTimer);reconnectTimer=null;}scheduleReconnect();}
+ };
+ window.addEventListener('online',boardOnlineRecoveryHandler);
+ document.addEventListener('visibilitychange',boardVisibilityRecoveryHandler);
+  window.addEventListener('keydown',boardShortcutHandler);
   $('board-undo')?.addEventListener('click',undo);$('board-redo')?.addEventListener('click',redo);
   $('board-duplicate-selected')?.addEventListener('click',()=>{
     const original=selectedObject();if(!original||!canEdit())return;
