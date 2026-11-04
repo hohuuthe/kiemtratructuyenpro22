@@ -145,7 +145,7 @@ test('worker prevents student overwrite/delete of objects owned by another actor
   assert.match(worker,/existing && !canManage && existing\.creatorId!==actor\.userId/);
   assert.match(worker,/existing\?\.creatorId/);
   assert.match(worker,/if \(!existing\) continue;/);
-  assert.match(worker,/if \(!canManage && existing\.creatorId!==actor\.userId\)/);
+  assert.match(worker,/if \(!canManage && \(existing\.creatorId!==actor\.userId \|\| existing\.locked\)\)/);
 });
 
 test('time helper behaves deterministically for open windows',()=>{
@@ -350,7 +350,7 @@ test('smart board tab is open to logged users while creation is VIP-only',()=>{
   assert.match(main,/tabName === 'boards' && currentUser/);
   assert.doesNotMatch(main,/showInteractiveBoardVipRequiredModal/);
   assert.doesNotMatch(main,/tabName === 'boards'[\s\S]{0,300}!canUseInteractiveBoardVip/);
-  assert.match(ui,/canCreateBoard=isAdmin\|\|\(isTeacher&&Boolean\(actor\?\.is_vip\)\)/);
+  assert.match(ui,/canCreateBoard=isAdmin\|\|\(isTeacher&&vipFlag\(actor\?\.is_vip\)\)/);
   assert.match(ui,/boards-new'[\s\S]*!manage/);
   assert.match(ui,/b\.can_manage\?'<button data-board-edit/);
   assert.match(ui,/Bạn chỉ được sửa bảng do mình tạo/);
@@ -431,4 +431,109 @@ test('board images and background images are realtime-safe',()=>{
   assert.match(join,/background_image_url/);
   assert.match(schema,/column_name='background_image_url'/);
   assert.match(dbSchema,/background_image_url TEXT NOT NULL DEFAULT ''/);
+});
+
+
+test('board images support proportional resize handles and realtime image layering',()=>{
+  const ui=fs.readFileSync('src/interactive-board-ui.js','utf8');
+  const worker=fs.readFileSync('workers/interactive-board-worker.js','utf8');
+  const html=fs.readFileSync('public/components/tab-boards.html','utf8');
+
+  assert.match(html,/id="board-image-layer-up"/);
+  assert.match(html,/id="board-image-layer-down"/);
+  assert.match(ui,/function imageResizeHandles/);
+  assert.match(ui,/function hitImageResizeHandle/);
+  assert.match(ui,/resizeState/);
+  assert.match(ui,/drawing=null;dragState=null;resizeState=null;/);
+  assert.match(ui,/aspect:/);
+  assert.match(ui,/sortImagesForLayer/);
+  assert.match(ui,/function reorderSelectedImage/);
+  assert.match(ui,/imageIndex>=imageCount-1/);
+  assert.match(ui,/imageIndex<=0/);
+  assert.match(ui,/z:topZ\+10/);
+  assert.match(worker,/z:clamp\(input\.z,-10000,10000,0\)/);
+  assert.match(ui,/beyond\?targetZ\+\(beyondZ-targetZ\)\/2:targetZ\+10/);
+});
+
+
+test('board hardening preserves creator provenance, normalizes VIP and locks protected objects',()=>{
+  const common=fs.readFileSync('functions/api/board/common.ts','utf8');
+  const ui=fs.readFileSync('src/interactive-board-ui.js','utf8');
+  const worker=fs.readFileSync('workers/interactive-board-worker.js','utf8');
+  const html=fs.readFileSync('public/components/tab-boards.html','utf8');
+  assert.match(common,/function isInteractiveBoardVip/);
+  assert.doesNotMatch(common,/isTeacher && Boolean\(user\.is_vip\)/);
+  assert.match(worker,/object\.creatorName=String\(existing\.creatorName\|\|''\)/);
+  assert.doesNotMatch(worker,/existing\.creatorName\|\|object\.creatorName/);
+  assert.match(ui,/String\(o\.creatorRole\|\|'\'\)==='student'/);
+  assert.match(worker,/object\.creatorClass=String\(existing\.creatorClass/);
+  assert.match(worker,/object\.creatorUnit=String\(existing\.creatorUnit/);
+  assert.match(worker,/existing\?\.locked && !canManage/);
+  assert.match(worker,/if \(!canManage\) object\.locked=Boolean\(existing\?\.locked\)/);
+  assert.match(html,/id="board-lock-selected"/);
+});
+
+test('image proxy only serves configured immutable R2 image origins',()=>{
+  const proxy=fs.readFileSync('functions/api/board/image-proxy.ts','utf8');
+  const genericProxy=fs.readFileSync('functions/api/proxy-image.ts','utf8');
+  const ui=fs.readFileSync('src/interactive-board-ui.js','utf8');
+  assert.match(proxy,/CLOUDFLARE_R2_PUBLIC_URL/);
+  assert.match(proxy,/url\.protocol!=='https:'/);
+  assert.match(proxy,/bases\.some/);
+  assert.match(proxy,/redirect:'error'/);
+  assert.match(proxy,/contentType\.startsWith\('image\/'\)/);
+  assert.match(proxy,/12\*1024\*1024/);
+  assert.match(proxy,/max-age=31536000, immutable/);
+  assert.doesNotMatch(genericProxy,/CLOUDFLARE_R2_PUBLIC_URL/);
+  assert.match(ui,/\/api\/board\/image-proxy\?url=/);
+  const router=fs.readFileSync('functions/[slug]/api/[[path]].ts','utf8');
+  assert.match(router,/'board\/image-proxy': boardImageProxy/);
+});
+
+
+test('board client hardening handles heartbeat locks touch cleanup and transparent images',()=>{
+  const ui=fs.readFileSync('src/interactive-board-ui.js','utf8');
+  assert.match(ui,/function vipFlag/);
+  assert.match(ui,/startHeartbeat/);
+  assert.match(ui,/socket\.send\('ping'\)/);
+  assert.match(ui,/e\.data==='pong'/);
+  assert.match(ui,/Heartbeat timeout/);
+  assert.match(ui,/board-lock-selected/);
+  assert.match(ui,/target\.locked\)return/);
+  assert.match(ui,/o\.locked\|\|!room\?\.board\?\.can_manage/);
+  assert.match(ui,/outputType=file\.type==='image\/png'/);
+  assert.match(ui,/outputType==='image\/jpeg' \? 0\.88 : 0\.9/);
+  assert.match(ui,/canLock=!!o&&!!room\?\.board\?\.can_manage&&!snapshotLoading&&ws\?\.readyState===WebSocket\.OPEN/);
+  assert.match(ui,/resizeState=null;snapshotLoading=true/);
+  assert.match(ui,/stopHeartbeat\(\);roomTokenExpiresAt=0/);
+});
+
+
+test('board performance caches completed stroke geometry and respects locks in AI layout',()=>{
+  const ui=fs.readFileSync('src/interactive-board-ui.js','utf8');
+  assert.match(ui,/strokePathCache=new Map/);
+  assert.match(ui,/function strokePath\(o\)/);
+  assert.match(ui,/new Path2D\(\)/);
+  assert.match(ui,/cached\?\.key===key/);
+  assert.match(ui,/ctx\.stroke\(path\)/);
+  assert.match(ui,/strokePathCache\.clear\(\)/);
+  assert.match(ui,/if\(!original\|\|original\.locked\)return/);
+});
+
+
+test('board realtime can recover indefinitely after token refreshes and network return',()=>{
+  const ui=fs.readFileSync('src/interactive-board-ui.js','utf8');
+  assert.match(ui,/socket\.onopen=\(\)=>\{reconnectAttempts=0;tokenRefreshAttempts=0/);
+  assert.match(ui,/addEventListener\('online',boardOnlineRecoveryHandler\)/);
+  assert.match(ui,/visibilitychange/);
+  assert.match(ui,/scheduleReconnect\(\)/);
+});
+
+
+test('board worker avoids stroke point storage I/O for non-stroke object updates',()=>{
+  const worker=fs.readFileSync('workers/interactive-board-worker.js','utf8');
+  assert.match(worker,/if\(object\.type==='stroke'\|\|existing\?\.type==='stroke'\)/);
+  const block=worker.match(/if\(object\.type==='stroke'\|\|existing\?\.type==='stroke'\)\{[\s\S]*?\n        \}/)?.[0]||'';
+  assert.match(block,/storage\.get\(pointsKey\)/);
+  assert.match(block,/storage\.put\(pointsKey/);
 });

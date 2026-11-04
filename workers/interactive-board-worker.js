@@ -42,7 +42,7 @@ function normalizeObject(input, actor) {
   if (!input || typeof input !== 'object') return null;
   const id=safeId(input.id), pageId=safeId(input.pageId), type=String(input.type||'');
   if (!id || !pageId || !['stroke','text','note','rect','ellipse','line','arrow','image'].includes(type)) return null;
-  const base={id,pageId,type,creatorId:String(actor?.userId||''),creatorName:String(actor?.displayName||'Người dùng').slice(0,100),creatorClass:String(actor?.studentClass||'').slice(0,100),creatorUnit:String(actor?.studentUnit||'').slice(0,180),creatorRole:String(actor?.displayRole||'student').slice(0,30),updatedAt:Date.now()};
+  const base={id,pageId,type,creatorId:String(actor?.userId||''),creatorName:String(actor?.displayName||'Người dùng').slice(0,100),creatorClass:String(actor?.studentClass||'').slice(0,100),creatorUnit:String(actor?.studentUnit||'').slice(0,180),creatorRole:String(actor?.displayRole||'student').slice(0,30),locked:input.locked===true,updatedAt:Date.now()};
   if (type==='stroke') {
     const points=normalizePoints(input.points).slice(0,1600);
     if (points.length<2) return null;
@@ -58,7 +58,7 @@ function normalizeObject(input, actor) {
     if(!/^https:\/\//i.test(url)||url.length>2048)return null;
     return {...base,x:clamp(input.x,-20000,20000,0),y:clamp(input.y,-20000,20000,0),
       w:clamp(input.w,40,3000,640),h:clamp(input.h,40,3000,360),url,
-      background:input.background===true,fit:input.fit==='cover'?'cover':'contain'};
+      z:clamp(input.z,-10000,10000,0),background:input.background===true,fit:input.fit==='cover'?'cover':'contain'};
   }
   return {...base,x1:clamp(input.x1,-20000,20000,0),y1:clamp(input.y1,-20000,20000,0),
     x2:clamp(input.x2,-20000,20000,0),y2:clamp(input.y2,-20000,20000,0),
@@ -473,19 +473,30 @@ export class BoardRoom {
         const key='obj:'+object.pageId+':'+object.id;
         const existing=await this.ctx.storage.get(key);
         if (existing && !canManage && existing.creatorId!==actor.userId) {resyncRequired=true;continue;}
-        if (existing?.creatorId) object.creatorId=existing.creatorId;
+        if (existing?.locked && !canManage) {resyncRequired=true;continue;}
+        if (existing?.creatorId) {
+          object.creatorId=existing.creatorId;
+          object.creatorName=String(existing.creatorName||'').slice(0,100);
+          object.creatorClass=String(existing.creatorClass||'').slice(0,100);
+          object.creatorUnit=String(existing.creatorUnit||'').slice(0,180);
+          object.creatorRole=String(existing.creatorRole||'').slice(0,30);
+        }
+        if (!canManage) object.locked=Boolean(existing?.locked);
         if (Number.isFinite(Number(existing?.voteCount))) object.voteCount=Math.max(0,Number(existing.voteCount)||0);
         const countKey='count:'+object.pageId;
         const pointsKey='points:'+object.pageId;
-        const newPoints=object.type==='stroke'?object.points.length:0;
-        const oldPoints=existing?.type==='stroke'&&Array.isArray(existing.points)?existing.points.length:0;
-        let pointCount=Number(await this.ctx.storage.get(pointsKey));
-        if(!Number.isFinite(pointCount)){
-          pointCount=0;
-          const existingRows=await this.ctx.storage.list({prefix:'obj:'+object.pageId+':'});
-          for(const value of existingRows.values())if(value?.type==='stroke'&&Array.isArray(value.points))pointCount+=value.points.length;
+        if(object.type==='stroke'||existing?.type==='stroke'){
+          const newPoints=object.type==='stroke'?object.points.length:0;
+          const oldPoints=existing?.type==='stroke'&&Array.isArray(existing.points)?existing.points.length:0;
+          let pointCount=Number(await this.ctx.storage.get(pointsKey));
+          if(!Number.isFinite(pointCount)){
+            pointCount=0;
+            const existingRows=await this.ctx.storage.list({prefix:'obj:'+object.pageId+':'});
+            for(const value of existingRows.values())if(value?.type==='stroke'&&Array.isArray(value.points))pointCount+=value.points.length;
+          }
+          if(pointCount-oldPoints+newPoints>40000){resyncRequired=true;continue;}
+          await this.ctx.storage.put(pointsKey,Math.max(0,pointCount-oldPoints+newPoints));
         }
-        if(pointCount-oldPoints+newPoints>40000){resyncRequired=true;continue;}
         if (!existing) {
           let objectCount=Number(await this.ctx.storage.get(countKey));
           if (!Number.isFinite(objectCount)) {
@@ -494,7 +505,6 @@ export class BoardRoom {
           if (objectCount>=600) {resyncRequired=true;continue;}
           await this.ctx.storage.put(countKey,objectCount+1);
         }
-        await this.ctx.storage.put(pointsKey,Math.max(0,pointCount-oldPoints+newPoints));
         await this.ctx.storage.put(key,object);
         if(Array.isArray(actor.activeStrokes)&&actor.activeStrokes.includes(object.id)){
           actor.activeStrokes=actor.activeStrokes.filter(id=>id!==object.id);
@@ -510,7 +520,7 @@ export class BoardRoom {
         const key='obj:'+pageId+':'+objectId;
         const existing=await this.ctx.storage.get(key);
         if (!existing) continue;
-        if (!canManage && existing.creatorId!==actor.userId) {resyncRequired=true;continue;}
+        if (!canManage && (existing.creatorId!==actor.userId || existing.locked)) {resyncRequired=true;continue;}
         await this.ctx.storage.delete(key);
         const voteRows=await this.ctx.storage.list({prefix:'vote:'+pageId+':'+objectId+':'});
         if(voteRows.size)await this.ctx.storage.delete([...voteRows.keys()]);
