@@ -57,7 +57,7 @@ test('exam list API returns newest created exams first before pagination for all
  const api=readFileSync('functions/api/exams.ts','utf8');
  assert.match(api,/ORDER BY ec\.created_at DESC NULLS LAST, ec\.id DESC\$\{paginationClause\}/);
  const orderAt=api.indexOf('ORDER BY ec.created_at DESC NULLS LAST, ec.id DESC');
- const queryAt=api.indexOf('const { results } = await db.prepare(query)');
+ const queryAt=api.indexOf('const { results } = await db.prepare(query)',orderAt);
  assert.ok(orderAt>=0&&queryAt>orderAt,'sorting must be applied in SQL before the list query executes');
  assert.doesNotMatch(api,/ORDER BY ec\.name ASC, ec\.id ASC/);
 });
