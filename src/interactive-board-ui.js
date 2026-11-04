@@ -486,7 +486,7 @@ function applyAiCluster(){
  groups.forEach((g,gi)=>{
    const title={id:crypto.randomUUID(),pageId:currentPageId,type:'note',x:50+gi*colWidth,y:40,w:Math.min(330,colWidth-30),h:90,text:g.title,color:'#111827',fontSize:22,creatorId:myId()};
    objects.set(title.id,title);ops.push({kind:'put',object:title});changed.push({kind:'put',object:title});
-   g.noteNumbers.slice(0,7).forEach((n,ri)=>{const original=notes[n-1];if(!original)return;const before=cloneObject(original),after={...cloneObject(original),x:50+gi*colWidth,y:160+ri*100,w:Math.min(330,colWidth-30),h:86};objects.set(after.id,after);ops.push({kind:'put',object:after});changed.push({kind:'update',before,after:cloneObject(after)});});
+   g.noteNumbers.slice(0,7).forEach((n,ri)=>{const original=notes[n-1];if(!original||original.locked)return;const before=cloneObject(original),after={...cloneObject(original),x:50+gi*colWidth,y:160+ri*100,w:Math.min(330,colWidth-30),h:86};objects.set(after.id,after);ops.push({kind:'put',object:after});changed.push({kind:'update',before,after:cloneObject(after)});});
  });
  if(ops.length)sendOps(ops);for(const a of changed)remember(a);scheduleRender();$('board-ai-modal')?.classList.add('hidden');window.showToast?.('AI đã sắp xếp sticky theo chủ đề.','success');
 }
