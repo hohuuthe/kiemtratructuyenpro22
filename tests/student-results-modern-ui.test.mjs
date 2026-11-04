@@ -103,3 +103,12 @@ test('Attempt history is compact, escaped and sorted by highest visible score fi
     assert.ok(html.includes('&lt;A&gt;'));
     assert.ok(!html.includes('Đề <A>'));
 });
+
+
+test('Student attempt button has standalone controller wiring without changing the large main bundle',()=>{
+    const ui=readFileSync('src/student-results-ui.js','utf8');
+    const index=readFileSync('index.html','utf8');
+    assert.match(ui,/student-result-attempts-request/);
+    assert.match(ui,/detail: \{ examId:/);
+    assert.match(index,/student-attempt-history-controller\.js/);
+});
