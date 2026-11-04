@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-SOURCE_DATABASE_URL="\${SOURCE_DATABASE_URL:-\${NEON_DATABASE_URL:-}}"
-TARGET_DATABASE_URL="\${TARGET_DATABASE_URL:-\${NEON_TARGET_DATABASE_URL:-}}"
-POSTGRES_IMAGE="\${POSTGRES_IMAGE:-postgres:18}"
+SOURCE_DATABASE_URL="${SOURCE_DATABASE_URL:-${NEON_DATABASE_URL:-}}"
+TARGET_DATABASE_URL="${TARGET_DATABASE_URL:-${NEON_TARGET_DATABASE_URL:-}}"
+POSTGRES_IMAGE="${POSTGRES_IMAGE:-postgres:18}"
 
-if [[ -z "\${SOURCE_DATABASE_URL}" || -z "\${TARGET_DATABASE_URL}" ]]; then
+if [[ -z "${SOURCE_DATABASE_URL}" || -z "${TARGET_DATABASE_URL}" ]]; then
   echo "ERROR: SOURCE_DATABASE_URL and TARGET_DATABASE_URL are required." >&2
   exit 2
 fi
@@ -15,15 +15,15 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 3
 fi
 
-WORK_DIR="\$(mktemp -d)"
-trap 'rm -rf "\${WORK_DIR}"' EXIT
-chmod 700 "\${WORK_DIR}"
+WORK_DIR="$(mktemp -d)"
+trap 'rm -rf "${WORK_DIR}"' EXIT
+chmod 700 "${WORK_DIR}"
 
 docker run --rm \
-  -e SOURCE_URL="\${SOURCE_DATABASE_URL}" \
-  -e TARGET_URL="\${TARGET_DATABASE_URL}" \
-  -v "\${WORK_DIR}:/verify" \
-  "\${POSTGRES_IMAGE}" \
+  -e SOURCE_URL="${SOURCE_DATABASE_URL}" \
+  -e TARGET_URL="${TARGET_DATABASE_URL}" \
+  -v "${WORK_DIR}:/verify" \
+  "${POSTGRES_IMAGE}" \
   sh -ceu '
     schema_dump() {
       url="$1"
