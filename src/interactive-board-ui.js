@@ -312,7 +312,7 @@ async function setPersistentBlock(targetUserId,blocked){
 function clearSelection(){selectedObjectId='';syncSelectionButtons();scheduleRender();}
 function syncHistoryButtons(){if($('board-undo'))$('board-undo').disabled=!undoStack.length;if($('board-redo'))$('board-redo').disabled=!redoStack.length;syncSelectionButtons();}
 function safeFileName(value){return String(value||'bang-tuong-tac').normalize('NFC').replace(/[^\p{L}\p{N}._-]+/gu,'-').replace(/^-+|-+$/g,'').slice(0,100)||'bang-tuong-tac';}
-function imageProxyUrl(url){return '/api/proxy-image?url='+encodeURIComponent(String(url||''));}
+function imageProxyUrl(url){return '/api/board/image-proxy?url='+encodeURIComponent(String(url||''));}
 function ensureBoardImage(url){
  const key=String(url||'');if(!key)return null;
  let entry=imageCache.get(key);if(entry)return entry;
