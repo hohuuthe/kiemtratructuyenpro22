@@ -2469,3 +2469,38 @@ html.kttt-modal-open, body.kttt-modal-open { overflow: hidden !important; oversc
  * The background image is painted on the exam root itself, so no child z-index
  * override is required for readability.
  */
+
+/* Student attempt history modal */
+.student-result-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin-top:12px}
+.student-result-actions .student-result-open,.student-result-actions .student-result-attempts{margin-top:0;min-width:0}
+.student-result-attempts{display:flex;align-items:center;justify-content:center;background:#ecfeff;border:1px solid #a5f3fc;color:#0e7490;padding:9px 10px;border-radius:9px;font-size:12px;font-weight:800}
+.student-result-attempts:hover{background:#cffafe}.student-result-attempts:disabled{opacity:.6;cursor:wait}
+.student-result-actions .student-result-access-note{grid-column:1/-1;margin-top:0}
+.student-attempt-history{color:#334155;background:#fff;min-width:0}
+.student-attempt-history-head{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:18px 20px 14px;border-bottom:1px solid #e2e8f0}
+.student-attempt-overline{font-size:10px;font-weight:850;letter-spacing:.45px;color:#7c3aed}
+.student-attempt-history-head h2{font-size:20px;font-weight:850;color:#1f2937;margin:3px 0}
+.student-attempt-history-head p{max-width:590px;font-size:12px;font-weight:650;color:#64748b;overflow-wrap:anywhere}
+.student-attempt-summary{display:grid;grid-template-columns:repeat(2,minmax(90px,1fr));gap:7px;flex:0 0 auto}
+.student-attempt-summary>div{padding:8px 11px;border:1px solid #e2e8f0;border-radius:9px;background:#f8fafc;text-align:center}
+.student-attempt-summary span{display:block;font-size:9px;font-weight:750;color:#64748b}.student-attempt-summary strong{display:block;font-size:17px;color:#6d28d9}
+.student-attempt-table-wrap{padding:14px 18px;overflow-x:auto}
+.student-attempt-table{width:100%;border-collapse:separate;border-spacing:0;font-size:11px;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden}
+.student-attempt-table th{background:#f5f3ff;color:#5b21b6;font-weight:800;padding:9px 10px;text-align:left;white-space:nowrap;border-bottom:1px solid #ddd6fe}
+.student-attempt-table td{padding:9px 10px;border-bottom:1px solid #f1f5f9;vertical-align:middle}.student-attempt-table tbody tr:last-child td{border-bottom:0}
+.student-attempt-table tbody tr:hover{background:#fafafa}.student-attempt-name{font-weight:700;color:#334155;max-width:310px;overflow-wrap:anywhere}
+.student-attempt-score{font-size:13px;color:#6d28d9}.student-attempt-violation{display:inline-flex;padding:3px 7px;border-radius:99px;background:#ecfdf5;color:#047857;font-weight:750;white-space:nowrap}
+.student-attempt-violation.has-violation{background:#fff7ed;color:#c2410c}.student-attempt-empty{text-align:center!important;padding:22px!important;color:#64748b}
+.student-attempt-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 18px 16px;border-top:1px solid #f1f5f9;font-size:10px;color:#64748b}
+.student-attempt-close{padding:8px 16px;border-radius:9px;background:#7c3aed;color:white;font-size:12px;font-weight:800}
+@media(max-width:640px){
+ .student-result-actions{grid-template-columns:1fr}
+ .student-attempt-history-head{align-items:flex-start;flex-direction:column;padding:15px}
+ .student-attempt-summary{width:100%}.student-attempt-table-wrap{padding:10px 12px;overflow:visible}
+ .student-attempt-table,.student-attempt-table tbody,.student-attempt-table tr,.student-attempt-table td{display:block;width:100%}
+ .student-attempt-table thead{display:none}.student-attempt-table{border:0;background:transparent}
+ .student-attempt-table tr{margin-bottom:9px;border:1px solid #e2e8f0;border-radius:10px;background:#fff;padding:7px 10px}
+ .student-attempt-table td{display:grid;grid-template-columns:90px minmax(0,1fr);gap:8px;padding:5px 0;border:0;text-align:right}
+ .student-attempt-table td::before{content:attr(data-label);font-size:10px;font-weight:800;color:#64748b;text-align:left}
+ .student-attempt-name{max-width:none}.student-attempt-footer{align-items:flex-start;flex-direction:column;padding:10px 12px 14px}.student-attempt-close{width:100%}
+}
