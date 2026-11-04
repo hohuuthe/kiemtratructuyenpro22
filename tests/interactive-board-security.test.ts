@@ -537,3 +537,17 @@ test('board worker avoids stroke point storage I/O for non-stroke object updates
   assert.match(block,/storage\.get\(pointsKey\)/);
   assert.match(block,/storage\.put\(pointsKey/);
 });
+
+
+test('board image loading falls back to legacy proxy and direct URL after secure proxy failure',()=>{
+  const ui=fs.readFileSync('src/interactive-board-ui.js','utf8');
+  assert.match(ui,/function legacyImageProxyUrl/);
+  assert.match(ui,/function boardImageSources/);
+  assert.match(ui,/imageProxyUrl\(raw\),legacyImageProxyUrl\(raw\)/);
+  assert.match(ui,/if\(allowDirect&&\/\^https:/);
+  assert.match(ui,/function loadImageFromSources/);
+  assert.match(ui,/img\.onerror=\(\)=>\{lastError=Error\('Không tải được ảnh từ '/);
+  assert.match(ui,/Date\.now\(\)-Number\(entry\.failedAt\|\|0\)<5000/);
+  assert.match(ui,/loadImageFromSources\(url,\{allowDirect:false\}\)/);
+  assert.match(ui,/const display=\/\^https:/);
+});
