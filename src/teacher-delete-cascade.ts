@@ -296,6 +296,42 @@ BEGIN
     RAISE EXCEPTION 'TEACHER_DELETE_QR_SESSION_AUDIT_FAILED';
   END IF;
 
+  IF to_regclass('public.qr_answer_cards') IS NOT NULL AND EXISTS (
+    SELECT 1 FROM public.qr_answer_cards
+    WHERE created_by = ANY(v_identity_ids) OR user_id = ANY(v_identity_ids)
+  ) THEN
+    RAISE EXCEPTION 'TEACHER_DELETE_QR_CARD_AUDIT_FAILED';
+  END IF;
+
+  IF to_regclass('public.qr_answer_responses') IS NOT NULL AND EXISTS (
+    SELECT 1 FROM public.qr_answer_responses
+    WHERE session_id = ANY(v_qr_session_ids) OR user_id = ANY(v_identity_ids)
+  ) THEN
+    RAISE EXCEPTION 'TEACHER_DELETE_QR_RESPONSE_AUDIT_FAILED';
+  END IF;
+
+  IF to_regclass('public.qr_answer_result_links') IS NOT NULL AND EXISTS (
+    SELECT 1 FROM public.qr_answer_result_links
+    WHERE session_id = ANY(v_qr_session_ids) OR user_id = ANY(v_identity_ids)
+  ) THEN
+    RAISE EXCEPTION 'TEACHER_DELETE_QR_RESULT_LINK_AUDIT_FAILED';
+  END IF;
+
+  IF to_regclass('public.interactive_board_pages') IS NOT NULL AND EXISTS (
+    SELECT 1 FROM public.interactive_board_pages WHERE board_id = ANY(v_board_ids)
+  ) THEN
+    RAISE EXCEPTION 'TEACHER_DELETE_BOARD_PAGE_AUDIT_FAILED';
+  END IF;
+
+  IF to_regclass('public.interactive_board_blocks') IS NOT NULL AND EXISTS (
+    SELECT 1 FROM public.interactive_board_blocks
+    WHERE board_id = ANY(v_board_ids)
+       OR user_id = ANY(v_identity_ids)
+       OR blocked_by = ANY(v_identity_ids)
+  ) THEN
+    RAISE EXCEPTION 'TEACHER_DELETE_BOARD_BLOCK_AUDIT_FAILED';
+  END IF;
+
   RETURN jsonb_build_object(
     'success', TRUE,
     'user_id', p_user_id,
