@@ -485,15 +485,18 @@ export class BoardRoom {
         if (Number.isFinite(Number(existing?.voteCount))) object.voteCount=Math.max(0,Number(existing.voteCount)||0);
         const countKey='count:'+object.pageId;
         const pointsKey='points:'+object.pageId;
-        const newPoints=object.type==='stroke'?object.points.length:0;
-        const oldPoints=existing?.type==='stroke'&&Array.isArray(existing.points)?existing.points.length:0;
-        let pointCount=Number(await this.ctx.storage.get(pointsKey));
-        if(!Number.isFinite(pointCount)){
-          pointCount=0;
-          const existingRows=await this.ctx.storage.list({prefix:'obj:'+object.pageId+':'});
-          for(const value of existingRows.values())if(value?.type==='stroke'&&Array.isArray(value.points))pointCount+=value.points.length;
+        if(object.type==='stroke'||existing?.type==='stroke'){
+          const newPoints=object.type==='stroke'?object.points.length:0;
+          const oldPoints=existing?.type==='stroke'&&Array.isArray(existing.points)?existing.points.length:0;
+          let pointCount=Number(await this.ctx.storage.get(pointsKey));
+          if(!Number.isFinite(pointCount)){
+            pointCount=0;
+            const existingRows=await this.ctx.storage.list({prefix:'obj:'+object.pageId+':'});
+            for(const value of existingRows.values())if(value?.type==='stroke'&&Array.isArray(value.points))pointCount+=value.points.length;
+          }
+          if(pointCount-oldPoints+newPoints>40000){resyncRequired=true;continue;}
+          await this.ctx.storage.put(pointsKey,Math.max(0,pointCount-oldPoints+newPoints));
         }
-        if(pointCount-oldPoints+newPoints>40000){resyncRequired=true;continue;}
         if (!existing) {
           let objectCount=Number(await this.ctx.storage.get(countKey));
           if (!Number.isFinite(objectCount)) {
@@ -502,7 +505,6 @@ export class BoardRoom {
           if (objectCount>=600) {resyncRequired=true;continue;}
           await this.ctx.storage.put(countKey,objectCount+1);
         }
-        await this.ctx.storage.put(pointsKey,Math.max(0,pointCount-oldPoints+newPoints));
         await this.ctx.storage.put(key,object);
         if(Array.isArray(actor.activeStrokes)&&actor.activeStrokes.includes(object.id)){
           actor.activeStrokes=actor.activeStrokes.filter(id=>id!==object.id);
