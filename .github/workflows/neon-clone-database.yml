@@ -51,15 +51,15 @@ jobs:
       - name: Backup source into one archive
         shell: bash
         run: |
-          chmod +x scripts/neon-full-backup.sh scripts/neon-full-restore.sh scripts/neon-verify-clone.sh
-          scripts/neon-full-backup.sh "backups/neon-full-backup-${GITHUB_RUN_ID}.tar.gz"
+          chmod +x scripts/Sao_luu_CSDL_HOHUUTHE.sh scripts/Phuc_hoi_CSDL_sang_CSDL_moi_HOHUUTHE.sh scripts/neon-verify-clone.sh
+          scripts/Sao_luu_CSDL_HOHUUTHE.sh "backups/Sao_luu_CSDL_HOHUUTHE-${GITHUB_RUN_ID}.tar.gz"
 
       - name: Restore archive into target
         shell: bash
         env:
           ALLOW_DESTRUCTIVE_RESTORE: YES
         run: |
-          scripts/neon-full-restore.sh "backups/neon-full-backup-${GITHUB_RUN_ID}.tar.gz"
+          scripts/Phuc_hoi_CSDL_sang_CSDL_moi_HOHUUTHE.sh "backups/Sao_luu_CSDL_HOHUUTHE-${GITHUB_RUN_ID}.tar.gz"
 
       - name: Verify source and target
         shell: bash
@@ -70,8 +70,8 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: neon-clone-backup
-          path: backups/neon-full-backup-*.tar.gz
+          name: Sao_luu_CSDL_HOHUUTHE
+          path: backups/Sao_luu_CSDL_HOHUUTHE-*.tar.gz
           if-no-files-found: warn
           retention-days: 30
           compression-level: 0
