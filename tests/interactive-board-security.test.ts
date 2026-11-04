@@ -498,3 +498,15 @@ test('board client hardening handles heartbeat locks touch cleanup and transpare
   assert.match(ui,/resizeState=null;snapshotLoading=true/);
   assert.match(ui,/stopHeartbeat\(\);roomTokenExpiresAt=0/);
 });
+
+
+test('board performance caches completed stroke geometry and respects locks in AI layout',()=>{
+  const ui=fs.readFileSync('src/interactive-board-ui.js','utf8');
+  assert.match(ui,/strokePathCache=new Map/);
+  assert.match(ui,/function strokePath\(o\)/);
+  assert.match(ui,/new Path2D\(\)/);
+  assert.match(ui,/cached\?\.key===key/);
+  assert.match(ui,/ctx\.stroke\(path\)/);
+  assert.match(ui,/strokePathCache\.clear\(\)/);
+  assert.match(ui,/if\(!original\|\|original\.locked\)return/);
+});
