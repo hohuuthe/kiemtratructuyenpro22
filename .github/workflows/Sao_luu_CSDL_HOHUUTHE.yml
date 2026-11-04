@@ -1,0 +1,62 @@
+name: Sao_luu_CSDL_HOHUUTHE
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '20 18 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: neon-full-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SOURCE_DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
+      POSTGRES_IMAGE: postgres:18
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate source secret
+        shell: bash
+        run: |
+          if [[ -z "${SOURCE_DATABASE_URL}" ]]; then
+            echo "::error::Missing repository secret NEON_DATABASE_URL."
+            exit 1
+          fi
+
+      - name: Create one-file full backup
+        shell: bash
+        run: |
+          chmod +x scripts/Sao_luu_CSDL_HOHUUTHE.sh
+          scripts/Sao_luu_CSDL_HOHUUTHE.sh "backups/Sao_luu_CSDL_HOHUUTHE-${GITHUB_RUN_ID}.tar.gz"
+          ls -lh backups/
+
+      - name: Upload protected GitHub artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sao_luu_CSDL_HOHUUTHE
+          path: backups/Sao_luu_CSDL_HOHUUTHE-*.tar.gz
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+
+      - name: Summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Neon full backup"
+            echo ""
+            echo "- Run ID: ${GITHUB_RUN_ID}"
+            echo "- PostgreSQL client: ${POSTGRES_IMAGE}"
+            echo "- Artifact: Sao_luu_CSDL_HOHUUTHE"
+            echo "- Retention: 30 days"
+          } >> "${GITHUB_STEP_SUMMARY}"
