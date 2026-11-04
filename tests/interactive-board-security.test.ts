@@ -471,7 +471,8 @@ test('board hardening preserves creator provenance, normalizes VIP and locks pro
 });
 
 test('image proxy only serves configured immutable R2 image origins',()=>{
-  const proxy=fs.readFileSync('functions/api/proxy-image.ts','utf8');
+  const proxy=fs.readFileSync('functions/api/board/image-proxy.ts','utf8');
+  const genericProxy=fs.readFileSync('functions/api/proxy-image.ts','utf8');
   assert.match(proxy,/CLOUDFLARE_R2_PUBLIC_URL/);
   assert.match(proxy,/url\.protocol!=='https:'/);
   assert.match(proxy,/bases\.some/);
@@ -479,6 +480,10 @@ test('image proxy only serves configured immutable R2 image origins',()=>{
   assert.match(proxy,/contentType\.startsWith\('image\/'\)/);
   assert.match(proxy,/12\*1024\*1024/);
   assert.match(proxy,/max-age=31536000, immutable/);
+  assert.doesNotMatch(genericProxy,/CLOUDFLARE_R2_PUBLIC_URL/);
+  assert.match(ui,/\/api\/board\/image-proxy\?url=/);
+  const router=fs.readFileSync('functions/[slug]/api/[[path]].ts','utf8');
+  assert.match(router,/'board\/image-proxy': boardImageProxy/);
 });
 
 
