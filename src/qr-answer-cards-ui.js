@@ -1424,7 +1424,17 @@ function drawOverlay(detections, sourceW, sourceH) {
   ctx.font = '700 13px system-ui,sans-serif';
   for (const d of detections) {
     const student = students.get(String(d.cardToken));
-    if (!student) continue;
+    if (!student) {
+      const points=[d.location?.topLeftCorner,d.location?.topRightCorner,d.location?.bottomRightCorner,d.location?.bottomLeftCorner].filter(Boolean);
+      if(points.length===4){
+        ctx.strokeStyle='#dc2626';ctx.fillStyle='rgba(220,38,38,.12)';ctx.beginPath();
+        points.forEach((p,i)=>{const x=ox+p.x*scale,y=oy+p.y*scale;if(i)ctx.lineTo(x,y);else ctx.moveTo(x,y);});
+        ctx.closePath();ctx.fill();ctx.stroke();
+        const x=ox+points[0].x*scale,y=Math.max(18,oy+points[0].y*scale-8);
+        ctx.fillStyle='rgba(185,28,28,.94)';ctx.fillRect(x,y-17,118,20);ctx.fillStyle='#fff';ctx.fillText('THẺ NGOÀI LỚP',x+7,y-3,108);
+      }
+      continue;
+    }
     const orientation = answerFromQrLocation(d.location);
     const answer = orientation?.answer || '?';
     const invalid=Boolean(d.invalidAnswer)||!validAnswerKeys(q).has(answer);
