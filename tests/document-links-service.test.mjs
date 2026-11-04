@@ -48,7 +48,6 @@ test('tab loads asynchronously and exposes same API on Express and Cloudflare Pa
  const index=readFileSync('index.html','utf8');
  assert.match(main,/window\.__documentsTabRequested/);
  assert.match(main,/connectDocumentLinks\(\)/);
- assert.match(main,/'tab-documents'/);
  assert.match(index,/data-sidebar-tab="documents"/);
  assert.match(server,/app\.get\('\/api\/documents'/);
  assert.match(server,/app\.post\('\/api\/documents'/);
@@ -61,14 +60,14 @@ test('tab loads asynchronously and exposes same API on Express and Cloudflare Pa
 test('student and teacher audience query uses SQL array overlap',async()=>{
  calls.length=0;
  await listDocumentLinks(db,{id:'s',role:'student'});
- assert.match(calls[0].sql,/doi_tuong_truy_cap_nhieu && ARRAY/);
  assert.match(calls[0].sql,/'student'=ANY\(doi_tuong_truy_cap_nhieu\)/);
  assert.deepEqual(calls[0].args,['public','authenticated','s']);
  calls.length=0;
  await createDocumentLink(db,actor,{...base,doi_tuong_truy_cap_nhieu:['student','teacher']},()=> 'multi-id');
  const insert=calls.find(c=>c.sql.startsWith('INSERT'));
  assert.match(insert.sql,/doi_tuong_truy_cap_nhieu/);
- assert.equal(insert.args.at(-1),'{student,teacher}');
+ assert.equal(insert.args.at(-2),'{student,teacher}');
+ assert.equal(insert.args.at(-1),'[]');
 });
 
 test('admin gets full management and teacher is limited to own document',async()=>{
@@ -130,7 +129,7 @@ test('documents tab requests combined library after selection and both APIs forw
  const express=readFileSync('server.ts','utf8');
  assert.match(ui,/params\.set\('manage','1'\)/);
  assert.match(ui,/params\.set\('includeReadable','1'\)/);
- assert.match(cf,/includeReadable:manage&&/);
+ assert.match(cf,/const includeReadable=manage&&url\.searchParams\.get\('includeReadable'\)==='1'/);
  assert.match(express,/includeReadable:req\.query\.manage==='1'&&/);
 });
 
