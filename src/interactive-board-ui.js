@@ -35,11 +35,18 @@ function studentControlLocked(key){return !!key&&studentControlLocks.has(String(
 function closeStudentControlMenu(){
  const menu=$('board-student-control-menu');menu?.classList.add('hidden');studentControlMenuTarget=null;
 }
+function studentControlMenuHost(){
+ const roomEl=$('board-room'),fs=document.fullscreenElement;
+ if(fs&&roomEl&&(fs===roomEl||fs.contains(roomEl)||roomEl.contains(fs)))return fs;
+ return document.body;
+}
 function ensureStudentControlMenu(){
- let menu=$('board-student-control-menu');if(menu)return menu;
- menu=document.createElement('div');menu.id='board-student-control-menu';menu.className='board-student-control-menu hidden';
- menu.setAttribute('role','menu');menu.innerHTML='<div class="board-student-control-menu-title"></div><button type="button" data-control-action="lock">🔒 Khóa cho học sinh</button><button type="button" data-control-action="unlock">🔓 Mở khóa cho học sinh</button><p>Chỉ ảnh hưởng học sinh; giáo viên vẫn dùng bình thường.</p>';
- document.body.appendChild(menu);
+ let menu=$('board-student-control-menu');
+ if(!menu){
+  menu=document.createElement('div');menu.id='board-student-control-menu';menu.className='board-student-control-menu hidden';
+  menu.setAttribute('role','menu');menu.innerHTML='<div class="board-student-control-menu-title"></div><button type="button" data-control-action="lock">🔒 Khóa cho học sinh</button><button type="button" data-control-action="unlock">🔓 Mở khóa cho học sinh</button><p>Chỉ ảnh hưởng học sinh; giáo viên vẫn dùng bình thường.</p>';
+ }
+ const host=studentControlMenuHost();if(menu.parentElement!==host)host.appendChild(menu);
  menu.addEventListener('click',e=>{
    const action=e.target.closest('[data-control-action]')?.dataset.controlAction;
    const btn=studentControlMenuTarget,key=boardControlKey(btn);if(!action||!key||!room?.board?.can_manage)return;
@@ -989,6 +996,7 @@ export function connectInteractiveBoards(){
  },true);
  document.addEventListener('click',e=>{if(!e.target.closest?.('#board-student-control-menu'))closeStudentControlMenu();});
  document.addEventListener('keydown',e=>{if(e.key==='Escape')closeStudentControlMenu();});
+ document.addEventListener('fullscreenchange',()=>{closeStudentControlMenu();ensureStudentControlMenu();});
  window.addEventListener('resize',closeStudentControlMenu);
  $('boards-new')?.addEventListener('click',()=>openEdit());
  $('boards-reload')?.addEventListener('click',()=>load());
