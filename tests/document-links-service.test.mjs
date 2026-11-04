@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {listDocumentLinks,listDocumentLinksPage,parseDocumentLinkPage,createDocumentLink,updateDocumentLink,deleteDocumentLink,DocumentLinkServiceError} from '../src/document-links-service.js';
+import {listDocumentLinks,listDocumentLinksPage,parseDocumentLinkPage,listDocumentStudentClasses,createDocumentLink,updateDocumentLink,deleteDocumentLink,DocumentLinkServiceError} from '../src/document-links-service.js';
 const actor={id:'teacher-A',role:'teacher'};
 const base={id:'doc-1',tieu_de:'Tài liệu ôn tập',duong_link:'https://example.org/file',doi_tuong_duoc_truy_cap:'student',hoat_dong:1,mo_ta:'Bài 1',danh_muc:'Tin học'};
 const calls=[];
@@ -181,4 +181,51 @@ test('admin paginated scope excludes private owner-only records before count',as
  await listDocumentLinksPage(dbMock,{id:'admin-B',role:'admin'},{manage:true});
  assert.match(sql,/NOT \(doi_tuong_truy_cap_nhieu @> ARRAY\['owner'\]/);
  assert.match(sql,/OR id_nguoi_tao = \?/);
+});
+
+
+test('teacher class scope lists assigned classes only and rejects forged class targets',async()=>{
+ const observed=[];
+ const scopedDb={
+  async all(sql,args){
+   observed.push({sql,args});
+   if(sql.includes('FROM teacher_classes'))return [{lop:'12A1',donvi:'THPT Lê Hoàn'},{lop:'12A2',donvi:'THPT Lê Hoàn'}];
+   return [];
+  },
+  async first(){return null;},
+  async run(sql,args){observed.push({sql,args});return 1;}
+ };
+ const teacherActor={id:'teacher-A',user_id:'profile-A',role:'teacher'};
+ assert.deepEqual(await listDocumentStudentClasses(scopedDb,teacherActor),[
+  {lop:'12A1',donvi:'THPT Lê Hoàn'},{lop:'12A2',donvi:'THPT Lê Hoàn'}
+ ]);
+ await createDocumentLink(scopedDb,teacherActor,{...base,doi_tuong_duoc_truy_cap:'student',doi_tuong_truy_cap_nhieu:['student'],pham_vi_lop_hoc_sinh:[{lop:'12A1',donvi:'THPT Lê Hoàn'}]},()=> 'scoped');
+ const insert=observed.find(x=>x.sql.startsWith('INSERT INTO quan_ly_tai_lieu'));
+ assert.match(insert.sql,/pham_vi_lop_hoc_sinh/);
+ assert.match(String(insert.args.at(-1)),/12A1/);
+ await assert.rejects(()=>createDocumentLink(scopedDb,teacherActor,{...base,doi_tuong_duoc_truy_cap:'student',doi_tuong_truy_cap_nhieu:['student'],pham_vi_lop_hoc_sinh:[{lop:'11B9',donvi:'THPT Lê Hoàn'}]}),{status:403});
+});
+
+test('student document SQL applies class restriction before count and pagination',async()=>{
+ const calls=[];
+ const dbMock={
+  first:async(sql,args)=>{calls.push({sql,args});return {total:1};},
+  all:async(sql,args)=>{calls.push({sql,args});return [];}
+ };
+ await listDocumentLinksPage(dbMock,{id:'s',role:'student',lop:'12A1',donvi:'THPT Lê Hoàn'},{page:1,limit:10});
+ assert.match(calls[0].sql,/jsonb_array_length\(pham_vi_lop_hoc_sinh\)=0/);
+ assert.match(calls[0].sql,/jsonb_array_elements\(pham_vi_lop_hoc_sinh\)/);
+ assert.ok(calls[0].args.includes('12A1'));
+ assert.ok(calls[0].args.includes('THPT Lê Hoàn'));
+});
+
+test('both document APIs expose server-authorized class scope endpoint',()=>{
+ const cf=readFileSync('functions/api/documents.ts','utf8');
+ const server=readFileSync('server.ts','utf8');
+ assert.match(cf,/scope.*student-classes/);
+ assert.match(cf,/listDocumentStudentClasses/);
+ assert.match(server,/scope==='student-classes'/);
+ assert.match(server,/listDocumentStudentClasses/);
+ assert.match(cf,/SELECT lop,donvi,target_audience FROM users/);
+ assert.match(server,/SELECT lop,donvi,target_audience FROM users/);
 });
