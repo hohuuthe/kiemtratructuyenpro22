@@ -259,6 +259,7 @@ CREATE TABLE IF NOT EXISTS _submitted_exam_tokens (
     user_id TEXT,
     submitted_at TEXT
 );
+ALTER TABLE _submitted_exam_tokens ADD COLUMN IF NOT EXISTS user_id TEXT;
 
 -- 7. BẢNG LƯU TRỮ KHÓA BẢO MẬT HỆ THỐNG (_internal_secrets)
 CREATE TABLE IF NOT EXISTS _internal_secrets (
