@@ -547,6 +547,7 @@ async function startServer() {
   try { await executeSqlQuery("ALTER TABLE results ADD COLUMN IF NOT EXISTS don_vi TEXT", []); } catch (e) {}
   try { await executeSqlQuery("ALTER TABLE results ADD COLUMN IF NOT EXISTS cheat_warning_count INTEGER DEFAULT 0", []); } catch (e) {}
   try { await executeSqlQuery("ALTER TABLE results ADD COLUMN IF NOT EXISTS ai_grading_summary TEXT", []); } catch (e) {}
+  try { await executeSqlQuery("ALTER TABLE _submitted_exam_tokens ADD COLUMN IF NOT EXISTS user_id TEXT", []); } catch (e) {}
 
   try { await executeSqlQuery("ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS created_at TEXT", []); } catch (e) {}
   try { await executeSqlQuery("ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS revision INTEGER NOT NULL DEFAULT 1", []); } catch (e) {}
