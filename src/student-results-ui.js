@@ -135,12 +135,19 @@ export function renderStudentResultCards(container, rows, { onOpen, onOpenAttemp
             '</div>';
         const attemptsButton = card.querySelector('.student-result-attempts');
         if (attemptsButton) attemptsButton.addEventListener('click', async () => {
-            if (attemptsButton.disabled || typeof onOpenAttempts !== 'function') return;
+            if (attemptsButton.disabled) return;
             attemptsButton.disabled = true;
             const label = attemptsButton.querySelector('span');
             if (label) label.textContent = 'Đang tải...';
-            try { await onOpenAttempts(String(result.exam_id), String(result.exam_name || 'Bài thi')); }
-            finally {
+            try {
+                if (typeof onOpenAttempts === 'function') {
+                    await onOpenAttempts(String(result.exam_id), String(result.exam_name || 'Bài thi'));
+                } else {
+                    window.dispatchEvent(new CustomEvent('student-result-attempts-request', {
+                        detail: { examId: String(result.exam_id), examName: String(result.exam_name || 'Bài thi') }
+                    }));
+                }
+            } finally {
                 if (label) label.textContent = 'Xem các lần làm';
                 attemptsButton.disabled = false;
             }
