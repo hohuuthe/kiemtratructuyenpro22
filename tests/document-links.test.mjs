@@ -131,6 +131,12 @@ test('student class scope is validated and enforced in document policy',()=>{
  assert.throws(()=>normalizeDocumentLinkInput({...input,doi_tuong_duoc_truy_cap:'teacher',doi_tuong_truy_cap_nhieu:['teacher']}),DocumentLinkInputError);
 });
 
+
+test('student class chooser toggles immediately when student audience is selected',()=>{
+ const ui=readFileSync('src/document-links-ui.js','utf8');
+ assert.match(ui,/documents-audiences'\)\?\.addEventListener\('change'.*syncStudentClassScopeVisibility\(\);\}\);/);
+});
+
 test('document schema and form include optional student class restriction',()=>{
  const schema=readFileSync('src/document-links-schema.js','utf8');
  const html=readFileSync('public/components/tab-documents.html','utf8');
