@@ -476,10 +476,10 @@ export class BoardRoom {
         if (existing?.locked && !canManage) {resyncRequired=true;continue;}
         if (existing?.creatorId) {
           object.creatorId=existing.creatorId;
-          object.creatorName=String(existing.creatorName||object.creatorName||'Người dùng').slice(0,100);
-          object.creatorClass=String(existing.creatorClass||object.creatorClass||'').slice(0,100);
-          object.creatorUnit=String(existing.creatorUnit||object.creatorUnit||'').slice(0,180);
-          object.creatorRole=String(existing.creatorRole||object.creatorRole||'student').slice(0,30);
+          object.creatorName=String(existing.creatorName||'').slice(0,100);
+          object.creatorClass=String(existing.creatorClass||'').slice(0,100);
+          object.creatorUnit=String(existing.creatorUnit||'').slice(0,180);
+          object.creatorRole=String(existing.creatorRole||'').slice(0,30);
         }
         if (!canManage) object.locked=Boolean(existing?.locked);
         if (Number.isFinite(Number(existing?.voteCount))) object.voteCount=Math.max(0,Number(existing.voteCount)||0);
