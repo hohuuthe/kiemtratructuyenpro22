@@ -132,7 +132,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         const tokenHash = await hashToken(token);
         try {
             await db.prepare(
-                "CREATE TABLE IF NOT EXISTS _submitted_exam_tokens (token_hash TEXT PRIMARY KEY, exam_id TEXT, student_name TEXT, submitted_at TEXT)"
+                "CREATE TABLE IF NOT EXISTS _submitted_exam_tokens (token_hash TEXT PRIMARY KEY, exam_id TEXT, student_name TEXT, user_id TEXT, submitted_at TEXT)"
             ).run();
             const existingSubmission = await db.prepare(
                 "SELECT token_hash FROM _submitted_exam_tokens WHERE token_hash = ?"
@@ -553,11 +553,12 @@ YÊU CẦU:
         // BẢO MẬT: Đánh dấu token đã nộp bài thành công vào bảng kiểm soát để ngăn chặn nộp lại
         try {
             await db.prepare(
-                "INSERT INTO _submitted_exam_tokens (token_hash, exam_id, student_name, submitted_at) VALUES (?, ?, ?, ?)"
+                "INSERT INTO _submitted_exam_tokens (token_hash, exam_id, student_name, user_id, submitted_at) VALUES (?, ?, ?, ?, ?)"
             ).bind(
                 tokenHash,
                 String(examConfig.id || studentInfo.examId || studentInfo.examName || ''),
                 studentInfo.name || '',
+                authenticatedUserId || null,
                 new Date().toISOString()
             ).run();
         } catch (markErr) {
