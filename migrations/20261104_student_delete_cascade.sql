@@ -58,6 +58,14 @@ BEGIN
     RAISE EXCEPTION 'STUDENT_DELETE_PROTECTED_ADMIN';
   END IF;
 
+  IF EXISTS (
+    SELECT 1 FROM public.accounts
+    WHERE (user_id = p_user_id OR id = p_user_id)
+      AND LOWER(COALESCE(role,'')) IN ('teacher','giáo viên')
+  ) THEN
+    RAISE EXCEPTION 'STUDENT_DELETE_ROLE_DATA_CONFLICT';
+  END IF;
+
   SELECT ARRAY(
     SELECT DISTINCT ident
     FROM (
@@ -188,6 +196,28 @@ BEGIN
   -- New rows use user_id. Legacy rows without user_id are included only when
   -- exam/name uniquely maps to this student's exact result set.
   ---------------------------------------------------------------------------
+  IF EXISTS (
+    SELECT 1
+    FROM public._submitted_exam_tokens t
+    WHERE NULLIF(BTRIM(COALESCE(t.user_id,'')), '') IS NULL
+      AND EXISTS (
+        SELECT 1 FROM public.results r
+        WHERE r.id = ANY(v_result_ids)
+          AND r.exam_id IS NOT DISTINCT FROM t.exam_id
+          AND LOWER(BTRIM(COALESCE(r.student_name,''))) =
+              LOWER(BTRIM(COALESCE(t.student_name,'')))
+      )
+      AND EXISTS (
+        SELECT 1 FROM public.results other_r
+        WHERE NOT (other_r.id = ANY(v_result_ids))
+          AND other_r.exam_id IS NOT DISTINCT FROM t.exam_id
+          AND LOWER(BTRIM(COALESCE(other_r.student_name,''))) =
+              LOWER(BTRIM(COALESCE(t.student_name,'')))
+      )
+  ) THEN
+    RAISE EXCEPTION 'STUDENT_DELETE_LEGACY_TOKEN_AMBIGUOUS';
+  END IF;
+
   SELECT COALESCE(ARRAY_AGG(DISTINCT t.token_hash), ARRAY[]::TEXT[])
     INTO v_token_hashes
   FROM public._submitted_exam_tokens t
