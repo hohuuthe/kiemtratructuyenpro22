@@ -2,8 +2,6 @@ name: Sao_luu_CSDL_HOHUUTHE
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '20 18 * * *'
 
 permissions:
   contents: read
