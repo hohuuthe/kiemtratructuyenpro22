@@ -599,3 +599,12 @@ test('student control locks are enforced server-side for drawing voting selectio
   assert.match(worker,/button:board-duplicate-selected/);
   assert.match(worker,/resyncRequired=true/);
 });
+
+
+test('student shortcuts and selection actions cannot bypass per-button locks',()=>{
+  const ui=fs.readFileSync('src/interactive-board-ui.js','utf8');
+  assert.match(ui,/studentControlLocked\('button:board-undo'\)/);
+  assert.match(ui,/studentControlLocked\('button:board-redo'\)/);
+  assert.match(ui,/sendOps\(\[\{kind:'put',object:shifted\}\],'button:board-duplicate-selected'\)/);
+  assert.match(ui,/sendOps\(\[\{kind:'delete',pageId:target\.pageId,objectId:target\.id\}\],'button:board-delete-selected'\)/);
+});
