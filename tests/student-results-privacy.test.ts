@@ -120,3 +120,20 @@ test('Attempt history by exam ID is student-scoped, score-sorted and includes vi
  const otherPayload=await other.json();
  assert.deepEqual(otherPayload.data.map((x:any)=>x.id),['b1']);
 });
+
+
+test('Owned essay detail exposes only its own AI feedback and marks verified scope',async()=>{
+ const db=database();
+ records[0].details=JSON.stringify([
+   {question:{type:'TL',content:'Tự luận'},userAnswer:'Bài làm',aiFeedback:'Nhận xét riêng của học sinh A',score:1},
+   {question:{type:'4-1',content:'Trắc nghiệm'},userAnswer:'A',aiFeedback:'Không được lộ',score:1}
+ ]);
+ const own=await call('a','http://localhost/api/results/me?id=a1');
+ assert.equal(own.status,200);
+ const payload=await own.json();
+ assert.equal(payload.data.student_feedback_scope,'owned-detail');
+ assert.equal(payload.data.details[0].aiFeedback,'Nhận xét riêng của học sinh A');
+ assert.ok(!('aiFeedback' in payload.data.details[1]));
+ const other=await call('b','http://localhost/api/results/me?id=a1');
+ assert.equal(other.status,404);
+});
