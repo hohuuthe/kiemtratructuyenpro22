@@ -96,6 +96,11 @@ async function adminPayload(db: any) {
     accounts,
     teachers: [],
     assigned_classes: [],
+    scope_contract: {
+      users: 'all',
+      accounts: 'all',
+      teachers: 'none'
+    },
     counts: { users: users.length, accounts: accounts.length, teachers: 0 }
   };
 }
@@ -175,6 +180,12 @@ async function teacherPayload(db: any, user: any) {
     accounts,
     teachers: [],
     assigned_classes: assignments,
+    scope_contract: {
+      users: 'self_plus_assigned_students',
+      accounts: 'assigned_student_accounts_only',
+      teachers: 'none',
+      include_teacher_account: false
+    },
     counts: { users: users.length, accounts: accounts.length, teachers: 0, students: students.length }
   };
 }
@@ -261,6 +272,11 @@ async function studentPayload(db: any, user: any) {
     accounts,
     teachers,
     assigned_classes: [],
+    scope_contract: {
+      users: 'self_only',
+      accounts: 'self_only',
+      teachers: 'eligible_exam_creators_only'
+    },
     counts: { users: users.length, accounts: accounts.length, teachers: teachers.length }
   };
 }
