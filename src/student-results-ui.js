@@ -327,7 +327,7 @@ export function buildStudentResultDetailMarkup(result, { formatDate, formatDurat
         const scoreValue = canScore ? studentResultScore(detail.score) : null;
         const savedScore = scoreValue === null ? '' :
             '<span class="student-detail-earned">' + escapeStudentText(scoreDisplay(scoreValue)) + ' điểm</span>';
-        const aiFeedback = q.type === 'TL' && typeof detail.aiFeedback === 'string' ? detail.aiFeedback.trim() : '';
+        const aiFeedback = result && result.student_feedback_scope === 'owned-detail' && q.type === 'TL' && typeof detail.aiFeedback === 'string' ? detail.aiFeedback.trim() : '';
         const aiFeedbackHtml = aiFeedback
             ? '<div class="student-essay-ai-actions">' +
                 '<button type="button" class="student-essay-ai-open" data-ai-feedback-open="' + index + '">🤖 Xem chi tiết nhận xét AI</button>' +
