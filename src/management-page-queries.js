@@ -31,8 +31,9 @@ export function accountsPageQuery(page) {
   const where=conditions.length?' WHERE '+conditions.join(' AND '):'';
   const from=' FROM accounts a LEFT JOIN users u ON u.id=COALESCE(a.user_id,a.id)';
   const projection='a.id,a.user_id,a.username,a.role,a.is_active,a.expiry_date,a.created_at,u.full_name,u.phone_number,u.donvi,u.lop,u.target_audience,u.occupation';
+  const audiencePriority="CASE WHEN LOWER(TRIM(COALESCE(a.role,'')))='admin' OR LOWER(TRIM(COALESCE(u.target_audience,''))) IN ('quản trị viên','admin') THEN 0 WHEN LOWER(TRIM(COALESCE(u.target_audience,''))) IN ('giáo viên','teacher') OR LOWER(TRIM(COALESCE(a.role,''))) IN ('teacher','giáo viên') THEN 1 WHEN LOWER(TRIM(COALESCE(u.target_audience,''))) IN ('học sinh','student') THEN 2 ELSE 3 END";
   return {countSQL:'SELECT COUNT(*) AS total'+from+where,countArgs:args,
-    rowsSQL:'SELECT '+projection+from+where+' ORDER BY a.created_at DESC,a.id DESC LIMIT ? OFFSET ?',
+    rowsSQL:'SELECT '+projection+from+where+' ORDER BY '+audiencePriority+',a.created_at DESC,a.id DESC LIMIT ? OFFSET ?',
     rowsArgs:[...args,page.limit,(page.page-1)*page.limit]};
 }
 export function resultsPageQuery(page, actor) {
