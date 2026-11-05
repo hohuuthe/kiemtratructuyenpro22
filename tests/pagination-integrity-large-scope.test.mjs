@@ -121,3 +121,78 @@ test('node identity pagination bypasses the process query cache', () => {
   assert.match(server, /\/\* no-cache \*\/ SELECT COUNT\(\*\)::int AS student_total/);
   assert.match(server, /\/\* no-cache \*\/ SELECT u\.\*/);
 });
+
+
+test('has_more is derived from verified total, not full-page heuristics', () => {
+  assert.match(cfUsers, /has_more:\s*limit > 0 \? offset \+ rows\.length < total : false/);
+  assert.match(cfAccounts, /has_more:\s*limit > 0 \? offset \+ rows\.length < total : false/);
+  assert.match(server, /has_more:limit>0\?offset\+rows\.length<total:false/);
+  assert.doesNotMatch(server, /rows\.length===limit/);
+});
+
+test('server caps oversized page requests and client advances by actual rows', () => {
+  assert.match(cfUsers, /limit = Math\.min\(parsed, 5000\)/);
+  assert.match(cfAccounts, /limit = Math\.min\(parsed, 5000\)/);
+  assert.match(server, /limit=Math\.min\(parsed,5000\)/);
+  assert.match(main, /const chunkSize = 1000/);
+  assert.match(main, /offset \+= chunk\.length/);
+  assert.match(main, /const maxRestarts = 3/);
+  assert.match(main, /pageNum > 1000/);
+});
+
+function paginateTeacherStudents(totalStudents, pageSize) {
+  const self = 'teacher-self';
+  const students = Array.from({ length: totalStudents }, (_, i) => 'student-' + String(i + 1).padStart(6, '0'));
+  const assembled = [];
+  const seen = new Set();
+  let offset = 0;
+  let pages = 0;
+  const combinedTotal = totalStudents + 1;
+
+  while (offset < combinedTotal) {
+    let page;
+    if (offset === 0) {
+      page = [self, ...students.slice(0, Math.max(0, pageSize - 1))];
+    } else {
+      const studentOffset = offset - 1;
+      page = students.slice(studentOffset, studentOffset + pageSize);
+    }
+
+    assert.ok(page.length > 0);
+    assert.ok(page.length <= pageSize);
+    for (const id of page) {
+      assert.equal(seen.has(id), false, 'duplicate id across teacher pages: ' + id);
+      seen.add(id);
+    }
+
+    assembled.push(...page);
+    offset += page.length;
+    pages++;
+    assert.ok(pages < 1000);
+  }
+
+  assert.equal(assembled.length, combinedTotal);
+  assert.equal(seen.size, combinedTotal);
+  assert.equal(assembled[0], self);
+  if (totalStudents > 0) assert.equal(assembled.at(-1), students.at(-1));
+  assert.equal(pages, Math.ceil(combinedTotal / pageSize));
+}
+
+for (const totalStudents of [0, 1, 998, 999, 1000, 1001, 1998, 1999, 2000, 2001, 4999, 5000, 5001, 9999, 10000, 10001, 25000]) {
+  test('teacher pagination stays exact at student boundary ' + totalStudents, () => {
+    paginateTeacherStudents(totalStudents, 1000);
+  });
+}
+
+for (const total of [10000, 10001, 25000, 50000, 100000]) {
+  test('large account-style pagination stays exact for ' + total + ' records', () => {
+    const pages = paginate(total, 1000);
+    assert.equal(pages, Math.ceil(total / 1000));
+  });
+}
+
+test('exact multiples terminate without requesting a phantom page', () => {
+  assert.equal(paginate(1000, 1000), 1);
+  assert.equal(paginate(2000, 1000), 2);
+  assert.equal(paginate(10000, 1000), 10);
+});
