@@ -7,6 +7,7 @@ const coreApi = fs.readFileSync(new URL('../functions/api/core-identity.ts', imp
 const usersApi = fs.readFileSync(new URL('../functions/api/users.ts', import.meta.url), 'utf8');
 const accountsApi = fs.readFileSync(new URL('../functions/api/accounts.ts', import.meta.url), 'utf8');
 const server = fs.readFileSync(new URL('../server.ts', import.meta.url), 'utf8');
+const session = fs.readFileSync(new URL('../src/security-session.ts', import.meta.url), 'utf8');
 
 test('login uses one role-scoped core identity endpoint', () => {
   assert.match(main, /preloadRoleScopedIdentityOnLogin/);
@@ -67,6 +68,14 @@ test('node runtime enforces the same strict role scope as Cloudflare', () => {
   assert.match(server, /ec\.target_donvi,ec\.donvi/);
   assert.match(server, /scopedUnits\.includes\(sUnit\)/);
   assert.doesNotMatch(server, /sUnit\.includes\(tUnit\)/);
+});
+
+test('node session scope follows the current target audience without breaking unchanged legacy sessions', () => {
+  assert.match(session, /String\(row\.target_audience \|\| ''\)/);
+  assert.match(session, /legacyAccountSessionMaterialV1/);
+  assert.match(server, /COALESCE\(u\.target_audience,''\) AS target_audience/);
+  assert.match(server, /sameAudience/);
+  assert.match(server, /legacyState !== decoded\.auth_state \|\| !sameAudience/);
 });
 
 test('exam editor does not reload unscoped accounts over the core snapshot', () => {
