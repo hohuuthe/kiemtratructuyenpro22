@@ -322,7 +322,7 @@ function showUpdateModal() {
   const reloadButton = document.createElement('button');
   reloadButton.type = 'button';
   reloadButton.className = 'rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-black text-white shadow-sm transition hover:bg-emerald-700 active:scale-[0.98]';
-  reloadButton.textContent = 'Tải lại trang để cập nhật';
+  reloadButton.textContent = 'Tải phiên bản mới';
   reloadButton.addEventListener('click', async () => {
     if (!pendingVersion) return;
 
