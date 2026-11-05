@@ -24434,15 +24434,15 @@ CẤU TRÚC JSON:
 
             try {
                 // Fetch the latest data to make report 100% accurate
-                const [resUsers, resResults, resExams] = await Promise.all([
-                    fetch('/api/users?limit=all', { headers: { 'Authorization': 'Bearer ' + token } }).then(r => r.json()).catch(() => null),
+                const [verifiedUsers, resResults, resExams] = await Promise.all([
+                    fetchAllUsersChunked(),
                     fetch('/api/results?limit=5000', { headers: { 'Authorization': 'Bearer ' + token } }).then(r => r.json()).catch(() => null),
                     fetch('/api/exams?forRanking=true', { headers: { 'Authorization': 'Bearer ' + token } }).then(r => r.json()).catch(() => null)
                 ]);
 
                 let localUsers = [];
-                if (resUsers && Array.isArray(resUsers.data)) {
-                    localUsers = resUsers.data;
+                if (Array.isArray(verifiedUsers)) {
+                    localUsers = verifiedUsers;
                 } else if (window.usersList && window.usersList.length > 0) {
                     localUsers = window.usersList;
                 } else if (typeof usersList !== 'undefined' && Array.isArray(usersList) && usersList.length > 0) {
@@ -24846,13 +24846,13 @@ CẤU TRÚC JSON:
                         }
 
                         try {
-                            const [resUsers, resResults] = await Promise.all([
-                                fetch('/api/users?limit=all', { headers: { 'Authorization': 'Bearer ' + token } }).then(r => r.json()).catch(() => null),
+                            const [verifiedUsers, resResults] = await Promise.all([
+                                fetchAllUsersChunked(),
                                 fetch('/api/results?limit=5000', { headers: { 'Authorization': 'Bearer ' + token } }).then(r => r.json()).catch(() => null)
                             ]);
 
-                            if (resUsers && Array.isArray(resUsers.data)) {
-                                localUsers = resUsers.data;
+                            if (Array.isArray(verifiedUsers)) {
+                                localUsers = verifiedUsers;
                                 const newStudentUsers = localUsers.filter(u => {
                                     if (!u) return false;
                                     const aud = String(u.target_audience || u.targetAudience || '').toLowerCase().trim();
