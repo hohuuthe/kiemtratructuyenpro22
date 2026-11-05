@@ -3803,7 +3803,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             
             // XÓA DỮ LIỆU CŨ TRONG BẢNG TRƯỚC KHI TÌM KIẾM
             if (rankingTable) {
-                rankingTable.innerHTML = `<tr><td colspan="11" class="px-6 py-10 text-center text-gray-500 italic">Đang tìm kiếm dữ liệu...</td></tr>`;
+                rankingTable.innerHTML = `<tr><td colspan="13" class="px-6 py-10 text-center text-gray-500 italic">Đang tìm kiếm dữ liệu...</td></tr>`;
             }
             
             try {
@@ -3819,7 +3819,7 @@ if (contentType && contentType.includes("application/json")) {
                 
                 if (!res.ok || resJson.error) {
                     if (rankingTable) {
-                        rankingTable.innerHTML = `<tr><td colspan="11" class="px-6 py-10 text-center text-red-500 font-medium">❌ Mã chia sẻ không hợp lệ hoặc đề này không được phép chia sẻ kết quả!</td></tr>`;
+                        rankingTable.innerHTML = `<tr><td colspan="13" class="px-6 py-10 text-center text-red-500 font-medium">❌ Mã chia sẻ không hợp lệ hoặc đề này không được phép chia sẻ kết quả!</td></tr>`;
                     }
                     return;
                 }
@@ -3828,7 +3828,7 @@ if (contentType && contentType.includes("application/json")) {
                 
                 if (!matchedConfig || (matchedConfig.is_shared_results !== true && matchedConfig.is_shared_results !== 1)) {
                     if (rankingTable) {
-                        rankingTable.innerHTML = `<tr><td colspan="11" class="px-6 py-10 text-center text-red-500 font-medium">❌ Mã chia sẻ không hợp lệ hoặc đề này không được phép chia sẻ kết quả!</td></tr>`;
+                        rankingTable.innerHTML = `<tr><td colspan="13" class="px-6 py-10 text-center text-red-500 font-medium">❌ Mã chia sẻ không hợp lệ hoặc đề này không được phép chia sẻ kết quả!</td></tr>`;
                     }
                     return;
                 }
@@ -3870,7 +3870,7 @@ if (contentType && contentType.includes("application/json")) {
                 
                 if (!newResults || newResults.length === 0) {
                     if (rankingTable) {
-                        rankingTable.innerHTML = `<tr><td colspan="11" class="px-6 py-10 text-center text-gray-500 italic">ℹ️ Không tìm thấy kết quả nào cho đề thi này.</td></tr>`;
+                        rankingTable.innerHTML = `<tr><td colspan="13" class="px-6 py-10 text-center text-gray-500 italic">ℹ️ Không tìm thấy kết quả nào cho đề thi này.</td></tr>`;
                     }
                     return;
                 }
@@ -3911,7 +3911,7 @@ if (contentType && contentType.includes("application/json")) {
             } catch (err) {
                 console.error("Error loading shared config", err);
                 if (rankingTable) {
-                    rankingTable.innerHTML = `<tr><td colspan="11" class="px-6 py-10 text-center text-red-500">Lỗi khi tải kết quả chia sẻ!</td></tr>`;
+                    rankingTable.innerHTML = `<tr><td colspan="13" class="px-6 py-10 text-center text-red-500">Lỗi khi tải kết quả chia sẻ!</td></tr>`;
                 }
             }
         };
@@ -16387,7 +16387,7 @@ CẤU TRÚC JSON:
 
             const container = document.getElementById('ranking-table');
             if (isStudent) {
-                if (container) container.innerHTML = '<tr><td colspan="12" class="text-center py-8 text-gray-500 italic">Học sinh không được phép xem bảng xếp hạng.</td></tr>';
+                if (container) container.innerHTML = '<tr><td colspan="13" class="text-center py-8 text-gray-500 italic">Học sinh không được phép xem bảng xếp hạng.</td></tr>';
                 const paginationEl = document.getElementById('ranking-pagination');
                 if (paginationEl) paginationEl.innerHTML = '';
                 return;
