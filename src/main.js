@@ -16472,6 +16472,8 @@ CẤU TRÚC JSON:
                     }
                 } else if (sortCol === 'timeTaken') {
                     cmp = (Number(a.timeTaken) || 0) - (Number(b.timeTaken) || 0);
+                } else if (sortCol === 'cheatWarningCount') {
+                    cmp = (Number(a.cheatWarningCount) || 0) - (Number(b.cheatWarningCount) || 0);
                 } else if (sortCol === 'studentName') {
                     const nameA = String(a.studentName || '').trim();
                     const nameB = String(b.studentName || '').trim();
@@ -16522,7 +16524,7 @@ CẤU TRÚC JSON:
             const mobileContainer = document.getElementById('ranking-container-mobile');
 
             if (sortedResults.length === 0) {
-                if (desktopTableBody) desktopTableBody.innerHTML = '<tr><td colspan="12" class="text-center py-8 text-gray-500 font-bold">Không tìm thấy kết quả phù hợp</td></tr>';
+                if (desktopTableBody) desktopTableBody.innerHTML = '<tr><td colspan="13" class="text-center py-8 text-gray-500 font-bold">Không tìm thấy kết quả phù hợp</td></tr>';
                 if (mobileContainer) mobileContainer.innerHTML = '<div class="text-center py-12 text-gray-400 font-bold italic">Bảng xếp hạng trống hoặc không tìm thấy kết quả phù hợp</div>';
                 const paginationEl = document.getElementById('ranking-pagination');
                 if (paginationEl) paginationEl.innerHTML = '';
@@ -16581,7 +16583,6 @@ CẤU TRÚC JSON:
                         </td>
                         <td class="px-3 py-1.5 font-semibold text-gray-800" title="${escapeHTML(r.studentName)}">
                             <div>${escapeHTML(r.studentName)}</div>
-                            ${r.cheatWarningCount > 0 ? `<div class="inline-flex items-center gap-1 text-[11px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 mt-0.5" title="Thí sinh có vi phạm thoát toàn màn hình / chuyển tab"><span class="text-amber-500">⚠️</span> Vi phạm: ${r.cheatWarningCount} lần</div>` : ''}
                         </td>
                         <td class="px-2 py-1.5 text-center whitespace-nowrap">
                             ${r.lop ? `<span class="inline-block px-2.5 py-0.5 font-bold text-xs rounded-md bg-purple-50 text-purple-700 border border-purple-200">${escapeHTML(r.lop)}</span>` : '<span class="text-gray-400 text-xs">-</span>'}
@@ -16594,6 +16595,11 @@ CẤU TRÚC JSON:
                         </td>
                         <td class="px-2 py-1.5 text-center text-gray-600 whitespace-nowrap">${r.correctCount}/${r.totalQuestions}</td>
                         <td class="px-2 py-1.5 text-center text-gray-600 whitespace-nowrap">${formatTime(r.timeTaken)}</td>
+                        <td class="px-2 py-1.5 text-center whitespace-nowrap">
+                            <span class="inline-flex items-center justify-center gap-1 px-2 py-0.5 rounded-full text-xs font-black ${(Number(r.cheatWarningCount) || 0) > 0 ? 'bg-amber-100 text-amber-800 border border-amber-300' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'}" title="Số lần vi phạm quy chế thi (thoát toàn màn hình / chuyển tab)">
+                                ${(Number(r.cheatWarningCount) || 0) > 0 ? '⚠️ ' : ''}${Number(r.cheatWarningCount) || 0} lần
+                            </span>
+                        </td>
                         <td class="px-2 py-1.5 text-center whitespace-nowrap">
                             ${r.aiGradingSummary ? 
                                 `<span class="px-2 py-0.5 rounded-full text-xs font-bold ${r.aiGradingSummary.includes('Lỗi') ? 'bg-red-100 text-purple-700' : 'bg-purple-100 text-purple-700'}" title="${escapeHTML(r.aiGradingSummary)}">${escapeHTML(r.aiGradingSummary)}</span>` : 
@@ -16657,7 +16663,6 @@ CẤU TRÚC JSON:
                                     <span class="text-xs text-gray-600 font-medium">${escapeHTML(r.donvi || r.studentClass || '')}</span>
                                 </div>
                                 <h3 class="text-lg font-bold text-gray-800 leading-tight">${escapeHTML(r.studentName)}</h3>
-                                ${r.cheatWarningCount > 0 ? `<div class="inline-flex items-center gap-1 text-[11px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200 mt-1"><span class="text-amber-500">⚠️</span> Vi phạm rời phòng: ${r.cheatWarningCount} lần</div>` : ''}
                             </div>
                         </div>
 
@@ -16679,6 +16684,10 @@ CẤU TRÚC JSON:
                             <div>
                                 <p class="text-[10px] text-gray-500 uppercase font-bold mb-0.5">Thời điểm</p>
                                 <span class="text-[11px] font-medium text-gray-600">${window.formatVNTime(r.timestamp)}</span>
+                            </div>
+                            <div>
+                                <p class="text-[10px] text-gray-500 uppercase font-bold mb-0.5">Vi phạm</p>
+                                <span class="text-lg font-black ${(Number(r.cheatWarningCount) || 0) > 0 ? 'text-amber-700' : 'text-emerald-600'}">${Number(r.cheatWarningCount) || 0} lần</span>
                             </div>
                             <div class="col-span-2 mt-1 pt-2 border-t border-gray-200">
                                 <p class="text-[10px] text-gray-500 uppercase font-bold mb-1">Chấm tự động</p>
@@ -16978,14 +16987,13 @@ CẤU TRÚC JSON:
                         <p class="text-xs font-semibold text-gray-600 italic mt-0.5">Người tạo đề thi: <span class="text-purple-600">${accountsMap[examToCreatorMap[result.examName]] || result.examCreator || ho_ten_khach_hang}</span></p>
                         <p class="text-xs text-gray-400 mt-0.5">${window.formatVNTime(result.timestamp)}</p>
                     </div>
-                    ${result.cheatWarningCount > 0 ? `
-                    <div class="mb-3 p-2.5 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 flex items-center justify-between shadow-2xs">
+                    <div class="mb-3 p-2.5 ${(Number(result.cheatWarningCount) || 0) > 0 ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-emerald-50 border-emerald-200 text-emerald-800'} border rounded-xl text-xs flex items-center justify-between shadow-2xs">
                         <span class="font-medium flex items-center gap-1.5">
-                            <svg class="w-4 h-4 text-amber-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
-                            Ghi nhận vi phạm quy chế thi (thoát toàn màn hình / chuyển tab):
+                            <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                            Số lần vi phạm quy chế thi (thoát toàn màn hình / chuyển tab):
                         </span>
-                        <span class="font-black text-amber-900 bg-amber-100 px-2 py-0.5 rounded-md border border-amber-300">${result.cheatWarningCount} lần</span>
-                    </div>` : ''}
+                        <span class="font-black px-2 py-0.5 rounded-md border ${(Number(result.cheatWarningCount) || 0) > 0 ? 'bg-amber-100 border-amber-300 text-amber-900' : 'bg-emerald-100 border-emerald-300 text-emerald-900'}">${Number(result.cheatWarningCount) || 0} lần</span>
+                    </div>
                     
                     <div class="grid grid-cols-3 gap-2 mb-3 text-center">
                         <div class="p-2 bg-blue-50 rounded-lg shadow-sm border border-blue-100/50">
@@ -17529,7 +17537,7 @@ CẤU TRÚC JSON:
                 worksheet.addRow([]);
 
                 const headerRow = worksheet.addRow([
-                    'Hạng', 'Loại Thí sinh', 'Họ tên', 'Lớp', 'Đơn vị / Trường', 'Điểm', 'Đúng', 'Tổng', 'Thời gian (s)', 'Chấm tự động', 'Đề thi', 'Giáo viên', 'Ngày thi'
+                    'Hạng', 'Loại Thí sinh', 'Họ tên', 'Lớp', 'Đơn vị / Trường', 'Điểm', 'Đúng', 'Tổng', 'Thời gian (s)', 'Vi phạm (lần)', 'Chấm tự động', 'Đề thi', 'Giáo viên', 'Ngày thi'
                 ]);
                 headerRow.height = 25; 
                 headerRow.eachCell((cell) => {
@@ -17544,7 +17552,7 @@ CẤU TRÚC JSON:
                     const teacherName = examCreatorDisplayName(r,accountsMap,currentUser);
                     const row = worksheet.addRow([
                         i + 1, r.loaiThiSinh || 'Tự do', r.studentName, r.lop || '-', r.donvi || r.studentClass || '-', parseFloat((Number(r.score) || 0).toFixed(1)),
-                        r.correctCount, r.totalQuestions, r.timeTaken, r.aiGradingSummary || '-', r.examName, teacherName,
+                        r.correctCount, r.totalQuestions, r.timeTaken, Number(r.cheatWarningCount) || 0, r.aiGradingSummary || '-', r.examName, teacherName,
                         window.formatVNTime(r.timestamp)
                     ]);
                     row.height = 19;
@@ -17581,8 +17589,8 @@ CẤU TRÚC JSON:
                 console.error('Error exporting professional Excel:', err);
                 showToast('Lỗi khi xuất file Excel cao cấp! Đang thử lại chế độ cơ bản...', 'error');
                 
-                const data = [['Hạng', 'Loại Thí sinh', 'Họ tên', 'Lớp', 'Đơn vị / Trường', 'Điểm', 'Đúng', 'Tổng', 'Đề thi']];
-                sortedResults.forEach((r, i) => data.push([i+1, r.loaiThiSinh || 'Tự do', r.studentName, r.lop || '-', r.donvi || r.studentClass || '-', parseFloat((Number(r.score) || 0).toFixed(1)), r.correctCount, r.totalQuestions, r.examName]));
+                const data = [['Hạng', 'Loại Thí sinh', 'Họ tên', 'Lớp', 'Đơn vị / Trường', 'Điểm', 'Đúng', 'Tổng', 'Vi phạm (lần)', 'Đề thi']];
+                sortedResults.forEach((r, i) => data.push([i+1, r.loaiThiSinh || 'Tự do', r.studentName, r.lop || '-', r.donvi || r.studentClass || '-', parseFloat((Number(r.score) || 0).toFixed(1)), r.correctCount, r.totalQuestions, Number(r.cheatWarningCount) || 0, r.examName]));
                 const ws = XLSX.utils.aoa_to_sheet(data);
                 const wb = XLSX.utils.book_new();
                 XLSX.utils.book_append_sheet(wb, ws, 'XepHang');
@@ -24352,7 +24360,7 @@ CẤU TRÚC JSON:
                 window.rankingSortDirection = window.rankingSortDirection === 'asc' ? 'desc' : 'asc';
             } else {
                 window.rankingSortColumn = columnKey;
-                if (columnKey === 'score' || columnKey === 'correctCount' || columnKey === 'timestamp') {
+                if (columnKey === 'score' || columnKey === 'correctCount' || columnKey === 'timestamp' || columnKey === 'cheatWarningCount') {
                     window.rankingSortDirection = 'desc';
                 } else {
                     window.rankingSortDirection = 'asc';
@@ -24373,7 +24381,7 @@ CẤU TRÚC JSON:
         };
 
         window.updateRankingHeaderSortIcons = function updateRankingHeaderSortIcons() {
-            const columns = ['rank', 'loaiThiSinh', 'studentName', 'lop', 'donvi', 'score', 'correctCount', 'timeTaken', 'aiGrading', 'examName'];
+            const columns = ['rank', 'loaiThiSinh', 'studentName', 'lop', 'donvi', 'score', 'correctCount', 'timeTaken', 'cheatWarningCount', 'aiGrading', 'examName'];
             const activeCol = window.rankingSortColumn || 'rank';
             const activeDir = window.rankingSortDirection || 'asc';
 
