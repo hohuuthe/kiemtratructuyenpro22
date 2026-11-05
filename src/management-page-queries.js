@@ -61,7 +61,7 @@ export function resultsPageQuery(page, actor) {
   const from=' FROM results r';
   const projection='r.id,r.user_id,r.student_name,r.student_class,r.score,r.correct_count,r.total_questions,r.time_taken,r.exam_name,r.exam_id,r.created_at,r.loai_thi_sinh,r.cheat_warning_count,r.ai_grading_summary,r.lop,r.don_vi,(SELECT ec.creator_id FROM exam_configs ec WHERE ec.id=r.exam_id LIMIT 1) AS exam_creator_id, (SELECT '+EXAM_CREATOR_NAME_SQL+' FROM exam_configs ec '+EXAM_CREATOR_JOIN_SQL+' WHERE ec.id=r.exam_id LIMIT 1) AS exam_creator_name';
   const sortColumns={rank:'r.score DESC,r.time_taken ASC',score:'r.score',correctCount:'r.correct_count',
-    timeTaken:'r.time_taken',studentName:'r.student_name',loaiThiSinh:'r.loai_thi_sinh',
+    timeTaken:'r.time_taken',cheatWarningCount:'r.cheat_warning_count',studentName:'r.student_name',loaiThiSinh:'r.loai_thi_sinh',
     lop:'r.lop',donvi:'r.don_vi',aiGrading:'r.ai_grading_summary',examName:'r.exam_name'};
   const selected=Object.hasOwn(sortColumns,page.sort)?page.sort:'rank';
   const order=selected==='rank'?(page.direction==='DESC'?'r.score ASC,r.time_taken DESC':'r.score DESC,r.time_taken ASC'):sortColumns[selected]+' '+page.direction;
