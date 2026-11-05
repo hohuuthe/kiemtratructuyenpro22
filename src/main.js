@@ -4823,17 +4823,11 @@ if (contentType && contentType.includes("application/json")) {
             if (token && (!window.usersList || window.usersList.length === 0) && !window.usersListLoading) {
                 window.usersListLoading = true;
                 try {
-                    const res = await fetch('/api/users', {
-                        headers: { 'Authorization': 'Bearer ' + token }
-                    });
-                    if (res.ok) {
-                        const resJson = await res.json();
-                        if (resJson && Array.isArray(resJson.data)) {
-                            window.usersList = resJson.data;
-                        }
-                    }
+                    const verifiedUsers = await fetchAllUsersChunked();
+                    window.usersList = verifiedUsers;
+                    usersList = verifiedUsers;
                 } catch (e) {
-                    console.error("Failed to fetch users list for class filter:", e);
+                    console.error("Failed to fetch verified users list for class filter:", e);
                 } finally {
                     window.usersListLoading = false;
                 }
