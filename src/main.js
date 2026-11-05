@@ -17574,7 +17574,7 @@ CẤU TRÚC JSON:
                 lastRow0.getCell(11).alignment = { horizontal: 'center' };
                 lastRow0.getCell(11).font = { name: 'Arial', size: 10, italic: true };
 
-                const signRow0 = worksheet.addRow(['', '', '', '', '', '', '', '', '', '', '', '', '', ']);
+                const signRow0 = worksheet.addRow(['', '', '', '', '', '', '', '', '', '', '', '', '', '']);
                 signRow0.getCell(11).value = `Người lập biểu`;
                 worksheet.mergeCells(signRow0.number, 11, signRow0.number, 14);
                 signRow0.getCell(11).alignment = { horizontal: 'center' };
