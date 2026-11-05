@@ -18162,12 +18162,11 @@ CẤU TRÚC JSON:
                     accountsLoaded = false;
                     await renderAccounts();
                     try {
-                        const uRes = await fetch('/api/users', { headers: { 'Authorization': 'Bearer ' + token } }).then(r => r.json()).catch(() => null);
-                        if (uRes && uRes.data) {
-                            usersList = uRes.data;
-                            window.usersList = usersList;
-                            renderUsers();
-                        }
+                        const reloadedUsers = await fetchAllUsersChunked();
+                        usersList = reloadedUsers;
+                        window.usersList = usersList;
+                        usersLoaded = true;
+                        renderUsers();
                     } catch (e) {}
                 } catch (err) {
                     console.error('Error batch deleting accounts:', err);
@@ -18681,10 +18680,7 @@ CẤU TRÚC JSON:
                 if (typeof fetchFn === 'function') {
                     allUsers = await fetchFn((count, page, isDone) => updateLoadingUI(count, page, isDone));
                 } else {
-                    const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
-                    const res = await fetch('/api/users?limit=all', { headers: { 'Authorization': 'Bearer ' + token } });
-                    const resJson = await res.json();
-                    allUsers = resJson?.data || [];
+                    throw new Error('Bộ tải phân trang hồ sơ an toàn chưa sẵn sàng.');
                 }
 
                 usersList = allUsers || [];
@@ -18852,12 +18848,10 @@ CẤU TRÚC JSON:
             
             if (!window.usersList || window.usersList.length === 0) {
                 try {
-                    const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
-                    const res = await fetch('/api/users', { headers: { 'Authorization': 'Bearer ' + token } });
-                    const resJson = await res.json();
-                    if (resJson.data && Array.isArray(resJson.data)) {
-                        window.usersList = resJson.data;
-                    }
+                    const reloadedUsers = await fetchAllUsersChunked();
+                    window.usersList = reloadedUsers;
+                    usersList = reloadedUsers;
+                    usersLoaded = true;
                 } catch (e) {}
             }
             
@@ -19122,19 +19116,18 @@ CẤU TRÚC JSON:
                 window.closeAccountModal();
                 
                 // Đồng bộ làm mới cả 2 danh sách accounts và users
-                const [accRes, uRes] = await Promise.all([
-                    fetch('/api/accounts', { headers: { 'Authorization': 'Bearer ' + token } }).then(r => r.json()).catch(() => null),
-                    fetch('/api/users', { headers: { 'Authorization': 'Bearer ' + token } }).then(r => r.json()).catch(() => null)
+                const [reloadedAccounts, reloadedUsers] = await Promise.all([
+                    fetchAllAccountsChunked(),
+                    fetchAllUsersChunked()
                 ]);
-                if (accRes && accRes.data) {
-                    accounts = accRes.data;
-                    renderAccounts();
-                }
-                if (uRes && uRes.data) {
-                    usersList = uRes.data;
-                    window.usersList = usersList;
-                    renderUsers();
-                }
+                accounts = reloadedAccounts;
+                window.accounts = accounts;
+                accountsLoaded = true;
+                usersList = reloadedUsers;
+                window.usersList = usersList;
+                usersLoaded = true;
+                renderAccounts();
+                renderUsers();
             } catch (err) {
                 console.error(err);
                 showToast('❌ Lỗi: ' + (err.message || 'Không thể lưu tài khoản'), 'error');
@@ -19170,12 +19163,11 @@ CẤU TRÚC JSON:
                     
                     // Làm mới lại tab users để cập nhật trạng thái "Chưa cấp TK"
                     try {
-                        const uRes = await fetch('/api/users', { headers: { 'Authorization': 'Bearer ' + token } }).then(r => r.json()).catch(() => null);
-                        if (uRes && uRes.data) {
-                            usersList = uRes.data;
-                            window.usersList = usersList;
-                            renderUsers();
-                        }
+                        const reloadedUsers = await fetchAllUsersChunked();
+                        usersList = reloadedUsers;
+                        window.usersList = usersList;
+                        usersLoaded = true;
+                        renderUsers();
                     } catch (e) {}
                 } catch (err) {
                     console.error(err);
@@ -19820,17 +19812,12 @@ CẤU TRÚC JSON:
 
             // Tải lại danh sách
             try {
-                const reloadRes = await fetch('/api/accounts', {
-                    headers: { 'Authorization': 'Bearer ' + token }
-                });
-                if (reloadRes.ok) {
-                    const resJson = await reloadRes.json();
-                    if (resJson.data) {
-                        accounts = resJson.data;
-                        renderAccounts();
-                        if (typeof renderUsers === 'function') renderUsers();
-                    }
-                }
+                const reloadedAccounts = await fetchAllAccountsChunked();
+                accounts = reloadedAccounts;
+                window.accounts = accounts;
+                accountsLoaded = true;
+                renderAccounts();
+                if (typeof renderUsers === 'function') renderUsers();
             } catch (err) {
                 console.warn('Lỗi làm mới danh sách sau khi import:', err);
             }
@@ -20341,12 +20328,11 @@ CẤU TRÚC JSON:
                     await renderUsers();
                     if (typeof renderAccounts === 'function') {
                         try {
-                            const accRes = await fetch('/api/accounts', { headers: { 'Authorization': 'Bearer ' + token } });
-                            const accJson = await accRes.json();
-                            if (accJson.data) {
-                                accounts = accJson.data;
-                                renderAccounts();
-                            }
+                            const reloadedAccounts = await fetchAllAccountsChunked();
+                            accounts = reloadedAccounts;
+                            window.accounts = accounts;
+                            accountsLoaded = true;
+                            renderAccounts();
                         } catch (e) {}
                     }
                 } catch (err) {
@@ -20671,11 +20657,11 @@ CẤU TRÚC JSON:
                 // Cập nhật lại danh sách dữ liệu trong bảng người dùng và tài khoản
                 usersLoaded = false;
                 try {
-                    const accRes = await fetch('/api/accounts', { headers: { 'Authorization': 'Bearer ' + token } }).then(r => r.json()).catch(() => null);
-                    if (accRes && accRes.data) {
-                        accounts = accRes.data;
-                        if (typeof renderAccounts === 'function') renderAccounts();
-                    }
+                    const reloadedAccounts = await fetchAllAccountsChunked();
+                    accounts = reloadedAccounts;
+                    window.accounts = accounts;
+                    accountsLoaded = true;
+                    if (typeof renderAccounts === 'function') renderAccounts();
                 } catch {}
                 await renderUsers();
 
@@ -22099,12 +22085,11 @@ CẤU TRÚC JSON:
                 await renderUsers();
                 if (typeof renderAccounts === 'function') {
                     try {
-                        const accRes = await fetch('/api/accounts', { headers: { 'Authorization': 'Bearer ' + token } });
-                        const accJson = await accRes.json();
-                        if (accJson.data) {
-                            accounts = accJson.data;
-                            renderAccounts();
-                        }
+                        const reloadedAccounts = await fetchAllAccountsChunked();
+                        accounts = reloadedAccounts;
+                        window.accounts = accounts;
+                        accountsLoaded = true;
+                        renderAccounts();
                     } catch (e) {}
                 }
             } catch (err) {
@@ -22150,19 +22135,18 @@ CẤU TRÚC JSON:
 
                     // Làm mới đồng bộ danh sách tài khoản và người dùng từ server
                     try {
-                        const [uRes, aRes] = await Promise.all([
-                            fetch('/api/users', { headers: { 'Authorization': 'Bearer ' + token } }).then(r => r.json()).catch(() => null),
-                            fetch('/api/accounts', { headers: { 'Authorization': 'Bearer ' + token } }).then(r => r.json()).catch(() => null)
+                        const [reloadedUsers, reloadedAccounts] = await Promise.all([
+                            fetchAllUsersChunked(),
+                            fetchAllAccountsChunked()
                         ]);
-                        if (uRes && uRes.data) {
-                            usersList = uRes.data;
-                            window.usersList = usersList;
-                            renderUsers();
-                        }
-                        if (aRes && aRes.data) {
-                            accounts = aRes.data;
-                            renderAccounts();
-                        }
+                        usersList = reloadedUsers;
+                        window.usersList = usersList;
+                        usersLoaded = true;
+                        accounts = reloadedAccounts;
+                        window.accounts = accounts;
+                        accountsLoaded = true;
+                        renderUsers();
+                        renderAccounts();
                     } catch (syncE) {}
                 } catch (err) {
                     console.error(err);
@@ -22188,17 +22172,7 @@ CẤU TRÚC JSON:
                                     dataToExport = usersList;
                                 }
                             } else {
-                                const res = await fetch('/api/users?limit=all', {
-                                    headers: { 'Authorization': 'Bearer ' + token }
-                                });
-                                if (res.ok) {
-                                    const resJson = await res.json();
-                                    if (resJson.data && Array.isArray(resJson.data)) {
-                                        usersList = resJson.data;
-                                        window.usersList = usersList;
-                                        dataToExport = usersList;
-                                    }
-                                }
+                                throw new Error('Bộ tải phân trang hồ sơ an toàn chưa sẵn sàng.');
                             }
                         } catch (fetchErr) {
                             console.warn('Lỗi lấy người dùng khi xuất:', fetchErr);
@@ -22216,13 +22190,9 @@ CẤU TRÚC JSON:
                     const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
                     if (token) {
                         try {
-                            const accRes = await fetch('/api/accounts', { headers: { 'Authorization': 'Bearer ' + token } });
-                            if (accRes.ok) {
-                                const accJson = await accRes.json();
-                                if (accJson.data && Array.isArray(accJson.data)) {
-                                    accounts = accJson.data;
-                                }
-                            }
+                            accounts = await fetchAllAccountsChunked();
+                            window.accounts = accounts;
+                            accountsLoaded = true;
                         } catch (e) {
                             console.warn('Lỗi lấy tài khoản khi xuất người dùng:', e);
                         }
@@ -22881,19 +22851,18 @@ CẤU TRÚC JSON:
 
             // Tải lại danh sách
             try {
-                const [uRes, aRes] = await Promise.all([
-                    fetch('/api/users', { headers: { 'Authorization': 'Bearer ' + token } }).then(r => r.json()).catch(() => null),
-                    fetch('/api/accounts', { headers: { 'Authorization': 'Bearer ' + token } }).then(r => r.json()).catch(() => null)
+                const [reloadedUsers, reloadedAccounts] = await Promise.all([
+                    fetchAllUsersChunked(),
+                    fetchAllAccountsChunked()
                 ]);
-                if (uRes && uRes.data) {
-                    usersList = uRes.data;
-                    window.usersList = usersList;
-                    renderUsers();
-                }
-                if (aRes && aRes.data) {
-                    accounts = aRes.data;
-                    renderAccounts();
-                }
+                usersList = reloadedUsers;
+                window.usersList = usersList;
+                usersLoaded = true;
+                accounts = reloadedAccounts;
+                window.accounts = accounts;
+                accountsLoaded = true;
+                renderUsers();
+                renderAccounts();
             } catch (err) {
                 console.warn('Lỗi làm mới danh sách sau khi import:', err);
             }
