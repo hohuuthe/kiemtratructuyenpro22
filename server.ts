@@ -1080,6 +1080,22 @@ async function startServer() {
 
       const data=await executeSqlQuery(projection+whereSql+` ORDER BY ${orderSql}${paginationClause}`,binds);
       rows=data.results||[];
+
+      const verifyMeta=await executeSqlQuery(`
+        SELECT COUNT(*)::int AS total,
+               MD5(COALESCE(STRING_AGG(a.id,'|' ORDER BY ${orderSql}),'')) AS snapshot
+        FROM accounts a
+        LEFT JOIN users u ON u.id=COALESCE(a.user_id,a.id)
+        ${whereSql}`,binds);
+      const verifyTotal=Number(verifyMeta.results?.[0]?.total||0);
+      const verifySnapshot=String(verifyMeta.results?.[0]?.snapshot||'');
+      if(verifyTotal!==total||verifySnapshot!==snapshot){
+        return res.status(409).json({
+          error:'Phạm vi dữ liệu thay đổi ngay trong lúc đọc trang. Cần tải lại từ đầu.',
+          code:'PAGINATION_SCOPE_CHANGED',snapshot:verifySnapshot,total:verifyTotal
+        });
+      }
+
       const ids=new Set(rows.map((row:any)=>String(row?.id||'')));
       if(ids.size!==rows.length||ids.has('')){
         return res.status(500).json({error:'Phân trang tài khoản phát hiện bản ghi trùng hoặc thiếu ID.',code:'PAGINATION_PAGE_INVALID'});
