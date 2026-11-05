@@ -8268,6 +8268,12 @@ if (contentType && contentType.includes("application/json")) {
         }
 
         window.startExamUI = function startExamUI() {
+            if (window.appVersionManager && typeof window.appVersionManager.setCriticalActivity === 'function') {
+                window.appVersionManager.setCriticalActivity('studentExam', true);
+            } else {
+                window.__APP_CRITICAL_ACTIVITY__ = window.__APP_CRITICAL_ACTIVITY__ || {};
+                window.__APP_CRITICAL_ACTIVITY__.studentExam = true;
+            }
             const examForm = document.getElementById('exam-form');
             const examInterface = document.getElementById('exam-interface');
             const examResults = document.getElementById('exam-results');
@@ -10301,6 +10307,11 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
         }
 
         function showResults(result, detailedResults) {
+            if (window.appVersionManager && typeof window.appVersionManager.setCriticalActivity === 'function') {
+                window.appVersionManager.setCriticalActivity('studentExam', false);
+            } else if (window.__APP_CRITICAL_ACTIVITY__) {
+                window.__APP_CRITICAL_ACTIVITY__.studentExam = false;
+            }
             document.getElementById('exam-interface')?.classList.add('hidden');
             document.getElementById('exam-results')?.classList.remove('hidden');
 
@@ -10563,6 +10574,11 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
         }
 
         window.resetExam = function resetExam() {
+            if (window.appVersionManager && typeof window.appVersionManager.setCriticalActivity === 'function') {
+                window.appVersionManager.setCriticalActivity('studentExam', false);
+            } else if (window.__APP_CRITICAL_ACTIVITY__) {
+                window.__APP_CRITICAL_ACTIVITY__.studentExam = false;
+            }
             if (typeof window.releaseExamWakeLock === 'function') {
                 window.releaseExamWakeLock();
             }
