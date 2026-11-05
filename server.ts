@@ -209,7 +209,12 @@ async function startServer() {
     try {
       const decoded = verifyJWTSync(header.slice(7), await getServerSecret());
       if (!isUnexpiredAccountToken(decoded)) return res.status(401).json({ error: 'Vui lòng đăng nhập lại' });
-      const lookup = await executeSqlQuery('SELECT id, user_id, username, password, role, is_active, expiry_date FROM accounts WHERE id = ?', [decoded.id]);
+      const lookup = await executeSqlQuery(`
+        SELECT a.id,a.user_id,a.username,a.password,a.role,a.is_active,a.expiry_date,
+               COALESCE(u.target_audience,'') AS target_audience
+        FROM accounts a LEFT JOIN users u ON u.id=COALESCE(a.user_id,a.id)
+        WHERE a.id=? LIMIT 1
+      `, [decoded.id]);
       const row = lookup.results?.[0];
       if (!isAccountEnabled(row)) return res.status(401).json({ error: 'Tài khoản đã bị khóa hoặc xóa' });
       const state = crypto.createHash('sha256').update(accountSessionMaterial(row)).digest('hex');
