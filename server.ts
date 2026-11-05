@@ -921,7 +921,7 @@ async function startServer() {
         const [uRes,aRes,tcRes]=await Promise.all([
           executeSqlQuery(projection+' ORDER BY u.created_at DESC',[]),
           executeSqlQuery(accountProjection+' ORDER BY a.created_at DESC,a.id DESC',[]),
-          executeSqlQuery('SELECT id,teacher_id,teacher_name,class_name,donvi,role,subject,created_at FROM teacher_classes ORDER BY class_name ASC',[])
+          executeSqlQuery('SELECT id,teacher_id,teacher_name,class_name,donvi,role,subject,created_at FROM teacher_classes ORDER BY class_name ASC,donvi ASC,id ASC',[])
         ]);
         const map:any={};
         for(const tc of (tcRes.results||[])){const id=String(tc.teacher_id||'');(map[id]||(map[id]=[])).push(tc);}
@@ -940,6 +940,14 @@ async function startServer() {
           [selfId,accountId]
         );
         const assignments=tcRes.results||[];
+        for(const a of assignments){
+          if(!String(a?.class_name||'').trim()||!String(a?.donvi||'').trim()){
+            return res.status(409).json({
+              error:'Phân công lớp của giáo viên thiếu lớp hoặc đơn vị nên không thể xác định phạm vi dữ liệu an toàn.',
+              code:'TEACHER_ASSIGNMENT_SCOPE_INCOMPLETE'
+            });
+          }
+        }
         if(paged){
           selfProfile.assigned_classes=assignments;
           const studentCountSql=`
@@ -972,13 +980,13 @@ async function startServer() {
               AND EXISTS(SELECT 1 FROM teacher_classes tc WHERE (tc.teacher_id=? OR tc.teacher_id=?)
                 AND LOWER(TRIM(tc.class_name))=LOWER(TRIM(COALESCE(u.lop,'')))
                 AND LOWER(TRIM(COALESCE(tc.donvi,'')))=LOWER(TRIM(COALESCE(u.donvi,''))))
-            ORDER BY u.created_at DESC`;
+            ORDER BY u.created_at DESC,u.id DESC`;
           const accountSql=accountProjection+`
             WHERE LOWER(TRIM(COALESCE(u.target_audience,''))) IN ('học sinh','student')
               AND EXISTS(SELECT 1 FROM teacher_classes tc WHERE (tc.teacher_id=? OR tc.teacher_id=?)
                 AND LOWER(TRIM(tc.class_name))=LOWER(TRIM(COALESCE(u.lop,'')))
                 AND LOWER(TRIM(COALESCE(tc.donvi,'')))=LOWER(TRIM(COALESCE(u.donvi,''))))
-            ORDER BY u.full_name,a.username`;
+            ORDER BY LOWER(COALESCE(u.full_name,'')) ASC,LOWER(COALESCE(a.username,'')) ASC,a.id DESC`;
           const [sRes,aRes]=await Promise.all([
             executeSqlQuery(studentSql,[selfId,accountId]),
             executeSqlQuery(accountSql,[selfId,accountId])
