@@ -428,6 +428,7 @@ export async function initializeAppVersionGate() {
   window.__APP_BUILD_ID__ = CURRENT_BUILD_ID;
 
   const latest = await fetchLatestVersion();
+  lastVersionCheckAt = Date.now();
 
   if (!latest || latest.version === CURRENT_BUILD_ID) {
     cleanupReloadQuery();
