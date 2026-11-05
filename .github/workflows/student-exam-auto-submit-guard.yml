@@ -1,0 +1,29 @@
+name: Student exam premature auto-submit guard
+
+on:
+  pull_request:
+    paths:
+      - 'src/main.js'
+      - 'src/student-exam-session-guard.js'
+      - 'tests/student-exam-auto-submit-guard.test.mjs'
+      - '.github/workflows/student-exam-auto-submit-guard.yml'
+  push:
+    paths:
+      - 'src/main.js'
+      - 'src/student-exam-session-guard.js'
+      - 'tests/student-exam-auto-submit-guard.test.mjs'
+      - '.github/workflows/student-exam-auto-submit-guard.yml'
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: node --check src/main.js
+      - run: node --test tests/student-exam-auto-submit-guard.test.mjs
+      - run: npm run build
