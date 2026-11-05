@@ -1030,6 +1030,9 @@ async function startServer() {
       let rows:any[]=[];
       let total=0;
       let snapshot='';
+      let teacherSelfId='';
+      let teacherAccountId='';
+      let teacherSelfProfileId='';
       let whereSql='';
       let orderSql='a.created_at DESC,a.id DESC';
       let binds:any[]=[];
@@ -1094,6 +1097,41 @@ async function startServer() {
           error:'Phạm vi dữ liệu thay đổi ngay trong lúc đọc trang. Cần tải lại từ đầu.',
           code:'PAGINATION_SCOPE_CHANGED',snapshot:verifySnapshot,total:verifyTotal
         });
+      }
+
+      if(isAdmin){
+        const verifyMeta=await executeSqlQuery(`
+          SELECT COUNT(*)::int AS total,
+                 MD5(COALESCE(STRING_AGG(id,'|' ORDER BY created_at DESC,id DESC),'')) AS snapshot
+          FROM users`,[]);
+        const verifyTotal=Number(verifyMeta.results?.[0]?.total||0);
+        const verifySnapshot=String(verifyMeta.results?.[0]?.snapshot||'');
+        if(verifyTotal!==total||verifySnapshot!==snapshot){
+          return res.status(409).json({
+            error:'Phạm vi dữ liệu thay đổi ngay trong lúc đọc trang. Cần tải lại từ đầu.',
+            code:'PAGINATION_SCOPE_CHANGED',snapshot:verifySnapshot,total:verifyTotal
+          });
+        }
+      }else if(isTeacher){
+        const verifyMeta=await executeSqlQuery(`
+          SELECT COUNT(*)::int AS student_total,
+                 MD5(COALESCE(STRING_AGG(u.id,'|' ORDER BY u.created_at DESC,u.id DESC),'')) AS student_snapshot
+          FROM users u
+          WHERE LOWER(TRIM(COALESCE(u.target_audience,''))) IN ('học sinh','student')
+            AND EXISTS (
+              SELECT 1 FROM teacher_classes tc
+              WHERE tc.teacher_id IN (?,?)
+                AND LOWER(TRIM(tc.class_name))=LOWER(TRIM(COALESCE(u.lop,'')))
+                AND LOWER(TRIM(tc.donvi))=LOWER(TRIM(COALESCE(u.donvi,'')))
+            )`,[teacherSelfId,teacherAccountId]);
+        const verifyTotal=Number(verifyMeta.results?.[0]?.student_total||0)+1;
+        const verifySnapshot=teacherSelfProfileId+':'+String(verifyMeta.results?.[0]?.student_snapshot||'');
+        if(verifyTotal!==total||verifySnapshot!==snapshot){
+          return res.status(409).json({
+            error:'Phạm vi dữ liệu giáo viên thay đổi ngay trong lúc đọc trang. Cần tải lại từ đầu.',
+            code:'PAGINATION_SCOPE_CHANGED',snapshot:verifySnapshot,total:verifyTotal
+          });
+        }
       }
 
       const ids=new Set(rows.map((row:any)=>String(row?.id||'')));
@@ -1499,6 +1537,8 @@ async function startServer() {
       }else if(isTeacher){
         const selfId=String(user.user_id||user.id||'');
         const accountId=String(user.id||selfId);
+        teacherSelfId=selfId;
+        teacherAccountId=accountId;
         const selfRes=await executeSqlQuery(projection+' WHERE u.id=? OR u.id=? ORDER BY CASE WHEN u.id=? THEN 0 ELSE 1 END,u.id DESC LIMIT 1',[selfId,accountId,selfId]);
         const self=selfRes.results?.[0]||null;
         if(!self) return res.status(409).json({error:'Không tìm thấy hồ sơ giáo viên liên kết với tài khoản.'});
@@ -1518,7 +1558,8 @@ async function startServer() {
           ${studentWhere}`,[selfId,accountId]);
         const studentTotal=Number(meta.results?.[0]?.student_total||0);
         total=studentTotal+1;
-        snapshot=String(self.id)+':'+String(meta.results?.[0]?.student_snapshot||'');
+        teacherSelfProfileId=String(self.id||'');
+        snapshot=teacherSelfProfileId+':'+String(meta.results?.[0]?.student_snapshot||'');
 
         if(requestedSnapshot&&requestedSnapshot!==snapshot){
           return res.status(409).json({
