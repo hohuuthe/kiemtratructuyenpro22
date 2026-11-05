@@ -921,8 +921,16 @@ async function startServer() {
           },error:null});
         }
         const [uRes,aRes,tcRes]=await Promise.all([
-          executeSqlQuery(projection+' ORDER BY u.created_at DESC',[]),
-          executeSqlQuery(accountProjection+' ORDER BY a.created_at DESC,a.id DESC',[]),
+          executeSqlQuery(projection+` ORDER BY CASE
+            WHEN LOWER(TRIM(COALESCE(u.target_audience,''))) IN ('quản trị viên','admin') THEN 0
+            WHEN LOWER(TRIM(COALESCE(u.target_audience,''))) IN ('giáo viên','teacher') THEN 1
+            WHEN LOWER(TRIM(COALESCE(u.target_audience,''))) IN ('học sinh','student') THEN 2 ELSE 3 END,
+            u.created_at DESC,u.id DESC`,[]),
+          executeSqlQuery(accountProjection+` ORDER BY CASE
+            WHEN LOWER(TRIM(COALESCE(a.role,'')))='admin' OR LOWER(TRIM(COALESCE(u.target_audience,''))) IN ('quản trị viên','admin') THEN 0
+            WHEN LOWER(TRIM(COALESCE(u.target_audience,''))) IN ('giáo viên','teacher') OR LOWER(TRIM(COALESCE(a.role,''))) IN ('teacher','giáo viên') THEN 1
+            WHEN LOWER(TRIM(COALESCE(u.target_audience,''))) IN ('học sinh','student') THEN 2 ELSE 3 END,
+            a.created_at DESC,a.id DESC`,[]),
           executeSqlQuery('SELECT id,teacher_id,teacher_name,class_name,donvi,role,subject,created_at FROM teacher_classes ORDER BY class_name ASC,donvi ASC,id ASC',[])
         ]);
         const map:any={};
@@ -1090,7 +1098,11 @@ async function startServer() {
       let total=0;
       let snapshot='';
       let whereSql='';
-      let orderSql='a.created_at DESC,a.id DESC';
+      let orderSql=`CASE
+        WHEN LOWER(TRIM(COALESCE(a.role,'')))='admin' OR LOWER(TRIM(COALESCE(u.target_audience,''))) IN ('quản trị viên','admin') THEN 0
+        WHEN LOWER(TRIM(COALESCE(u.target_audience,''))) IN ('giáo viên','teacher') OR LOWER(TRIM(COALESCE(a.role,''))) IN ('teacher','giáo viên') THEN 1
+        WHEN LOWER(TRIM(COALESCE(u.target_audience,''))) IN ('học sinh','student') THEN 2 ELSE 3 END,
+        a.created_at DESC,a.id DESC`;
       let binds:any[]=[];
 
       if(isAdmin){
@@ -1543,7 +1555,11 @@ async function startServer() {
       if(isAdmin){
         const metaSql=`
           /* no-cache */ SELECT COUNT(*)::int AS total,
-                 MD5(COALESCE(STRING_AGG(id,'|' ORDER BY created_at DESC,id DESC),'')) AS snapshot
+                 MD5(COALESCE(STRING_AGG(id,'|' ORDER BY
+                   CASE WHEN LOWER(TRIM(COALESCE(target_audience,''))) IN ('quản trị viên','admin') THEN 0
+                        WHEN LOWER(TRIM(COALESCE(target_audience,''))) IN ('giáo viên','teacher') THEN 1
+                        WHEN LOWER(TRIM(COALESCE(target_audience,''))) IN ('học sinh','student') THEN 2 ELSE 3 END,
+                   created_at DESC,id DESC),'')) AS snapshot
           FROM users`;
         const meta=await executeSqlQuery(metaSql,[]);
         total=Number(meta.results?.[0]?.total||0);
@@ -1557,7 +1573,11 @@ async function startServer() {
         }
 
         const paginationClause=limit>0?` LIMIT ${limit} OFFSET ${offset}`:'';
-        const result=await executeSqlQuery(projection+` ORDER BY u.created_at DESC,u.id DESC${paginationClause}`,[]);
+        const result=await executeSqlQuery(projection+` ORDER BY CASE
+          WHEN LOWER(TRIM(COALESCE(u.target_audience,''))) IN ('quản trị viên','admin') THEN 0
+          WHEN LOWER(TRIM(COALESCE(u.target_audience,''))) IN ('giáo viên','teacher') THEN 1
+          WHEN LOWER(TRIM(COALESCE(u.target_audience,''))) IN ('học sinh','student') THEN 2 ELSE 3 END,
+          u.created_at DESC,u.id DESC${paginationClause}`,[]);
         rows=result.results||[];
 
         const verifyMeta=await executeSqlQuery(metaSql,[]);
