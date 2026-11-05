@@ -28,7 +28,7 @@ test('admin scope supports paged metadata plus full legacy payload', () => {
 });
 
 test('teacher scope returns self profile plus only assigned-class students', () => {
-  assert.match(coreApi, /role_scope: 'teacher'/);
+  assert.match(coreApi, /role_scope:\s*'teacher'/);
   assert.match(coreApi, /teacher_classes/);
   assert.match(coreApi, /LOWER\(TRIM\(tc\.class_name\)\).*LOWER\(TRIM\(COALESCE\(u\.lop/);
   assert.match(coreApi, /LOWER\(TRIM\(COALESCE\(u\.target_audience,''\)\)\) IN \('học sinh','student'\)/);
@@ -72,7 +72,8 @@ test('legacy users and accounts APIs are also server-scoped by role', () => {
 
 test('node runtime enforces the same strict role scope as Cloudflare', () => {
   assert.doesNotMatch(server, /role === 'khác'/);
-  assert.match(server, /role_scope:isAdmin\?'admin':\(isTeacher\?'teacher':'student'\)/);
+  assert.match(server, /role_scope:isAdmin\?'admin':'teacher'/);
+  assert.match(server, /role_scope:'student'/);
   assert.match(server, /tc\.teacher_id IN \(\?,\?\)/);
   assert.match(server, /LOWER\(TRIM\(tc\.class_name\)\)=LOWER\(TRIM\(COALESCE\(u\.lop,''\)\)\)/);
   assert.match(server, /LOWER\(TRIM\(tc\.donvi\)\)=LOWER\(TRIM\(COALESCE\(u\.donvi,''\)\)\)/);
