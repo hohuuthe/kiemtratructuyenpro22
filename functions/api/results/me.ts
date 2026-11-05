@@ -55,6 +55,7 @@ export async function queryOwnResultHistory(db: any, user: any, url: URL) {
       return reply({
         data: {
           ...projectStudentResultRow(row),
+          student_feedback_scope: 'owned-detail',
           details: projectStudentAttemptDetails(row.details, permission.can_view_score)
         }, error: null
       });
