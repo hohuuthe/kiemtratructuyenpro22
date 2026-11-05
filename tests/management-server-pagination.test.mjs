@@ -58,3 +58,11 @@ test('school filter never substitutes student class as institution',()=>{
  assert.doesNotMatch(q.rowsSQL,/COALESCE\(NULLIF\(r\.don_vi,' '\),r\.student_class/);
  assert.deepEqual(q.countArgs,['School A']);
 });
+
+
+test('results support server-side sorting by violation count before pagination',()=>{
+ const p=parseManagementPage('https://h/api/results-page?page=2&limit=50&sort=cheatWarningCount&direction=desc');
+ const q=resultsPageQuery(p,{id:'admin',role:'admin'});
+ assert.match(q.rowsSQL,/ORDER BY r\.cheat_warning_count DESC,r\.id DESC LIMIT \? OFFSET \?/);
+ assert.deepEqual(q.rowsArgs.slice(-2),[50,50]);
+});
