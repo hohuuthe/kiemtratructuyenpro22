@@ -7,7 +7,8 @@ export async function onRequestGet(context: any) {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Headers': 'Content-Type, Authorization',
         'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'Cache-Control': 'private, no-store, max-age=0'
     };
 
     const SECRET = await getDynamicSecret(db, env.JWT_SECRET);
@@ -22,16 +23,16 @@ export async function onRequestGet(context: any) {
 
     const isAdmin = checkIsAdmin(user);
     const isTeacher = checkIsTeacherOrAdmin(user) && !isAdmin;
-
     const url = new URL(request.url);
     const limitParam = url.searchParams.get('limit');
     const offsetParam = url.searchParams.get('offset');
     const pageParam = url.searchParams.get('page');
+    const requestedSnapshot = String(url.searchParams.get('snapshot') || '').trim();
 
     let limit = -1;
     if (limitParam !== null && !['all','0','-1'].includes(limitParam)) {
         const parsed = parseInt(limitParam, 10);
-        if (!isNaN(parsed) && parsed > 0) limit = parsed;
+        if (!isNaN(parsed) && parsed > 0) limit = Math.min(parsed, 5000);
     }
     let offset = 0;
     if (offsetParam !== null) {
@@ -52,41 +53,85 @@ export async function onRequestGet(context: any) {
 
     try {
         let rows: any[] = [];
+        let total = 0;
+        let snapshot = '';
+        let orderSql = 'a.created_at DESC, a.id DESC';
+        let whereSql = '';
+        let binds: any[] = [];
+
         if (isAdmin) {
-            const res: any = await db.prepare(projection + ` ORDER BY a.created_at DESC, a.id DESC${paginationClause}`).all();
-            rows = res.results || [];
+            whereSql = '';
         } else if (isTeacher) {
             const selfId = String(user.user_id || user.id || '');
             const accountId = String(user.id || selfId);
-            const res: any = await db.prepare(projection + `
+            whereSql = `
               WHERE LOWER(TRIM(COALESCE(u.target_audience,''))) IN ('học sinh','student')
                 AND EXISTS (
                   SELECT 1 FROM teacher_classes tc
                   WHERE (tc.teacher_id = ? OR tc.teacher_id = ?)
                     AND LOWER(TRIM(tc.class_name)) = LOWER(TRIM(COALESCE(u.lop,'')))
                     AND LOWER(TRIM(COALESCE(tc.donvi,''))) = LOWER(TRIM(COALESCE(u.donvi,'')))
-                )
-              ORDER BY u.full_name ASC, a.username ASC, a.id DESC${paginationClause}
-            `).bind(selfId, accountId).all();
-            rows = res.results || [];
+                )`;
+            binds = [selfId, accountId];
+            orderSql = 'LOWER(COALESCE(u.full_name,\'\')) ASC, LOWER(COALESCE(a.username,\'\')) ASC, a.id DESC';
         } else {
             const selfId = String(user.user_id || user.id || '');
             const accountId = String(user.id || selfId);
             const self: any = await db.prepare(projection + `
               WHERE a.id = ? OR a.user_id = ?
-              ORDER BY CASE WHEN a.id = ? THEN 0 ELSE 1 END, a.created_at DESC
+              ORDER BY CASE WHEN a.id = ? THEN 0 ELSE 1 END, a.created_at DESC, a.id DESC
               LIMIT 1
             `).bind(accountId, selfId, accountId).first();
             rows = self ? [self] : [];
+            total = rows.length;
+            snapshot = rows.length ? String(rows[0].id) : '';
+            return new Response(JSON.stringify({
+                data: rows, total, limit, offset: 0, has_more: false, snapshot,
+                role_scope: 'student', error: null
+            }), { status: 200, headers: corsHeaders });
+        }
+
+        const metaSql = `
+          SELECT COUNT(*)::int AS total,
+                 MD5(COALESCE(STRING_AGG(a.id, '|' ORDER BY ${orderSql}), '')) AS snapshot
+          FROM accounts a
+          LEFT JOIN users u ON u.id = COALESCE(a.user_id, a.id)
+          ${whereSql}`;
+        const metaStmt = db.prepare(metaSql);
+        const meta: any = binds.length ? await metaStmt.bind(...binds).first() : await metaStmt.first();
+        total = Number(meta?.total || 0);
+        snapshot = String(meta?.snapshot || '');
+
+        if (requestedSnapshot && requestedSnapshot !== snapshot) {
+            return new Response(JSON.stringify({
+                error: 'Phạm vi dữ liệu đã thay đổi trong khi đang phân trang. Cần tải lại từ trang đầu.',
+                code: 'PAGINATION_SCOPE_CHANGED',
+                snapshot,
+                total
+            }), { status: 409, headers: corsHeaders });
+        }
+
+        const dataSql = projection + whereSql + ` ORDER BY ${orderSql}${paginationClause}`;
+        const dataStmt = db.prepare(dataSql);
+        const res: any = binds.length ? await dataStmt.bind(...binds).all() : await dataStmt.all();
+        rows = res.results || [];
+
+        const unique = new Set(rows.map((row: any) => String(row?.id || '')));
+        if (unique.size !== rows.length || unique.has('')) {
+            return new Response(JSON.stringify({
+                error: 'Phân trang tài khoản phát hiện bản ghi trùng hoặc thiếu ID.',
+                code: 'PAGINATION_PAGE_INVALID'
+            }), { status: 500, headers: corsHeaders });
         }
 
         return new Response(JSON.stringify({
             data: rows,
-            total: rows.length,
+            total,
             limit,
             offset,
-            has_more: limit > 0 && rows.length === limit,
-            role_scope: isAdmin ? 'admin' : (isTeacher ? 'teacher' : 'student'),
+            has_more: limit > 0 ? offset + rows.length < total : false,
+            snapshot,
+            role_scope: isAdmin ? 'admin' : 'teacher',
             error: null
         }), { status: 200, headers: corsHeaders });
     } catch (e: any) {
