@@ -104,7 +104,11 @@ async function teacherPayload(db: any, user: any) {
   const selfProfile: any = await getSelfProfile(db, user);
   if (!selfProfile) throw new Error('TEACHER_PROFILE_NOT_FOUND');
 
-  const teacherIds = [...new Set([String(user.id || ''), String(user.user_id || ''), String(selfProfile.id || '')].filter(Boolean))];
+  const teacherIds = [...new Set([
+    String(user.id || ''),
+    String(user.user_id || ''),
+    String(selfProfile.id || '')
+  ].filter(Boolean))];
   const id1 = teacherIds[0] || '';
   const id2 = teacherIds[1] || id1;
   const id3 = teacherIds[2] || id1;
@@ -113,66 +117,63 @@ async function teacherPayload(db: any, user: any) {
     `SELECT id, teacher_id, teacher_name, class_name, donvi, role, subject, created_at
        FROM teacher_classes
       WHERE teacher_id IN (?, ?, ?)
-      ORDER BY class_name ASC`
+      ORDER BY class_name ASC, donvi ASC, id ASC`
   ).bind(id1, id2, id3).all();
   const assignments = (assignmentRes.results || []) as any[];
 
   for (const a of assignments) {
-    if (!String(a.class_name || '').trim()) throw new Error('TEACHER_ASSIGNMENT_SCOPE_INCOMPLETE');
-    if (!String(a.donvi || '').trim()) throw new Error('TEACHER_ASSIGNMENT_SCOPE_INCOMPLETE');
+    if (!String(a.class_name || '').trim() || !String(a.donvi || '').trim()) {
+      throw new Error('TEACHER_ASSIGNMENT_SCOPE_INCOMPLETE');
+    }
   }
 
   let students: any[] = [];
   let studentAccounts: any[] = [];
   if (assignments.length) {
     const studentSql = `SELECT u.*,
-         COALESCE((SELECT a.id FROM accounts a WHERE a.user_id = u.id OR a.id = u.id ORDER BY (CASE WHEN a.user_id = u.id THEN 0 ELSE 1 END), a.created_at DESC LIMIT 1), NULL) AS account_id,
-         COALESCE((SELECT a.username FROM accounts a WHERE a.user_id = u.id OR a.id = u.id ORDER BY (CASE WHEN a.user_id = u.id THEN 0 ELSE 1 END), a.created_at DESC LIMIT 1), NULL) AS account_username,
-         COALESCE((SELECT a.role FROM accounts a WHERE a.user_id = u.id OR a.id = u.id ORDER BY (CASE WHEN a.user_id = u.id THEN 0 ELSE 1 END), a.created_at DESC LIMIT 1), NULL) AS account_role,
-         COALESCE((SELECT a.is_active FROM accounts a WHERE a.user_id = u.id OR a.id = u.id ORDER BY (CASE WHEN a.user_id = u.id THEN 0 ELSE 1 END), a.created_at DESC LIMIT 1), NULL) AS account_is_active
+         COALESCE((SELECT a.id FROM accounts a WHERE a.user_id=u.id OR a.id=u.id ORDER BY CASE WHEN a.user_id=u.id THEN 0 ELSE 1 END,a.created_at DESC,a.id DESC LIMIT 1),NULL) AS account_id,
+         COALESCE((SELECT a.username FROM accounts a WHERE a.user_id=u.id OR a.id=u.id ORDER BY CASE WHEN a.user_id=u.id THEN 0 ELSE 1 END,a.created_at DESC,a.id DESC LIMIT 1),NULL) AS account_username,
+         COALESCE((SELECT a.role FROM accounts a WHERE a.user_id=u.id OR a.id=u.id ORDER BY CASE WHEN a.user_id=u.id THEN 0 ELSE 1 END,a.created_at DESC,a.id DESC LIMIT 1),NULL) AS account_role,
+         COALESCE((SELECT a.is_active FROM accounts a WHERE a.user_id=u.id OR a.id=u.id ORDER BY CASE WHEN a.user_id=u.id THEN 0 ELSE 1 END,a.created_at DESC,a.id DESC LIMIT 1),NULL) AS account_is_active
        FROM users u
        WHERE LOWER(TRIM(COALESCE(u.target_audience,''))) IN ('học sinh','student')
          AND EXISTS (
            SELECT 1 FROM teacher_classes tc
-            WHERE tc.teacher_id IN (?, ?, ?)
-              AND LOWER(TRIM(tc.class_name)) = LOWER(TRIM(COALESCE(u.lop,'')))
-              AND LOWER(TRIM(COALESCE(u.donvi,''))) =
-                  LOWER(TRIM(COALESCE(tc.donvi,'')))
+           WHERE tc.teacher_id IN (?, ?, ?)
+             AND LOWER(TRIM(tc.class_name))=LOWER(TRIM(COALESCE(u.lop,'')))
+             AND LOWER(TRIM(COALESCE(tc.donvi,'')))=LOWER(TRIM(COALESCE(u.donvi,'')))
          )
-       ORDER BY u.created_at DESC`;
-    const accountSql = `SELECT a.id, a.user_id, a.username, a.role, a.is_active, a.expiry_date, a.created_at,
-              u.full_name, u.phone_number, u.donvi, u.lop, u.target_audience, u.occupation
-         FROM accounts a
-         JOIN users u ON u.id = COALESCE(a.user_id, a.id)
-        WHERE LOWER(TRIM(COALESCE(u.target_audience,''))) IN ('học sinh','student')
-          AND EXISTS (
-            SELECT 1 FROM teacher_classes tc
-             WHERE tc.teacher_id IN (?, ?, ?)
-               AND LOWER(TRIM(tc.class_name)) = LOWER(TRIM(COALESCE(u.lop,'')))
-               AND LOWER(TRIM(COALESCE(u.donvi,''))) =
-                   LOWER(TRIM(COALESCE(NULLIF(tc.donvi,''), ?)))
-          )
-        ORDER BY u.full_name ASC, a.username ASC`;
-    const [sRes, aRes]: any[] = await Promise.all([
-      db.prepare(studentSql).bind(id1, id2, id3, teacherUnit).all(),
-      db.prepare(accountSql).bind(id1, id2, id3, teacherUnit).all()
+       ORDER BY u.created_at DESC,u.id DESC`;
+    const accountSql = `SELECT a.id,a.user_id,a.username,a.role,a.is_active,a.expiry_date,a.created_at,
+              u.full_name,u.phone_number,u.donvi,u.lop,u.target_audience,u.occupation
+       FROM accounts a
+       JOIN users u ON u.id=COALESCE(a.user_id,a.id)
+       WHERE LOWER(TRIM(COALESCE(u.target_audience,''))) IN ('học sinh','student')
+         AND EXISTS (
+           SELECT 1 FROM teacher_classes tc
+           WHERE tc.teacher_id IN (?, ?, ?)
+             AND LOWER(TRIM(tc.class_name))=LOWER(TRIM(COALESCE(u.lop,'')))
+             AND LOWER(TRIM(COALESCE(tc.donvi,'')))=LOWER(TRIM(COALESCE(u.donvi,'')))
+         )
+       ORDER BY LOWER(COALESCE(u.full_name,'')) ASC,LOWER(COALESCE(a.username,'')) ASC,a.id DESC`;
+    const [sRes,aRes]: any[] = await Promise.all([
+      db.prepare(studentSql).bind(id1,id2,id3).all(),
+      db.prepare(accountSql).bind(id1,id2,id3).all()
     ]);
     students = (sRes.results || []) as any[];
     studentAccounts = (aRes.results || []) as any[];
   }
-  selfProfile.assigned_classes = assignments;
-  const users = [selfProfile, ...students.filter(s => String(s.id) !== String(selfProfile.id))];
-  // Giáo viên đã có thông tin tài khoản của chính mình từ /api/auth/login.
-  // Core preload chỉ trả tài khoản Học sinh thuộc lớp được phân công, không tải dư tài khoản GV/Admin.
-  const accounts = studentAccounts;
 
+  selfProfile.assigned_classes = assignments;
+  const users = [selfProfile, ...students.filter((x:any)=>String(x.id)!==String(selfProfile.id))];
+  const accounts = studentAccounts;
   return {
-    role_scope: 'teacher',
+    role_scope:'teacher',
     users,
     accounts,
-    teachers: [],
-    assigned_classes: assignments,
-    counts: { users: users.length, accounts: accounts.length, teachers: 0, students: students.length }
+    teachers:[],
+    assigned_classes:assignments,
+    counts:{users:users.length,accounts:accounts.length,teachers:0,students:students.length}
   };
 }
 
@@ -202,21 +203,28 @@ async function adminPagedPayload(db: any, user: any) {
 async function teacherPagedPayload(db: any, user: any) {
   const selfProfile: any = await getSelfProfile(db, user);
   if (!selfProfile) throw new Error('TEACHER_PROFILE_NOT_FOUND');
-  const teacherIds = [...new Set([String(user.id || ''), String(user.user_id || ''), String(selfProfile.id || '')].filter(Boolean))];
+
+  const teacherIds = [...new Set([
+    String(user.id || ''),
+    String(user.user_id || ''),
+    String(selfProfile.id || '')
+  ].filter(Boolean))];
   const id1 = teacherIds[0] || '';
   const id2 = teacherIds[1] || id1;
   const id3 = teacherIds[2] || id1;
+
   const assignmentRes: any = await db.prepare(
-    `SELECT id, teacher_id, teacher_name, class_name, donvi, role, subject, created_at
+    `SELECT id,teacher_id,teacher_name,class_name,donvi,role,subject,created_at
        FROM teacher_classes
-      WHERE teacher_id IN (?, ?, ?)
-      ORDER BY class_name ASC, donvi ASC, id ASC`
-  ).bind(id1, id2, id3).all();
+       WHERE teacher_id IN (?, ?, ?)
+       ORDER BY class_name ASC,donvi ASC,id ASC`
+  ).bind(id1,id2,id3).all();
   const assignments = (assignmentRes.results || []) as any[];
-  const teacherUnit = String(selfProfile.donvi || user.donvi || '').trim();
+
   for (const a of assignments) {
-    if (!String(a.class_name || '').trim()) throw new Error('TEACHER_ASSIGNMENT_SCOPE_INCOMPLETE');
-    if (!String(a.donvi || teacherUnit || '').trim()) throw new Error('TEACHER_ASSIGNMENT_SCOPE_INCOMPLETE');
+    if (!String(a.class_name || '').trim() || !String(a.donvi || '').trim()) {
+      throw new Error('TEACHER_ASSIGNMENT_SCOPE_INCOMPLETE');
+    }
   }
   selfProfile.assigned_classes = assignments;
 
@@ -227,40 +235,36 @@ async function teacherPagedPayload(db: any, user: any) {
       AND EXISTS (
         SELECT 1 FROM teacher_classes tc
         WHERE tc.teacher_id IN (?, ?, ?)
-          AND LOWER(TRIM(tc.class_name)) = LOWER(TRIM(COALESCE(u.lop,'')))
-          AND LOWER(TRIM(COALESCE(u.donvi,''))) =
-              LOWER(TRIM(COALESCE(tc.donvi,'')))
+          AND LOWER(TRIM(tc.class_name))=LOWER(TRIM(COALESCE(u.lop,'')))
+          AND LOWER(TRIM(COALESCE(tc.donvi,'')))=LOWER(TRIM(COALESCE(u.donvi,'')))
       )`;
   const accountCountSql = `
     SELECT COUNT(*)::int AS total
     FROM accounts a
-    JOIN users u ON u.id = COALESCE(a.user_id, a.id)
+    JOIN users u ON u.id=COALESCE(a.user_id,a.id)
     WHERE LOWER(TRIM(COALESCE(u.target_audience,''))) IN ('học sinh','student')
       AND EXISTS (
         SELECT 1 FROM teacher_classes tc
         WHERE tc.teacher_id IN (?, ?, ?)
-          AND LOWER(TRIM(tc.class_name)) = LOWER(TRIM(COALESCE(u.lop,'')))
-          AND LOWER(TRIM(COALESCE(u.donvi,''))) =
-              LOWER(TRIM(COALESCE(NULLIF(tc.donvi,''), ?)))
+          AND LOWER(TRIM(tc.class_name))=LOWER(TRIM(COALESCE(u.lop,'')))
+          AND LOWER(TRIM(COALESCE(tc.donvi,'')))=LOWER(TRIM(COALESCE(u.donvi,'')))
       )`;
-  const [studentsCount, accountsCount]: any[] = await Promise.all([
-    db.prepare(studentCountSql).bind(id1, id2, id3).first(),
-    db.prepare(accountCountSql).bind(id1, id2, id3).first()
+
+  const [studentsCount,accountsCount]: any[] = await Promise.all([
+    db.prepare(studentCountSql).bind(id1,id2,id3).first(),
+    db.prepare(accountCountSql).bind(id1,id2,id3).first()
   ]);
+  const students = Number(studentsCount?.total || 0);
+  const accounts = Number(accountsCount?.total || 0);
 
   return {
-    role_scope: 'teacher',
-    paged: true,
-    users: [selfProfile],
-    accounts: [],
-    teachers: [],
-    assigned_classes: assignments,
-    counts: {
-      users: Number(studentsCount?.total || 0) + 1,
-      accounts: Number(accountsCount?.total || 0),
-      teachers: 0,
-      students: Number(studentsCount?.total || 0)
-    }
+    role_scope:'teacher',
+    paged:true,
+    users:[selfProfile],
+    accounts:[],
+    teachers:[],
+    assigned_classes:assignments,
+    counts:{users:students+1,accounts,teachers:0,students}
   };
 }
 
