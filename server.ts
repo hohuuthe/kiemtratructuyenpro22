@@ -650,9 +650,9 @@ async function startServer() {
   function checkIsTeacherOrAdmin(user: any): boolean {
     if (!user) return false;
     if (checkIsAdmin(user)) return true;
-    const role = String(user.role || '').toLowerCase();
-    const audience = String(user.target_audience || '').toLowerCase();
-    return role === 'giáo viên' || audience === 'giáo viên' || role === 'teacher' || role === 'khác';
+    const role = String(user.role || '').trim().toLowerCase();
+    const audience = String(user.target_audience || '').trim().toLowerCase();
+    return role === 'giáo viên' || audience === 'giáo viên' || role === 'teacher' || audience === 'teacher';
   }
 
   app.get("/api/health", async (req, res) => {
@@ -974,49 +974,24 @@ async function startServer() {
     }
   });
 
-  // 1. Lấy danh sách tài khoản
+  // 1. Lấy danh sách tài khoản - lọc tuyệt đối theo vai trò.
   app.get("/api/accounts", async (req, res) => {
     try {
-      const authHeader = req.headers.authorization;
-      let user: any = null;
-      if (authHeader && authHeader.startsWith("Bearer ")) {
-        const token = authHeader.substring(7);
-        user = verifyJWTSync(token, await getServerSecret());
-      }
+      const authHeader = req.headers.authorization || '';
+      if (!authHeader.startsWith("Bearer ")) return res.status(401).json({ error: "Unauthorized" });
+      const user: any = verifyJWTSync(authHeader.substring(7), await getServerSecret());
+      if (!user) return res.status(401).json({ error: "Phiên đăng nhập không hợp lệ" });
 
       const isAdmin = checkIsAdmin(user);
       const isTeacher = checkIsTeacherOrAdmin(user) && !isAdmin;
-
-      let teacherDonvi = '';
-      if (isTeacher) {
-        try {
-          const { results: uRows } = await executeSqlQuery(
-            "SELECT donvi FROM users WHERE id = ? OR id = ?",
-            [user.user_id || user.id, user.id]
-          );
-          if (uRows && uRows.length > 0 && uRows[0].donvi) {
-            teacherDonvi = uRows[0].donvi.trim();
-          }
-        } catch (e) {}
-        if (!teacherDonvi && user.donvi) {
-          teacherDonvi = user.donvi.trim();
-        }
-      }
-      
       const limitParam = req.query.limit as string;
       const offsetParam = req.query.offset as string;
       const pageParam = req.query.page as string;
-
-      let limit = -1; // Mặc định không giới hạn để trả về toàn bộ dữ liệu CSDL nếu không yêu cầu phân trang
-      if (limitParam !== undefined) {
-        if (limitParam === 'all' || limitParam === '0' || limitParam === '-1') {
-          limit = -1;
-        } else {
-          const parsed = parseInt(limitParam, 10);
-          if (!isNaN(parsed) && parsed > 0) limit = parsed;
-        }
+      let limit = -1;
+      if (limitParam !== undefined && !['all','0','-1'].includes(limitParam)) {
+        const parsed = parseInt(limitParam, 10);
+        if (!isNaN(parsed) && parsed > 0) limit = parsed;
       }
-
       let offset = 0;
       if (offsetParam !== undefined) {
         const parsed = parseInt(offsetParam, 10);
@@ -1025,61 +1000,50 @@ async function startServer() {
         const page = parseInt(pageParam, 10);
         if (!isNaN(page) && page > 0) offset = (page - 1) * (limit > 0 ? limit : 1000);
       }
-
       const paginationClause = limit > 0 ? ` LIMIT ${limit} OFFSET ${offset}` : '';
-      
-      let query = "";
-      const queryParams: any[] = [];
+      const projection = `
+        SELECT a.id,a.user_id,a.username,a.role,a.is_active,a.expiry_date,a.created_at,
+               u.full_name,u.phone_number,u.donvi,u.lop,u.target_audience,u.occupation
+        FROM accounts a
+        LEFT JOIN users u ON u.id=COALESCE(a.user_id,a.id)
+      `;
+
+      let rows:any[]=[];
       if (isAdmin) {
-        query = `SELECT accounts.id, accounts.user_id, accounts.username, accounts.role, accounts.is_active, accounts.expiry_date, accounts.created_at,
-                        users.full_name,
-                        users.phone_number,
-                        users.target_audience,
-                        users.donvi,
-                        users.lop,
-                        users.occupation
-                 FROM accounts 
-                 LEFT JOIN users ON users.id = COALESCE(accounts.user_id, accounts.id)
-                 ORDER BY accounts.created_at DESC, accounts.id DESC${paginationClause}`;
+        const result=await executeSqlQuery(projection+` ORDER BY a.created_at DESC,a.id DESC${paginationClause}`,[]);
+        rows=result.results||[];
+      } else if (isTeacher) {
+        const selfId=String(user.user_id||user.id||'');
+        const accountId=String(user.id||selfId);
+        const result=await executeSqlQuery(projection+`
+          WHERE LOWER(TRIM(COALESCE(u.target_audience,''))) IN ('học sinh','student')
+            AND EXISTS (
+              SELECT 1 FROM teacher_classes tc
+              WHERE tc.teacher_id IN (?,?)
+                AND LOWER(TRIM(tc.class_name))=LOWER(TRIM(COALESCE(u.lop,'')))
+                AND LOWER(TRIM(tc.donvi))=LOWER(TRIM(COALESCE(u.donvi,'')))
+            )
+          ORDER BY u.full_name ASC,a.username ASC,a.id DESC${paginationClause}`,[selfId,accountId]);
+        rows=result.results||[];
       } else {
-        query = `SELECT accounts.id, accounts.user_id, accounts.username, accounts.role, accounts.is_active, accounts.expiry_date,
-                        users.full_name, users.target_audience, users.donvi, users.lop, users.phone_number,
-                        (SELECT COUNT(*) FROM exam_configs ec WHERE ec.creator_id = accounts.id OR ec.creator_id = accounts.user_id) AS exam_count
-                 FROM accounts 
-                 LEFT JOIN users ON users.id = COALESCE(accounts.user_id, accounts.id)
-                 WHERE users.target_audience = 'Giáo viên' 
-                    OR accounts.role = 'teacher' 
-                    OR accounts.role = 'giáo viên'
-                    OR accounts.role = 'admin' 
-                    OR users.target_audience = 'Quản trị viên' 
-                    OR LOWER(users.target_audience) = 'giáo viên'
-                    OR LOWER(users.target_audience) = 'teacher'
-                    OR LOWER(accounts.role) = 'teacher'
-                    OR LOWER(accounts.role) = 'giáo viên'`;
-        if (teacherDonvi) {
-          query += ` OR (TRIM(LOWER(users.donvi)) = TRIM(LOWER(?)) AND LOWER(users.target_audience) = 'học sinh')`;
-          queryParams.push(teacherDonvi);
-        }
-        query += ` ORDER BY users.full_name ASC, accounts.username ASC, accounts.id DESC${paginationClause}`;
+        const selfId=String(user.user_id||user.id||'');
+        const accountId=String(user.id||selfId);
+        const result=await executeSqlQuery(projection+`
+          WHERE a.id=? OR a.user_id=?
+          ORDER BY CASE WHEN a.id=? THEN 0 ELSE 1 END,a.created_at DESC
+          LIMIT 1`,[accountId,selfId,accountId]);
+        rows=result.results||[];
       }
-      
-      const result = await executeSqlQuery(query, queryParams);
-      const accList = result.results || [];
-      return res.status(200).json({ 
-        data: accList, 
-        total: accList.length,
-        limit,
-        offset,
-        has_more: limit > 0 && accList.length === limit,
-        error: null 
+
+      return res.status(200).json({
+        data:rows,total:rows.length,limit,offset,
+        has_more:isAdmin ? (limit>0 && rows.length===limit) : false,
+        role_scope:isAdmin?'admin':(isTeacher?'teacher':'student'),
+        error:null
       });
-    } catch (e: any) {
-      if (e && e.message && e.message.includes("hạn mức dữ liệu")) {
-        // quota error logged as 503
-        return res.status(400).json({ error: e.message });
-      }
-      console.error("GET /api/accounts error::", e);
-      return res.status(500).json({ error: e.message || 'Lỗi server' });
+    } catch (e:any) {
+      console.error("GET /api/accounts error::",e);
+      return res.status(500).json({error:e.message||'Lỗi server'});
     }
   });
 
@@ -1409,148 +1373,83 @@ async function startServer() {
   // Khi xóa người dùng thì tự động xóa tài khoản gắn với người dùng đó nếu có
   // =========================================================================
 
-  // 1. Lấy danh sách hồ sơ người dùng
+  // 1. Lấy danh sách hồ sơ người dùng - lọc tuyệt đối theo vai trò.
   app.get("/api/users", async (req, res) => {
     try {
-      const authHeader = req.headers.authorization;
-      if (!authHeader || !authHeader.startsWith("Bearer ")) return res.status(401).json({ error: "Unauthorized" });
-      const token = authHeader.substring(7);
-      const user = verifyJWTSync(token, await getServerSecret());
-      
-      const isAdmin = checkIsAdmin(user);
-      const isTeacher = checkIsTeacherOrAdmin(user) && !isAdmin;
-      if (!user || (!isAdmin && !isTeacher)) {
-         return res.status(403).json({ error: "Bạn không có quyền truy cập thông tin người dùng" });
-      }
+      const authHeader=req.headers.authorization||'';
+      if(!authHeader.startsWith("Bearer ")) return res.status(401).json({error:"Unauthorized"});
+      const user:any=verifyJWTSync(authHeader.substring(7),await getServerSecret());
+      if(!user) return res.status(401).json({error:"Phiên đăng nhập không hợp lệ"});
 
-      let teacherDonvi = '';
-      if (isTeacher) {
-        try {
-          const { results: uRows } = await executeSqlQuery(
-            "SELECT donvi FROM users WHERE id = ? OR id = ?",
-            [user.user_id || user.id, user.id]
-          );
-          if (uRows && uRows.length > 0 && uRows[0].donvi) {
-            teacherDonvi = uRows[0].donvi.trim();
-          }
-        } catch (e) {}
-        if (!teacherDonvi && user.donvi) {
-          teacherDonvi = user.donvi.trim();
-        }
+      const isAdmin=checkIsAdmin(user);
+      const isTeacher=checkIsTeacherOrAdmin(user)&&!isAdmin;
+      const limitParam=req.query.limit as string;
+      const offsetParam=req.query.offset as string;
+      const pageParam=req.query.page as string;
+      let limit=-1;
+      if(limitParam!==undefined&&!['all','0','-1'].includes(limitParam)){
+        const parsed=parseInt(limitParam,10); if(!isNaN(parsed)&&parsed>0) limit=parsed;
       }
-
-      let sql = `
-        SELECT users.*, 
-               COALESCE(
-                 (SELECT accounts.id FROM accounts WHERE accounts.user_id = users.id OR accounts.id = users.id ORDER BY (CASE WHEN accounts.user_id = users.id THEN 0 ELSE 1 END), accounts.created_at DESC LIMIT 1),
-                 NULL
-               ) AS account_id,
-               COALESCE(
-                 (SELECT accounts.username FROM accounts WHERE accounts.user_id = users.id OR accounts.id = users.id ORDER BY (CASE WHEN accounts.user_id = users.id THEN 0 ELSE 1 END), accounts.created_at DESC LIMIT 1),
-                 NULL
-               ) AS account_username,
-               COALESCE(
-                 (SELECT accounts.role FROM accounts WHERE accounts.user_id = users.id OR accounts.id = users.id ORDER BY (CASE WHEN accounts.user_id = users.id THEN 0 ELSE 1 END), accounts.created_at DESC LIMIT 1),
-                 NULL
-               ) AS account_role,
-               COALESCE(
-                 (SELECT accounts.is_active FROM accounts WHERE accounts.user_id = users.id OR accounts.id = users.id ORDER BY (CASE WHEN accounts.user_id = users.id THEN 0 ELSE 1 END), accounts.created_at DESC LIMIT 1),
-                 NULL
-               ) AS account_is_active
-        FROM users 
+      let offset=0;
+      if(offsetParam!==undefined){const parsed=parseInt(offsetParam,10);if(!isNaN(parsed)&&parsed>=0)offset=parsed;}
+      else if(pageParam!==undefined){const page=parseInt(pageParam,10);if(!isNaN(page)&&page>0)offset=(page-1)*(limit>0?limit:1000);}
+      const paginationClause=limit>0?` LIMIT ${limit} OFFSET ${offset}`:'';
+      const projection=`
+        SELECT u.*,
+          (SELECT a.id FROM accounts a WHERE a.user_id=u.id OR a.id=u.id ORDER BY CASE WHEN a.user_id=u.id THEN 0 ELSE 1 END,a.created_at DESC LIMIT 1) AS account_id,
+          (SELECT a.username FROM accounts a WHERE a.user_id=u.id OR a.id=u.id ORDER BY CASE WHEN a.user_id=u.id THEN 0 ELSE 1 END,a.created_at DESC LIMIT 1) AS account_username,
+          (SELECT a.role FROM accounts a WHERE a.user_id=u.id OR a.id=u.id ORDER BY CASE WHEN a.user_id=u.id THEN 0 ELSE 1 END,a.created_at DESC LIMIT 1) AS account_role,
+          (SELECT a.is_active FROM accounts a WHERE a.user_id=u.id OR a.id=u.id ORDER BY CASE WHEN a.user_id=u.id THEN 0 ELSE 1 END,a.created_at DESC LIMIT 1) AS account_is_active
+        FROM users u
       `;
-      const params: any[] = [];
-      if (isTeacher) {
-        // Lấy danh sách tên các lớp được phân công cho giáo viên này
-        const myTeacherId = user.user_id || user.id || '';
-        const myTeacherName = user.full_name || '';
-        const { results: myClassRows } = await executeSqlQuery(
-          "SELECT DISTINCT class_name FROM teacher_classes WHERE (teacher_id = ? OR teacher_id = ? OR teacher_name = ?) AND class_name IS NOT NULL AND TRIM(class_name) != ''",
-          [user.id, myTeacherId, myTeacherName]
-        );
-        const myAssignedClasses = Array.from(new Set((myClassRows || []).map((r: any) => String(r.class_name || '').trim()).filter(Boolean)));
 
-        // NẾU GIÁO VIÊN CHƯA ĐƯỢC PHÂN CÔNG LỚP NÀO -> TUYỆT ĐỐI KHÔNG THẤY BẤT KỲ HỌC SINH NÀO
-        if (myAssignedClasses.length === 0) {
-          return res.status(200).json({ data: [], error: null });
+      let rows:any[]=[];
+      if(isAdmin){
+        const result=await executeSqlQuery(projection+` ORDER BY u.created_at DESC${paginationClause}`,[]);
+        rows=result.results||[];
+        const tc=await executeSqlQuery('SELECT id,teacher_id,teacher_name,class_name,donvi,role,subject,created_at FROM teacher_classes ORDER BY class_name ASC',[]);
+        const map:any={};
+        for(const x of (tc.results||[])){const id=String(x.teacher_id||'');(map[id]||(map[id]=[])).push(x);}
+        for(const row of rows)row.assigned_classes=map[String(row.id)]||[];
+      }else if(isTeacher){
+        const selfId=String(user.user_id||user.id||'');
+        const accountId=String(user.id||selfId);
+        const selfRes=await executeSqlQuery(projection+' WHERE u.id=? OR u.id=? ORDER BY CASE WHEN u.id=? THEN 0 ELSE 1 END LIMIT 1',[selfId,accountId,selfId]);
+        const self=selfRes.results?.[0]||null;
+        if(!self) return res.status(409).json({error:'Không tìm thấy hồ sơ giáo viên liên kết với tài khoản.'});
+        const tc=await executeSqlQuery('SELECT id,teacher_id,teacher_name,class_name,donvi,role,subject,created_at FROM teacher_classes WHERE teacher_id IN (?,?) ORDER BY class_name ASC',[selfId,accountId]);
+        const assignments=tc.results||[];
+        self.assigned_classes=assignments;
+        let students:any[]=[];
+        if(assignments.length){
+          const sr=await executeSqlQuery(projection+`
+            WHERE LOWER(TRIM(COALESCE(u.target_audience,''))) IN ('học sinh','student')
+              AND EXISTS (
+                SELECT 1 FROM teacher_classes tc
+                WHERE tc.teacher_id IN (?,?)
+                  AND LOWER(TRIM(tc.class_name))=LOWER(TRIM(COALESCE(u.lop,'')))
+                  AND LOWER(TRIM(tc.donvi))=LOWER(TRIM(COALESCE(u.donvi,'')))
+              )
+            ORDER BY u.created_at DESC`,[selfId,accountId]);
+          students=sr.results||[];
         }
-
-        const lopPlaceholders = myAssignedClasses.map(() => "LOWER(TRIM(?))").join(",");
-        const lowerAssigned = myAssignedClasses.map(c => c.toLowerCase());
-
-        sql += ` WHERE LOWER(users.target_audience) = 'học sinh' AND LOWER(TRIM(users.lop)) IN (${lopPlaceholders}) `;
-        params.push(...lowerAssigned);
-
-        if (teacherDonvi) {
-          sql += " AND TRIM(LOWER(users.donvi)) = TRIM(LOWER(?)) ";
-          params.push(teacherDonvi);
-        }
+        rows=[self,...students.filter((x:any)=>String(x.id)!==String(self.id))];
+      }else{
+        const selfId=String(user.user_id||user.id||'');
+        const accountId=String(user.id||selfId);
+        const sr=await executeSqlQuery(projection+' WHERE u.id=? OR u.id=? ORDER BY CASE WHEN u.id=? THEN 0 ELSE 1 END LIMIT 1',[selfId,accountId,selfId]);
+        rows=sr.results?.length?[sr.results[0]]:[];
       }
 
-      const limitParam = req.query.limit as string;
-      const offsetParam = req.query.offset as string;
-      const pageParam = req.query.page as string;
-
-      let limit = -1; // Mặc định không giới hạn để trả về toàn bộ dữ liệu CSDL nếu không yêu cầu phân trang
-      if (limitParam !== undefined) {
-        if (limitParam === 'all' || limitParam === '0' || limitParam === '-1') {
-          limit = -1;
-        } else {
-          const parsed = parseInt(limitParam, 10);
-          if (!isNaN(parsed) && parsed > 0) limit = parsed;
-        }
-      }
-
-      let offset = 0;
-      if (offsetParam !== undefined) {
-        const parsed = parseInt(offsetParam, 10);
-        if (!isNaN(parsed) && parsed >= 0) offset = parsed;
-      } else if (pageParam !== undefined) {
-        const page = parseInt(pageParam, 10);
-        if (!isNaN(page) && page > 0) offset = (page - 1) * (limit > 0 ? limit : 1000);
-      }
-
-      const paginationClause = limit > 0 ? ` LIMIT ${limit} OFFSET ${offset}` : '';
-      sql += ` ORDER BY users.created_at DESC${paginationClause}`;
-
-      const result = await executeSqlQuery(sql, params);
-      const userList = result.results || [];
-
-      // Đính kèm danh sách lớp phụ trách (assigned_classes) cho tài khoản giáo viên
-      try {
-        const { results: tcRows } = await executeSqlQuery(
-          "SELECT id, teacher_id, teacher_name, class_name, donvi, role, subject, created_at FROM teacher_classes ORDER BY class_name ASC",
-          []
-        );
-        const tcMap: Record<string, any[]> = {};
-        for (const tc of (tcRows || [])) {
-          const tid = tc.teacher_id;
-          if (!tcMap[tid]) tcMap[tid] = [];
-          tcMap[tid].push(tc);
-        }
-        for (const u of userList) {
-          u.assigned_classes = tcMap[u.id] || [];
-        }
-      } catch (tcErr) {
-        for (const u of userList) {
-          u.assigned_classes = [];
-        }
-      }
-
-      return res.status(200).json({ 
-        data: userList, 
-        total: userList.length,
-        limit,
-        offset,
-        has_more: limit > 0 && userList.length === limit,
-        error: null 
+      return res.status(200).json({
+        data:rows,total:rows.length,limit,offset,
+        has_more:isAdmin ? (limit>0&&rows.length===limit) : false,
+        role_scope:isAdmin?'admin':(isTeacher?'teacher':'student'),
+        error:null
       });
-    } catch (e: any) {
-      if (e && e.message && e.message.includes("hạn mức dữ liệu")) {
-        return res.status(400).json({ error: e.message });
-      }
-      console.error("GET /api/users error:", e);
-      return res.status(500).json({ error: e.message || 'Lỗi server' });
+    }catch(e:any){
+      console.error("GET /api/users error:",e);
+      return res.status(500).json({error:e.message||'Lỗi server'});
     }
   });
 
