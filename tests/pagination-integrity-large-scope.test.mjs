@@ -113,3 +113,11 @@ test('server verifies scope fingerprint both before and after page select', () =
   assert.match(server, /const verifyMeta=await executeSqlQuery\(metaSql,binds\)/);
   assert.match(server, /Phạm vi dữ liệu giáo viên thay đổi ngay trong lúc đọc trang/);
 });
+
+
+test('node identity pagination bypasses the process query cache', () => {
+  assert.match(server, /const bypassCache = sql\.includes\('\/\* no-cache \*\/'\)/);
+  assert.match(server, /!bypassCache && !sql\.includes\('FROM accounts'\)/);
+  assert.match(server, /\/\* no-cache \*\/ SELECT COUNT\(\*\)::int AS student_total/);
+  assert.match(server, /\/\* no-cache \*\/ SELECT u\.\*/);
+});
