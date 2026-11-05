@@ -896,8 +896,28 @@ async function startServer() {
                u.full_name,u.phone_number,u.donvi,u.lop,u.target_audience,u.occupation
         FROM accounts a LEFT JOIN users u ON u.id=COALESCE(a.user_id,a.id)
       `;
+      const paged=String(req.query.paged||'')==='1';
+      const selfId=String(actor.user_id||actor.id||'');
+      const accountId=String(actor.id||selfId);
 
       if (checkIsAdmin(actor)) {
+        if(paged){
+          const selfRes=await executeSqlQuery(
+            projection+' WHERE u.id=? OR u.id=? ORDER BY CASE WHEN u.id=? THEN 0 ELSE 1 END,u.id DESC LIMIT 1',
+            [selfId,accountId,selfId]
+          );
+          const selfProfile:any=selfRes.results?.[0];
+          if(!selfProfile) return res.status(409).json({error:'Không tìm thấy hồ sơ Admin liên kết với tài khoản đăng nhập.'});
+          selfProfile.assigned_classes=[];
+          const [uCount,aCount]=await Promise.all([
+            executeSqlQuery('SELECT COUNT(*)::int AS total FROM users',[]),
+            executeSqlQuery('SELECT COUNT(*)::int AS total FROM accounts',[])
+          ]);
+          return res.json({data:{
+            role_scope:'admin',paged:true,users:[selfProfile],accounts:[],teachers:[],assigned_classes:[],
+            counts:{users:Number(uCount.results?.[0]?.total||0),accounts:Number(aCount.results?.[0]?.total||0),teachers:0}
+          },error:null});
+        }
         const [uRes,aRes,tcRes]=await Promise.all([
           executeSqlQuery(projection+' ORDER BY u.created_at DESC',[]),
           executeSqlQuery(accountProjection+' ORDER BY a.created_at DESC,a.id DESC',[]),
@@ -910,9 +930,7 @@ async function startServer() {
         return res.json({data:{role_scope:'admin',users,accounts,teachers:[],assigned_classes:[],counts:{users:users.length,accounts:accounts.length,teachers:0}},error:null});
       }
 
-      const selfId=String(actor.user_id||actor.id||'');
-      const accountId=String(actor.id||selfId);
-      const selfRes=await executeSqlQuery(projection+' WHERE u.id=? OR u.id=? ORDER BY CASE WHEN u.id=? THEN 0 ELSE 1 END LIMIT 1',[selfId,accountId,selfId]);
+      const selfRes=await executeSqlQuery(projection+' WHERE u.id=? OR u.id=? ORDER BY CASE WHEN u.id=? THEN 0 ELSE 1 END,u.id DESC LIMIT 1',[selfId,accountId,selfId]);
       const selfProfile:any=selfRes.results?.[0];
       if(!selfProfile) return res.status(409).json({error:'Không tìm thấy hồ sơ người dùng liên kết với tài khoản đăng nhập.'});
 
@@ -922,6 +940,31 @@ async function startServer() {
           [selfId,accountId]
         );
         const assignments=tcRes.results||[];
+        if(paged){
+          selfProfile.assigned_classes=assignments;
+          const studentCountSql=`
+            SELECT COUNT(*)::int AS total FROM users u
+            WHERE LOWER(TRIM(COALESCE(u.target_audience,''))) IN ('học sinh','student')
+              AND EXISTS(SELECT 1 FROM teacher_classes tc WHERE (tc.teacher_id=? OR tc.teacher_id=?)
+                AND LOWER(TRIM(tc.class_name))=LOWER(TRIM(COALESCE(u.lop,'')))
+                AND LOWER(TRIM(COALESCE(tc.donvi,'')))=LOWER(TRIM(COALESCE(u.donvi,''))))`;
+          const accountCountSql=`
+            SELECT COUNT(*)::int AS total FROM accounts a
+            JOIN users u ON u.id=COALESCE(a.user_id,a.id)
+            WHERE LOWER(TRIM(COALESCE(u.target_audience,''))) IN ('học sinh','student')
+              AND EXISTS(SELECT 1 FROM teacher_classes tc WHERE (tc.teacher_id=? OR tc.teacher_id=?)
+                AND LOWER(TRIM(tc.class_name))=LOWER(TRIM(COALESCE(u.lop,'')))
+                AND LOWER(TRIM(COALESCE(tc.donvi,'')))=LOWER(TRIM(COALESCE(u.donvi,''))))`;
+          const [studentsCount,accountsCount]=await Promise.all([
+            executeSqlQuery(studentCountSql,[selfId,accountId]),
+            executeSqlQuery(accountCountSql,[selfId,accountId])
+          ]);
+          const studentTotal=Number(studentsCount.results?.[0]?.total||0);
+          return res.json({data:{
+            role_scope:'teacher',paged:true,users:[selfProfile],accounts:[],teachers:[],assigned_classes:assignments,
+            counts:{users:studentTotal+1,accounts:Number(accountsCount.results?.[0]?.total||0),teachers:0,students:studentTotal}
+          },error:null});
+        }
         let students:any[]=[]; let accounts:any[]=[];
         if(assignments.length){
           const studentSql=projection+`
