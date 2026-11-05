@@ -177,6 +177,94 @@ async function teacherPayload(db: any, user: any) {
   };
 }
 
+async function adminPagedPayload(db: any, user: any) {
+  const selfProfile: any = await getSelfProfile(db, user);
+  if (!selfProfile) throw new Error('ADMIN_PROFILE_NOT_FOUND');
+  selfProfile.assigned_classes = [];
+  const [uCount, aCount]: any[] = await Promise.all([
+    db.prepare('SELECT COUNT(*)::int AS total FROM users').first(),
+    db.prepare('SELECT COUNT(*)::int AS total FROM accounts').first()
+  ]);
+  return {
+    role_scope: 'admin',
+    paged: true,
+    users: [selfProfile],
+    accounts: [],
+    teachers: [],
+    assigned_classes: [],
+    counts: {
+      users: Number(uCount?.total || 0),
+      accounts: Number(aCount?.total || 0),
+      teachers: 0
+    }
+  };
+}
+
+async function teacherPagedPayload(db: any, user: any) {
+  const selfProfile: any = await getSelfProfile(db, user);
+  if (!selfProfile) throw new Error('TEACHER_PROFILE_NOT_FOUND');
+  const teacherIds = [...new Set([String(user.id || ''), String(user.user_id || ''), String(selfProfile.id || '')].filter(Boolean))];
+  const id1 = teacherIds[0] || '';
+  const id2 = teacherIds[1] || id1;
+  const id3 = teacherIds[2] || id1;
+  const assignmentRes: any = await db.prepare(
+    `SELECT id, teacher_id, teacher_name, class_name, donvi, role, subject, created_at
+       FROM teacher_classes
+      WHERE teacher_id IN (?, ?, ?)
+      ORDER BY class_name ASC, donvi ASC, id ASC`
+  ).bind(id1, id2, id3).all();
+  const assignments = (assignmentRes.results || []) as any[];
+  const teacherUnit = String(selfProfile.donvi || user.donvi || '').trim();
+  for (const a of assignments) {
+    if (!String(a.class_name || '').trim()) throw new Error('TEACHER_ASSIGNMENT_SCOPE_INCOMPLETE');
+    if (!String(a.donvi || teacherUnit || '').trim()) throw new Error('TEACHER_ASSIGNMENT_SCOPE_INCOMPLETE');
+  }
+  selfProfile.assigned_classes = assignments;
+
+  const studentCountSql = `
+    SELECT COUNT(*)::int AS total
+    FROM users u
+    WHERE LOWER(TRIM(COALESCE(u.target_audience,''))) IN ('học sinh','student')
+      AND EXISTS (
+        SELECT 1 FROM teacher_classes tc
+        WHERE tc.teacher_id IN (?, ?, ?)
+          AND LOWER(TRIM(tc.class_name)) = LOWER(TRIM(COALESCE(u.lop,'')))
+          AND LOWER(TRIM(COALESCE(u.donvi,''))) =
+              LOWER(TRIM(COALESCE(NULLIF(tc.donvi,''), ?)))
+      )`;
+  const accountCountSql = `
+    SELECT COUNT(*)::int AS total
+    FROM accounts a
+    JOIN users u ON u.id = COALESCE(a.user_id, a.id)
+    WHERE LOWER(TRIM(COALESCE(u.target_audience,''))) IN ('học sinh','student')
+      AND EXISTS (
+        SELECT 1 FROM teacher_classes tc
+        WHERE tc.teacher_id IN (?, ?, ?)
+          AND LOWER(TRIM(tc.class_name)) = LOWER(TRIM(COALESCE(u.lop,'')))
+          AND LOWER(TRIM(COALESCE(u.donvi,''))) =
+              LOWER(TRIM(COALESCE(NULLIF(tc.donvi,''), ?)))
+      )`;
+  const [studentsCount, accountsCount]: any[] = await Promise.all([
+    db.prepare(studentCountSql).bind(id1, id2, id3, teacherUnit).first(),
+    db.prepare(accountCountSql).bind(id1, id2, id3, teacherUnit).first()
+  ]);
+
+  return {
+    role_scope: 'teacher',
+    paged: true,
+    users: [selfProfile],
+    accounts: [],
+    teachers: [],
+    assigned_classes: assignments,
+    counts: {
+      users: Number(studentsCount?.total || 0) + 1,
+      accounts: Number(accountsCount?.total || 0),
+      teachers: 0,
+      students: Number(studentsCount?.total || 0)
+    }
+  };
+}
+
 async function studentTeachers(db: any, profile: any) {
   const studentUnit = norm(profile?.donvi || profile?.address || '');
   const studentClass = normClass(profile?.lop || '');
@@ -281,9 +369,10 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
       return new Response(JSON.stringify({ error: 'Phiên đăng nhập không hợp lệ' }), { status: 401, headers });
     }
 
+    const paged = new URL(request.url).searchParams.get('paged') === '1';
     let data;
-    if (checkIsAdmin(user)) data = await adminPayload(db);
-    else if (checkIsTeacherOrAdmin(user)) data = await teacherPayload(db, user);
+    if (checkIsAdmin(user)) data = paged ? await adminPagedPayload(db, user) : await adminPayload(db);
+    else if (checkIsTeacherOrAdmin(user)) data = paged ? await teacherPagedPayload(db, user) : await teacherPayload(db, user);
     else data = await studentPayload(db, user);
 
     return new Response(JSON.stringify({ data, error: null }), { status: 200, headers });
@@ -295,7 +384,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
         code: 'TEACHER_ASSIGNMENT_SCOPE_INCOMPLETE'
       }), { status: 409, headers });
     }
-    if (msg.includes('TEACHER_PROFILE_NOT_FOUND') || msg.includes('STUDENT_PROFILE_NOT_FOUND')) {
+    if (msg.includes('TEACHER_PROFILE_NOT_FOUND') || msg.includes('STUDENT_PROFILE_NOT_FOUND') || msg.includes('ADMIN_PROFILE_NOT_FOUND')) {
       return new Response(JSON.stringify({
         error: 'Không tìm thấy hồ sơ người dùng liên kết với tài khoản đăng nhập.',
         code: msg
