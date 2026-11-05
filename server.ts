@@ -272,11 +272,13 @@ async function startServer() {
     const targetUrl = store?.databaseUrl;
     if (!targetUrl) throw new Error('Tenant database not configured');
     
-    const isSelect = sql.trim().toUpperCase().startsWith("SELECT");
+    const isSelect = sql.trim().toUpperCase().startsWith("SELECT") || sql.trim().startsWith("/* no-cache */");
+    const bypassCache = sql.includes('/* no-cache */');
     const cacheKey = `${targetUrl}::${sql.trim().toLowerCase()}::${JSON.stringify(params)}`;
 
-    // If SELECT and recently cached (TTL 10s), return memory cache immediately
-    if (isSelect && !sql.includes('FROM accounts') && queryMemoryCache.has(cacheKey)) {
+    // Identity pagination and other consistency-sensitive reads explicitly bypass
+    // the 10-second process cache so snapshot checks always hit Neon.
+    if (isSelect && !bypassCache && !sql.includes('FROM accounts') && queryMemoryCache.has(cacheKey)) {
       const cached = queryMemoryCache.get(cacheKey)!;
       if (Date.now() - cached.timestamp < 10000) {
         return cached.data;
@@ -294,7 +296,7 @@ async function startServer() {
           changes: neonRes.rowCount || 0,
           lastRowId: null
         };
-        if (isSelect && !sql.includes('FROM accounts')) {
+        if (isSelect && !bypassCache && !sql.includes('FROM accounts')) {
           queryMemoryCache.set(cacheKey, { timestamp: Date.now(), data: finalResult });
         } else {
           queryMemoryCache.clear();
@@ -910,7 +912,7 @@ async function startServer() {
           if(!selfProfile) return res.status(409).json({error:'Không tìm thấy hồ sơ Admin liên kết với tài khoản đăng nhập.'});
           selfProfile.assigned_classes=[];
           const [uCount,aCount]=await Promise.all([
-            executeSqlQuery('SELECT COUNT(*)::int AS total FROM users',[]),
+            executeSqlQuery('/* no-cache */ SELECT COUNT(*)::int AS total FROM users',[]),
             executeSqlQuery('SELECT COUNT(*)::int AS total FROM accounts',[])
           ]);
           return res.json({data:{
@@ -951,7 +953,7 @@ async function startServer() {
         if(paged){
           selfProfile.assigned_classes=assignments;
           const studentCountSql=`
-            SELECT COUNT(*)::int AS total FROM users u
+            /* no-cache */ SELECT COUNT(*)::int AS total FROM users u
             WHERE LOWER(TRIM(COALESCE(u.target_audience,''))) IN ('học sinh','student')
               AND EXISTS(SELECT 1 FROM teacher_classes tc WHERE (tc.teacher_id=? OR tc.teacher_id=?)
                 AND LOWER(TRIM(tc.class_name))=LOWER(TRIM(COALESCE(u.lop,'')))
@@ -1540,7 +1542,7 @@ async function startServer() {
 
       if(isAdmin){
         const metaSql=`
-          SELECT COUNT(*)::int AS total,
+          /* no-cache */ SELECT COUNT(*)::int AS total,
                  MD5(COALESCE(STRING_AGG(id,'|' ORDER BY created_at DESC,id DESC),'')) AS snapshot
           FROM users`;
         const meta=await executeSqlQuery(metaSql,[]);
@@ -1596,7 +1598,7 @@ async function startServer() {
                 AND LOWER(TRIM(tc.donvi))=LOWER(TRIM(COALESCE(u.donvi,'')))
             )`;
         const metaSql=`
-          SELECT COUNT(*)::int AS student_total,
+          /* no-cache */ SELECT COUNT(*)::int AS student_total,
                  MD5(COALESCE(STRING_AGG(u.id,'|' ORDER BY u.created_at DESC,u.id DESC),'')) AS student_snapshot
           FROM users u
           ${studentWhere}`;
