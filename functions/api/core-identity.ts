@@ -117,10 +117,9 @@ async function teacherPayload(db: any, user: any) {
   ).bind(id1, id2, id3).all();
   const assignments = (assignmentRes.results || []) as any[];
 
-  const teacherUnit = String(selfProfile.donvi || user.donvi || '').trim();
   for (const a of assignments) {
     if (!String(a.class_name || '').trim()) throw new Error('TEACHER_ASSIGNMENT_SCOPE_INCOMPLETE');
-    if (!String(a.donvi || teacherUnit || '').trim()) throw new Error('TEACHER_ASSIGNMENT_SCOPE_INCOMPLETE');
+    if (!String(a.donvi || '').trim()) throw new Error('TEACHER_ASSIGNMENT_SCOPE_INCOMPLETE');
   }
 
   let students: any[] = [];
@@ -138,7 +137,7 @@ async function teacherPayload(db: any, user: any) {
             WHERE tc.teacher_id IN (?, ?, ?)
               AND LOWER(TRIM(tc.class_name)) = LOWER(TRIM(COALESCE(u.lop,'')))
               AND LOWER(TRIM(COALESCE(u.donvi,''))) =
-                  LOWER(TRIM(COALESCE(NULLIF(tc.donvi,''), ?)))
+                  LOWER(TRIM(COALESCE(tc.donvi,'')))
          )
        ORDER BY u.created_at DESC`;
     const accountSql = `SELECT a.id, a.user_id, a.username, a.role, a.is_active, a.expiry_date, a.created_at,
@@ -230,7 +229,7 @@ async function teacherPagedPayload(db: any, user: any) {
         WHERE tc.teacher_id IN (?, ?, ?)
           AND LOWER(TRIM(tc.class_name)) = LOWER(TRIM(COALESCE(u.lop,'')))
           AND LOWER(TRIM(COALESCE(u.donvi,''))) =
-              LOWER(TRIM(COALESCE(NULLIF(tc.donvi,''), ?)))
+              LOWER(TRIM(COALESCE(tc.donvi,'')))
       )`;
   const accountCountSql = `
     SELECT COUNT(*)::int AS total
@@ -245,8 +244,8 @@ async function teacherPagedPayload(db: any, user: any) {
               LOWER(TRIM(COALESCE(NULLIF(tc.donvi,''), ?)))
       )`;
   const [studentsCount, accountsCount]: any[] = await Promise.all([
-    db.prepare(studentCountSql).bind(id1, id2, id3, teacherUnit).first(),
-    db.prepare(accountCountSql).bind(id1, id2, id3, teacherUnit).first()
+    db.prepare(studentCountSql).bind(id1, id2, id3).first(),
+    db.prepare(accountCountSql).bind(id1, id2, id3).first()
   ]);
 
   return {
