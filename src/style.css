@@ -922,6 +922,10 @@ button { touch-action: manipulation; }
 .student-result-card-title{font-size:15px;font-weight:800;color:#1f2937;line-height:1.4;overflow-wrap:anywhere;margin:3px 0 11px}
 .student-result-card-meta{display:flex;gap:7px 15px;flex-wrap:wrap;color:#64748b;font-size:11px}
 .student-result-card-meta span{display:inline-flex;align-items:center;gap:5px}
+.student-result-violation{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px;padding:7px 10px;border-radius:9px;border:1px solid;font-size:11px;font-weight:750}
+.student-result-violation strong{font-size:12px;white-space:nowrap}
+.student-result-violation.no-violation{background:#ecfdf5;border-color:#a7f3d0;color:#047857}
+.student-result-violation.has-violation{background:#fffbeb;border-color:#fcd34d;color:#92400e}
 .student-result-progress{margin-top:auto;padding-top:14px}
 .student-result-progress-label{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:#64748b}
 .student-result-progress-label strong{color:#0f766e}
