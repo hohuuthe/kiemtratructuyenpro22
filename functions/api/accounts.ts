@@ -116,6 +116,22 @@ export async function onRequestGet(context: any) {
         const res: any = binds.length ? await dataStmt.bind(...binds).all() : await dataStmt.all();
         rows = res.results || [];
 
+        // Re-read the full scope fingerprint after reading the page. This closes
+        // the race where membership/order changes between the first meta query
+        // and the page SELECT itself.
+        const verifyStmt = db.prepare(metaSql);
+        const verifyMeta: any = binds.length ? await verifyStmt.bind(...binds).first() : await verifyStmt.first();
+        const verifyTotal = Number(verifyMeta?.total || 0);
+        const verifySnapshot = String(verifyMeta?.snapshot || '');
+        if (verifyTotal !== total || verifySnapshot !== snapshot) {
+            return new Response(JSON.stringify({
+                error: 'Phạm vi dữ liệu thay đổi ngay trong lúc đọc trang. Cần tải lại từ đầu.',
+                code: 'PAGINATION_SCOPE_CHANGED',
+                snapshot: verifySnapshot,
+                total: verifyTotal
+            }), { status: 409, headers: corsHeaders });
+        }
+
         const unique = new Set(rows.map((row: any) => String(row?.id || '')));
         if (unique.size !== rows.length || unique.has('')) {
             return new Response(JSON.stringify({
