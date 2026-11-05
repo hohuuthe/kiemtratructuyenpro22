@@ -327,6 +327,20 @@ export function buildStudentResultDetailMarkup(result, { formatDate, formatDurat
         const scoreValue = canScore ? studentResultScore(detail.score) : null;
         const savedScore = scoreValue === null ? '' :
             '<span class="student-detail-earned">' + escapeStudentText(scoreDisplay(scoreValue)) + ' điểm</span>';
+        const aiFeedback = result && result.student_feedback_scope === 'owned-detail' && q.type === 'TL' && typeof detail.aiFeedback === 'string' ? detail.aiFeedback.trim() : '';
+        const aiFeedbackHtml = aiFeedback
+            ? '<div class="student-essay-ai-actions">' +
+                '<button type="button" class="student-essay-ai-open" data-ai-feedback-open="' + index + '">🤖 Xem chi tiết nhận xét AI</button>' +
+                '<div class="student-essay-ai-dialog" data-ai-feedback-dialog="' + index + '" hidden>' +
+                    '<div class="student-essay-ai-dialog-card" role="dialog" aria-modal="true" aria-labelledby="student-ai-feedback-title-' + index + '">' +
+                        '<header><div><span>AI CHẤM TỰ LUẬN</span><h4 id="student-ai-feedback-title-' + index + '">Nhận xét chi tiết · Câu ' + (index + 1) + '</h4></div>' +
+                        '<button type="button" class="student-essay-ai-close" data-ai-feedback-close="' + index + '" aria-label="Đóng nhận xét AI">✕</button></header>' +
+                        '<div class="student-essay-ai-dialog-body"><p>' + escapeStudentText(aiFeedback) + '</p></div>' +
+                        '<footer><span>Nhận xét được lưu cùng kết quả chấm tự luận của bài làm này.</span>' +
+                        '<button type="button" class="student-essay-ai-close" data-ai-feedback-close="' + index + '">Đóng</button></footer>' +
+                    '</div></div>' +
+              '</div>'
+            : '';
         return '<article class="student-detail-question" data-student-status="' + status.key +
             '" id="student-result-question-' + (index + 1) + '">' +
             '<header class="student-detail-question-head">' +
@@ -338,7 +352,7 @@ export function buildStudentResultDetailMarkup(result, { formatDate, formatDurat
             '<div class="student-detail-question-body"><div class="student-detail-prompt">' + prompt + '</div>' +
                 studentImageHtml(q.image, 'Hình minh họa câu ' + (index + 1)) + options +
                 '<div class="student-detail-response"><div class="student-detail-response-label">CÂU TRẢ LỜI ĐÃ NỘP</div>' +
-                studentAnswerHtml(detail) + '</div>' + correctAnswerHtml +
+                studentAnswerHtml(detail) + '</div>' + correctAnswerHtml + aiFeedbackHtml +
             '</div></article>';
     }).join('');
     const chips = [
@@ -399,6 +413,25 @@ export function bindStudentResultDetail(root, onClose, onImageZoom) {
         });
         if (empty) empty.hidden = count !== 0 || questions.length === 0;
     }));
+    root.querySelectorAll('[data-ai-feedback-open]').forEach(button => {
+        button.addEventListener('click', () => {
+            const index = button.getAttribute('data-ai-feedback-open');
+            const dialog = root.querySelector('[data-ai-feedback-dialog="' + index + '"]');
+            if (!dialog) return;
+            dialog.hidden = false;
+            const close = dialog.querySelector('[data-ai-feedback-close]');
+            if (close) close.focus();
+        });
+    });
+    root.querySelectorAll('[data-ai-feedback-close]').forEach(button => {
+        button.addEventListener('click', () => {
+            const index = button.getAttribute('data-ai-feedback-close');
+            const dialog = root.querySelector('[data-ai-feedback-dialog="' + index + '"]');
+            if (dialog) dialog.hidden = true;
+            const opener = root.querySelector('[data-ai-feedback-open="' + index + '"]');
+            if (opener) opener.focus();
+        });
+    });
     const closeButton = root.querySelector('.student-detail-close');
     if (closeButton && typeof onClose === 'function') closeButton.addEventListener('click', onClose);
     root.querySelectorAll('[data-student-zoom]').forEach(image => {

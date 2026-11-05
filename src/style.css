@@ -2605,3 +2605,50 @@ html.kttt-modal-open, body.kttt-modal-open { overflow: hidden !important; oversc
     max-width:116px!important;
   }
 }
+
+
+/* Student essay AI feedback: compact detail dialog inside the private result view */
+.student-essay-ai-actions{margin-top:12px;display:flex;justify-content:flex-end}
+.student-essay-ai-open{
+  border:1px solid #c4b5fd;background:#f5f3ff;color:#6d28d9;border-radius:10px;
+  padding:8px 12px;font-size:12px;font-weight:800;line-height:1.2;cursor:pointer;
+}
+.student-essay-ai-open:hover{background:#ede9fe;border-color:#a78bfa}
+.student-essay-ai-dialog[hidden]{display:none!important}
+.student-essay-ai-dialog{
+  position:fixed;inset:0;z-index:10000000;display:flex;align-items:center;justify-content:center;
+  padding:16px;background:rgba(15,23,42,.62);backdrop-filter:blur(3px)
+}
+.student-essay-ai-dialog-card{
+  width:min(660px,calc(100vw - 32px));max-height:min(680px,calc(100dvh - 32px));
+  display:flex;flex-direction:column;overflow:hidden;background:#fff;border:1px solid #ddd6fe;
+  border-radius:16px;box-shadow:0 24px 70px rgba(15,23,42,.3)
+}
+.student-essay-ai-dialog-card>header{
+  display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:16px 18px;
+  border-bottom:1px solid #ede9fe;background:#faf5ff
+}
+.student-essay-ai-dialog-card>header span{display:block;font-size:10px;font-weight:900;letter-spacing:.08em;color:#7c3aed}
+.student-essay-ai-dialog-card>header h4{margin:3px 0 0;font-size:17px;font-weight:900;color:#312e81}
+.student-essay-ai-close{
+  flex:0 0 auto;border:1px solid #ddd6fe;background:#fff;color:#5b21b6;border-radius:9px;
+  padding:7px 10px;font-size:12px;font-weight:800;cursor:pointer
+}
+.student-essay-ai-dialog-body{overflow-y:auto;padding:18px;overscroll-behavior:contain}
+.student-essay-ai-dialog-body p{
+  margin:0;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.65;font-size:14px;color:#334155
+}
+.student-essay-ai-dialog-card>footer{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 18px;
+  border-top:1px solid #ede9fe;background:#fafafa
+}
+.student-essay-ai-dialog-card>footer span{font-size:11px;color:#64748b}
+@media(max-width:640px){
+  .student-essay-ai-actions{justify-content:stretch}
+  .student-essay-ai-open{width:100%}
+  .student-essay-ai-dialog{padding:10px}
+  .student-essay-ai-dialog-card{width:calc(100vw - 20px);max-height:calc(100dvh - 20px)}
+  .student-essay-ai-dialog-card>header,.student-essay-ai-dialog-body,.student-essay-ai-dialog-card>footer{padding:13px}
+  .student-essay-ai-dialog-card>footer{align-items:stretch;flex-direction:column}
+  .student-essay-ai-dialog-card>footer .student-essay-ai-close{width:100%}
+}

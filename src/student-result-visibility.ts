@@ -98,6 +98,13 @@ function displayQuestion(raw: any) {
   };
 }
 
+function displayEssayAiFeedback(value: any, type: string): string {
+  if (String(type || '').toUpperCase() !== 'TL') return '';
+  if (typeof value !== 'string') return '';
+  const feedback = value.trim();
+  return feedback.length > 20000 ? feedback.slice(0, 20000) : feedback;
+}
+
 function displayStudentAnswer(value: any, type: string): any {
   const answer = decode(value);
   if (answer === null || typeof answer === 'string' || typeof answer === 'boolean' || typeof answer === 'number') return answer;
@@ -139,6 +146,8 @@ export function projectStudentAttemptDetails(raw: any, canViewScore: boolean): a
         out.correctAnswer = answer;
       }
     }
+    const aiFeedback = displayEssayAiFeedback(entry.aiFeedback ?? entry.ai_feedback, question.type);
+    if (aiFeedback) out.aiFeedback = aiFeedback;
     if (canViewScore) {
       if (entry.isCorrect === true || entry.isCorrect === false) out.isCorrect = entry.isCorrect;
       if (entry.score !== undefined && entry.score !== null && Number.isFinite(Number(entry.score))) {

@@ -25,7 +25,7 @@ test('Private history page computes stats without fetching other pages',()=>{
     assert.deepEqual(filterStudentResultPage(rows,{sort:'score-asc'}).map(x=>x.id),['s2','s3','s1']);
     assert.equal(studentResultDuration(65),'1:05');
 });
-test('Result review escapes user-controlled metadata and never reveals keys or teacher feedback',()=>{
+test('Result review keeps raw grading feedback hidden unless server marks owned student detail scope',()=>{
     const result={
         exam_name:'<img src=x onerror=alert(1)>',
         score:7,can_view_score:true,can_view_details:true,correct_count:1,total_questions:2,time_taken:85,created_at:'2026-10-24',
@@ -41,6 +41,11 @@ test('Result review escapes user-controlled metadata and never reveals keys or t
     assert.ok(html.includes('SECRET_ANSWER_KEY'));
     assert.ok(!html.includes('SECRET_TEACHER_FEEDBACK'));
     assert.ok(!html.includes('SECRET_AI_FEEDBACK'));
+    const scopedHtml=buildStudentResultDetailMarkup({...result,student_feedback_scope:'owned-detail'},{formatDate:()=> '24/10/2026'});
+    assert.ok(scopedHtml.includes('SECRET_AI_FEEDBACK'));
+    assert.ok(scopedHtml.includes('Xem chi tiết nhận xét AI'));
+    assert.ok(scopedHtml.includes('student-essay-ai-dialog'));
+    assert.ok(!scopedHtml.includes('SECRET_TEACHER_FEEDBACK'));
     assert.ok(html.includes('Đáp án đúng'));
     assert.ok(html.includes('scientific') || html.includes('katex'));
     assert.ok(html.includes('Đáp án B'));
