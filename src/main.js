@@ -2194,6 +2194,89 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             }
         }
 
+        async function preloadFullIdentityTablesOnLogin() {
+            // Chỉ tải dữ liệu quản trị khi tài khoản có quyền xem danh sách người dùng.
+            // Khách/Học sinh tuyệt đối không tải hai bảng nội bộ này.
+            if (!(isAdminLoggedIn || isTeacherLoggedIn) || !currentUser) return false;
+
+            const generation = authDataGeneration;
+            const userId = String(currentUser?.id || currentUser?.user_id || '');
+            const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
+            if (!token) throw new Error('Không có phiên xác thực để tải dữ liệu người dùng.');
+
+            const fetchCompleteTable = async (url, label) => {
+                const response = await fetch(url, {
+                    headers: { 'Authorization': 'Bearer ' + token },
+                    cache: 'no-store'
+                });
+                const payload = await response.json().catch(() => null);
+                if (!response.ok || !payload || !Array.isArray(payload.data)) {
+                    throw new Error(`Không thể tải đầy đủ ${label} (HTTP ${response.status}).`);
+                }
+
+                const rows = payload.data;
+                const reportedTotal = Number(payload.total);
+                if (Number.isFinite(reportedTotal) && reportedTotal !== rows.length) {
+                    throw new Error(`${label} chưa tải đủ: máy chủ báo ${reportedTotal}, nhận ${rows.length}.`);
+                }
+
+                const ids = new Set();
+                for (const row of rows) {
+                    const id = String(row?.id || '').trim();
+                    if (!id) throw new Error(`${label} có bản ghi thiếu ID.`);
+                    if (ids.has(id)) throw new Error(`${label} có ID trùng: ${id}.`);
+                    ids.add(id);
+                }
+                return rows;
+            };
+
+            // Hai bảng nền tảng được lấy FULL song song.
+            // Chỉ commit vào bộ nhớ sau khi CẢ HAI request đều hoàn tất và hợp lệ.
+            const [fullUsers, fullAccounts] = await Promise.all([
+                fetchCompleteTable('/api/users?limit=all', 'bảng hồ sơ người dùng'),
+                fetchCompleteTable('/api/accounts?limit=all', 'bảng tài khoản')
+            ]);
+
+            // Không cho response của phiên đăng nhập cũ ghi đè dữ liệu phiên mới.
+            if (generation !== authDataGeneration ||
+                userId !== String(currentUser?.id || currentUser?.user_id || '')) {
+                return false;
+            }
+
+            usersList = fullUsers;
+            window.usersList = usersList;
+            usersLoaded = true;
+
+            accounts = fullAccounts;
+            window.accounts = accounts;
+            accountsLoaded = true;
+
+            accountsMap = {};
+            for (const acc of accounts) {
+                if (acc?.id) accountsMap[acc.id] = acc.full_name || acc.username || '';
+            }
+
+            // Khi đã có full snapshot, không dùng cache 1 trang 50 dòng làm nguồn dữ liệu chung.
+            accountsTotalServer = null;
+            accountsFilterFacets = null;
+            accountsFacetSession = generation + ':' + userId;
+
+            window.__coreIdentitySnapshot = {
+                generation,
+                userId,
+                usersCount: usersList.length,
+                accountsCount: accounts.length,
+                loadedAt: new Date().toISOString(),
+                complete: true
+            };
+
+            console.log(
+                `✅ Core identity preload hoàn tất: ${usersList.length} hồ sơ, ${accounts.length} tài khoản.`
+            );
+            return true;
+        }
+        window.preloadFullIdentityTablesOnLogin = preloadFullIdentityTablesOnLogin;
+
         async function handleSuccessfulLogin() {
             closeModal();
             
@@ -2209,6 +2292,14 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             resultsLoaded = false;
             resetRankingUnitFilterSession();
             accountsLoaded = false;
+            usersLoaded = false;
+            accounts = [];
+            window.accounts = accounts;
+            usersList = [];
+            window.usersList = usersList;
+            accountsTotalServer = null;
+            accountsFilterFacets = null;
+            window.__coreIdentitySnapshot = null;
             examsLoaded = false;
             invalidateExamEditorSession();
 
@@ -2266,8 +2357,35 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             appSettings.aiGradingKey='';
             appSettings.aiPrompt=DEFAULT_AI_PROMPT;
             appSettings.aiAppraisePrompt=DEFAULT_AI_APPRAISE_PROMPT;
-            // Nạp lại dữ liệu theo quyền hạn tài khoản đăng nhập đồng thời (Song song, không tuần tự)
+            // Nạp lại dữ liệu cấu hình tối thiểu.
             await loadData();
+
+            // Ngay sau đăng nhập, nạp FULL hai bảng nền tảng dùng cho quản lý người dùng.
+            // Cố ý hoàn tất trước các bộ lọc/quản lý để không còn tình trạng
+            // bộ nhớ chỉ chứa 1 trang tài khoản hoặc hồ sơ thiếu.
+            if (isAdminLoggedIn || isTeacherLoggedIn) {
+                try {
+                    await preloadFullIdentityTablesOnLogin();
+                } catch (coreLoadError) {
+                    console.error('Không thể preload đầy đủ users/accounts:', coreLoadError);
+                    usersLoaded = false;
+                    accountsLoaded = false;
+                    usersList = [];
+                    window.usersList = usersList;
+                    accounts = [];
+                    window.accounts = accounts;
+                    window.__coreIdentitySnapshot = {
+                        generation: authDataGeneration,
+                        userId: String(currentUser?.id || currentUser?.user_id || ''),
+                        usersCount: 0,
+                        accountsCount: 0,
+                        loadedAt: new Date().toISOString(),
+                        complete: false,
+                        error: coreLoadError?.message || String(coreLoadError)
+                    };
+                    showToast('⚠️ Chưa tải đủ bảng hồ sơ người dùng/tài khoản. Hệ thống sẽ không dùng dữ liệu một phần.', 'warning');
+                }
+            }
 
             if (isAdminLoggedIn || isTeacherLoggedIn) {
                 updateQuestionTeacherFilter();
