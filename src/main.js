@@ -2194,69 +2194,140 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             }
         }
 
-        async function preloadFullIdentityTablesOnLogin() {
-            // Chỉ tải dữ liệu quản trị khi tài khoản có quyền xem danh sách người dùng.
-            // Khách/Học sinh tuyệt đối không tải hai bảng nội bộ này.
-            if (!(isAdminLoggedIn || isTeacherLoggedIn) || !currentUser) return false;
+        async function preloadRoleScopedIdentityOnLogin() {
+            if (!currentUser) return false;
 
             const generation = authDataGeneration;
             const userId = String(currentUser?.id || currentUser?.user_id || '');
             const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
-            if (!token) throw new Error('Không có phiên xác thực để tải dữ liệu người dùng.');
+            if (!token) throw new Error('Không có phiên xác thực để tải dữ liệu theo vai trò.');
 
-            const fetchCompleteTable = async (url, label) => {
-                const response = await fetch(url, {
-                    headers: { 'Authorization': 'Bearer ' + token },
-                    cache: 'no-store'
-                });
-                const payload = await response.json().catch(() => null);
-                if (!response.ok || !payload || !Array.isArray(payload.data)) {
-                    throw new Error(`Không thể tải đầy đủ ${label} (HTTP ${response.status}).`);
-                }
+            const response = await fetch('/api/core-identity', {
+                headers: { 'Authorization': 'Bearer ' + token },
+                cache: 'no-store'
+            });
+            const payload = await response.json().catch(() => null);
+            if (!response.ok || !payload?.data) {
+                throw new Error(payload?.error || ('Không thể tải dữ liệu theo vai trò (HTTP ' + response.status + ').'));
+            }
 
-                const rows = payload.data;
-                const reportedTotal = Number(payload.total);
-                if (Number.isFinite(reportedTotal) && reportedTotal !== rows.length) {
-                    throw new Error(`${label} chưa tải đủ: máy chủ báo ${reportedTotal}, nhận ${rows.length}.`);
-                }
+            const data = payload.data;
+            const roleScope = String(data.role_scope || '');
+            const expectedScope = isAdminLoggedIn
+                ? 'admin'
+                : isTeacherLoggedIn
+                    ? 'teacher'
+                    : 'student';
+            if (roleScope !== expectedScope) {
+                throw new Error('ROLE_SCOPE_MISMATCH: server=' + roleScope + ', client=' + expectedScope);
+            }
 
-                const ids = new Set();
+            const scopedUsers = Array.isArray(data.users) ? data.users : [];
+            const scopedAccounts = Array.isArray(data.accounts) ? data.accounts : [];
+            const scopedTeachers = Array.isArray(data.teachers) ? data.teachers : [];
+            const assignedClasses = Array.isArray(data.assigned_classes) ? data.assigned_classes : [];
+
+            const assertUniqueIds = (rows, label) => {
+                const seen = new Set();
                 for (const row of rows) {
                     const id = String(row?.id || '').trim();
-                    if (!id) throw new Error(`${label} có bản ghi thiếu ID.`);
-                    if (ids.has(id)) throw new Error(`${label} có ID trùng: ${id}.`);
-                    ids.add(id);
+                    if (!id) throw new Error(label + ' có bản ghi thiếu ID.');
+                    if (seen.has(id)) throw new Error(label + ' có ID trùng: ' + id);
+                    seen.add(id);
                 }
-                return rows;
             };
+            assertUniqueIds(scopedUsers, 'Dữ liệu hồ sơ');
+            assertUniqueIds(scopedAccounts, 'Dữ liệu tài khoản');
+            assertUniqueIds(scopedTeachers, 'Danh bạ giáo viên');
 
-            // Hai bảng nền tảng được lấy FULL song song.
-            // Chỉ commit vào bộ nhớ sau khi CẢ HAI request đều hoàn tất và hợp lệ.
-            const [fullUsers, fullAccounts] = await Promise.all([
-                fetchCompleteTable('/api/users?limit=all', 'bảng hồ sơ người dùng'),
-                fetchCompleteTable('/api/accounts?limit=all', 'bảng tài khoản')
-            ]);
+            const countUsers = Number(data.counts?.users);
+            const countAccounts = Number(data.counts?.accounts);
+            const countTeachers = Number(data.counts?.teachers);
+            if (Number.isFinite(countUsers) && countUsers !== scopedUsers.length) {
+                throw new Error('Số hồ sơ nhận được không khớp máy chủ.');
+            }
+            if (Number.isFinite(countAccounts) && countAccounts !== scopedAccounts.length) {
+                throw new Error('Số tài khoản nhận được không khớp máy chủ.');
+            }
+            if (Number.isFinite(countTeachers) && countTeachers !== scopedTeachers.length) {
+                throw new Error('Số giáo viên nhận được không khớp máy chủ.');
+            }
 
-            // Không cho response của phiên đăng nhập cũ ghi đè dữ liệu phiên mới.
+            const selfProfileId = String(currentUser?.user_id || currentUser?.id || '');
+            const selfAccountId = String(currentUser?.id || '');
+            const hasSelfProfile = scopedUsers.some(u => String(u?.id || '') === selfProfileId || String(u?.id || '') === String(currentUser?.id || ''));
+
+            if (roleScope === 'admin') {
+                if (!hasSelfProfile) throw new Error('Admin preload thiếu hồ sơ Admin.');
+            } else if (roleScope === 'teacher') {
+                if (!hasSelfProfile) throw new Error('Teacher preload thiếu hồ sơ Giáo viên đăng nhập.');
+
+                const allowedClasses = new Set(assignedClasses.map(a => String(a?.class_name || '').trim().toLowerCase()).filter(Boolean));
+                const teacherUnit = String(currentUser?.donvi || scopedUsers.find(u => String(u?.id || '') === selfProfileId)?.donvi || '').trim().toLowerCase();
+                for (const u of scopedUsers) {
+                    const id = String(u?.id || '');
+                    if (id === selfProfileId || id === String(currentUser?.id || '')) continue;
+                    const audience = String(u?.target_audience || '').trim().toLocaleLowerCase('vi');
+                    const lop = String(u?.lop || '').trim().toLowerCase();
+                    const unit = String(u?.donvi || '').trim().toLowerCase();
+                    if (audience !== 'học sinh' && audience !== 'student') {
+                        throw new Error('Teacher preload nhận dư hồ sơ không phải Học sinh.');
+                    }
+                    if (!allowedClasses.has(lop)) {
+                        throw new Error('Teacher preload nhận Học sinh ngoài lớp được phân công.');
+                    }
+                    if (teacherUnit && unit && teacherUnit !== unit) {
+                        throw new Error('Teacher preload nhận Học sinh ngoài đơn vị.');
+                    }
+                }
+                for (const a of scopedAccounts) {
+                    const role = String(a?.role || '').trim().toLowerCase();
+                    const audience = String(a?.target_audience || '').trim().toLocaleLowerCase('vi');
+                    if (role === 'admin' || role === 'teacher' || role === 'giáo viên' ||
+                        audience === 'giáo viên' || audience === 'quản trị viên') {
+                        throw new Error('Teacher preload nhận dư tài khoản Giáo viên/Admin.');
+                    }
+                }
+            } else {
+                if (scopedUsers.length !== 1 || !hasSelfProfile) {
+                    throw new Error('Học sinh chỉ được nhận đúng 1 hồ sơ của chính mình.');
+                }
+                if (scopedAccounts.length > 1) {
+                    throw new Error('Học sinh nhận dư tài khoản.');
+                }
+                if (scopedAccounts.length === 1) {
+                    const a = scopedAccounts[0];
+                    const aUserId = String(a?.user_id || a?.id || '');
+                    if (aUserId !== selfProfileId && String(a?.id || '') !== selfAccountId) {
+                        throw new Error('Học sinh nhận tài khoản không thuộc chính mình.');
+                    }
+                }
+            }
+
             if (generation !== authDataGeneration ||
                 userId !== String(currentUser?.id || currentUser?.user_id || '')) {
                 return false;
             }
 
-            usersList = fullUsers;
+            usersList = scopedUsers;
             window.usersList = usersList;
             usersLoaded = true;
 
-            accounts = fullAccounts;
+            accounts = scopedAccounts;
             window.accounts = accounts;
             accountsLoaded = true;
+
+            window.roleTeacherDirectory = scopedTeachers;
+            window.currentTeacherAssignments = assignedClasses;
 
             accountsMap = {};
             for (const acc of accounts) {
                 if (acc?.id) accountsMap[acc.id] = acc.full_name || acc.username || '';
             }
+            for (const teacher of scopedTeachers) {
+                if (teacher?.id) accountsMap[teacher.id] = teacher.full_name || '';
+            }
 
-            // Khi đã có full snapshot, không dùng cache 1 trang 50 dòng làm nguồn dữ liệu chung.
             accountsTotalServer = null;
             accountsFilterFacets = null;
             accountsFacetSession = generation + ':' + userId;
@@ -2264,18 +2335,29 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             window.__coreIdentitySnapshot = {
                 generation,
                 userId,
+                roleScope,
                 usersCount: usersList.length,
                 accountsCount: accounts.length,
+                teachersCount: scopedTeachers.length,
                 loadedAt: new Date().toISOString(),
                 complete: true
             };
 
+            if (roleScope === 'student') {
+                publicTeachersLoaded = true;
+                publicTeacherPromise = null;
+            }
+
             console.log(
-                `✅ Core identity preload hoàn tất: ${usersList.length} hồ sơ, ${accounts.length} tài khoản.`
+                '✅ Role-scoped identity preload:',
+                roleScope,
+                usersList.length + ' hồ sơ,',
+                accounts.length + ' tài khoản,',
+                scopedTeachers.length + ' giáo viên cần thiết.'
             );
             return true;
         }
-        window.preloadFullIdentityTablesOnLogin = preloadFullIdentityTablesOnLogin;
+        window.preloadRoleScopedIdentityOnLogin = preloadRoleScopedIdentityOnLogin;
 
         async function handleSuccessfulLogin() {
             closeModal();
@@ -2300,6 +2382,8 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             accountsTotalServer = null;
             accountsFilterFacets = null;
             window.__coreIdentitySnapshot = null;
+            window.roleTeacherDirectory = [];
+            window.currentTeacherAssignments = [];
             examsLoaded = false;
             invalidateExamEditorSession();
 
@@ -2360,31 +2444,32 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             // Nạp lại dữ liệu cấu hình tối thiểu.
             await loadData();
 
-            // Ngay sau đăng nhập, nạp FULL hai bảng nền tảng dùng cho quản lý người dùng.
-            // Cố ý hoàn tất trước các bộ lọc/quản lý để không còn tình trạng
-            // bộ nhớ chỉ chứa 1 trang tài khoản hoặc hồ sơ thiếu.
-            if (isAdminLoggedIn || isTeacherLoggedIn) {
-                try {
-                    await preloadFullIdentityTablesOnLogin();
-                } catch (coreLoadError) {
-                    console.error('Không thể preload đầy đủ users/accounts:', coreLoadError);
-                    usersLoaded = false;
-                    accountsLoaded = false;
-                    usersList = [];
-                    window.usersList = usersList;
-                    accounts = [];
-                    window.accounts = accounts;
-                    window.__coreIdentitySnapshot = {
-                        generation: authDataGeneration,
-                        userId: String(currentUser?.id || currentUser?.user_id || ''),
-                        usersCount: 0,
-                        accountsCount: 0,
-                        loadedAt: new Date().toISOString(),
-                        complete: false,
-                        error: coreLoadError?.message || String(coreLoadError)
-                    };
-                    showToast('⚠️ Chưa tải đủ bảng hồ sơ người dùng/tài khoản. Hệ thống sẽ không dùng dữ liệu một phần.', 'warning');
-                }
+            // Nạp đúng tập dữ liệu theo vai trò ngay sau đăng nhập.
+            // Server lọc trước khi trả về; trình duyệt kiểm tra lại scope trước khi dùng.
+            try {
+                await preloadRoleScopedIdentityOnLogin();
+            } catch (coreLoadError) {
+                console.error('Không thể preload dữ liệu đúng vai trò:', coreLoadError);
+                usersLoaded = false;
+                accountsLoaded = false;
+                usersList = [];
+                window.usersList = usersList;
+                accounts = [];
+                window.accounts = accounts;
+                window.roleTeacherDirectory = [];
+                window.currentTeacherAssignments = [];
+                window.__coreIdentitySnapshot = {
+                    generation: authDataGeneration,
+                    userId: String(currentUser?.id || currentUser?.user_id || ''),
+                    roleScope: isAdminLoggedIn ? 'admin' : (isTeacherLoggedIn ? 'teacher' : 'student'),
+                    usersCount: 0,
+                    accountsCount: 0,
+                    teachersCount: 0,
+                    loadedAt: new Date().toISOString(),
+                    complete: false,
+                    error: coreLoadError?.message || String(coreLoadError)
+                };
+                showToast('⚠️ Chưa tải đủ dữ liệu đúng phạm vi vai trò. Hệ thống không dùng dữ liệu một phần.', 'warning');
             }
 
             if (isAdminLoggedIn || isTeacherLoggedIn) {
@@ -3844,18 +3929,37 @@ if (contentType && contentType.includes("application/json")) {
         }
         let publicTeachersLoaded=false,publicTeacherPromise=null;
         async function ensureStudentTeacherDirectory(){
-          if(isAdminLoggedIn||isTeacherLoggedIn||publicTeachersLoaded)return;
+          if(isAdminLoggedIn||isTeacherLoggedIn)return;
+          if(Array.isArray(window.roleTeacherDirectory) && window.__coreIdentitySnapshot?.complete &&
+             window.__coreIdentitySnapshot?.roleScope === 'student'){
+            publicTeachersLoaded=true;
+            updateStudentTeacherFilter();
+            return;
+          }
+          if(publicTeachersLoaded)return;
           if(publicTeacherPromise)return publicTeacherPromise;
           const generation=authDataGeneration,id=String(currentUser?.id||'');
           publicTeacherPromise=(async()=>{
             try{
+              if(currentUser){
+                // Học sinh đã đăng nhập chỉ được lấy danh bạ giáo viên qua core-identity
+                // để server áp đúng phạm vi. Tuyệt đối không fallback sang danh bạ công khai toàn hệ thống.
+                await preloadRoleScopedIdentityOnLogin();
+                if(generation!==authDataGeneration||id!==String(currentUser?.id||'')||isAdminLoggedIn||isTeacherLoggedIn)return;
+                publicTeachersLoaded=true;
+                updateStudentTeacherFilter();
+                return;
+              }
+
+              // Khách chưa đăng nhập vẫn có thể dùng danh bạ công khai tối thiểu khi thao tác.
               const r=await fetch('/api/exam-teachers',{cache:'no-store'});
               if(!r.ok)throw Error('Teacher directory HTTP '+r.status);
               const body=await r.json();
               if(!Array.isArray(body.data))throw Error('Invalid teacher directory');
               if(generation!==authDataGeneration||id!==String(currentUser?.id||'')||isAdminLoggedIn||isTeacherLoggedIn)return;
-              accounts=body.data;accountsMap={};
-              accounts.forEach(a=>{if(a.id)accountsMap[a.id]=a.full_name});
+              window.roleTeacherDirectory=body.data;
+              accountsMap={};
+              (window.roleTeacherDirectory||[]).forEach(a=>{if(a.id)accountsMap[a.id]=a.full_name});
               publicTeachersLoaded=true;updateStudentTeacherFilter();
             }catch(e){console.warn('Teacher directory unavailable',e)}
           })();
@@ -5640,9 +5744,13 @@ if (contentType && contentType.includes("application/json")) {
             const creatorIds = [...new Set([...(window.allExamCreatorIds || []), ...(examConfigCreatorIds || [])])].map(String);
             
             let teachers = [];
-            if (accounts && accounts.length > 0) {
-                // Lọc tất cả các tài khoản là Giáo viên hoặc Quản trị viên (Admin)
-                const teacherAccounts = accounts.filter(acc => {
+            const teacherDirectorySource = (!isAdminLoggedIn && !isTeacherLoggedIn && Array.isArray(window.roleTeacherDirectory))
+                ? window.roleTeacherDirectory
+                : accounts;
+            if (teacherDirectorySource && teacherDirectorySource.length > 0) {
+                // Học sinh dùng danh bạ giáo viên tối thiểu do core-identity trả về.
+                // Admin/GV tiếp tục dùng tập accounts đúng phạm vi vai trò.
+                const teacherAccounts = teacherDirectorySource.filter(acc => {
                     const aud = String(acc.target_audience || '').toLowerCase();
                     const role = String(acc.role || '').toLowerCase();
                     const isTeacherRole = aud === 'giáo viên' || aud === 'teacher' || role === 'teacher' || role === 'giáo viên';
@@ -14239,19 +14347,14 @@ D. Phát biểu SAI</pre>
             if (!document.getElementById('exam-lesson-selection')) {
                 return;
             }
-            // Refresh accounts to get newly registered ones
-            try {
-                const { data } = await fetch('/api/accounts', { headers: { 'Authorization': 'Bearer ' + (localStorage.getItem(window.tenantStorageKey('auth_token')) || '') } }).then(res => res.json()).catch(() => ({error: 'Lỗi', data: null}));
-                if (generation !== authDataGeneration) return;
-                if (data) {
-                    accounts = data;
-                    // Update the mapping too
-                    accounts.forEach(acc => {
-                        if (acc.id) accountsMap[acc.id] = acc.full_name || acc.username;
-                    });
+            // Không tải lại /api/accounts ở đây. Core identity preload đã nạp đúng phạm vi
+            // theo vai trò; gọi lại API cũ có thể tải dư và ghi đè snapshot đã kiểm soát.
+            if (!window.__coreIdentitySnapshot?.complete && currentUser) {
+                try {
+                    await preloadRoleScopedIdentityOnLogin();
+                } catch (e) {
+                    console.error('Failed to refresh role-scoped identity during exam panel init:', e);
                 }
-            } catch (e) {
-                console.error('Failed to refresh accounts during exam panel init:', e);
             }
             if (generation !== authDataGeneration) return;
             

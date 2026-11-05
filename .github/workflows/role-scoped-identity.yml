@@ -1,0 +1,31 @@
+name: Role-scoped identity loading
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/main.js'
+      - 'functions/api/core-identity.ts'
+      - 'functions/api/users.ts'
+      - 'functions/api/accounts.ts'
+      - 'server.ts'
+      - 'tests/core-identity-preload.test.mjs'
+      - '.github/workflows/role-scoped-identity.yml'
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Role-scoped identity regression
+        run: node --test tests/core-identity-preload.test.mjs
+      - name: TypeScript project check
+        run: npm run lint
+      - name: Production build
+        run: npm run build

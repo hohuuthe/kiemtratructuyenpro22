@@ -863,6 +863,117 @@ async function startServer() {
     }catch(e){return res.status(500).json({error:'Không thể tải trang kết quả.'});}
   });
 
+  // Dữ liệu nền theo vai trò: Admin full; GV chỉ hồ sơ mình + HS/tài khoản HS lớp phân công; HS chỉ chính mình + GV cần thiết.
+  app.get("/api/core-identity", async (req, res) => {
+    try {
+      const auth = req.headers.authorization || '';
+      if (!auth.startsWith('Bearer ')) return res.status(401).json({ error: 'Unauthorized' });
+      const actor: any = verifyJWTSync(auth.slice(7), await getServerSecret());
+      if (!actor) return res.status(401).json({ error: 'Phiên đăng nhập không hợp lệ' });
+
+      const projection = `
+        SELECT u.*,
+          (SELECT a.id FROM accounts a WHERE a.user_id=u.id OR a.id=u.id ORDER BY CASE WHEN a.user_id=u.id THEN 0 ELSE 1 END, a.created_at DESC LIMIT 1) AS account_id,
+          (SELECT a.username FROM accounts a WHERE a.user_id=u.id OR a.id=u.id ORDER BY CASE WHEN a.user_id=u.id THEN 0 ELSE 1 END, a.created_at DESC LIMIT 1) AS account_username,
+          (SELECT a.role FROM accounts a WHERE a.user_id=u.id OR a.id=u.id ORDER BY CASE WHEN a.user_id=u.id THEN 0 ELSE 1 END, a.created_at DESC LIMIT 1) AS account_role,
+          (SELECT a.is_active FROM accounts a WHERE a.user_id=u.id OR a.id=u.id ORDER BY CASE WHEN a.user_id=u.id THEN 0 ELSE 1 END, a.created_at DESC LIMIT 1) AS account_is_active
+        FROM users u
+      `;
+      const accountProjection = `
+        SELECT a.id,a.user_id,a.username,a.role,a.is_active,a.expiry_date,a.created_at,
+               u.full_name,u.phone_number,u.donvi,u.lop,u.target_audience,u.occupation
+        FROM accounts a LEFT JOIN users u ON u.id=COALESCE(a.user_id,a.id)
+      `;
+
+      if (checkIsAdmin(actor)) {
+        const [uRes,aRes,tcRes]=await Promise.all([
+          executeSqlQuery(projection+' ORDER BY u.created_at DESC',[]),
+          executeSqlQuery(accountProjection+' ORDER BY a.created_at DESC,a.id DESC',[]),
+          executeSqlQuery('SELECT id,teacher_id,teacher_name,class_name,donvi,role,subject,created_at FROM teacher_classes ORDER BY class_name ASC',[])
+        ]);
+        const map:any={};
+        for(const tc of (tcRes.results||[])){const id=String(tc.teacher_id||'');(map[id]||(map[id]=[])).push(tc);}
+        const users=(uRes.results||[]).map((u:any)=>({...u,assigned_classes:map[String(u.id)]||[]}));
+        const accounts=aRes.results||[];
+        return res.json({data:{role_scope:'admin',users,accounts,teachers:[],assigned_classes:[],counts:{users:users.length,accounts:accounts.length,teachers:0}},error:null});
+      }
+
+      const selfId=String(actor.user_id||actor.id||'');
+      const accountId=String(actor.id||selfId);
+      const selfRes=await executeSqlQuery(projection+' WHERE u.id=? OR u.id=? ORDER BY CASE WHEN u.id=? THEN 0 ELSE 1 END LIMIT 1',[selfId,accountId,selfId]);
+      const selfProfile:any=selfRes.results?.[0];
+      if(!selfProfile) return res.status(409).json({error:'Không tìm thấy hồ sơ người dùng liên kết với tài khoản đăng nhập.'});
+
+      if (checkIsTeacherOrAdmin(actor)) {
+        const tcRes=await executeSqlQuery(
+          'SELECT id,teacher_id,teacher_name,class_name,donvi,role,subject,created_at FROM teacher_classes WHERE teacher_id=? OR teacher_id=? ORDER BY class_name ASC',
+          [selfId,accountId]
+        );
+        const assignments=tcRes.results||[];
+        let students:any[]=[]; let accounts:any[]=[];
+        if(assignments.length){
+          const sRes=await executeSqlQuery(projection+`
+            WHERE LOWER(TRIM(COALESCE(u.target_audience,''))) IN ('học sinh','student')
+              AND EXISTS(SELECT 1 FROM teacher_classes tc WHERE (tc.teacher_id=? OR tc.teacher_id=?)
+                AND LOWER(TRIM(tc.class_name))=LOWER(TRIM(COALESCE(u.lop,'')))
+                AND LOWER(TRIM(COALESCE(tc.donvi,'')))=LOWER(TRIM(COALESCE(u.donvi,''))))
+            ORDER BY u.created_at DESC`,[selfId,accountId]);
+          students=sRes.results||[];
+          const aRes=await executeSqlQuery(accountProjection+`
+            WHERE LOWER(TRIM(COALESCE(u.target_audience,''))) IN ('học sinh','student')
+              AND EXISTS(SELECT 1 FROM teacher_classes tc WHERE (tc.teacher_id=? OR tc.teacher_id=?)
+                AND LOWER(TRIM(tc.class_name))=LOWER(TRIM(COALESCE(u.lop,'')))
+                AND LOWER(TRIM(COALESCE(tc.donvi,'')))=LOWER(TRIM(COALESCE(u.donvi,''))))
+            ORDER BY u.full_name,a.username`,[selfId,accountId]);
+          accounts=aRes.results||[];
+        }
+        selfProfile.assigned_classes=assignments;
+        const users=[selfProfile,...students.filter((u:any)=>String(u.id)!==String(selfProfile.id))];
+        return res.json({data:{role_scope:'teacher',users,accounts,teachers:[],assigned_classes:assignments,counts:{users:users.length,accounts:accounts.length,teachers:0,students:students.length}},error:null});
+      }
+
+      const selfAccRes=await executeSqlQuery(accountProjection+' WHERE a.id=? OR a.user_id=? ORDER BY CASE WHEN a.id=? THEN 0 ELSE 1 END,a.created_at DESC LIMIT 1',[accountId,selfId,accountId]);
+      const ownAccounts=selfAccRes.results||[];
+      const examRes=await executeSqlQuery(`
+        SELECT ec.creator_id,ec.chedodethi,ec.target_lop,ec.lop,ec.access_control,
+          COALESCE(up.donvi,uap.donvi,'') AS teacher_donvi,
+          COALESCE(NULLIF(TRIM(up.full_name),''),NULLIF(TRIM(uap.full_name),''),'Giáo viên') AS full_name,
+          COALESCE(ap.role,a.role,'teacher') AS creator_role
+        FROM exam_configs ec
+        LEFT JOIN users up ON up.id=ec.creator_id
+        LEFT JOIN accounts a ON a.id=ec.creator_id
+        LEFT JOIN users uap ON uap.id=a.user_id
+        LEFT JOIN accounts ap ON ap.user_id=ec.creator_id
+        WHERE ec.creator_id IS NOT NULL AND TRIM(ec.creator_id)<>''`,[]);
+      const norm=(v:any)=>String(v||'').trim().toLowerCase();
+      const normClass=(v:any)=>norm(v).replace(/\s+/g,'');
+      const sUnit=norm(selfProfile.donvi||selfProfile.address||'');
+      const sClass=normClass(selfProfile.lop||'');
+      const byCreator=new Map<string,any>();
+      for(const row of (examRes.results||[])){
+        const cid=String(row.creator_id||'').trim(); if(!cid)continue;
+        let allowed=true; const mode=String(row.chedodethi||'').trim();
+        if(mode==='Đề cho đơn vị'||mode==='Đề thi cho đơn vị'){
+          const tUnit=norm(row.teacher_donvi); let ac:any=null;
+          try{ac=typeof row.access_control==='string'?JSON.parse(row.access_control||'{}'):row.access_control;}catch{}
+          const units=ac?.allowedUnits?(Array.isArray(ac.allowedUnits)?ac.allowedUnits:[ac.allowedUnits]).map(norm).filter(Boolean):[];
+          let same=!tUnit&&!units.length;
+          if(sUnit){if(tUnit&&(sUnit===tUnit||sUnit.includes(tUnit)||tUnit.includes(sUnit)))same=true;else if(units.some((u:string)=>u&&(u===sUnit||sUnit.includes(u)||u.includes(sUnit))))same=true;}
+          if(!same)allowed=false;
+          if(allowed){const target=String(row.target_lop||row.lop||'').trim();if(target)allowed=!!sClass&&target.split(',').map(normClass).filter(Boolean).includes(sClass);}
+        }
+        if(!allowed||byCreator.has(cid))continue;
+        const role=norm(row.creator_role)==='admin'?'admin':'teacher';
+        byCreator.set(cid,{id:cid,full_name:String(row.full_name||'Giáo viên'),donvi:String(row.teacher_donvi||''),role,target_audience:role==='admin'?'Quản trị viên':'Giáo viên',exam_count:1});
+      }
+      const teachers=[...byCreator.values()].sort((a:any,b:any)=>String(a.full_name).localeCompare(String(b.full_name),'vi'));
+      return res.json({data:{role_scope:'student',users:[selfProfile],accounts:ownAccounts,teachers,assigned_classes:[],counts:{users:1,accounts:ownAccounts.length,teachers:teachers.length}},error:null});
+    } catch (e:any) {
+      console.error('GET /api/core-identity error:',e);
+      return res.status(500).json({error:'Không thể tải dữ liệu nền theo vai trò.'});
+    }
+  });
+
   // 1. Lấy danh sách tài khoản
   app.get("/api/accounts", async (req, res) => {
     try {
