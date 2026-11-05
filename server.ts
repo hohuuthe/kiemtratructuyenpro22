@@ -642,8 +642,8 @@ async function startServer() {
 
   function checkIsAdmin(user: any): boolean {
     if (!user) return false;
-    const role = String(user.role || '').toLowerCase();
-    const audience = String(user.target_audience || '').toLowerCase();
+    const role = String(user.role || '').trim().toLowerCase();
+    const audience = String(user.target_audience || '').trim().toLowerCase();
     return role === 'admin' || audience === 'admin' || audience === 'quản trị viên';
   }
 
@@ -935,7 +935,7 @@ async function startServer() {
       const selfAccRes=await executeSqlQuery(accountProjection+' WHERE a.id=? OR a.user_id=? ORDER BY CASE WHEN a.id=? THEN 0 ELSE 1 END,a.created_at DESC LIMIT 1',[accountId,selfId,accountId]);
       const ownAccounts=selfAccRes.results||[];
       const examRes=await executeSqlQuery(`
-        SELECT ec.creator_id,ec.chedodethi,ec.target_lop,ec.lop,ec.access_control,
+        SELECT ec.creator_id,ec.chedodethi,ec.target_lop,ec.lop,ec.target_donvi,ec.donvi,ec.access_control,
           COALESCE(up.donvi,uap.donvi,'') AS teacher_donvi,
           COALESCE(NULLIF(TRIM(up.full_name),''),NULLIF(TRIM(uap.full_name),''),'Giáo viên') AS full_name,
           COALESCE(ap.role,a.role,'teacher') AS creator_role
@@ -954,11 +954,17 @@ async function startServer() {
         const cid=String(row.creator_id||'').trim(); if(!cid)continue;
         let allowed=true; const mode=String(row.chedodethi||'').trim();
         if(mode==='Đề cho đơn vị'||mode==='Đề thi cho đơn vị'){
-          const tUnit=norm(row.teacher_donvi); let ac:any=null;
+          const tUnit=norm(row.teacher_donvi);
+          const examUnit=norm(row.target_donvi||row.donvi);
+          let ac:any=null;
           try{ac=typeof row.access_control==='string'?JSON.parse(row.access_control||'{}'):row.access_control;}catch{}
           const units=ac?.allowedUnits?(Array.isArray(ac.allowedUnits)?ac.allowedUnits:[ac.allowedUnits]).map(norm).filter(Boolean):[];
-          let same=!tUnit&&!units.length;
-          if(sUnit){if(tUnit&&(sUnit===tUnit||sUnit.includes(tUnit)||tUnit.includes(sUnit)))same=true;else if(units.some((u:string)=>u&&(u===sUnit||sUnit.includes(u)||u.includes(sUnit))))same=true;}
+          const scopedUnits=[...new Set([examUnit,...units].filter(Boolean))];
+          let same=false;
+          if(sUnit){
+            if(scopedUnits.length) same=scopedUnits.includes(sUnit);
+            else if(tUnit) same=sUnit===tUnit;
+          }
           if(!same)allowed=false;
           if(allowed){const target=String(row.target_lop||row.lop||'').trim();if(target)allowed=!!sClass&&target.split(',').map(normClass).filter(Boolean).includes(sClass);}
         }
