@@ -13,9 +13,9 @@ test('all paginated APIs expose total + snapshot and stable unique ordering', ()
     assert.match(src, /snapshot/);
     assert.match(src, /has_more/);
   }
-  assert.match(cfUsers, /ORDER BY users\.created_at DESC, users\.id DESC/);
+  assert.match(cfUsers, /ORDER BY[\s\S]*'giáo viên','teacher'[\s\S]*'học sinh','student'[\s\S]*users\.created_at DESC, users\.id DESC/);
   assert.match(cfAccounts, /a\.id DESC/);
-  assert.match(server, /ORDER BY u\.created_at DESC,u\.id DESC/);
+  assert.match(server, /ORDER BY CASE[\s\S]*'giáo viên','teacher'[\s\S]*'học sinh','student'[\s\S]*u\.created_at DESC,u\.id DESC/);
   assert.match(server, /a\.id DESC/);
 });
 

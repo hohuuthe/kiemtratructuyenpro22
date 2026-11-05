@@ -73,7 +73,11 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     if (isAdmin) {
       const meta: any = await db.prepare(`
         SELECT COUNT(*)::int AS total,
-               MD5(COALESCE(STRING_AGG(id, '|' ORDER BY created_at DESC, id DESC), '')) AS snapshot
+               MD5(COALESCE(STRING_AGG(id, '|' ORDER BY
+                 CASE WHEN LOWER(TRIM(COALESCE(target_audience,''))) IN ('quản trị viên','admin') THEN 0
+                      WHEN LOWER(TRIM(COALESCE(target_audience,''))) IN ('giáo viên','teacher') THEN 1
+                      WHEN LOWER(TRIM(COALESCE(target_audience,''))) IN ('học sinh','student') THEN 2 ELSE 3 END,
+                 created_at DESC, id DESC), '')) AS snapshot
         FROM users
       `).first();
       total = Number(meta?.total || 0);
@@ -85,7 +89,11 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
         }), { status: 409, headers: corsHeaders });
       }
       const paginationClause = limit > 0 ? ` LIMIT ${limit} OFFSET ${offset}` : '';
-      const res: any = await db.prepare(projection + ` ORDER BY users.created_at DESC, users.id DESC${paginationClause}`).all();
+      const res: any = await db.prepare(projection + ` ORDER BY
+        CASE WHEN LOWER(TRIM(COALESCE(users.target_audience,''))) IN ('quản trị viên','admin') THEN 0
+             WHEN LOWER(TRIM(COALESCE(users.target_audience,''))) IN ('giáo viên','teacher') THEN 1
+             WHEN LOWER(TRIM(COALESCE(users.target_audience,''))) IN ('học sinh','student') THEN 2 ELSE 3 END,
+        users.created_at DESC, users.id DESC${paginationClause}`).all();
       rows = res.results || [];
     } else if (isTeacher) {
       const selfId = String(user.user_id || user.id || '');
@@ -190,7 +198,11 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     if (isAdmin) {
       const verifyMeta: any = await db.prepare(`
         SELECT COUNT(*)::int AS total,
-               MD5(COALESCE(STRING_AGG(id, '|' ORDER BY created_at DESC, id DESC), '')) AS snapshot
+               MD5(COALESCE(STRING_AGG(id, '|' ORDER BY
+                 CASE WHEN LOWER(TRIM(COALESCE(target_audience,''))) IN ('quản trị viên','admin') THEN 0
+                      WHEN LOWER(TRIM(COALESCE(target_audience,''))) IN ('giáo viên','teacher') THEN 1
+                      WHEN LOWER(TRIM(COALESCE(target_audience,''))) IN ('học sinh','student') THEN 2 ELSE 3 END,
+                 created_at DESC, id DESC), '')) AS snapshot
         FROM users
       `).first();
       const verifyTotal = Number(verifyMeta?.total || 0);

@@ -17742,6 +17742,28 @@ CẤU TRÚC JSON:
 
 
 
+        function managementAudiencePriority(row, linkedUser = null) {
+            const audience = String(row?.target_audience || linkedUser?.target_audience || '').trim().toLowerCase();
+            const role = String(row?.role || row?.account_role || linkedUser?.account_role || '').trim().toLowerCase();
+            if (role === 'admin' || audience === 'quản trị viên' || audience === 'admin') return 0;
+            if (role === 'teacher' || role === 'giáo viên' || audience === 'giáo viên' || audience === 'teacher') return 1;
+            if (audience === 'học sinh' || audience === 'student') return 2;
+            return 3;
+        }
+
+        function sortManagementAudienceFirst(list, userList = []) {
+            return [...(list || [])].sort((a, b) => {
+                const aUser = userList.find(u => u.id === a.user_id || u.id === a.id) || null;
+                const bUser = userList.find(u => u.id === b.user_id || u.id === b.id) || null;
+                const byAudience = managementAudiencePriority(a, aUser) - managementAudiencePriority(b, bUser);
+                if (byAudience !== 0) return byAudience;
+                const aTime = Date.parse(String(a?.created_at || '')) || 0;
+                const bTime = Date.parse(String(b?.created_at || '')) || 0;
+                if (aTime !== bTime) return bTime - aTime;
+                return String(b?.id || '').localeCompare(String(a?.id || ''), 'vi');
+            });
+        }
+
         // ==================== ACCOUNTS MANAGEMENT ====================
         window.accountsCurrentPage = 1;
         window.accountsPageSize = 50;
@@ -18399,6 +18421,10 @@ CẤU TRÚC JSON:
 
                 return true;
             });
+
+            if (isAdminLoggedIn && !(accountsTotalServer !== null && !hasCompleteIdentitySnapshot)) {
+                filteredAccounts = sortManagementAudienceFirst(filteredAccounts, userList);
+            }
 
             if (countDisplay) {
                 const hasActiveFilter = Boolean(searchTerm || audienceFilter || unitFilter || classFilter);
@@ -21007,6 +21033,10 @@ CẤU TRÚC JSON:
 
                 return true;
             });
+
+            if (isAdminLoggedIn) {
+                filteredUsers = sortManagementAudienceFirst(filteredUsers, accList);
+            }
 
             if (countDisplay) {
                 const hasActiveFilter = Boolean(searchTerm || audienceFilter || unitFilter || classFilter);

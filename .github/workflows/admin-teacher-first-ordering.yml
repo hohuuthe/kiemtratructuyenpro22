@@ -1,0 +1,54 @@
+name: Admin teacher-first ordering checks
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/main.js'
+      - 'src/management-page-queries.js'
+      - 'functions/api/users.ts'
+      - 'functions/api/accounts.ts'
+      - 'functions/api/core-identity.ts'
+      - 'server.ts'
+      - 'tests/core-identity-preload.test.mjs'
+      - 'tests/management-server-pagination.test.mjs'
+      - 'tests/pagination-integrity-large-scope.test.mjs'
+      - '.github/workflows/admin-teacher-first-ordering.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src/main.js'
+      - 'src/management-page-queries.js'
+      - 'functions/api/users.ts'
+      - 'functions/api/accounts.ts'
+      - 'functions/api/core-identity.ts'
+      - 'server.ts'
+      - 'tests/core-identity-preload.test.mjs'
+      - 'tests/management-server-pagination.test.mjs'
+      - 'tests/pagination-integrity-large-scope.test.mjs'
+      - '.github/workflows/admin-teacher-first-ordering.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Syntax
+        run: |
+          node --check src/main.js
+          node --check src/management-page-queries.js
+      - name: Teacher-first ordering and pagination regressions
+        run: node --test tests/core-identity-preload.test.mjs tests/management-server-pagination.test.mjs tests/pagination-integrity-large-scope.test.mjs
+      - name: TypeScript project check
+        run: npm run lint
+      - name: Production build
+        run: npm run build

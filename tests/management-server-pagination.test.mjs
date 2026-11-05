@@ -66,3 +66,12 @@ test('results support server-side sorting by violation count before pagination',
  assert.match(q.rowsSQL,/ORDER BY r\.cheat_warning_count DESC,r\.id DESC LIMIT \? OFFSET \?/);
  assert.deepEqual(q.rowsArgs.slice(-2),[50,50]);
 });
+
+
+test('admin account pages sort admin then teachers then students before pagination',()=>{
+ const q=accountsPageQuery(parseManagementPage('https://h/api/accounts-page?page=1&limit=50'));
+ assert.match(q.rowsSQL,/CASE WHEN LOWER\(TRIM\(COALESCE\(a\.role,''\)\)\)='admin'/);
+ assert.match(q.rowsSQL,/'giáo viên','teacher'/);
+ assert.match(q.rowsSQL,/'học sinh','student'/);
+ assert.match(q.rowsSQL,/ORDER BY .*CASE[\s\S]*a\.created_at DESC,a\.id DESC LIMIT \? OFFSET \?/);
+});
