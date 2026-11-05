@@ -886,7 +886,7 @@ async function startServer() {
       if (!actor) return res.status(401).json({ error: 'Phiên đăng nhập không hợp lệ' });
 
       const projection = `
-        SELECT u.*,
+        /* no-cache */ SELECT u.*,
           (SELECT a.id FROM accounts a WHERE a.user_id=u.id OR a.id=u.id ORDER BY CASE WHEN a.user_id=u.id THEN 0 ELSE 1 END, a.created_at DESC LIMIT 1) AS account_id,
           (SELECT a.username FROM accounts a WHERE a.user_id=u.id OR a.id=u.id ORDER BY CASE WHEN a.user_id=u.id THEN 0 ELSE 1 END, a.created_at DESC LIMIT 1) AS account_username,
           (SELECT a.role FROM accounts a WHERE a.user_id=u.id OR a.id=u.id ORDER BY CASE WHEN a.user_id=u.id THEN 0 ELSE 1 END, a.created_at DESC LIMIT 1) AS account_role,
@@ -1528,7 +1528,7 @@ async function startServer() {
       }
 
       const projection=`
-        SELECT u.*,
+        /* no-cache */ SELECT u.*,
           (SELECT a.id FROM accounts a WHERE a.user_id=u.id OR a.id=u.id ORDER BY CASE WHEN a.user_id=u.id THEN 0 ELSE 1 END,a.created_at DESC,a.id DESC LIMIT 1) AS account_id,
           (SELECT a.username FROM accounts a WHERE a.user_id=u.id OR a.id=u.id ORDER BY CASE WHEN a.user_id=u.id THEN 0 ELSE 1 END,a.created_at DESC,a.id DESC LIMIT 1) AS account_username,
           (SELECT a.role FROM accounts a WHERE a.user_id=u.id OR a.id=u.id ORDER BY CASE WHEN a.user_id=u.id THEN 0 ELSE 1 END,a.created_at DESC,a.id DESC LIMIT 1) AS account_role,
