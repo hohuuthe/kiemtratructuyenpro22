@@ -3,7 +3,7 @@ const CURRENT_BUILD_ID = typeof __APP_BUILD_ID__ !== 'undefined'
   : (document.querySelector('meta[name="app-release"]')?.getAttribute('content') || 'unknown');
 
 const VERSION_URL = '/version.json';
-const CHECK_INTERVAL_MS = 60_000;
+const CHECK_INTERVAL_MS = 120_000;
 const SAFE_RECHECK_MS = 5_000;
 const RECENT_EDIT_GRACE_MS = 45_000;
 const IDLE_BEFORE_PROMPT_MS = 8_000;
@@ -17,6 +17,7 @@ let lastEditAt = 0;
 let monitorTimer = null;
 let safeRecheckTimer = null;
 let versionChannel = null;
+let lastVersionCheckAt = 0;
 
 function isVisible(element) {
   if (!element || !element.isConnected) return false;
@@ -69,6 +70,7 @@ export function isStudentExamInProgress() {
   if (document.body?.dataset.studentExamInProgress === 'true') return true;
 
   const activeExamSelectors = [
+    '#exam-interface',
     '[data-exam-in-progress="true"]',
     '[data-student-exam-active="true"]',
     '#student-exam-active',
@@ -116,16 +118,9 @@ function isEditableElement(element) {
   return !['button', 'submit', 'reset', 'checkbox', 'radio', 'range', 'color', 'file'].includes(type);
 }
 
-function isWorkHeavyTabActive() {
-  const ids = [
-    'tab-exam-editor',
-    'tab-boards',
-    'tab-qr-cards'
-  ];
-  return ids.some((id) => {
-    const el = document.getElementById(id);
-    return !!el && el.classList.contains('active') && isVisible(el);
-  });
+function hasCriticalActivity() {
+  const activities = window.__APP_CRITICAL_ACTIVITY__;
+  return !!activities && Object.values(activities).some(Boolean);
 }
 
 function hasFilesSelected() {
@@ -136,10 +131,10 @@ function hasFilesSelected() {
 
 export function isUnsafeForVersionPrompt() {
   if (isStudentExamInProgress()) return true;
+  if (hasCriticalActivity()) return true;
   if (document.hidden) return true;
   if (document.fullscreenElement) return true;
   if (hasVisibleBlockingModal()) return true;
-  if (isWorkHeavyTabActive()) return true;
   if (hasFilesSelected()) return true;
   if (isEditableElement(document.activeElement)) return true;
   if (Date.now() - lastEditAt < RECENT_EDIT_GRACE_MS) return true;
@@ -383,7 +378,13 @@ function scheduleSafePrompt() {
   }, SAFE_RECHECK_MS);
 }
 
-async function checkForNewVersion() {
+async function checkForNewVersion({ force = false } = {}) {
+  const now = Date.now();
+  if (!force && lastVersionCheckAt && now - lastVersionCheckAt < CHECK_INTERVAL_MS) {
+    return;
+  }
+  lastVersionCheckAt = now;
+
   const latest = await fetchLatestVersion();
   if (!latest || latest.version === CURRENT_BUILD_ID) return;
   setPendingVersion(latest);
@@ -471,7 +472,7 @@ export function startAppVersionMonitoring() {
   // API cho các phần khác của ứng dụng đánh dấu vùng tuyệt đối không được reload.
   window.appVersionManager = {
     currentBuildId: CURRENT_BUILD_ID,
-    checkNow: checkForNewVersion,
+    checkNow: () => checkForNewVersion({ force: true }),
     isStudentExamInProgress,
     isUnsafeForVersionPrompt,
     setCriticalActivity(name, active) {
@@ -484,7 +485,6 @@ export function startAppVersionMonitoring() {
     }
   };
 
-  window.setTimeout(checkForNewVersion, 15_000);
 }
 
 export function stopAppVersionMonitoring() {
