@@ -28,7 +28,7 @@ test('admin scope supports paged metadata plus full legacy payload', () => {
 });
 
 test('teacher scope returns self profile plus only assigned-class students', () => {
-  assert.match(coreApi, /role_scope: 'teacher'/);
+  assert.match(coreApi, /role_scope:\s*'teacher'/);
   assert.match(coreApi, /teacher_classes/);
   assert.match(coreApi, /LOWER\(TRIM\(tc\.class_name\)\).*LOWER\(TRIM\(COALESCE\(u\.lop/);
   assert.match(coreApi, /LOWER\(TRIM\(COALESCE\(u\.target_audience,''\)\)\) IN \('học sinh','student'\)/);
@@ -59,15 +59,21 @@ test('logged-in student never falls back to the public full teacher directory', 
 });
 
 test('legacy users and accounts APIs are also server-scoped by role', () => {
-  assert.match(usersApi, /role_scope: isAdmin \? 'admin' : \(isTeacher \? 'teacher' : 'student'\)/);
+  // Student responses return early with role_scope='student'. Admin/teacher
+  // responses share the paginated tail and must never collapse back to an
+  // unscoped three-role expression.
+  assert.match(usersApi, /role_scope: 'student'/);
+  assert.match(usersApi, /role_scope: isAdmin \? 'admin' : 'teacher'/);
   assert.match(usersApi, /teacher_classes/);
-  assert.match(accountsApi, /role_scope: isAdmin \? 'admin' : \(isTeacher \? 'teacher' : 'student'\)/);
+  assert.match(accountsApi, /role_scope: 'student'/);
+  assert.match(accountsApi, /role_scope: isAdmin \? 'admin' : 'teacher'/);
   assert.match(accountsApi, /teacher_classes/);
 });
 
 test('node runtime enforces the same strict role scope as Cloudflare', () => {
   assert.doesNotMatch(server, /role === 'khác'/);
-  assert.match(server, /role_scope:isAdmin\?'admin':\(isTeacher\?'teacher':'student'\)/);
+  assert.match(server, /role_scope:isAdmin\?'admin':'teacher'/);
+  assert.match(server, /role_scope:'student'/);
   assert.match(server, /tc\.teacher_id IN \(\?,\?\)/);
   assert.match(server, /LOWER\(TRIM\(tc\.class_name\)\)=LOWER\(TRIM\(COALESCE\(u\.lop,''\)\)\)/);
   assert.match(server, /LOWER\(TRIM\(tc\.donvi\)\)=LOWER\(TRIM\(COALESCE\(u\.donvi,''\)\)\)/);
@@ -77,9 +83,13 @@ test('node runtime enforces the same strict role scope as Cloudflare', () => {
 });
 
 test('node teacher account pagination cannot stop after the first 1000 assigned students', () => {
-  assert.match(server, /has_more:\(isAdmin\|\|isTeacher\) \? \(limit>0 && rows\.length===limit\) : false/);
+  // has_more must be computed from verified total, not from whether a page
+  // happened to be completely full. Client advances by the actual row count.
+  assert.match(server, /has_more:limit>0\?offset\+rows\.length<total:false/);
   assert.match(main, /fetchAllAccountsChunked/);
-  assert.match(main, /offset \+= chunkSize/);
+  assert.match(main, /offset \+= chunk\.length/);
+  assert.match(main, /expectedTotal/);
+  assert.match(main, /seenIds/);
 });
 
 test('node session scope follows the current target audience without breaking unchanged legacy sessions', () => {

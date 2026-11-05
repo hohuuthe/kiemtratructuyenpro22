@@ -16,13 +16,13 @@ permissions:
 jobs:
   browser-acceptance:
     name: Chromium desktop, mobile, editors and exports
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
       - name: Install dependencies
         run: npm install --no-audit --no-fund
       - name: Install isolated browser runner
