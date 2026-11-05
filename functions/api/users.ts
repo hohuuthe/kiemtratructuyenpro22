@@ -66,6 +66,9 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     let rows: any[] = [];
     let total = 0;
     let snapshot = '';
+    let teacherSelfId = '';
+    let teacherAccountId = '';
+    let teacherSelfProfileId = '';
 
     if (isAdmin) {
       const meta: any = await db.prepare(`
@@ -87,6 +90,8 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     } else if (isTeacher) {
       const selfId = String(user.user_id || user.id || '');
       const accountId = String(user.id || selfId);
+      teacherSelfId = selfId;
+      teacherAccountId = accountId;
       const self: any = await db.prepare(
         projection + ' WHERE users.id = ? OR users.id = ? ORDER BY CASE WHEN users.id = ? THEN 0 ELSE 1 END, users.id DESC LIMIT 1'
       ).bind(selfId, accountId, selfId).first();
@@ -110,7 +115,8 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
       `).bind(selfId, accountId).first();
       const studentTotal = Number(meta?.student_total || 0);
       total = studentTotal + 1;
-      snapshot = String(self.id) + ':' + String(meta?.student_snapshot || '');
+      teacherSelfProfileId = String(self.id || '');
+      snapshot = teacherSelfProfileId + ':' + String(meta?.student_snapshot || '');
 
       if (requestedSnapshot && requestedSnapshot !== snapshot) {
         return new Response(JSON.stringify({
@@ -176,6 +182,45 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
         for (const row of rows) row.assigned_classes = map[String(row.id)] || [];
       } catch {
         for (const row of rows) row.assigned_classes = [];
+      }
+    }
+
+    // Verify the full scope again after the page SELECT to prevent a mixed
+    // page if membership/order changes inside the same request.
+    if (isAdmin) {
+      const verifyMeta: any = await db.prepare(`
+        SELECT COUNT(*)::int AS total,
+               MD5(COALESCE(STRING_AGG(id, '|' ORDER BY created_at DESC, id DESC), '')) AS snapshot
+        FROM users
+      `).first();
+      const verifyTotal = Number(verifyMeta?.total || 0);
+      const verifySnapshot = String(verifyMeta?.snapshot || '');
+      if (verifyTotal !== total || verifySnapshot !== snapshot) {
+        return new Response(JSON.stringify({
+          error: 'Phạm vi dữ liệu thay đổi ngay trong lúc đọc trang. Cần tải lại từ đầu.',
+          code: 'PAGINATION_SCOPE_CHANGED', snapshot: verifySnapshot, total: verifyTotal
+        }), { status: 409, headers: corsHeaders });
+      }
+    } else if (isTeacher) {
+      const verifyMeta: any = await db.prepare(`
+        SELECT COUNT(*)::int AS student_total,
+               MD5(COALESCE(STRING_AGG(users.id, '|' ORDER BY users.created_at DESC, users.id DESC), '')) AS student_snapshot
+        FROM users
+        WHERE LOWER(TRIM(COALESCE(users.target_audience,''))) IN ('học sinh','student')
+          AND EXISTS (
+            SELECT 1 FROM teacher_classes tc
+            WHERE (tc.teacher_id = ? OR tc.teacher_id = ?)
+              AND LOWER(TRIM(tc.class_name)) = LOWER(TRIM(COALESCE(users.lop,'')))
+              AND LOWER(TRIM(COALESCE(tc.donvi,''))) = LOWER(TRIM(COALESCE(users.donvi,'')))
+          )
+      `).bind(teacherSelfId, teacherAccountId).first();
+      const verifyTotal = Number(verifyMeta?.student_total || 0) + 1;
+      const verifySnapshot = teacherSelfProfileId + ':' + String(verifyMeta?.student_snapshot || '');
+      if (verifyTotal !== total || verifySnapshot !== snapshot) {
+        return new Response(JSON.stringify({
+          error: 'Phạm vi dữ liệu giáo viên thay đổi ngay trong lúc đọc trang. Cần tải lại từ đầu.',
+          code: 'PAGINATION_SCOPE_CHANGED', snapshot: verifySnapshot, total: verifyTotal
+        }), { status: 409, headers: corsHeaders });
       }
     }
 
