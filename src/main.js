@@ -18323,27 +18323,12 @@ CẤU TRÚC JSON:
                         accountsLoaded = true;
                     }
                 } catch (e) {
-                     console.error('Error on-demand chunked loading accounts:', e);
-                     try {
-                         const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
-                         const fallbackRes = await fetch('/api/accounts', { headers: { 'Authorization': 'Bearer ' + token } }).then(r => r.json()).catch(() => null);
-                         if (fallbackRes && Array.isArray(fallbackRes.data)) {
-                             accounts = fallbackRes.data;
-                             window.accounts = accounts;
-                             accounts.forEach(acc => {
-                                 if (acc.id) accountsMap[acc.id] = acc.full_name || acc.username;
-                             });
-                             accountsLoaded = true;
-                         } else {
-                             if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="text-center py-8 text-red-500">❌ Lỗi khi tải danh sách tài khoản!</td></tr>';
-                             if (cardContainer) cardContainer.innerHTML = '<div class="text-center py-8 text-red-500">❌ Lỗi khi tải danh sách tài khoản!</div>';
-                             return;
-                         }
-                     } catch {
-                         if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="text-center py-8 text-red-500">❌ Lỗi khi tải danh sách tài khoản!</td></tr>';
-                         if (cardContainer) cardContainer.innerHTML = '<div class="text-center py-8 text-red-500">❌ Lỗi khi tải danh sách tài khoản!</div>';
-                         return;
-                     }
+                     console.error('Error on-demand verified pagination loading accounts:', e);
+                     accountsLoaded = false;
+                     if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="text-center py-8 text-red-500">❌ Không thể xác nhận đã tải đầy đủ tài khoản. Vui lòng thử lại.</td></tr>';
+                     if (cardContainer) cardContainer.innerHTML = '<div class="text-center py-8 text-red-500">❌ Không thể xác nhận đã tải đầy đủ tài khoản. Vui lòng thử lại.</div>';
+                     showToast('Không thể tải đầy đủ tài khoản theo phân trang an toàn: ' + (e?.message || ''), 'error');
+                     return;
                 }
             }
 
