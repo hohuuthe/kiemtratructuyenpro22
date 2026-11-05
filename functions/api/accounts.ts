@@ -55,7 +55,12 @@ export async function onRequestGet(context: any) {
         let rows: any[] = [];
         let total = 0;
         let snapshot = '';
-        let orderSql = 'a.created_at DESC, a.id DESC';
+        let orderSql = `CASE
+          WHEN LOWER(TRIM(COALESCE(a.role,'')))='admin' OR LOWER(TRIM(COALESCE(u.target_audience,''))) IN ('quản trị viên','admin') THEN 0
+          WHEN LOWER(TRIM(COALESCE(u.target_audience,''))) IN ('giáo viên','teacher') OR LOWER(TRIM(COALESCE(a.role,''))) IN ('teacher','giáo viên') THEN 1
+          WHEN LOWER(TRIM(COALESCE(u.target_audience,''))) IN ('học sinh','student') THEN 2
+          ELSE 3 END,
+          a.created_at DESC, a.id DESC`;
         let whereSql = '';
         let binds: any[] = [];
 
