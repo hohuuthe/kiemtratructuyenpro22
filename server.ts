@@ -1013,11 +1013,17 @@ async function startServer() {
 
       let limit=-1;
       if(limitParam!==undefined&&!['all','0','-1'].includes(limitParam)){
-        const parsed=parseInt(limitParam,10); if(!isNaN(parsed)&&parsed>0) limit=Math.min(parsed,5000);
+        const parsed=parseInt(limitParam,10);
+        if(!isNaN(parsed)&&parsed>0) limit=Math.min(parsed,5000);
       }
       let offset=0;
-      if(offsetParam!==undefined){const parsed=parseInt(offsetParam,10);if(!isNaN(parsed)&&parsed>=0)offset=parsed;}
-      else if(pageParam!==undefined){const page=parseInt(pageParam,10);if(!isNaN(page)&&page>0)offset=(page-1)*(limit>0?limit:1000);}
+      if(offsetParam!==undefined){
+        const parsed=parseInt(offsetParam,10);
+        if(!isNaN(parsed)&&parsed>=0) offset=parsed;
+      }else if(pageParam!==undefined){
+        const page=parseInt(pageParam,10);
+        if(!isNaN(page)&&page>0) offset=(page-1)*(limit>0?limit:1000);
+      }
       const paginationClause=limit>0?` LIMIT ${limit} OFFSET ${offset}`:'';
 
       const projection=`
@@ -1030,15 +1036,12 @@ async function startServer() {
       let rows:any[]=[];
       let total=0;
       let snapshot='';
-      let teacherSelfId='';
-      let teacherAccountId='';
-      let teacherSelfProfileId='';
       let whereSql='';
       let orderSql='a.created_at DESC,a.id DESC';
       let binds:any[]=[];
 
       if(isAdmin){
-        whereSql='';
+        // full account scope
       }else if(isTeacher){
         const selfId=String(user.user_id||user.id||'');
         const accountId=String(user.id||selfId);
@@ -1065,12 +1068,13 @@ async function startServer() {
         return res.status(200).json({data:rows,total,limit,offset:0,has_more:false,snapshot,role_scope:'student',error:null});
       }
 
-      const meta=await executeSqlQuery(`
+      const metaSql=`
         SELECT COUNT(*)::int AS total,
                MD5(COALESCE(STRING_AGG(a.id,'|' ORDER BY ${orderSql}),'')) AS snapshot
         FROM accounts a
         LEFT JOIN users u ON u.id=COALESCE(a.user_id,a.id)
-        ${whereSql}`,binds);
+        ${whereSql}`;
+      const meta=await executeSqlQuery(metaSql,binds);
       total=Number(meta.results?.[0]?.total||0);
       snapshot=String(meta.results?.[0]?.snapshot||'');
 
@@ -1084,12 +1088,7 @@ async function startServer() {
       const data=await executeSqlQuery(projection+whereSql+` ORDER BY ${orderSql}${paginationClause}`,binds);
       rows=data.results||[];
 
-      const verifyMeta=await executeSqlQuery(`
-        SELECT COUNT(*)::int AS total,
-               MD5(COALESCE(STRING_AGG(a.id,'|' ORDER BY ${orderSql}),'')) AS snapshot
-        FROM accounts a
-        LEFT JOIN users u ON u.id=COALESCE(a.user_id,a.id)
-        ${whereSql}`,binds);
+      const verifyMeta=await executeSqlQuery(metaSql,binds);
       const verifyTotal=Number(verifyMeta.results?.[0]?.total||0);
       const verifySnapshot=String(verifyMeta.results?.[0]?.snapshot||'');
       if(verifyTotal!==total||verifySnapshot!==snapshot){
@@ -1099,44 +1098,12 @@ async function startServer() {
         });
       }
 
-      if(isAdmin){
-        const verifyMeta=await executeSqlQuery(`
-          SELECT COUNT(*)::int AS total,
-                 MD5(COALESCE(STRING_AGG(id,'|' ORDER BY created_at DESC,id DESC),'')) AS snapshot
-          FROM users`,[]);
-        const verifyTotal=Number(verifyMeta.results?.[0]?.total||0);
-        const verifySnapshot=String(verifyMeta.results?.[0]?.snapshot||'');
-        if(verifyTotal!==total||verifySnapshot!==snapshot){
-          return res.status(409).json({
-            error:'Phạm vi dữ liệu thay đổi ngay trong lúc đọc trang. Cần tải lại từ đầu.',
-            code:'PAGINATION_SCOPE_CHANGED',snapshot:verifySnapshot,total:verifyTotal
-          });
-        }
-      }else if(isTeacher){
-        const verifyMeta=await executeSqlQuery(`
-          SELECT COUNT(*)::int AS student_total,
-                 MD5(COALESCE(STRING_AGG(u.id,'|' ORDER BY u.created_at DESC,u.id DESC),'')) AS student_snapshot
-          FROM users u
-          WHERE LOWER(TRIM(COALESCE(u.target_audience,''))) IN ('học sinh','student')
-            AND EXISTS (
-              SELECT 1 FROM teacher_classes tc
-              WHERE tc.teacher_id IN (?,?)
-                AND LOWER(TRIM(tc.class_name))=LOWER(TRIM(COALESCE(u.lop,'')))
-                AND LOWER(TRIM(tc.donvi))=LOWER(TRIM(COALESCE(u.donvi,'')))
-            )`,[teacherSelfId,teacherAccountId]);
-        const verifyTotal=Number(verifyMeta.results?.[0]?.student_total||0)+1;
-        const verifySnapshot=teacherSelfProfileId+':'+String(verifyMeta.results?.[0]?.student_snapshot||'');
-        if(verifyTotal!==total||verifySnapshot!==snapshot){
-          return res.status(409).json({
-            error:'Phạm vi dữ liệu giáo viên thay đổi ngay trong lúc đọc trang. Cần tải lại từ đầu.',
-            code:'PAGINATION_SCOPE_CHANGED',snapshot:verifySnapshot,total:verifyTotal
-          });
-        }
-      }
-
       const ids=new Set(rows.map((row:any)=>String(row?.id||'')));
       if(ids.size!==rows.length||ids.has('')){
-        return res.status(500).json({error:'Phân trang tài khoản phát hiện bản ghi trùng hoặc thiếu ID.',code:'PAGINATION_PAGE_INVALID'});
+        return res.status(500).json({
+          error:'Phân trang tài khoản phát hiện bản ghi trùng hoặc thiếu ID.',
+          code:'PAGINATION_PAGE_INVALID'
+        });
       }
 
       return res.status(200).json({
@@ -1495,11 +1462,17 @@ async function startServer() {
 
       let limit=-1;
       if(limitParam!==undefined&&!['all','0','-1'].includes(limitParam)){
-        const parsed=parseInt(limitParam,10); if(!isNaN(parsed)&&parsed>0) limit=Math.min(parsed,5000);
+        const parsed=parseInt(limitParam,10);
+        if(!isNaN(parsed)&&parsed>0) limit=Math.min(parsed,5000);
       }
       let offset=0;
-      if(offsetParam!==undefined){const parsed=parseInt(offsetParam,10);if(!isNaN(parsed)&&parsed>=0)offset=parsed;}
-      else if(pageParam!==undefined){const page=parseInt(pageParam,10);if(!isNaN(page)&&page>0)offset=(page-1)*(limit>0?limit:1000);}
+      if(offsetParam!==undefined){
+        const parsed=parseInt(offsetParam,10);
+        if(!isNaN(parsed)&&parsed>=0) offset=parsed;
+      }else if(pageParam!==undefined){
+        const page=parseInt(pageParam,10);
+        if(!isNaN(page)&&page>0) offset=(page-1)*(limit>0?limit:1000);
+      }
 
       const projection=`
         SELECT u.*,
@@ -1515,31 +1488,51 @@ async function startServer() {
       let snapshot='';
 
       if(isAdmin){
-        const meta=await executeSqlQuery(`
+        const metaSql=`
           SELECT COUNT(*)::int AS total,
                  MD5(COALESCE(STRING_AGG(id,'|' ORDER BY created_at DESC,id DESC),'')) AS snapshot
-          FROM users`,[]);
+          FROM users`;
+        const meta=await executeSqlQuery(metaSql,[]);
         total=Number(meta.results?.[0]?.total||0);
         snapshot=String(meta.results?.[0]?.snapshot||'');
+
         if(requestedSnapshot&&requestedSnapshot!==snapshot){
           return res.status(409).json({
             error:'Phạm vi dữ liệu đã thay đổi trong khi đang phân trang. Cần tải lại từ trang đầu.',
             code:'PAGINATION_SCOPE_CHANGED',snapshot,total
           });
         }
+
         const paginationClause=limit>0?` LIMIT ${limit} OFFSET ${offset}`:'';
         const result=await executeSqlQuery(projection+` ORDER BY u.created_at DESC,u.id DESC${paginationClause}`,[]);
         rows=result.results||[];
-        const tc=await executeSqlQuery('SELECT id,teacher_id,teacher_name,class_name,donvi,role,subject,created_at FROM teacher_classes ORDER BY class_name ASC,donvi ASC,id ASC',[]);
+
+        const verifyMeta=await executeSqlQuery(metaSql,[]);
+        const verifyTotal=Number(verifyMeta.results?.[0]?.total||0);
+        const verifySnapshot=String(verifyMeta.results?.[0]?.snapshot||'');
+        if(verifyTotal!==total||verifySnapshot!==snapshot){
+          return res.status(409).json({
+            error:'Phạm vi dữ liệu thay đổi ngay trong lúc đọc trang. Cần tải lại từ đầu.',
+            code:'PAGINATION_SCOPE_CHANGED',snapshot:verifySnapshot,total:verifyTotal
+          });
+        }
+
+        const tc=await executeSqlQuery(
+          'SELECT id,teacher_id,teacher_name,class_name,donvi,role,subject,created_at FROM teacher_classes ORDER BY class_name ASC,donvi ASC,id ASC',[]
+        );
         const map:any={};
-        for(const x of (tc.results||[])){const id=String(x.teacher_id||'');(map[id]||(map[id]=[])).push(x);}
-        for(const row of rows)row.assigned_classes=map[String(row.id)]||[];
+        for(const x of (tc.results||[])){
+          const id=String(x.teacher_id||'');
+          (map[id]||(map[id]=[])).push(x);
+        }
+        for(const row of rows) row.assigned_classes=map[String(row.id)]||[];
       }else if(isTeacher){
         const selfId=String(user.user_id||user.id||'');
         const accountId=String(user.id||selfId);
-        teacherSelfId=selfId;
-        teacherAccountId=accountId;
-        const selfRes=await executeSqlQuery(projection+' WHERE u.id=? OR u.id=? ORDER BY CASE WHEN u.id=? THEN 0 ELSE 1 END,u.id DESC LIMIT 1',[selfId,accountId,selfId]);
+        const selfRes=await executeSqlQuery(
+          projection+' WHERE u.id=? OR u.id=? ORDER BY CASE WHEN u.id=? THEN 0 ELSE 1 END,u.id DESC LIMIT 1',
+          [selfId,accountId,selfId]
+        );
         const self=selfRes.results?.[0]||null;
         if(!self) return res.status(409).json({error:'Không tìm thấy hồ sơ giáo viên liên kết với tài khoản.'});
 
@@ -1551,15 +1544,16 @@ async function startServer() {
                 AND LOWER(TRIM(tc.class_name))=LOWER(TRIM(COALESCE(u.lop,'')))
                 AND LOWER(TRIM(tc.donvi))=LOWER(TRIM(COALESCE(u.donvi,'')))
             )`;
-        const meta=await executeSqlQuery(`
+        const metaSql=`
           SELECT COUNT(*)::int AS student_total,
                  MD5(COALESCE(STRING_AGG(u.id,'|' ORDER BY u.created_at DESC,u.id DESC),'')) AS student_snapshot
           FROM users u
-          ${studentWhere}`,[selfId,accountId]);
+          ${studentWhere}`;
+
+        const meta=await executeSqlQuery(metaSql,[selfId,accountId]);
         const studentTotal=Number(meta.results?.[0]?.student_total||0);
         total=studentTotal+1;
-        teacherSelfProfileId=String(self.id||'');
-        snapshot=teacherSelfProfileId+':'+String(meta.results?.[0]?.student_snapshot||'');
+        snapshot=String(self.id||'')+':'+String(meta.results?.[0]?.student_snapshot||'');
 
         if(requestedSnapshot&&requestedSnapshot!==snapshot){
           return res.status(409).json({
@@ -1575,27 +1569,46 @@ async function startServer() {
           const studentLimit=Math.max(0,limit-1);
           let students:any[]=[];
           if(studentLimit>0){
-            const sr=await executeSqlQuery(projection+studentWhere+` ORDER BY u.created_at DESC,u.id DESC LIMIT ${studentLimit} OFFSET 0`,[selfId,accountId]);
+            const sr=await executeSqlQuery(
+              projection+studentWhere+` ORDER BY u.created_at DESC,u.id DESC LIMIT ${studentLimit} OFFSET 0`,
+              [selfId,accountId]
+            );
             students=sr.results||[];
           }
           rows=[self,...students.filter((x:any)=>String(x.id)!==String(self.id))];
         }else{
           const studentOffset=Math.max(0,offset-1);
-          const sr=await executeSqlQuery(projection+studentWhere+` ORDER BY u.created_at DESC,u.id DESC LIMIT ${limit} OFFSET ${studentOffset}`,[selfId,accountId]);
+          const sr=await executeSqlQuery(
+            projection+studentWhere+` ORDER BY u.created_at DESC,u.id DESC LIMIT ${limit} OFFSET ${studentOffset}`,
+            [selfId,accountId]
+          );
           rows=sr.results||[];
+        }
+
+        const verifyMeta=await executeSqlQuery(metaSql,[selfId,accountId]);
+        const verifyTotal=Number(verifyMeta.results?.[0]?.student_total||0)+1;
+        const verifySnapshot=String(self.id||'')+':'+String(verifyMeta.results?.[0]?.student_snapshot||'');
+        if(verifyTotal!==total||verifySnapshot!==snapshot){
+          return res.status(409).json({
+            error:'Phạm vi dữ liệu giáo viên thay đổi ngay trong lúc đọc trang. Cần tải lại từ đầu.',
+            code:'PAGINATION_SCOPE_CHANGED',snapshot:verifySnapshot,total:verifyTotal
+          });
         }
 
         const tc=await executeSqlQuery(
           'SELECT id,teacher_id,teacher_name,class_name,donvi,role,subject,created_at FROM teacher_classes WHERE teacher_id IN (?,?) ORDER BY class_name ASC,donvi ASC,id ASC',
           [selfId,accountId]
         );
-        const ids=new Set([selfId,accountId]);
         const ownAssignments=tc.results||[];
-        for(const row of rows)row.assigned_classes=ids.has(String(row.id))?ownAssignments:[];
+        const selfIds=new Set([selfId,accountId]);
+        for(const row of rows) row.assigned_classes=selfIds.has(String(row.id))?ownAssignments:[];
       }else{
         const selfId=String(user.user_id||user.id||'');
         const accountId=String(user.id||selfId);
-        const sr=await executeSqlQuery(projection+' WHERE u.id=? OR u.id=? ORDER BY CASE WHEN u.id=? THEN 0 ELSE 1 END,u.id DESC LIMIT 1',[selfId,accountId,selfId]);
+        const sr=await executeSqlQuery(
+          projection+' WHERE u.id=? OR u.id=? ORDER BY CASE WHEN u.id=? THEN 0 ELSE 1 END,u.id DESC LIMIT 1',
+          [selfId,accountId,selfId]
+        );
         rows=sr.results?.length?[sr.results[0]]:[];
         total=rows.length;
         snapshot=rows.length?String(rows[0].id):'';
@@ -1604,7 +1617,10 @@ async function startServer() {
 
       const ids=new Set(rows.map((row:any)=>String(row?.id||'')));
       if(ids.size!==rows.length||ids.has('')){
-        return res.status(500).json({error:'Phân trang hồ sơ phát hiện bản ghi trùng hoặc thiếu ID.',code:'PAGINATION_PAGE_INVALID'});
+        return res.status(500).json({
+          error:'Phân trang hồ sơ phát hiện bản ghi trùng hoặc thiếu ID.',
+          code:'PAGINATION_PAGE_INVALID'
+        });
       }
 
       return res.status(200).json({
