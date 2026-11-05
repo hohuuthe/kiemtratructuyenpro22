@@ -26,6 +26,16 @@ export function accountSessionMaterial(row: any): string {
   ]);
 }
 
+/** Compatibility only for sessions issued before target_audience joined the auth fingerprint. */
+export function legacyAccountSessionMaterialV1(row: any): string {
+  return JSON.stringify([
+    String(row.id || ''), String(row.user_id || ''), String(row.username || ''),
+    String(row.password || ''), String(row.role || ''),
+    row.is_active === false || row.is_active === 0 || row.is_active === '0' || row.is_active === 'false' ? '0' : '1',
+    String(row.expiry_date || '')
+  ]);
+}
+
 export async function accountSessionState(row: any): Promise<string> {
   const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(accountSessionMaterial(row)));
   return Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('');
