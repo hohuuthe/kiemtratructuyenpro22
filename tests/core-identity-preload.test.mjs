@@ -23,8 +23,8 @@ test('admin scope supports paged metadata plus full legacy payload', () => {
   assert.match(coreApi, /role_scope: 'admin'/);
   assert.match(coreApi, /paged: true/);
   assert.match(coreApi, /adminPagedPayload/);
-  assert.match(coreApi, /FROM users\s+ORDER BY users\.created_at DESC/);
-  assert.match(coreApi, /FROM accounts a[\s\S]*ORDER BY a\.created_at DESC/);
+  assert.match(coreApi, /FROM users[\s\S]*CASE[\s\S]*'giáo viên','teacher'[\s\S]*'học sinh','student'[\s\S]*users\.created_at DESC/);
+  assert.match(coreApi, /FROM accounts a[\s\S]*CASE[\s\S]*'giáo viên','teacher'[\s\S]*'học sinh','student'[\s\S]*a\.created_at DESC/);
 });
 
 test('teacher scope returns self profile plus only assigned-class students', () => {
