@@ -7,6 +7,7 @@ on:
       - 'src/student-delete-cascade.ts'
       - 'src/teacher-delete-ui.js'
       - 'src/batch-teacher-delete-ui.js'
+      - 'src/user-selection-type-guard.js'
       - 'functions/api/users/**'
       - 'functions/api/exam/grade.ts'
       - 'server.ts'
@@ -14,6 +15,7 @@ on:
       - 'migrations/*user_delete_cascade.sql'
       - 'migrations/*student_delete_cascade.sql'
       - 'tests/user-delete-cascade.test.mjs'
+      - 'tests/user-selection-type-guard.test.mjs'
       - '.github/workflows/user-delete-cascade.yml'
 permissions:
   contents: read
@@ -29,7 +31,7 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - name: User deletion regression tests
-        run: node --test tests/user-delete-cascade.test.mjs
+        run: node --test tests/user-delete-cascade.test.mjs tests/user-selection-type-guard.test.mjs
       - name: TypeScript project check
         run: npm run lint
       - name: Production build
