@@ -184,7 +184,7 @@ async function studentTeachers(db: any, profile: any) {
   const studentClass = normClass(profile?.lop || '');
 
   const examRes: any = await db.prepare(
-    `SELECT ec.creator_id, ec.chedodethi, ec.target_lop, ec.lop, ec.access_control,
+    `SELECT ec.creator_id, ec.chedodethi, ec.target_lop, ec.lop, ec.target_donvi, ec.donvi, ec.access_control,
             COALESCE(up.donvi, uap.donvi, '') AS teacher_donvi,
             COALESCE(NULLIF(TRIM(up.full_name),''), NULLIF(TRIM(uap.full_name),''), 'Giáo viên') AS full_name,
             COALESCE(ap.role, a.role, 'teacher') AS creator_role
@@ -205,18 +205,19 @@ async function studentTeachers(db: any, profile: any) {
     const mode = String(row.chedodethi || '').trim();
     if (mode === 'Đề cho đơn vị' || mode === 'Đề thi cho đơn vị') {
       const teacherUnit = norm(row.teacher_donvi);
+      const examUnit = norm(row.target_donvi || row.donvi);
       const ac = parseAccessControl(row.access_control);
       const allowedUnits = ac?.allowedUnits
         ? (Array.isArray(ac.allowedUnits) ? ac.allowedUnits : [ac.allowedUnits]).map(norm).filter(Boolean)
         : [];
+      const scopedUnits = [...new Set([examUnit, ...allowedUnits].filter(Boolean))];
 
       let sameUnit = false;
-      if (!teacherUnit && allowedUnits.length === 0) sameUnit = true;
-      else if (studentUnit) {
-        if (teacherUnit && (studentUnit === teacherUnit || studentUnit.includes(teacherUnit) || teacherUnit.includes(studentUnit))) {
-          sameUnit = true;
-        } else if (allowedUnits.some((u: string) => u && (u === studentUnit || studentUnit.includes(u) || u.includes(studentUnit)))) {
-          sameUnit = true;
+      if (studentUnit) {
+        if (scopedUnits.length) {
+          sameUnit = scopedUnits.includes(studentUnit);
+        } else if (teacherUnit) {
+          sameUnit = studentUnit === teacherUnit;
         }
       }
       if (!sameUnit) allowed = false;
