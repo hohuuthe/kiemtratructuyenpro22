@@ -1,0 +1,53 @@
+name: Result violation display checks
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/main.js'
+      - 'src/style.css'
+      - 'src/student-results-ui.js'
+      - 'src/management-page-queries.js'
+      - 'public/components/tab-ranking.html'
+      - 'tests/ranking-desktop-width.test.mjs'
+      - 'tests/management-server-pagination.test.mjs'
+      - 'tests/student-results-modern-ui.test.mjs'
+      - '.github/workflows/result-violation-display.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src/main.js'
+      - 'src/style.css'
+      - 'src/student-results-ui.js'
+      - 'src/management-page-queries.js'
+      - 'public/components/tab-ranking.html'
+      - 'tests/ranking-desktop-width.test.mjs'
+      - 'tests/management-server-pagination.test.mjs'
+      - 'tests/student-results-modern-ui.test.mjs'
+      - '.github/workflows/result-violation-display.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Syntax
+        run: |
+          node --check src/main.js
+          node --check src/student-results-ui.js
+          node --check src/management-page-queries.js
+      - name: Result violation regressions
+        run: node --test tests/ranking-desktop-width.test.mjs tests/management-server-pagination.test.mjs tests/student-results-modern-ui.test.mjs
+      - name: TypeScript project check
+        run: npm run lint
+      - name: Production build
+        run: npm run build
