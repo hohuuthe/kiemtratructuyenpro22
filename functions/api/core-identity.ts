@@ -78,14 +78,24 @@ async function adminPayload(db: any) {
          COALESCE((SELECT a.role FROM accounts a WHERE a.user_id = users.id OR a.id = users.id ORDER BY (CASE WHEN a.user_id = users.id THEN 0 ELSE 1 END), a.created_at DESC LIMIT 1), NULL) AS account_role,
          COALESCE((SELECT a.is_active FROM accounts a WHERE a.user_id = users.id OR a.id = users.id ORDER BY (CASE WHEN a.user_id = users.id THEN 0 ELSE 1 END), a.created_at DESC LIMIT 1), NULL) AS account_is_active
        FROM users
-       ORDER BY users.created_at DESC`
+       ORDER BY CASE
+         WHEN LOWER(TRIM(COALESCE(users.target_audience,''))) IN ('quản trị viên','admin') THEN 0
+         WHEN LOWER(TRIM(COALESCE(users.target_audience,''))) IN ('giáo viên','teacher') THEN 1
+         WHEN LOWER(TRIM(COALESCE(users.target_audience,''))) IN ('học sinh','student') THEN 2
+         ELSE 3 END,
+       users.created_at DESC, users.id DESC`
     ).all(),
     db.prepare(
       `SELECT a.id, a.user_id, a.username, a.role, a.is_active, a.expiry_date, a.created_at,
               u.full_name, u.phone_number, u.donvi, u.lop, u.target_audience, u.occupation
          FROM accounts a
          LEFT JOIN users u ON u.id = COALESCE(a.user_id, a.id)
-         ORDER BY a.created_at DESC, a.id DESC`
+         ORDER BY CASE
+           WHEN LOWER(TRIM(COALESCE(a.role,'')))='admin' OR LOWER(TRIM(COALESCE(u.target_audience,''))) IN ('quản trị viên','admin') THEN 0
+           WHEN LOWER(TRIM(COALESCE(u.target_audience,''))) IN ('giáo viên','teacher') OR LOWER(TRIM(COALESCE(a.role,''))) IN ('teacher','giáo viên') THEN 1
+           WHEN LOWER(TRIM(COALESCE(u.target_audience,''))) IN ('học sinh','student') THEN 2
+           ELSE 3 END,
+         a.created_at DESC, a.id DESC`
     ).all()
   ]);
   const users = await attachAssignedClasses(db, (uRes.results || []) as any[]);
