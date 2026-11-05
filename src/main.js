@@ -2202,7 +2202,9 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
             if (!token) throw new Error('Không có phiên xác thực để tải dữ liệu theo vai trò.');
 
-            const response = await fetch('/api/core-identity', {
+            const usePagedIdentity = isAdminLoggedIn || isTeacherLoggedIn;
+            const coreIdentityUrl = usePagedIdentity ? '/api/core-identity?paged=1' : '/api/core-identity';
+            const response = await fetch(coreIdentityUrl, {
                 headers: { 'Authorization': 'Bearer ' + token },
                 cache: 'no-store'
             });
@@ -2222,10 +2224,21 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 throw new Error('ROLE_SCOPE_MISMATCH: server=' + roleScope + ', client=' + expectedScope);
             }
 
-            const scopedUsers = Array.isArray(data.users) ? data.users : [];
-            const scopedAccounts = Array.isArray(data.accounts) ? data.accounts : [];
+            let scopedUsers = Array.isArray(data.users) ? data.users : [];
+            let scopedAccounts = Array.isArray(data.accounts) ? data.accounts : [];
             const scopedTeachers = Array.isArray(data.teachers) ? data.teachers : [];
             const assignedClasses = Array.isArray(data.assigned_classes) ? data.assigned_classes : [];
+
+            // Admin/Giáo viên chỉ nhận metadata nhỏ từ core identity, sau đó tải
+            // toàn bộ phạm vi bằng cơ chế phân trang snapshot-consistent.
+            if (data.paged === true && (roleScope === 'admin' || roleScope === 'teacher')) {
+                const [pagedUsers, pagedAccounts] = await Promise.all([
+                    fetchAllUsersChunked(),
+                    fetchAllAccountsChunked()
+                ]);
+                scopedUsers = pagedUsers;
+                scopedAccounts = pagedAccounts;
+            }
 
             const assertUniqueIds = (rows, label) => {
                 const seen = new Set();
