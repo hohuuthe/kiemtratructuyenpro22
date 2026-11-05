@@ -478,7 +478,11 @@ export function startAppVersionMonitoring() {
     setCriticalActivity(name, active) {
       window.__APP_CRITICAL_ACTIVITY__ = window.__APP_CRITICAL_ACTIVITY__ || {};
       window.__APP_CRITICAL_ACTIVITY__[name] = !!active;
-      if (!active) scheduleSafePrompt();
+      if (active) {
+        closeUpdateModal();
+      } else {
+        scheduleSafePrompt();
+      }
     },
     clearPendingPrompt() {
       closeUpdateModal();
