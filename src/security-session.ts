@@ -20,6 +20,17 @@ export function accountSessionMaterial(row: any): string {
   return JSON.stringify([
     String(row.id || ''), String(row.user_id || ''), String(row.username || ''),
     String(row.password || ''), String(row.role || ''),
+    String(row.target_audience || ''),
+    row.is_active === false || row.is_active === 0 || row.is_active === '0' || row.is_active === 'false' ? '0' : '1',
+    String(row.expiry_date || '')
+  ]);
+}
+
+/** Compatibility only for sessions issued before target_audience joined the auth fingerprint. */
+export function legacyAccountSessionMaterialV1(row: any): string {
+  return JSON.stringify([
+    String(row.id || ''), String(row.user_id || ''), String(row.username || ''),
+    String(row.password || ''), String(row.role || ''),
     row.is_active === false || row.is_active === 0 || row.is_active === '0' || row.is_active === 'false' ? '0' : '1',
     String(row.expiry_date || '')
   ]);

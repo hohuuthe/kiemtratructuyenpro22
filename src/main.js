@@ -2262,31 +2262,35 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             } else if (roleScope === 'teacher') {
                 if (!hasSelfProfile) throw new Error('Teacher preload thiếu hồ sơ Giáo viên đăng nhập.');
 
-                const allowedClasses = new Set(assignedClasses.map(a => String(a?.class_name || '').trim().toLowerCase()).filter(Boolean));
-                const teacherUnit = String(currentUser?.donvi || scopedUsers.find(u => String(u?.id || '') === selfProfileId)?.donvi || '').trim().toLowerCase();
+                const normScope = (value) => String(value || '').trim().toLocaleLowerCase('vi');
+                const assignmentPairs = new Set(
+                    assignedClasses
+                        .map(a => normScope(a?.class_name) + '||' + normScope(a?.donvi))
+                        .filter(key => !key.startsWith('||') && !key.endsWith('||'))
+                );
+                const assertAssignedStudent = (row, label) => {
+                    const audience = normScope(row?.target_audience);
+                    if (audience !== 'học sinh' && audience !== 'student') {
+                        throw new Error(label + ' không phải Học sinh.');
+                    }
+                    const pair = normScope(row?.lop) + '||' + normScope(row?.donvi);
+                    if (!assignmentPairs.has(pair)) {
+                        throw new Error(label + ' ngoài đúng cặp lớp + đơn vị được phân công.');
+                    }
+                };
                 for (const u of scopedUsers) {
                     const id = String(u?.id || '');
                     if (id === selfProfileId || id === String(currentUser?.id || '')) continue;
-                    const audience = String(u?.target_audience || '').trim().toLocaleLowerCase('vi');
-                    const lop = String(u?.lop || '').trim().toLowerCase();
-                    const unit = String(u?.donvi || '').trim().toLowerCase();
-                    if (audience !== 'học sinh' && audience !== 'student') {
-                        throw new Error('Teacher preload nhận dư hồ sơ không phải Học sinh.');
-                    }
-                    if (!allowedClasses.has(lop)) {
-                        throw new Error('Teacher preload nhận Học sinh ngoài lớp được phân công.');
-                    }
-                    if (teacherUnit && unit && teacherUnit !== unit) {
-                        throw new Error('Teacher preload nhận Học sinh ngoài đơn vị.');
-                    }
+                    assertAssignedStudent(u, 'Teacher preload nhận dư hồ sơ');
                 }
                 for (const a of scopedAccounts) {
                     const role = String(a?.role || '').trim().toLowerCase();
-                    const audience = String(a?.target_audience || '').trim().toLocaleLowerCase('vi');
+                    const audience = normScope(a?.target_audience);
                     if (role === 'admin' || role === 'teacher' || role === 'giáo viên' ||
                         audience === 'giáo viên' || audience === 'quản trị viên') {
                         throw new Error('Teacher preload nhận dư tài khoản Giáo viên/Admin.');
                     }
+                    assertAssignedStudent(a, 'Teacher preload nhận dư tài khoản');
                 }
             } else {
                 if (scopedUsers.length !== 1 || !hasSelfProfile) {

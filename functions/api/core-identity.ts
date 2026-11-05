@@ -126,8 +126,7 @@ async function teacherPayload(db: any, user: any) {
   let students: any[] = [];
   let studentAccounts: any[] = [];
   if (assignments.length) {
-    const sRes: any = await db.prepare(
-      `SELECT u.*,
+    const studentSql = `SELECT u.*,
          COALESCE((SELECT a.id FROM accounts a WHERE a.user_id = u.id OR a.id = u.id ORDER BY (CASE WHEN a.user_id = u.id THEN 0 ELSE 1 END), a.created_at DESC LIMIT 1), NULL) AS account_id,
          COALESCE((SELECT a.username FROM accounts a WHERE a.user_id = u.id OR a.id = u.id ORDER BY (CASE WHEN a.user_id = u.id THEN 0 ELSE 1 END), a.created_at DESC LIMIT 1), NULL) AS account_username,
          COALESCE((SELECT a.role FROM accounts a WHERE a.user_id = u.id OR a.id = u.id ORDER BY (CASE WHEN a.user_id = u.id THEN 0 ELSE 1 END), a.created_at DESC LIMIT 1), NULL) AS account_role,
@@ -141,12 +140,8 @@ async function teacherPayload(db: any, user: any) {
               AND LOWER(TRIM(COALESCE(u.donvi,''))) =
                   LOWER(TRIM(COALESCE(NULLIF(tc.donvi,''), ?)))
          )
-       ORDER BY u.created_at DESC`
-    ).bind(id1, id2, id3, teacherUnit).all();
-    students = (sRes.results || []) as any[];
-
-    const aRes: any = await db.prepare(
-      `SELECT a.id, a.user_id, a.username, a.role, a.is_active, a.expiry_date, a.created_at,
+       ORDER BY u.created_at DESC`;
+    const accountSql = `SELECT a.id, a.user_id, a.username, a.role, a.is_active, a.expiry_date, a.created_at,
               u.full_name, u.phone_number, u.donvi, u.lop, u.target_audience, u.occupation
          FROM accounts a
          JOIN users u ON u.id = COALESCE(a.user_id, a.id)
@@ -158,11 +153,14 @@ async function teacherPayload(db: any, user: any) {
                AND LOWER(TRIM(COALESCE(u.donvi,''))) =
                    LOWER(TRIM(COALESCE(NULLIF(tc.donvi,''), ?)))
           )
-        ORDER BY u.full_name ASC, a.username ASC`
-    ).bind(id1, id2, id3, teacherUnit).all();
+        ORDER BY u.full_name ASC, a.username ASC`;
+    const [sRes, aRes]: any[] = await Promise.all([
+      db.prepare(studentSql).bind(id1, id2, id3, teacherUnit).all(),
+      db.prepare(accountSql).bind(id1, id2, id3, teacherUnit).all()
+    ]);
+    students = (sRes.results || []) as any[];
     studentAccounts = (aRes.results || []) as any[];
   }
-
   selfProfile.assigned_classes = assignments;
   const users = [selfProfile, ...students.filter(s => String(s.id) !== String(selfProfile.id))];
   // Giáo viên đã có thông tin tài khoản của chính mình từ /api/auth/login.
@@ -184,7 +182,7 @@ async function studentTeachers(db: any, profile: any) {
   const studentClass = normClass(profile?.lop || '');
 
   const examRes: any = await db.prepare(
-    `SELECT ec.creator_id, ec.chedodethi, ec.target_lop, ec.lop, ec.access_control,
+    `SELECT ec.creator_id, ec.chedodethi, ec.target_lop, ec.lop, ec.target_donvi, ec.donvi, ec.access_control,
             COALESCE(up.donvi, uap.donvi, '') AS teacher_donvi,
             COALESCE(NULLIF(TRIM(up.full_name),''), NULLIF(TRIM(uap.full_name),''), 'Giáo viên') AS full_name,
             COALESCE(ap.role, a.role, 'teacher') AS creator_role
@@ -205,18 +203,19 @@ async function studentTeachers(db: any, profile: any) {
     const mode = String(row.chedodethi || '').trim();
     if (mode === 'Đề cho đơn vị' || mode === 'Đề thi cho đơn vị') {
       const teacherUnit = norm(row.teacher_donvi);
+      const examUnit = norm(row.target_donvi || row.donvi);
       const ac = parseAccessControl(row.access_control);
       const allowedUnits = ac?.allowedUnits
         ? (Array.isArray(ac.allowedUnits) ? ac.allowedUnits : [ac.allowedUnits]).map(norm).filter(Boolean)
         : [];
+      const scopedUnits = [...new Set([examUnit, ...allowedUnits].filter(Boolean))];
 
       let sameUnit = false;
-      if (!teacherUnit && allowedUnits.length === 0) sameUnit = true;
-      else if (studentUnit) {
-        if (teacherUnit && (studentUnit === teacherUnit || studentUnit.includes(teacherUnit) || teacherUnit.includes(studentUnit))) {
-          sameUnit = true;
-        } else if (allowedUnits.some((u: string) => u && (u === studentUnit || studentUnit.includes(u) || u.includes(studentUnit)))) {
-          sameUnit = true;
+      if (studentUnit) {
+        if (scopedUnits.length) {
+          sameUnit = scopedUnits.includes(studentUnit);
+        } else if (teacherUnit) {
+          sameUnit = studentUnit === teacherUnit;
         }
       }
       if (!sameUnit) allowed = false;
