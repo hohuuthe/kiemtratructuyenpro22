@@ -126,8 +126,7 @@ async function teacherPayload(db: any, user: any) {
   let students: any[] = [];
   let studentAccounts: any[] = [];
   if (assignments.length) {
-    const sRes: any = await db.prepare(
-      `SELECT u.*,
+    const studentSql = `SELECT u.*,
          COALESCE((SELECT a.id FROM accounts a WHERE a.user_id = u.id OR a.id = u.id ORDER BY (CASE WHEN a.user_id = u.id THEN 0 ELSE 1 END), a.created_at DESC LIMIT 1), NULL) AS account_id,
          COALESCE((SELECT a.username FROM accounts a WHERE a.user_id = u.id OR a.id = u.id ORDER BY (CASE WHEN a.user_id = u.id THEN 0 ELSE 1 END), a.created_at DESC LIMIT 1), NULL) AS account_username,
          COALESCE((SELECT a.role FROM accounts a WHERE a.user_id = u.id OR a.id = u.id ORDER BY (CASE WHEN a.user_id = u.id THEN 0 ELSE 1 END), a.created_at DESC LIMIT 1), NULL) AS account_role,
@@ -141,12 +140,8 @@ async function teacherPayload(db: any, user: any) {
               AND LOWER(TRIM(COALESCE(u.donvi,''))) =
                   LOWER(TRIM(COALESCE(NULLIF(tc.donvi,''), ?)))
          )
-       ORDER BY u.created_at DESC`
-    ).bind(id1, id2, id3, teacherUnit).all();
-    students = (sRes.results || []) as any[];
-
-    const aRes: any = await db.prepare(
-      `SELECT a.id, a.user_id, a.username, a.role, a.is_active, a.expiry_date, a.created_at,
+       ORDER BY u.created_at DESC`;
+    const accountSql = `SELECT a.id, a.user_id, a.username, a.role, a.is_active, a.expiry_date, a.created_at,
               u.full_name, u.phone_number, u.donvi, u.lop, u.target_audience, u.occupation
          FROM accounts a
          JOIN users u ON u.id = COALESCE(a.user_id, a.id)
@@ -158,11 +153,14 @@ async function teacherPayload(db: any, user: any) {
                AND LOWER(TRIM(COALESCE(u.donvi,''))) =
                    LOWER(TRIM(COALESCE(NULLIF(tc.donvi,''), ?)))
           )
-        ORDER BY u.full_name ASC, a.username ASC`
-    ).bind(id1, id2, id3, teacherUnit).all();
+        ORDER BY u.full_name ASC, a.username ASC`;
+    const [sRes, aRes]: any[] = await Promise.all([
+      db.prepare(studentSql).bind(id1, id2, id3, teacherUnit).all(),
+      db.prepare(accountSql).bind(id1, id2, id3, teacherUnit).all()
+    ]);
+    students = (sRes.results || []) as any[];
     studentAccounts = (aRes.results || []) as any[];
   }
-
   selfProfile.assigned_classes = assignments;
   const users = [selfProfile, ...students.filter(s => String(s.id) !== String(selfProfile.id))];
   // Giáo viên đã có thông tin tài khoản của chính mình từ /api/auth/login.
