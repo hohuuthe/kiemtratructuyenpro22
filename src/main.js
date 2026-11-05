@@ -9229,7 +9229,7 @@ if (contentType && contentType.includes("application/json")) {
                         Đính kèm hình ảnh bài làm (Chụp ảnh nháp/giải tay):
                     </label>
                     <div class="flex items-center gap-3">
-                        <input type="file" accept="image/*" onchange="handleTLImageUpload(event, ${index})" class="text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-purple-50 file:text-purple-700 hover:file:bg-red-100 cursor-pointer">
+                        <input type="file" accept="image/*" onclick="beginTLAttachmentPicker(event, ${index})" onchange="handleTLImageUpload(event, ${index})" oncancel="finishTLAttachmentPicker(event.currentTarget)" class="text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-purple-50 file:text-purple-700 hover:file:bg-red-100 cursor-pointer">
                         ${currentImage ? `<button onclick="removeTLImage(${index})" class="px-3 py-1.5 bg-red-100 text-purple-600 rounded-lg text-xs font-bold hover:bg-red-200 transition">Xóa ảnh</button>` : ''}
                     </div>
                     <img id="tl-image-preview-${index}" src="${currentImage}" class="${currentImage ? '' : 'hidden'} mt-3 max-w-full h-auto max-h-[300px] rounded-xl border border-gray-200 shadow-sm cursor-zoom-in" onclick="zoomImage(this.src)">
@@ -9256,12 +9256,105 @@ if (contentType && contentType.includes("application/json")) {
             if(window.backupExamState) window.backupExamState();
         }
 
-         window.handleTLImageUpload = function handleTLImageUpload(event, index) {
-             const file = event.target.files[0];
-             if (file) {
-                 const reader = new FileReader();
-                 reader.onload = async (e) => {
+         // Native File Picker for essay attachments is a legitimate exam action.
+         // While the picker is open, temporarily suppress visibility/fullscreen violations,
+         // then immediately restore monitoring and fullscreen when the picker closes.
+         window.studentAnswerFilePickerActive = false;
+         window.studentAnswerFilePickerGraceUntil = 0;
+         let tlAttachmentPickerState = null;
+
+         window.beginTLAttachmentPicker = function beginTLAttachmentPicker(event, index) {
+             const input = event?.currentTarget || event?.target;
+             const examInterface = document.getElementById('exam-interface');
+             const examResults = document.getElementById('exam-results');
+             const isExamActive = input && examInterface && !examInterface.classList.contains('hidden') &&
+                 examResults && examResults.classList.contains('hidden') &&
+                 typeof currentExam !== 'undefined' && currentExam && currentExam.questions &&
+                 currentExam.questions.length > 0 && currentExam.startTime;
+
+             if (!isExamActive) return;
+
+             if (tlAttachmentPickerState && tlAttachmentPickerState.input !== input) {
+                 window.finishTLAttachmentPicker(tlAttachmentPickerState.input);
+             }
+
+             tlAttachmentPickerState = {
+                 input,
+                 index,
+                 wasFullscreen: Boolean(document.fullscreenElement),
+                 previousIntentional: Boolean(window.intentionalFullscreenExit)
+             };
+             window.studentAnswerFilePickerActive = true;
+             window.studentAnswerFilePickerGraceUntil = 0;
+
+             if (tlAttachmentPickerState.wasFullscreen) {
+                 window.intentionalFullscreenExit = true;
+             }
+
+             // Some browsers do not emit "cancel". Focus returning to the page is
+             // a safe fallback; delay lets the "change" event run first.
+             window.addEventListener('focus', () => {
+                 setTimeout(() => {
+                     const state = tlAttachmentPickerState;
+                     if (window.studentAnswerFilePickerActive &&
+                         state && state.input === input &&
+                         !(input.files && input.files.length)) {
+                         window.finishTLAttachmentPicker(input);
+                     }
+                 }, 500);
+             }, { once: true });
+         };
+
+         window.finishTLAttachmentPicker = function finishTLAttachmentPicker(input) {
+             const state = tlAttachmentPickerState;
+             if (!state) return;
+             if (input && state.input !== input) return;
+
+             tlAttachmentPickerState = null;
+             window.studentAnswerFilePickerActive = false;
+             // Short grace period absorbs late visibility/fullscreen events emitted
+             // by the OS/browser while closing the native file chooser.
+             window.studentAnswerFilePickerGraceUntil = Date.now() + 1200;
+             window.intentionalFullscreenExit = state.previousIntentional;
+
+             if (state.wasFullscreen && !document.fullscreenElement) {
+                 setTimeout(async () => {
+                     const root = document.getElementById('exam-interface');
+                     const results = document.getElementById('exam-results');
+                     const examStillActive = root && !root.classList.contains('hidden') &&
+                         results && results.classList.contains('hidden');
+                     if (!examStillActive) return;
+
                      try {
+                         const restored = typeof window.enterExamFullscreen === 'function'
+                             ? await window.enterExamFullscreen()
+                             : false;
+                         if (!restored && typeof window.showFullscreenEnforcer === 'function') {
+                             window.showFullscreenEnforcer();
+                         }
+                     } catch {
+                         if (typeof window.showFullscreenEnforcer === 'function') {
+                             window.showFullscreenEnforcer();
+                         }
+                     }
+                 }, 120);
+             }
+         };
+
+         window.handleTLImageUpload = function handleTLImageUpload(event, index) {
+             const input = event?.currentTarget || event?.target;
+             const file = input?.files?.[0];
+             if (!file) {
+                 window.finishTLAttachmentPicker(input);
+                 return;
+             }
+
+             const reader = new FileReader();
+             reader.onload = async (e) => {
+                 // The native picker has fully returned. Re-enable exam monitoring
+                 // before compression/upload so the exemption window stays minimal.
+                 window.finishTLAttachmentPicker(input);
+                 try {
                          const imageData = e.target.result;
                          const finalUrl = await window.uploadCompressedImage(imageData);
                          
@@ -9287,8 +9380,14 @@ if (contentType && contentType.includes("application/json")) {
                          showToast('❌ Lỗi xử lý ảnh bài làm!', 'error');
                      }
                  };
+                 reader.onerror = () => {
+                     window.finishTLAttachmentPicker(input);
+                     showToast('❌ Không đọc được ảnh bài làm đã chọn!', 'error');
+                 };
+                 reader.onabort = () => {
+                     window.finishTLAttachmentPicker(input);
+                 };
                  reader.readAsDataURL(file);
-             }
          }
 
         window.removeTLImage = function removeTLImage(index) {
@@ -9774,8 +9873,17 @@ if (contentType && contentType.includes("application/json")) {
             // Đã loại bỏ hoàn toàn huy hiệu màn hình luôn sáng
         }
 
+        window.isAllowedExamFilePickerActive = function isAllowedExamFilePickerActive() {
+            const essayGraceUntil = Number(window.studentAnswerFilePickerGraceUntil) || 0;
+            return Boolean(
+                window.studentBackgroundPickerActive ||
+                window.studentAnswerFilePickerActive ||
+                Date.now() < essayGraceUntil
+            );
+        };
+
         document.addEventListener('visibilitychange', () => {
-            if (document.hidden && !window.studentBackgroundPickerActive) {
+            if (document.hidden && !window.isAllowedExamFilePickerActive()) {
                 window.handleCheatDetection('tab_switch');
             }
         });
@@ -9821,8 +9929,8 @@ if (contentType && contentType.includes("application/json")) {
                 }
                 if (elem) elem.classList.remove('p-4', 'md:p-8', 'bg-gray-50', 'overflow-y-auto');
 
-                if (isExamActive && !window.intentionalFullscreenExit && !window.studentBackgroundPickerActive) {
-                    // Unauthorized exit from fullscreen. Native image selection is an allowed student action.
+                if (isExamActive && !window.intentionalFullscreenExit && !window.isAllowedExamFilePickerActive()) {
+                    // Unauthorized exit from fullscreen. Native file selection initiated by the exam UI is allowed.
                     window.handleCheatDetection('Thoát toàn màn hình trái phép');
                     window.showFullscreenEnforcer();
                 }
