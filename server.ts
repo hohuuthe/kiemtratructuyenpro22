@@ -4,7 +4,7 @@ import {EXAM_CREATOR_JOIN_SQL,EXAM_CREATOR_NAME_SQL} from './src/exam-creator-id
 import {parseManagementPage,accountsPageQuery,resultsPageQuery,resolveTeacherManagementScope,accountsFacetQueries,resultsFacetQuery,teacherOwnedExamNamesQuery} from './src/management-page-queries.js';
 import {isExamOwner,redactExamForPublic,examAccessChallenge,isProtectedExamForUser,protectedExamPreview,accessCodeMatches} from './functions/api/exam/security';
 import {listDocumentLinks,listDocumentLinksPage,parseDocumentLinkPage,listDocumentStudentClasses,createDocumentLink,updateDocumentLink,deleteDocumentLink,DocumentLinkServiceError} from './src/document-links-service.js';
-import { accountSessionMaterial, isAccountEnabled, isUnexpiredAccountToken } from './src/security-session';
+import { accountSessionMaterial, legacyAccountSessionMaterialV1, isAccountEnabled, isUnexpiredAccountToken } from './src/security-session';
 import { resolveTenantRoutingFromRequest } from './src/tenant-host-map';
 import crypto from 'crypto';
 import express from "express";
@@ -218,7 +218,14 @@ async function startServer() {
       const row = lookup.results?.[0];
       if (!isAccountEnabled(row)) return res.status(401).json({ error: 'Tài khoản đã bị khóa hoặc xóa' });
       const state = crypto.createHash('sha256').update(accountSessionMaterial(row)).digest('hex');
-      if (state !== decoded.auth_state) return res.status(401).json({ error: 'Quyền hoặc mật khẩu đã thay đổi. Vui lòng đăng nhập lại' });
+      if (state !== decoded.auth_state) {
+        const legacyState = crypto.createHash('sha256').update(legacyAccountSessionMaterialV1(row)).digest('hex');
+        const sameAudience = String(decoded.target_audience || '').trim().toLowerCase() ===
+          String(row.target_audience || '').trim().toLowerCase();
+        if (legacyState !== decoded.auth_state || !sameAudience) {
+          return res.status(401).json({ error: 'Quyền hoặc đối tượng người dùng đã thay đổi. Vui lòng đăng nhập lại' });
+        }
+      }
       next();
     } catch (error) {
       return res.status(503).json({ error: 'Không xác minh được trạng thái phiên' });
