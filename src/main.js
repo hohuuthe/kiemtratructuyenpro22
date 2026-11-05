@@ -18110,7 +18110,13 @@ CẤU TRÚC JSON:
             const countDisplay = document.getElementById('accounts-count');
             if (!tbody && !cardContainer) return;
             
-            if (isAdminLoggedIn && !accountsLoaded) {
+            const hasCompleteIdentitySnapshot = Boolean(
+                window.__coreIdentitySnapshot?.complete &&
+                window.__coreIdentitySnapshot?.generation === authDataGeneration &&
+                window.__coreIdentitySnapshot?.userId === String(currentUser?.id || currentUser?.user_id || '')
+            );
+
+            if (isAdminLoggedIn && !accountsLoaded && !hasCompleteIdentitySnapshot) {
                 const session=authDataGeneration+':'+String(currentUser?.id||'');
                 if(accountsFacetSession!==session){
                     accountsFacetSession=session;accountsFilterFacets=null;accountsTotalServer=null;
@@ -18205,7 +18211,7 @@ CẤU TRÚC JSON:
             if (currentFilterKey !== window.lastAccountsFilterKey) {
                 window.accountsCurrentPage = 1;
                 window.lastAccountsFilterKey = currentFilterKey;
-                if(isAdminLoggedIn && accountsLoaded && accountsTotalServer!==null){
+                if(isAdminLoggedIn && accountsLoaded && accountsTotalServer!==null && !hasCompleteIdentitySnapshot){
                     accountsLoaded=false;void renderAccounts();return;
                 }
             }
@@ -18213,7 +18219,7 @@ CẤU TRÚC JSON:
             const userList = (window.usersList && window.usersList.length > 0) ? window.usersList : [];
 
             // Server pages are already filtered in SQL. Never re-filter a 50-row page locally.
-            let filteredAccounts = (isAdminLoggedIn && accountsTotalServer!==null)
+            let filteredAccounts = (isAdminLoggedIn && accountsTotalServer!==null && !hasCompleteIdentitySnapshot)
                 ? [...(accounts||[])] : (accounts || []).filter(acc => {
                 const linkedUser = userList.find(u => u.id === acc.user_id || u.id === acc.id) || null;
                 const accAudience = (acc.target_audience || (linkedUser && linkedUser.target_audience) || '').trim();
@@ -18259,7 +18265,7 @@ CẤU TRÚC JSON:
 
             if (countDisplay) {
                 const hasActiveFilter = Boolean(searchTerm || audienceFilter || unitFilter || classFilter);
-                const countView=isAdminLoggedIn&&accountsTotalServer!==null?accountsTotalServer:filteredAccounts.length;
+                const countView=isAdminLoggedIn&&accountsTotalServer!==null&&!hasCompleteIdentitySnapshot?accountsTotalServer:filteredAccounts.length;
                 countDisplay.textContent = hasActiveFilter 
                     ? `Kết quả lọc: ${countView} tài khoản` 
                     : `Tổng: ${countView} tài khoản`;
@@ -18275,7 +18281,7 @@ CẤU TRÚC JSON:
                 return;
             }
 
-            const totalItems = isAdminLoggedIn && accountsTotalServer !== null ? accountsTotalServer : filteredAccounts.length;
+            const totalItems = isAdminLoggedIn && accountsTotalServer !== null && !hasCompleteIdentitySnapshot ? accountsTotalServer : filteredAccounts.length;
             const pageSize = window.accountsPageSize || 50;
             const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
 
@@ -18288,7 +18294,7 @@ CẤU TRÚC JSON:
 
             const startIndex = (window.accountsCurrentPage - 1) * pageSize;
             const endIndex = Math.min(startIndex + pageSize, totalItems);
-            const pageAccounts = isAdminLoggedIn && accountsTotalServer !== null ? filteredAccounts : filteredAccounts.slice(startIndex, endIndex);
+            const pageAccounts = isAdminLoggedIn && accountsTotalServer !== null && !hasCompleteIdentitySnapshot ? filteredAccounts : filteredAccounts.slice(startIndex, endIndex);
 
             const rowsHtml = pageAccounts.map((acc, i) => {
                 const globalIndex = startIndex + i + 1;
