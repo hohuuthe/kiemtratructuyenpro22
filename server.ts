@@ -924,19 +924,23 @@ async function startServer() {
         const assignments=tcRes.results||[];
         let students:any[]=[]; let accounts:any[]=[];
         if(assignments.length){
-          const sRes=await executeSqlQuery(projection+`
+          const studentSql=projection+`
             WHERE LOWER(TRIM(COALESCE(u.target_audience,''))) IN ('học sinh','student')
               AND EXISTS(SELECT 1 FROM teacher_classes tc WHERE (tc.teacher_id=? OR tc.teacher_id=?)
                 AND LOWER(TRIM(tc.class_name))=LOWER(TRIM(COALESCE(u.lop,'')))
                 AND LOWER(TRIM(COALESCE(tc.donvi,'')))=LOWER(TRIM(COALESCE(u.donvi,''))))
-            ORDER BY u.created_at DESC`,[selfId,accountId]);
+            ORDER BY u.created_at DESC`;
+          const accountSql=accountProjection+`
+            WHERE LOWER(TRIM(COALESCE(u.target_audience,''))) IN ('học sinh','student')
+              AND EXISTS(SELECT 1 FROM teacher_classes tc WHERE (tc.teacher_id=? OR tc.teacher_id=?)
+                AND LOWER(TRIM(tc.class_name))=LOWER(TRIM(COALESCE(u.lop,'')))
+                AND LOWER(TRIM(COALESCE(tc.donvi,'')))=LOWER(TRIM(COALESCE(u.donvi,''))))
+            ORDER BY u.full_name,a.username`;
+          const [sRes,aRes]=await Promise.all([
+            executeSqlQuery(studentSql,[selfId,accountId]),
+            executeSqlQuery(accountSql,[selfId,accountId])
+          ]);
           students=sRes.results||[];
-          const aRes=await executeSqlQuery(accountProjection+`
-            WHERE LOWER(TRIM(COALESCE(u.target_audience,''))) IN ('học sinh','student')
-              AND EXISTS(SELECT 1 FROM teacher_classes tc WHERE (tc.teacher_id=? OR tc.teacher_id=?)
-                AND LOWER(TRIM(tc.class_name))=LOWER(TRIM(COALESCE(u.lop,'')))
-                AND LOWER(TRIM(COALESCE(tc.donvi,'')))=LOWER(TRIM(COALESCE(u.donvi,''))))
-            ORDER BY u.full_name,a.username`,[selfId,accountId]);
           accounts=aRes.results||[];
         }
         selfProfile.assigned_classes=assignments;
