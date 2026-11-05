@@ -1059,7 +1059,7 @@ async function startServer() {
 
       return res.status(200).json({
         data:rows,total:rows.length,limit,offset,
-        has_more:isAdmin ? (limit>0 && rows.length===limit) : false,
+        has_more:(isAdmin||isTeacher) ? (limit>0 && rows.length===limit) : false,
         role_scope:isAdmin?'admin':(isTeacher?'teacher':'student'),
         error:null
       });
