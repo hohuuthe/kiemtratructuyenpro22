@@ -17512,7 +17512,7 @@ CẤU TRÚC JSON:
                 worksheet.pageSetup.fitToWidth = 1;
                 worksheet.pageSetup.fitToHeight = 0; 
 
-                worksheet.mergeCells('A1:M1');
+                worksheet.mergeCells('A1:N1');
                 const titleCell = worksheet.getCell('A1');
                 titleCell.value = appSettings.appTitle.toUpperCase();
                 titleCell.font = { name: 'Arial', size: 16, bold: true, color: { argb: 'FFFFFFFF' } };
@@ -17520,14 +17520,14 @@ CẤU TRÚC JSON:
                 titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF15803D' } }; 
                 worksheet.getRow(1).height = 30;
 
-                worksheet.mergeCells('A2:M2');
+                worksheet.mergeCells('A2:N2');
                 const subtitleCell = worksheet.getCell('A2');
                 subtitleCell.value = 'DANH SÁCH KẾT QUẢ KIỂM TRA TRẮC NGHIỆM';
                 subtitleCell.font = { name: 'Arial', size: 14, bold: true };
                 subtitleCell.alignment = { vertical: 'middle', horizontal: 'center' };
                 worksheet.getRow(2).height = 25;
 
-                worksheet.mergeCells('A3:M3');
+                worksheet.mergeCells('A3:N3');
                 const infoCell = worksheet.getCell('A3');
                 infoCell.value = `Ngày xuất: ${window.formatVNTime(new Date())} | Đề thi: ${examFilter || 'Tất cả'}${unitFilter ? ` | Đơn vị: ${unitFilter}` : ''}${classFilter ? ` | Lớp: ${classFilter}` : ''}`;
                 infoCell.font = { name: 'Arial', size: 10, italic: true };
@@ -17559,26 +17559,26 @@ CẤU TRÚC JSON:
                     row.eachCell((cell, colNumber) => {
                         cell.font = { name: 'Arial', size: 10 };
                         cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
-                        if ([1, 4, 6, 7, 8, 9, 10, 13].includes(colNumber)) cell.alignment = { vertical: 'middle', horizontal: 'center' };
+                        if ([1, 4, 6, 7, 8, 9, 10, 14].includes(colNumber)) cell.alignment = { vertical: 'middle', horizontal: 'center' };
                         else cell.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
                         if (i % 2 === 1) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF9FAFB' } };
                     });
                 });
 
-                worksheet.columns = [{ width: 5 }, { width: 12 }, { width: 22 }, { width: 10 }, { width: 22 }, { width: 7 }, { width: 6 }, { width: 6 }, { width: 10 }, { width: 18 }, { width: 35 }, { width: 18 }, { width: 18 }];
+                worksheet.columns = [{ width: 5 }, { width: 12 }, { width: 22 }, { width: 10 }, { width: 22 }, { width: 7 }, { width: 6 }, { width: 6 }, { width: 10 }, { width: 11 }, { width: 18 }, { width: 35 }, { width: 18 }, { width: 18 }];
 
                 worksheet.addRow([]);
-                const lastRow0 = worksheet.addRow(['', '', '', '', '', '', '', '', '', '', '', '', '']);
-                lastRow0.getCell(10).value = `........, ngày .... tháng .... năm 20....`;
-                worksheet.mergeCells(lastRow0.number, 10, lastRow0.number, 13);
-                lastRow0.getCell(10).alignment = { horizontal: 'center' };
-                lastRow0.getCell(10).font = { name: 'Arial', size: 10, italic: true };
+                const lastRow0 = worksheet.addRow(['', '', '', '', '', '', '', '', '', '', '', '', '', '']);
+                lastRow0.getCell(11).value = `........, ngày .... tháng .... năm 20....`;
+                worksheet.mergeCells(lastRow0.number, 11, lastRow0.number, 14);
+                lastRow0.getCell(11).alignment = { horizontal: 'center' };
+                lastRow0.getCell(11).font = { name: 'Arial', size: 10, italic: true };
 
-                const signRow0 = worksheet.addRow(['', '', '', '', '', '', '', '', '', '', '', '', '']);
-                signRow0.getCell(10).value = `Người lập biểu`;
-                worksheet.mergeCells(signRow0.number, 10, signRow0.number, 13);
-                signRow0.getCell(10).alignment = { horizontal: 'center' };
-                signRow0.getCell(10).font = { name: 'Arial', size: 10, bold: true };
+                const signRow0 = worksheet.addRow(['', '', '', '', '', '', '', '', '', '', '', '', '', ']);
+                signRow0.getCell(11).value = `Người lập biểu`;
+                worksheet.mergeCells(signRow0.number, 11, signRow0.number, 14);
+                signRow0.getCell(11).alignment = { horizontal: 'center' };
+                signRow0.getCell(11).font = { name: 'Arial', size: 10, bold: true };
 
                 const bufferIdx = await workbook.xlsx.writeBuffer();
                 const fileName = `KetQua_XepHang_${new Date().toISOString().slice(0, 10)}.xlsx`;
