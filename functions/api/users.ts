@@ -89,7 +89,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
                 AND LOWER(TRIM(tc.class_name)) = LOWER(TRIM(COALESCE(users.lop,'')))
                 AND LOWER(TRIM(COALESCE(tc.donvi,''))) = LOWER(TRIM(COALESCE(users.donvi,'')))
             )
-          ORDER BY users.created_at DESC${paginationClause}
+          ORDER BY users.created_at DESC
         `).bind(selfId, accountId).all();
         students = studentRes.results || [];
       }
@@ -131,7 +131,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
       total: rows.length,
       limit,
       offset,
-      has_more: limit > 0 && rows.length === limit,
+      has_more: isAdmin ? (limit > 0 && rows.length === limit) : false,
       role_scope: isAdmin ? 'admin' : (isTeacher ? 'teacher' : 'student'),
       error: null
     }), { status: 200, headers: corsHeaders });
