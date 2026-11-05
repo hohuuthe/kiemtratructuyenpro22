@@ -3941,6 +3941,17 @@ if (contentType && contentType.includes("application/json")) {
           const generation=authDataGeneration,id=String(currentUser?.id||'');
           publicTeacherPromise=(async()=>{
             try{
+              if(currentUser){
+                // Học sinh đã đăng nhập chỉ được lấy danh bạ giáo viên qua core-identity
+                // để server áp đúng phạm vi. Tuyệt đối không fallback sang danh bạ công khai toàn hệ thống.
+                await preloadRoleScopedIdentityOnLogin();
+                if(generation!==authDataGeneration||id!==String(currentUser?.id||'')||isAdminLoggedIn||isTeacherLoggedIn)return;
+                publicTeachersLoaded=true;
+                updateStudentTeacherFilter();
+                return;
+              }
+
+              // Khách chưa đăng nhập vẫn có thể dùng danh bạ công khai tối thiểu khi thao tác.
               const r=await fetch('/api/exam-teachers',{cache:'no-store'});
               if(!r.ok)throw Error('Teacher directory HTTP '+r.status);
               const body=await r.json();
@@ -14336,19 +14347,14 @@ D. Phát biểu SAI</pre>
             if (!document.getElementById('exam-lesson-selection')) {
                 return;
             }
-            // Refresh accounts to get newly registered ones
-            try {
-                const { data } = await fetch('/api/accounts', { headers: { 'Authorization': 'Bearer ' + (localStorage.getItem(window.tenantStorageKey('auth_token')) || '') } }).then(res => res.json()).catch(() => ({error: 'Lỗi', data: null}));
-                if (generation !== authDataGeneration) return;
-                if (data) {
-                    accounts = data;
-                    // Update the mapping too
-                    accounts.forEach(acc => {
-                        if (acc.id) accountsMap[acc.id] = acc.full_name || acc.username;
-                    });
+            // Không tải lại /api/accounts ở đây. Core identity preload đã nạp đúng phạm vi
+            // theo vai trò; gọi lại API cũ có thể tải dư và ghi đè snapshot đã kiểm soát.
+            if (!window.__coreIdentitySnapshot?.complete && currentUser) {
+                try {
+                    await preloadRoleScopedIdentityOnLogin();
+                } catch (e) {
+                    console.error('Failed to refresh role-scoped identity during exam panel init:', e);
                 }
-            } catch (e) {
-                console.error('Failed to refresh accounts during exam panel init:', e);
             }
             if (generation !== authDataGeneration) return;
             
