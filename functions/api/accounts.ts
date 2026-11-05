@@ -12,42 +12,27 @@ export async function onRequestGet(context: any) {
 
     const SECRET = await getDynamicSecret(db, env.JWT_SECRET);
     const authHeader = request.headers.get('Authorization');
-    let user = null;
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-        const token = authHeader.substring(7);
-        user = await verifyAuthSession(token, SECRET, db);
+    if (!authHeader?.startsWith('Bearer ')) {
+        return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: corsHeaders });
+    }
+    const user: any = await verifyAuthSession(authHeader.slice(7), SECRET, db);
+    if (!user) {
+        return new Response(JSON.stringify({ error: 'Phiên đăng nhập không hợp lệ' }), { status: 401, headers: corsHeaders });
     }
 
     const isAdmin = checkIsAdmin(user);
     const isTeacher = checkIsTeacherOrAdmin(user) && !isAdmin;
-    let teacherDonvi = '';
-    if (isTeacher) {
-        try {
-            const dbUser: any = await db.prepare("SELECT donvi FROM users WHERE id = ? OR id = ?").bind(user.user_id || user.id, user.id).first();
-            if (dbUser && dbUser.donvi) {
-                teacherDonvi = dbUser.donvi.trim();
-            }
-        } catch (e) {}
-        if (!teacherDonvi && user.donvi) {
-            teacherDonvi = user.donvi.trim();
-        }
-    }
 
     const url = new URL(request.url);
     const limitParam = url.searchParams.get('limit');
     const offsetParam = url.searchParams.get('offset');
     const pageParam = url.searchParams.get('page');
 
-    let limit = -1; // Mặc định không giới hạn số lượng dòng để tải toàn bộ dữ liệu CSDL
-    if (limitParam !== null) {
-        if (limitParam === 'all' || limitParam === '0' || limitParam === '-1') {
-            limit = -1; // không giới hạn
-        } else {
-            const parsed = parseInt(limitParam, 10);
-            if (!isNaN(parsed) && parsed > 0) limit = parsed;
-        }
+    let limit = -1;
+    if (limitParam !== null && !['all','0','-1'].includes(limitParam)) {
+        const parsed = parseInt(limitParam, 10);
+        if (!isNaN(parsed) && parsed > 0) limit = parsed;
     }
-
     let offset = 0;
     if (offsetParam !== null) {
         const parsed = parseInt(offsetParam, 10);
@@ -56,62 +41,56 @@ export async function onRequestGet(context: any) {
         const page = parseInt(pageParam, 10);
         if (!isNaN(page) && page > 0) offset = (page - 1) * (limit > 0 ? limit : 1000);
     }
-
     const paginationClause = limit > 0 ? ` LIMIT ${limit} OFFSET ${offset}` : '';
 
-    let query = "";
-    let queryResult;
+    const projection = `
+      SELECT a.id, a.user_id, a.username, a.role, a.is_active, a.expiry_date, a.created_at,
+             u.full_name, u.phone_number, u.donvi, u.lop, u.target_audience, u.occupation
+      FROM accounts a
+      LEFT JOIN users u ON u.id = COALESCE(a.user_id, a.id)
+    `;
+
     try {
+        let rows: any[] = [];
         if (isAdmin) {
-            query = `
-                SELECT accounts.id, accounts.user_id, accounts.username, accounts.role, accounts.is_active, accounts.expiry_date, accounts.created_at,
-                       users.full_name, users.phone_number, users.donvi, users.lop, users.target_audience
-                FROM accounts
-                LEFT JOIN users ON users.id = COALESCE(accounts.user_id, accounts.id)
-                ORDER BY accounts.created_at DESC, accounts.id DESC${paginationClause}
-            `;
-            queryResult = await db.prepare(query).all();
+            const res: any = await db.prepare(projection + ` ORDER BY a.created_at DESC, a.id DESC${paginationClause}`).all();
+            rows = res.results || [];
+        } else if (isTeacher) {
+            const selfId = String(user.user_id || user.id || '');
+            const accountId = String(user.id || selfId);
+            const res: any = await db.prepare(projection + `
+              WHERE LOWER(TRIM(COALESCE(u.target_audience,''))) IN ('học sinh','student')
+                AND EXISTS (
+                  SELECT 1 FROM teacher_classes tc
+                  WHERE (tc.teacher_id = ? OR tc.teacher_id = ?)
+                    AND LOWER(TRIM(tc.class_name)) = LOWER(TRIM(COALESCE(u.lop,'')))
+                    AND LOWER(TRIM(COALESCE(tc.donvi,''))) = LOWER(TRIM(COALESCE(u.donvi,'')))
+                )
+              ORDER BY u.full_name ASC, a.username ASC, a.id DESC${paginationClause}
+            `).bind(selfId, accountId).all();
+            rows = res.results || [];
         } else {
-            if (teacherDonvi) {
-                query = `
-                    SELECT accounts.id, accounts.user_id, accounts.username, accounts.role, accounts.is_active, accounts.expiry_date,
-                           users.full_name, users.target_audience, users.donvi, users.lop, users.phone_number
-                    FROM accounts
-                    LEFT JOIN users ON users.id = COALESCE(accounts.user_id, accounts.id)
-                    WHERE users.target_audience = 'Giáo viên' 
-                       OR accounts.role = 'teacher' 
-                       OR accounts.role = 'giáo viên'
-                       OR accounts.role = 'admin' 
-                       OR users.target_audience = 'Quản trị viên'
-                       OR (TRIM(LOWER(users.donvi)) = TRIM(LOWER(?)) AND LOWER(users.target_audience) = 'học sinh')
-                    ORDER BY users.full_name ASC, accounts.username ASC, accounts.id DESC${paginationClause}
-                `;
-                queryResult = await db.prepare(query).bind(teacherDonvi).all();
-            } else {
-                query = `
-                    SELECT accounts.id, accounts.user_id, accounts.username, accounts.role, accounts.is_active, accounts.expiry_date,
-                           users.full_name, users.target_audience, users.donvi, users.lop, users.phone_number
-                    FROM accounts
-                    LEFT JOIN users ON users.id = COALESCE(accounts.user_id, accounts.id)
-                    WHERE users.target_audience = 'Giáo viên' OR accounts.role = 'admin' OR users.target_audience = 'Quản trị viên'
-                    ORDER BY users.full_name ASC, accounts.username ASC, accounts.id DESC${paginationClause}
-                `;
-                queryResult = await db.prepare(query).all();
-            }
+            const selfId = String(user.user_id || user.id || '');
+            const accountId = String(user.id || selfId);
+            const self: any = await db.prepare(projection + `
+              WHERE a.id = ? OR a.user_id = ?
+              ORDER BY CASE WHEN a.id = ? THEN 0 ELSE 1 END, a.created_at DESC
+              LIMIT 1
+            `).bind(accountId, selfId, accountId).first();
+            rows = self ? [self] : [];
         }
 
-        const { results } = queryResult || { results: [] };
-        const resData = results || [];
-        return new Response(JSON.stringify({ 
-            data: resData, 
-            total: resData.length,
+        return new Response(JSON.stringify({
+            data: rows,
+            total: rows.length,
             limit,
             offset,
-            has_more: limit > 0 && resData.length === limit,
-            error: null 
+            has_more: limit > 0 && rows.length === limit,
+            role_scope: isAdmin ? 'admin' : (isTeacher ? 'teacher' : 'student'),
+            error: null
         }), { status: 200, headers: corsHeaders });
     } catch (e: any) {
-        return new Response(JSON.stringify({ error: e.message || "Lỗi DB" }), { status: 500, headers: corsHeaders });
+        return new Response(JSON.stringify({ error: e.message || 'Lỗi DB' }), { status: 500, headers: corsHeaders });
     }
 }
 
