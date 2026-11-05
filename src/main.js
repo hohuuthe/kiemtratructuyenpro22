@@ -18166,48 +18166,79 @@ CẤU TRÚC JSON:
         async function fetchAllAccountsChunked(onProgress) {
             const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
             const chunkSize = 1000;
-            let offset = 0;
-            let allAccounts = [];
-            let hasMore = true;
-            let pageNum = 1;
+            const maxRestarts = 3;
 
-            while (hasMore) {
-                if (typeof onProgress === 'function') {
-                    onProgress(allAccounts.length, pageNum, false);
-                }
-                const url = `/api/accounts?limit=${chunkSize}&offset=${offset}`;
-                const res = await fetch(url, {
-                    headers: { 'Authorization': 'Bearer ' + token }
-                });
-                if (!res.ok) {
-                    throw new Error(`Lỗi máy chủ (${res.status}) khi tải dữ liệu tài khoản tại đợt ${pageNum}`);
-                }
-                const json = await res.json();
-                const chunk = (json && Array.isArray(json.data)) ? json.data : [];
-                
-                if (chunk.length > 0) {
-                    allAccounts.push(...chunk);
-                }
+            for (let restart = 0; restart < maxRestarts; restart++) {
+                let offset = 0;
+                let allAccounts = [];
+                let pageNum = 1;
+                let snapshot = '';
+                let expectedTotal = null;
+                const seenIds = new Set();
+                let mustRestart = false;
 
-                // Nếu số dòng nhận được nhỏ hơn chunkSize hoặc has_more === false, đã hết dữ liệu
-                const hasMoreFromApi = (json.has_more !== undefined) ? json.has_more : (chunk.length >= chunkSize);
-                if (chunk.length < chunkSize || hasMoreFromApi === false || chunk.length === 0) {
-                    hasMore = false;
-                } else {
-                    offset += chunkSize;
-                    pageNum++;
-                    // Giới hạn an toàn tối đa 100 đợt (100,000 tài khoản)
-                    if (pageNum > 100) {
-                        console.warn('Đã đạt giới hạn an toàn 100 đợt tải (100,000 tài khoản)');
+                while (true) {
+                    if (typeof onProgress === 'function') onProgress(allAccounts.length, pageNum, false);
+                    const params = new URLSearchParams({ limit: String(chunkSize), offset: String(offset) });
+                    if (snapshot) params.set('snapshot', snapshot);
+                    const res = await fetch('/api/accounts?' + params.toString(), {
+                        headers: { 'Authorization': 'Bearer ' + token },
+                        cache: 'no-store'
+                    });
+                    const json = await res.json().catch(() => null);
+
+                    if (res.status === 409 && json?.code === 'PAGINATION_SCOPE_CHANGED') {
+                        mustRestart = true;
                         break;
                     }
-                }
-            }
+                    if (!res.ok) {
+                        throw new Error((json?.error || `Lỗi máy chủ (${res.status})`) + ` khi tải tài khoản đợt ${pageNum}`);
+                    }
 
-            if (typeof onProgress === 'function') {
-                onProgress(allAccounts.length, pageNum, true);
+                    const chunk = Array.isArray(json?.data) ? json.data : null;
+                    if (!chunk) throw new Error('Phản hồi phân trang tài khoản không hợp lệ.');
+                    const pageTotal = Number(json.total);
+                    const pageSnapshot = String(json.snapshot || '');
+                    if (!Number.isInteger(pageTotal) || pageTotal < 0 || (pageTotal > 0 && !pageSnapshot)) {
+                        throw new Error('Máy chủ không cung cấp total/snapshot hợp lệ cho phân trang tài khoản.');
+                    }
+                    if (expectedTotal === null) expectedTotal = pageTotal;
+                    else if (expectedTotal !== pageTotal) { mustRestart = true; break; }
+                    if (!snapshot) snapshot = pageSnapshot;
+                    else if (snapshot !== pageSnapshot) { mustRestart = true; break; }
+                    if (Number(json.offset) !== offset) throw new Error('Offset tài khoản máy chủ không khớp yêu cầu.');
+                    if (chunk.length > chunkSize) throw new Error('Trang tài khoản vượt kích thước cho phép.');
+
+                    for (const row of chunk) {
+                        const id = String(row?.id || '').trim();
+                        if (!id) throw new Error('Phân trang tài khoản có bản ghi thiếu ID.');
+                        if (seenIds.has(id)) throw new Error('Phân trang tài khoản có ID trùng giữa các trang: ' + id);
+                        seenIds.add(id);
+                        allAccounts.push(row);
+                    }
+
+                    const hasMore = json.has_more === true;
+                    if (!hasMore) break;
+                    if (chunk.length === 0) throw new Error('Máy chủ báo còn tài khoản nhưng trang hiện tại rỗng.');
+                    offset += chunk.length;
+                    pageNum++;
+                    if (pageNum > 1000) throw new Error('Vượt giới hạn an toàn 1.000 trang tài khoản.');
+                }
+
+                if (mustRestart) {
+                    if (restart + 1 >= maxRestarts) {
+                        throw new Error('Dữ liệu tài khoản thay đổi liên tục trong lúc phân trang; không thể xác nhận tập dữ liệu hoàn chỉnh.');
+                    }
+                    continue;
+                }
+
+                if (expectedTotal === null || allAccounts.length !== expectedTotal || seenIds.size !== expectedTotal) {
+                    throw new Error(`Thiếu/thừa tài khoản sau phân trang: nhận ${allAccounts.length}, máy chủ xác nhận ${expectedTotal ?? 'không rõ'}.`);
+                }
+                if (typeof onProgress === 'function') onProgress(allAccounts.length, pageNum, true);
+                return allAccounts;
             }
-            return allAccounts;
+            throw new Error('Không thể hoàn tất phân trang tài khoản.');
         }
         window.fetchAllAccountsChunked = fetchAllAccountsChunked;
 
@@ -20735,47 +20766,79 @@ CẤU TRÚC JSON:
         async function fetchAllUsersChunked(onProgress) {
             const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
             const chunkSize = 1000;
-            let offset = 0;
-            let allUsers = [];
-            let hasMore = true;
-            let pageNum = 1;
+            const maxRestarts = 3;
 
-            while (hasMore) {
-                if (typeof onProgress === 'function') {
-                    onProgress(allUsers.length, pageNum, false);
-                }
-                const url = `/api/users?limit=${chunkSize}&offset=${offset}`;
-                const res = await fetch(url, {
-                    headers: { 'Authorization': 'Bearer ' + token }
-                });
-                if (!res.ok) {
-                    throw new Error(`Lỗi máy chủ (${res.status}) khi tải dữ liệu người dùng tại đợt ${pageNum}`);
-                }
-                const json = await res.json();
-                const chunk = (json && Array.isArray(json.data)) ? json.data : [];
-                
-                if (chunk.length > 0) {
-                    allUsers.push(...chunk);
-                }
+            for (let restart = 0; restart < maxRestarts; restart++) {
+                let offset = 0;
+                let allUsers = [];
+                let pageNum = 1;
+                let snapshot = '';
+                let expectedTotal = null;
+                const seenIds = new Set();
+                let mustRestart = false;
 
-                // Nếu số dòng nhận được nhỏ hơn chunkSize hoặc has_more === false, đã hết dữ liệu
-                if (chunk.length < chunkSize || json.has_more === false) {
-                    hasMore = false;
-                } else {
-                    offset += chunkSize;
-                    pageNum++;
-                    // Giới hạn an toàn tối đa 100 đợt (100,000 người dùng)
-                    if (pageNum > 100) {
-                        console.warn('Đã đạt giới hạn an toàn 100 đợt tải (100,000 người dùng)');
+                while (true) {
+                    if (typeof onProgress === 'function') onProgress(allUsers.length, pageNum, false);
+                    const params = new URLSearchParams({ limit: String(chunkSize), offset: String(offset) });
+                    if (snapshot) params.set('snapshot', snapshot);
+                    const res = await fetch('/api/users?' + params.toString(), {
+                        headers: { 'Authorization': 'Bearer ' + token },
+                        cache: 'no-store'
+                    });
+                    const json = await res.json().catch(() => null);
+
+                    if (res.status === 409 && json?.code === 'PAGINATION_SCOPE_CHANGED') {
+                        mustRestart = true;
                         break;
                     }
-                }
-            }
+                    if (!res.ok) {
+                        throw new Error((json?.error || `Lỗi máy chủ (${res.status})`) + ` khi tải hồ sơ đợt ${pageNum}`);
+                    }
 
-            if (typeof onProgress === 'function') {
-                onProgress(allUsers.length, pageNum, true);
+                    const chunk = Array.isArray(json?.data) ? json.data : null;
+                    if (!chunk) throw new Error('Phản hồi phân trang hồ sơ không hợp lệ.');
+                    const pageTotal = Number(json.total);
+                    const pageSnapshot = String(json.snapshot || '');
+                    if (!Number.isInteger(pageTotal) || pageTotal < 0 || !pageSnapshot) {
+                        throw new Error('Máy chủ không cung cấp total/snapshot hợp lệ cho phân trang hồ sơ.');
+                    }
+                    if (expectedTotal === null) expectedTotal = pageTotal;
+                    else if (expectedTotal !== pageTotal) { mustRestart = true; break; }
+                    if (!snapshot) snapshot = pageSnapshot;
+                    else if (snapshot !== pageSnapshot) { mustRestart = true; break; }
+                    if (Number(json.offset) !== offset) throw new Error('Offset hồ sơ máy chủ không khớp yêu cầu.');
+                    if (chunk.length > chunkSize) throw new Error('Trang hồ sơ vượt kích thước cho phép.');
+
+                    for (const row of chunk) {
+                        const id = String(row?.id || '').trim();
+                        if (!id) throw new Error('Phân trang hồ sơ có bản ghi thiếu ID.');
+                        if (seenIds.has(id)) throw new Error('Phân trang hồ sơ có ID trùng giữa các trang: ' + id);
+                        seenIds.add(id);
+                        allUsers.push(row);
+                    }
+
+                    const hasMore = json.has_more === true;
+                    if (!hasMore) break;
+                    if (chunk.length === 0) throw new Error('Máy chủ báo còn hồ sơ nhưng trang hiện tại rỗng.');
+                    offset += chunk.length;
+                    pageNum++;
+                    if (pageNum > 1000) throw new Error('Vượt giới hạn an toàn 1.000 trang hồ sơ.');
+                }
+
+                if (mustRestart) {
+                    if (restart + 1 >= maxRestarts) {
+                        throw new Error('Dữ liệu hồ sơ thay đổi liên tục trong lúc phân trang; không thể xác nhận tập dữ liệu hoàn chỉnh.');
+                    }
+                    continue;
+                }
+
+                if (expectedTotal === null || allUsers.length !== expectedTotal || seenIds.size !== expectedTotal) {
+                    throw new Error(`Thiếu/thừa hồ sơ sau phân trang: nhận ${allUsers.length}, máy chủ xác nhận ${expectedTotal ?? 'không rõ'}.`);
+                }
+                if (typeof onProgress === 'function') onProgress(allUsers.length, pageNum, true);
+                return allUsers;
             }
-            return allUsers;
+            throw new Error('Không thể hoàn tất phân trang hồ sơ.');
         }
         window.fetchAllUsersChunked = fetchAllUsersChunked;
 
