@@ -11,14 +11,18 @@ const session = fs.readFileSync(new URL('../src/security-session.ts', import.met
 
 test('login uses one role-scoped core identity endpoint', () => {
   assert.match(main, /preloadRoleScopedIdentityOnLogin/);
-  assert.match(main, /fetch\('\/api\/core-identity'/);
+  assert.match(main, /\/api\/core-identity\?paged=1/);
+  assert.match(main, /fetchAllUsersChunked\(\)/);
+  assert.match(main, /fetchAllAccountsChunked\(\)/);
   assert.doesNotMatch(main, /preloadFullIdentityTablesOnLogin/);
   assert.match(main, /ROLE_SCOPE_MISMATCH/);
   assert.match(main, /window\.__coreIdentitySnapshot/);
 });
 
-test('admin scope returns full users and full accounts', () => {
+test('admin scope supports paged metadata plus full legacy payload', () => {
   assert.match(coreApi, /role_scope: 'admin'/);
+  assert.match(coreApi, /paged: true/);
+  assert.match(coreApi, /adminPagedPayload/);
   assert.match(coreApi, /FROM users\s+ORDER BY users\.created_at DESC/);
   assert.match(coreApi, /FROM accounts a[\s\S]*ORDER BY a\.created_at DESC/);
 });
@@ -29,6 +33,8 @@ test('teacher scope returns self profile plus only assigned-class students', () 
   assert.match(coreApi, /LOWER\(TRIM\(tc\.class_name\)\).*LOWER\(TRIM\(COALESCE\(u\.lop/);
   assert.match(coreApi, /LOWER\(TRIM\(COALESCE\(u\.target_audience,''\)\)\) IN \('học sinh','student'\)/);
   assert.match(coreApi, /const accounts = studentAccounts/);
+  assert.match(coreApi, /teacherPagedPayload/);
+  assert.match(coreApi, /paged: true/);
   assert.doesNotMatch(coreApi, /const accounts = \[\s*\.\.\.\(selfAccount/);
   assert.match(main, /assignmentPairs/);
   assert.match(main, /ngoài đúng cặp lớp \+ đơn vị được phân công/);
