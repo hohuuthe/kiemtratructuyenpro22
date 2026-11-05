@@ -996,34 +996,31 @@ async function startServer() {
     }
   });
 
-  // 1. Lấy danh sách tài khoản - lọc tuyệt đối theo vai trò.
+  // 1. Lấy danh sách tài khoản - phân trang snapshot nhất quán.
   app.get("/api/accounts", async (req, res) => {
     try {
-      const authHeader = req.headers.authorization || '';
-      if (!authHeader.startsWith("Bearer ")) return res.status(401).json({ error: "Unauthorized" });
-      const user: any = verifyJWTSync(authHeader.substring(7), await getServerSecret());
-      if (!user) return res.status(401).json({ error: "Phiên đăng nhập không hợp lệ" });
+      const authHeader=req.headers.authorization||'';
+      if(!authHeader.startsWith("Bearer ")) return res.status(401).json({error:"Unauthorized"});
+      const user:any=verifyJWTSync(authHeader.substring(7),await getServerSecret());
+      if(!user) return res.status(401).json({error:"Phiên đăng nhập không hợp lệ"});
 
-      const isAdmin = checkIsAdmin(user);
-      const isTeacher = checkIsTeacherOrAdmin(user) && !isAdmin;
-      const limitParam = req.query.limit as string;
-      const offsetParam = req.query.offset as string;
-      const pageParam = req.query.page as string;
-      let limit = -1;
-      if (limitParam !== undefined && !['all','0','-1'].includes(limitParam)) {
-        const parsed = parseInt(limitParam, 10);
-        if (!isNaN(parsed) && parsed > 0) limit = parsed;
+      const isAdmin=checkIsAdmin(user);
+      const isTeacher=checkIsTeacherOrAdmin(user)&&!isAdmin;
+      const limitParam=req.query.limit as string;
+      const offsetParam=req.query.offset as string;
+      const pageParam=req.query.page as string;
+      const requestedSnapshot=String((req.query.snapshot as string)||'').trim();
+
+      let limit=-1;
+      if(limitParam!==undefined&&!['all','0','-1'].includes(limitParam)){
+        const parsed=parseInt(limitParam,10); if(!isNaN(parsed)&&parsed>0) limit=Math.min(parsed,5000);
       }
-      let offset = 0;
-      if (offsetParam !== undefined) {
-        const parsed = parseInt(offsetParam, 10);
-        if (!isNaN(parsed) && parsed >= 0) offset = parsed;
-      } else if (pageParam !== undefined) {
-        const page = parseInt(pageParam, 10);
-        if (!isNaN(page) && page > 0) offset = (page - 1) * (limit > 0 ? limit : 1000);
-      }
-      const paginationClause = limit > 0 ? ` LIMIT ${limit} OFFSET ${offset}` : '';
-      const projection = `
+      let offset=0;
+      if(offsetParam!==undefined){const parsed=parseInt(offsetParam,10);if(!isNaN(parsed)&&parsed>=0)offset=parsed;}
+      else if(pageParam!==undefined){const page=parseInt(pageParam,10);if(!isNaN(page)&&page>0)offset=(page-1)*(limit>0?limit:1000);}
+      const paginationClause=limit>0?` LIMIT ${limit} OFFSET ${offset}`:'';
+
+      const projection=`
         SELECT a.id,a.user_id,a.username,a.role,a.is_active,a.expiry_date,a.created_at,
                u.full_name,u.phone_number,u.donvi,u.lop,u.target_audience,u.occupation
         FROM accounts a
@@ -1031,39 +1028,71 @@ async function startServer() {
       `;
 
       let rows:any[]=[];
-      if (isAdmin) {
-        const result=await executeSqlQuery(projection+` ORDER BY a.created_at DESC,a.id DESC${paginationClause}`,[]);
-        rows=result.results||[];
-      } else if (isTeacher) {
+      let total=0;
+      let snapshot='';
+      let whereSql='';
+      let orderSql='a.created_at DESC,a.id DESC';
+      let binds:any[]=[];
+
+      if(isAdmin){
+        whereSql='';
+      }else if(isTeacher){
         const selfId=String(user.user_id||user.id||'');
         const accountId=String(user.id||selfId);
-        const result=await executeSqlQuery(projection+`
+        whereSql=`
           WHERE LOWER(TRIM(COALESCE(u.target_audience,''))) IN ('học sinh','student')
             AND EXISTS (
               SELECT 1 FROM teacher_classes tc
               WHERE tc.teacher_id IN (?,?)
                 AND LOWER(TRIM(tc.class_name))=LOWER(TRIM(COALESCE(u.lop,'')))
                 AND LOWER(TRIM(tc.donvi))=LOWER(TRIM(COALESCE(u.donvi,'')))
-            )
-          ORDER BY u.full_name ASC,a.username ASC,a.id DESC${paginationClause}`,[selfId,accountId]);
-        rows=result.results||[];
-      } else {
+            )`;
+        binds=[selfId,accountId];
+        orderSql="LOWER(COALESCE(u.full_name,'')) ASC,LOWER(COALESCE(a.username,'')) ASC,a.id DESC";
+      }else{
         const selfId=String(user.user_id||user.id||'');
         const accountId=String(user.id||selfId);
         const result=await executeSqlQuery(projection+`
           WHERE a.id=? OR a.user_id=?
-          ORDER BY CASE WHEN a.id=? THEN 0 ELSE 1 END,a.created_at DESC
+          ORDER BY CASE WHEN a.id=? THEN 0 ELSE 1 END,a.created_at DESC,a.id DESC
           LIMIT 1`,[accountId,selfId,accountId]);
         rows=result.results||[];
+        total=rows.length;
+        snapshot=rows.length?String(rows[0].id):'';
+        return res.status(200).json({data:rows,total,limit,offset:0,has_more:false,snapshot,role_scope:'student',error:null});
+      }
+
+      const meta=await executeSqlQuery(`
+        SELECT COUNT(*)::int AS total,
+               MD5(COALESCE(STRING_AGG(a.id,'|' ORDER BY ${orderSql}),'')) AS snapshot
+        FROM accounts a
+        LEFT JOIN users u ON u.id=COALESCE(a.user_id,a.id)
+        ${whereSql}`,binds);
+      total=Number(meta.results?.[0]?.total||0);
+      snapshot=String(meta.results?.[0]?.snapshot||'');
+
+      if(requestedSnapshot&&requestedSnapshot!==snapshot){
+        return res.status(409).json({
+          error:'Phạm vi dữ liệu đã thay đổi trong khi đang phân trang. Cần tải lại từ trang đầu.',
+          code:'PAGINATION_SCOPE_CHANGED',snapshot,total
+        });
+      }
+
+      const data=await executeSqlQuery(projection+whereSql+` ORDER BY ${orderSql}${paginationClause}`,binds);
+      rows=data.results||[];
+      const ids=new Set(rows.map((row:any)=>String(row?.id||'')));
+      if(ids.size!==rows.length||ids.has('')){
+        return res.status(500).json({error:'Phân trang tài khoản phát hiện bản ghi trùng hoặc thiếu ID.',code:'PAGINATION_PAGE_INVALID'});
       }
 
       return res.status(200).json({
-        data:rows,total:rows.length,limit,offset,
-        has_more:(isAdmin||isTeacher) ? (limit>0 && rows.length===limit) : false,
-        role_scope:isAdmin?'admin':(isTeacher?'teacher':'student'),
+        data:rows,total,limit,offset,
+        has_more:limit>0?offset+rows.length<total:false,
+        snapshot,
+        role_scope:isAdmin?'admin':'teacher',
         error:null
       });
-    } catch (e:any) {
+    }catch(e:any){
       console.error("GET /api/accounts error::",e);
       return res.status(500).json({error:e.message||'Lỗi server'});
     }
