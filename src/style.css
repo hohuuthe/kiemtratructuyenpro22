@@ -790,7 +790,7 @@ button { touch-action: manipulation; }
 
 
 
-/* Quản lý kết quả: fit all twelve columns inside the desktop content panel.
+/* Quản lý kết quả: fit all thirteen columns inside the desktop content panel.
    No data columns are removed; lengthy values wrap rather than widen the page.
    Tablets and phones use the existing result cards. */
 #tab-ranking,
@@ -838,7 +838,8 @@ button { touch-action: manipulation; }
   #ranking-container-desktop .ranking-results-table tbody td:nth-child(3) span,
   #ranking-container-desktop .ranking-results-table tbody td:nth-child(5) span,
   #ranking-container-desktop .ranking-results-table tbody td:nth-child(7) span,
-  #ranking-container-desktop .ranking-results-table tbody td:nth-child(10) span {
+  #ranking-container-desktop .ranking-results-table tbody td:nth-child(10) span,
+  #ranking-container-desktop .ranking-results-table tbody td:nth-child(11) span {
     display: inline-block;
     max-width: 100%;
     padding: 2px 3px;
@@ -850,8 +851,8 @@ button { touch-action: manipulation; }
   #ranking-container-desktop .ranking-results-table tbody td:nth-child(4) > div:first-child { font-size: 12px; line-height: 1.3; }
   #ranking-container-desktop .ranking-results-table tbody td:nth-child(4) > div:not(:first-child) { font-size: 10px; }
   #ranking-container-desktop .ranking-results-table tbody td:nth-child(6) { font-size: 11px; }
-  #ranking-container-desktop .ranking-results-table tbody td:nth-child(11) > div { font-size: 11px; line-height: 1.3; }
-  #ranking-container-desktop .ranking-results-table tbody td:nth-child(11) > div:first-child { font-size: 12px; }
+  #ranking-container-desktop .ranking-results-table tbody td:nth-child(12) > div { font-size: 11px; line-height: 1.3; }
+  #ranking-container-desktop .ranking-results-table tbody td:nth-child(12) > div:first-child { font-size: 12px; }
   #ranking-container-desktop .ranking-result-actions {
     display: flex;
     flex-direction: column;
@@ -877,8 +878,8 @@ button { touch-action: manipulation; }
   #ranking-container-desktop .ranking-results-table tbody td { font-size: 11px; padding: 4px 2px; }
   #ranking-container-desktop .ranking-results-table thead th { font-size: 10px; padding: 4px 2px; }
   #ranking-container-desktop .ranking-results-table tbody td:nth-child(4) > div:first-child,
-  #ranking-container-desktop .ranking-results-table tbody td:nth-child(11) > div:first-child { font-size: 11px; }
-  #ranking-container-desktop .ranking-results-table tbody td:nth-child(11) > div:not(:first-child) { font-size: 10px; }
+  #ranking-container-desktop .ranking-results-table tbody td:nth-child(12) > div:first-child { font-size: 11px; }
+  #ranking-container-desktop .ranking-results-table tbody td:nth-child(12) > div:not(:first-child) { font-size: 10px; }
   #ranking-container-desktop .ranking-result-actions button { font-size: 10px; }
 }
 @media (min-width: 1500px) {
@@ -921,6 +922,10 @@ button { touch-action: manipulation; }
 .student-result-card-title{font-size:15px;font-weight:800;color:#1f2937;line-height:1.4;overflow-wrap:anywhere;margin:3px 0 11px}
 .student-result-card-meta{display:flex;gap:7px 15px;flex-wrap:wrap;color:#64748b;font-size:11px}
 .student-result-card-meta span{display:inline-flex;align-items:center;gap:5px}
+.student-result-violation{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px;padding:7px 10px;border-radius:9px;border:1px solid;font-size:11px;font-weight:750}
+.student-result-violation strong{font-size:12px;white-space:nowrap}
+.student-result-violation.no-violation{background:#ecfdf5;border-color:#a7f3d0;color:#047857}
+.student-result-violation.has-violation{background:#fffbeb;border-color:#fcd34d;color:#92400e}
 .student-result-progress{margin-top:auto;padding-top:14px}
 .student-result-progress-label{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:#64748b}
 .student-result-progress-label strong{color:#0f766e}

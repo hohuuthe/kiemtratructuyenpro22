@@ -128,6 +128,7 @@
               <option value="score">Điểm số (Thấp ↔ Cao)</option>
               <option value="correctCount">Số câu đúng</option>
               <option value="timeTaken">Thời gian làm bài</option>
+              <option value="cheatWarningCount">Số lần vi phạm</option>
               <option value="lop">Lớp</option>
               <option value="donvi">Đơn vị / Trường</option>
               <option value="loaiThiSinh">Loại thí sinh</option>
@@ -166,17 +167,18 @@
       <div id="ranking-container-desktop" class="hidden lg:block w-full min-w-0">
        <table class="ranking-results-table w-full" aria-label="Bảng quản lý kết quả">
          <colgroup>
-           <col style="width: 3.3%">
-           <col style="width: 4.4%">
-           <col style="width: 7.1%">
-           <col style="width: 12.8%">
+           <col style="width: 3.1%">
+           <col style="width: 4.2%">
+           <col style="width: 6.4%">
+           <col style="width: 11.5%">
+           <col style="width: 5.2%">
+           <col style="width: 9.4%">
+           <col style="width: 5%">
            <col style="width: 5.8%">
-           <col style="width: 10.4%">
-           <col style="width: 5.5%">
+           <col style="width: 5.6%">
            <col style="width: 6.3%">
-           <col style="width: 6%">
-           <col style="width: 10.5%">
-           <col style="width: 18.9%">
+           <col style="width: 9%">
+           <col style="width: 19.5%">
            <col style="width: 9%">
          </colgroup>
         <thead>
@@ -192,6 +194,7 @@
           <th class="px-2 py-1.5 text-center w-16 whitespace-nowrap cursor-pointer hover:bg-white/10 rounded transition" onclick="sortRankingBy('score')" title="Click để sắp xếp theo Điểm">Điểm <span id="sort-icon-score" class="text-xs opacity-75">↕️</span></th>
           <th class="px-2 py-1.5 text-center w-24 whitespace-nowrap cursor-pointer hover:bg-white/10 rounded transition" onclick="sortRankingBy('correctCount')" title="Click để sắp xếp theo Số câu đúng">Số câu đúng <span id="sort-icon-correctCount" class="text-xs opacity-75">↕️</span></th>
           <th class="px-2 py-1.5 text-center w-20 whitespace-nowrap cursor-pointer hover:bg-white/10 rounded transition" onclick="sortRankingBy('timeTaken')" title="Click để sắp xếp theo Thời gian">Thời gian <span id="sort-icon-timeTaken" class="text-xs opacity-75">↕️</span></th>
+          <th class="px-2 py-1.5 text-center w-20 whitespace-nowrap cursor-pointer hover:bg-white/10 rounded transition" onclick="sortRankingBy('cheatWarningCount')" title="Click để sắp xếp theo số lần vi phạm quy chế">Vi phạm <span id="sort-icon-cheatWarningCount" class="text-xs opacity-75">↕️</span></th>
           <th class="px-3 py-1.5 text-center w-32 whitespace-nowrap cursor-pointer hover:bg-white/10 rounded transition" onclick="sortRankingBy('aiGrading')" title="Click để sắp xếp theo Trạng thái chấm">Chấm tự động <span id="sort-icon-aiGrading" class="text-xs opacity-75">↕️</span></th>
           <th class="px-4 py-1.5 text-left cursor-pointer hover:bg-white/10 rounded transition" onclick="sortRankingBy('examName')" title="Click để sắp xếp theo Đề thi">Đề thi <span id="sort-icon-examName" class="text-xs opacity-75">↕️</span></th>
           <th class="px-2 py-1.5 text-center rounded-tr-lg w-28 whitespace-nowrap">Thao tác</th>

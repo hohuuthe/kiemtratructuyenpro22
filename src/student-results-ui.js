@@ -120,6 +120,9 @@ export function renderStudentResultCards(container, rows, { onOpen, onOpenAttemp
             '<h3 class="student-result-card-title">' + escapeStudentText(result.exam_name || 'Bài thi chưa có tên') + '</h3>' +
             '<div class="student-result-card-meta"><span>' + calendarIcon + escapeStudentText(date) + '</span>' +
                 '<span>' + clockIcon + escapeStudentText(time) + '</span></div>' +
+            '<div class="student-result-violation ' + ((Number(result.cheat_warning_count) || 0) > 0 ? 'has-violation' : 'no-violation') + '">' +
+                '<span>' + ((Number(result.cheat_warning_count) || 0) > 0 ? '⚠️' : '✓') + ' Vi phạm</span>' +
+                '<strong>' + escapeStudentText(Math.max(0, Math.floor(Number(result.cheat_warning_count) || 0))) + ' lần</strong></div>' +
              (canScore ? '<div class="student-result-progress">' +
                 '<div class="student-result-progress-label"><span>Câu trả lời đúng</span><strong>' +
                 escapeStudentText(correct) + '/' + escapeStudentText(total) + '</strong></div>' +

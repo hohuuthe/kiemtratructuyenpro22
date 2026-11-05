@@ -112,3 +112,14 @@ test('Student attempt button has standalone controller wiring without changing t
     assert.match(ui,/detail: \{ examId:/);
     assert.match(index,/student-attempt-history-controller\.js/);
 });
+
+test('Student result cards always show the recorded violation count',()=>{
+    const ui=readFileSync('src/student-results-ui.js','utf8');
+    const css=readFileSync('src/style.css','utf8');
+    assert.match(ui,/student-result-violation/);
+    assert.match(ui,/result\.cheat_warning_count/);
+    assert.match(ui,/Vi phạm/);
+    assert.match(ui,/Math\.max\(0, Math\.floor\(Number\(result\.cheat_warning_count\) \|\| 0\)\)/);
+    assert.match(css,/\.student-result-violation\.no-violation/);
+    assert.match(css,/\.student-result-violation\.has-violation/);
+});
