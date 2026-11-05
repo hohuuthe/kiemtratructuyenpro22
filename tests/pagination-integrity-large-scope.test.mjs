@@ -88,3 +88,28 @@ test('snapshot mismatch must force restart instead of accepting mixed pages', ()
   const mustRestart = first.snapshot !== second.snapshot || first.total !== second.total;
   assert.equal(mustRestart, true);
 });
+
+
+test('large identity reads cannot bypass verified pagination', () => {
+  assert.doesNotMatch(main, /\/api\/(users|accounts)\?limit=all/);
+  assert.match(main, /\/api\/core-identity\?paged=1/);
+  assert.match(main, /fetchAllUsersChunked\(\)/);
+  assert.match(main, /fetchAllAccountsChunked\(\)/);
+  assert.match(cfUsers, /PAGINATION_SCOPE_CHANGED/);
+  assert.match(cfAccounts, /PAGINATION_SCOPE_CHANGED/);
+});
+
+test('teacher assignment scope fails closed when class or unit is incomplete', () => {
+  const core = fs.readFileSync(new URL('../functions/api/core-identity.ts', import.meta.url), 'utf8');
+  assert.match(core, /TEACHER_ASSIGNMENT_SCOPE_INCOMPLETE/);
+  assert.match(core, /!String\(a\.donvi \|\| ''\)\.trim\(\)/);
+  assert.doesNotMatch(core, /NULLIF\(tc\.donvi/);
+  assert.match(server, /TEACHER_ASSIGNMENT_SCOPE_INCOMPLETE/);
+});
+
+test('server verifies scope fingerprint both before and after page select', () => {
+  assert.match(cfAccounts, /Re-read the full scope fingerprint after reading the page/);
+  assert.match(cfUsers, /Verify the full scope again after the page SELECT/);
+  assert.match(server, /const verifyMeta=await executeSqlQuery\(metaSql,binds\)/);
+  assert.match(server, /Phạm vi dữ liệu giáo viên thay đổi ngay trong lúc đọc trang/);
+});
