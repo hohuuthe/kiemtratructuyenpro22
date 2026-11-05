@@ -102,7 +102,6 @@ async function adminPayload(db: any) {
 
 async function teacherPayload(db: any, user: any) {
   const selfProfile: any = await getSelfProfile(db, user);
-  const selfAccount: any = await getSelfAccount(db, user);
   if (!selfProfile) throw new Error('TEACHER_PROFILE_NOT_FOUND');
 
   const teacherIds = [...new Set([String(user.id || ''), String(user.user_id || ''), String(selfProfile.id || '')].filter(Boolean))];
@@ -166,10 +165,9 @@ async function teacherPayload(db: any, user: any) {
 
   selfProfile.assigned_classes = assignments;
   const users = [selfProfile, ...students.filter(s => String(s.id) !== String(selfProfile.id))];
-  const accounts = [
-    ...(selfAccount ? [selfAccount] : []),
-    ...studentAccounts.filter(a => !selfAccount || String(a.id) !== String(selfAccount.id))
-  ];
+  // Giáo viên đã có thông tin tài khoản của chính mình từ /api/auth/login.
+  // Core preload chỉ trả tài khoản Học sinh thuộc lớp được phân công, không tải dư tài khoản GV/Admin.
+  const accounts = studentAccounts;
 
   return {
     role_scope: 'teacher',
