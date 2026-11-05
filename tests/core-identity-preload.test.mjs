@@ -70,6 +70,12 @@ test('node runtime enforces the same strict role scope as Cloudflare', () => {
   assert.doesNotMatch(server, /sUnit\.includes\(tUnit\)/);
 });
 
+test('node teacher account pagination cannot stop after the first 1000 assigned students', () => {
+  assert.match(server, /has_more:\(isAdmin\|\|isTeacher\) \? \(limit>0 && rows\.length===limit\) : false/);
+  assert.match(main, /fetchAllAccountsChunked/);
+  assert.match(main, /offset \+= chunkSize/);
+});
+
 test('node session scope follows the current target audience without breaking unchanged legacy sessions', () => {
   assert.match(session, /String\(row\.target_audience \|\| ''\)/);
   assert.match(session, /legacyAccountSessionMaterialV1/);
