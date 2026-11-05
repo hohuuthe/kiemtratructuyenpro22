@@ -20876,42 +20876,26 @@ CẤU TRÚC JSON:
                 updateLoadingUI(0, 1);
                 
                 try {
-                    const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
-                    const [allUsers, accJson] = await Promise.all([
+                    const [allUsers, loadedAccounts] = await Promise.all([
                         fetchAllUsersChunked((count, page, isDone) => updateLoadingUI(count, page, isDone)),
-                        (!accounts || accounts.length === 0) ? fetch('/api/accounts', { headers: { 'Authorization': 'Bearer ' + token } }).then(r => r.json()).catch(() => null) : Promise.resolve(null)
+                        (!accounts || accounts.length === 0) ? fetchAllAccountsChunked() : Promise.resolve(null)
                     ]);
-                    if (Array.isArray(allUsers)) {
-                        usersList = allUsers;
-                        window.usersList = usersList;
-                        usersLoaded = true;
-                    } else {
-                        usersList = accounts || [];
-                        window.usersList = usersList;
-                        usersLoaded = true;
-                    }
-                    if (accJson && accJson.data && Array.isArray(accJson.data)) {
-                        accounts = accJson.data;
+                    usersList = allUsers;
+                    window.usersList = usersList;
+                    usersLoaded = true;
+                    if (Array.isArray(loadedAccounts)) {
+                        accounts = loadedAccounts;
+                        window.accounts = accounts;
+                        accountsLoaded = true;
                     }
                 } catch (e) {
-                     console.error('Error on-demand chunked loading users:', e);
-                     try {
-                         const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
-                         const fallbackRes = await fetch('/api/users', { headers: { 'Authorization': 'Bearer ' + token } }).then(r => r.json()).catch(() => null);
-                         if (fallbackRes && Array.isArray(fallbackRes.data)) {
-                             usersList = fallbackRes.data;
-                             window.usersList = usersList;
-                             usersLoaded = true;
-                         } else {
-                             usersList = accounts || [];
-                             window.usersList = usersList;
-                             usersLoaded = true;
-                         }
-                     } catch {
-                         usersList = accounts || [];
-                         window.usersList = usersList;
-                         usersLoaded = true;
-                     }
+                    console.error('Error on-demand verified pagination loading users:', e);
+                    usersLoaded = false;
+                    if (tbody) tbody.innerHTML = '<tr><td colspan="15" class="text-center py-8 text-red-600 font-medium">Không thể xác nhận đã tải đầy đủ dữ liệu. Vui lòng tải lại.</td></tr>';
+                    if (cardContainer) cardContainer.innerHTML = '<div class="text-center py-8 text-red-600 font-medium">Không thể xác nhận đã tải đầy đủ dữ liệu. Vui lòng tải lại.</div>';
+                    if (countDisplay) countDisplay.textContent = 'Lỗi tải dữ liệu';
+                    showToast('Không thể tải đầy đủ hồ sơ theo phân trang an toàn: ' + (e?.message || ''), 'error');
+                    return;
                 }
             }
 
