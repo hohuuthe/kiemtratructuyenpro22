@@ -29,7 +29,7 @@ test('Thirteen columns including violation count fill the table width without ho
 
 test('Long values wrap within bounded cells, including badges, dates, name, school and AI notes', () => {
   assert.match(css, /#ranking-container-desktop \.ranking-results-table th,[\s\S]*?#ranking-container-desktop \.ranking-results-table td\s*\{[^}]*white-space:\s*normal;[^}]*overflow-wrap:\s*anywhere;/s);
-  assert.match(css, /tbody td:nth-child\(3\) span,[\s\S]*?tbody td:nth-child\(10\) span\s*\{[^}]*max-width:\s*100%;[^}]*white-space:\s*normal;[^}]*overflow-wrap:\s*anywhere;/s);
+  assert.match(css, /tbody td:nth-child\(3\) span,[\s\S]*?tbody td:nth-child\(11\) span\s*\{[^}]*max-width:\s*100%;[^}]*white-space:\s*normal;[^}]*overflow-wrap:\s*anywhere;/s);
   assert.match(desktop, /title="\$\{escapeHTML\(r\.studentName\)\}"/);
   assert.match(desktop, /title="\$\{escapeHTML\(r\.donvi \|\| r\.studentClass \|\| '-'\)\}"/);
   assert.match(desktop, /title="\$\{escapeHTML\(r\.examName\)\}"/);
