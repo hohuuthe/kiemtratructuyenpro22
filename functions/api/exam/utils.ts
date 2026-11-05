@@ -569,16 +569,16 @@ export const verifyPasswordPBKDF2 = verifyPassword;
 
 export function checkIsAdmin(user: any): boolean {
     if (!user) return false;
-    const role = String(user.role || '').toLowerCase();
-    const audience = String(user.target_audience || '').toLowerCase();
+    const role = String(user.role || '').trim().toLowerCase();
+    const audience = String(user.target_audience || '').trim().toLowerCase();
     return role === 'admin' || audience === 'admin' || audience === 'quản trị viên';
 }
 
 export function checkIsTeacherOrAdmin(user: any): boolean {
     if (!user) return false;
     if (checkIsAdmin(user)) return true;
-    const role = String(user.role || '').toLowerCase();
-    const audience = String(user.target_audience || '').toLowerCase();
-    return role === 'giáo viên' || audience === 'giáo viên' || role === 'teacher';
+    const role = String(user.role || '').trim().toLowerCase();
+    const audience = String(user.target_audience || '').trim().toLowerCase();
+    return role === 'giáo viên' || audience === 'giáo viên' || role === 'teacher' || audience === 'teacher';
 }
 
