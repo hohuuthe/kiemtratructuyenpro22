@@ -1,4 +1,5 @@
 import {canDeleteRankingResult} from './ranking-result-delete-policy.js';
+import { createExamSessionId, remainingExamSeconds, canAutoSubmitExam } from './student-exam-session-guard.js';
 import {questionAuthorDisplayName} from './question-creator-identity.js';
 import {examCreatorDisplayName} from './exam-creator-identity.js';
 import {connectDocumentLinks,initDocumentLinks,resetDocumentLinks} from './document-links-ui.js';
@@ -1437,7 +1438,9 @@ if (contentTypeConfig && contentTypeConfig.includes("application/json")) {
             answers: {},
             currentIndex: 0,
             startTime: null,
-            timerInterval: null
+            timerInterval: null,
+            sessionId: null,
+            submitting: false
         };
         let questionTypeFilter = '4-1';
         let selectedQuestionIds = new Set();
@@ -8059,6 +8062,9 @@ if (contentType && contentType.includes("application/json")) {
                 window.initExamMonitoring();
             }
 
+            currentExam.startTime = Date.now();
+            if (!currentExam.sessionId) currentExam.sessionId = createExamSessionId();
+            currentExam.submitting = false;
             startTimer();
             renderQuestionNav();
             renderCurrentQuestion(true);
@@ -8299,8 +8305,10 @@ if (contentType && contentType.includes("application/json")) {
                     questions: examQuestions,
                     answers: {},
                     currentIndex: 0,
-                    startTime: Date.now(),
+                    startTime: null,
                     timerInterval: null,
+                    sessionId: createExamSessionId(),
+                    submitting: false,
                     studentName: name,
                     studentLop: inputLop,
                     studentDonvi: inputDonvi,
@@ -8499,6 +8507,20 @@ if (contentType && contentType.includes("application/json")) {
             }
         }
 
+        function isSameExamSession(sessionId) {
+            return Boolean(
+                sessionId &&
+                currentExam &&
+                currentExam.sessionId &&
+                String(currentExam.sessionId) === String(sessionId)
+            );
+        }
+
+        function getCurrentExamRemainingSeconds(now = Date.now()) {
+            const totalSeconds = Number(examConfig?.timeLimit) * 60;
+            return remainingExamSeconds(currentExam?.startTime, totalSeconds, now);
+        }
+
         function startTimer() {
             const timerEl = document.getElementById('exam-timer');
             const floatingTimerEl = document.getElementById('floating-exam-timer');
@@ -8515,9 +8537,20 @@ if (contentType && contentType.includes("application/json")) {
             // Khởi tạo và mở khóa âm thanh ngay khi bắt đầu tính giờ
             try { getExamAudioContext(); } catch(e) {}
 
-            currentExam.timerInterval = setInterval(() => {
-                const elapsed = Math.floor((Date.now() - currentExam.startTime) / 1000);
-                const remaining = Math.max(0, totalSeconds - elapsed);
+            const sessionId = currentExam.sessionId;
+            if (!sessionId || !currentExam.startTime) return;
+            if (currentExam.timerInterval) clearInterval(currentExam.timerInterval);
+
+            const timerInterval = setInterval(() => {
+                if (!isSameExamSession(sessionId)) {
+                    clearInterval(timerInterval);
+                    return;
+                }
+                const remaining = getCurrentExamRemainingSeconds();
+                if (remaining === null) {
+                    clearInterval(timerInterval);
+                    return;
+                }
 
                 const minutes = Math.floor(remaining / 60);
                 const seconds = remaining % 60;
@@ -8583,11 +8616,15 @@ if (contentType && contentType.includes("application/json")) {
                 }
 
                 if (remaining === 0) {
-                    clearInterval(currentExam.timerInterval);
-                    playCountdownTickSound('standard');
-                    submitExam(true);
+                    clearInterval(timerInterval);
+                    if (isSameExamSession(sessionId)) {
+                        currentExam.timerInterval = null;
+                        playCountdownTickSound('standard');
+                        window.submitExam(true, 'time_expired', sessionId);
+                    }
                 }
             }, 1000);
+            currentExam.timerInterval = timerInterval;
         }
 
         function renderQuestionNav() {
@@ -9311,6 +9348,9 @@ if (contentType && contentType.includes("application/json")) {
 
             if (!isExamActive) return;
 
+            const sessionId = currentExam.sessionId;
+            if (!sessionId) return;
+
             currentExam.cheatWarningCount = (currentExam.cheatWarningCount || 0) + 1;
             const currentCount = currentExam.cheatWarningCount;
             const maxWarnings = window.getMaxCheatWarnings();
@@ -9330,15 +9370,21 @@ if (contentType && contentType.includes("application/json")) {
                     </div>
                 `;
                 showConfirmModal(autoSubmitMsg, () => {
-                    window.submitExam(true);
+                    window.submitExam(true, 'cheat_limit', sessionId);
                 }, '⚠️ Cảnh báo gian lận', 'Đồng ý nộp bài', null);
 
-                // Tự động thu bài sau 3.5 giây nếu thí sinh không nhấn nút
+                // Timeout bị khóa theo session để tuyệt đối không nộp nhầm phiên bài thi khác.
                 setTimeout(() => {
+                    if (!isSameExamSession(sessionId)) return;
                     const activeExam = document.getElementById('exam-interface');
-                    if (activeExam && !activeExam.classList.contains('hidden')) {
+                    const stillOverLimit = canAutoSubmitExam({
+                        reason: 'cheat_limit',
+                        cheatWarningCount: currentExam.cheatWarningCount || 0,
+                        maxCheatWarnings: window.getMaxCheatWarnings()
+                    });
+                    if (activeExam && !activeExam.classList.contains('hidden') && stillOverLimit) {
                         closeModal();
-                        window.submitExam(true);
+                        window.submitExam(true, 'cheat_limit', sessionId);
                     }
                 }, 3500);
             } else {
@@ -9607,9 +9653,28 @@ if (contentType && contentType.includes("application/json")) {
             }
         };
 
-        window.submitExam = function submitExam(isAuto = false) {
+        window.submitExam = function submitExam(isAuto = false, autoReason = '', sessionId = '') {
             console.log('submitExam called');
             if (isAuto) {
+                if (!isSameExamSession(sessionId) || currentExam.submitting) {
+                    console.warn('[ExamSubmitGuard] Bỏ qua auto-submit của phiên cũ hoặc đang nộp.', { autoReason });
+                    return;
+                }
+                const remainingSeconds = getCurrentExamRemainingSeconds();
+                const permitted = canAutoSubmitExam({
+                    reason: autoReason,
+                    remainingSeconds,
+                    cheatWarningCount: currentExam.cheatWarningCount || 0,
+                    maxCheatWarnings: window.getMaxCheatWarnings()
+                });
+                if (!permitted) {
+                    console.warn('[ExamSubmitGuard] Chặn auto-submit không hợp lệ.', {
+                        autoReason,
+                        remainingSeconds,
+                        cheatWarningCount: currentExam.cheatWarningCount || 0
+                    });
+                    return;
+                }
                 executeSubmit();
                 return;
             }
@@ -9671,6 +9736,8 @@ if (contentType && contentType.includes("application/json")) {
         }
 
         async function executeSubmit() {
+            if (currentExam.submitting) return;
+            currentExam.submitting = true;
             if (typeof window.releaseExamWakeLock === 'function') {
                 window.releaseExamWakeLock();
             }
@@ -9876,6 +9943,7 @@ if (contentType && contentType.includes("application/json")) {
                 showResults(submitResult, detailedResults);
 
             } catch (err) {
+                currentExam.submitting = false;
                 
 if (err && err.message && err.message.includes("is not valid JSON")) {
     // Ignore HTML proxy errors from console
@@ -10248,6 +10316,8 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 currentIndex: 0,
                 startTime: null,
                 timerInterval: null,
+                sessionId: null,
+                submitting: false,
                 studentName: '',
                 studentClass: '',
                 cheatWarningCount: 0
