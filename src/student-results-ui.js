@@ -115,18 +115,18 @@ export function renderStudentResultCards(container, rows, { onOpen, onOpenAttemp
         card.innerHTML =
             '<div class="student-result-card-top">' +
                 '<div class="student-result-card-kind"><span class="student-result-kind-icon" aria-hidden="true">✦</span> BÀI KIỂM TRA</div>' +
-                '<div class="student-result-score" aria-label="Điểm số: ' + escapeStudentText(scoreDisplay(score)) + '">' +
-                    '<strong>' + (canScore ? escapeStudentText(scoreDisplay(score)) : 'Đã ẩn') + '</strong><small>' + (canScore ? 'điểm' : 'theo cấu hình đề thi') + '</small>' +
+                '<div class="student-result-score" aria-label="' + (isGrouped ? 'Điểm cao nhất: ' : 'Điểm số: ') + escapeStudentText(scoreDisplay(score)) + '">' +
+                    '<strong>' + (canScore ? escapeStudentText(scoreDisplay(score)) : 'Đã ẩn') + '</strong><small>' + (canScore ? (isGrouped ? 'điểm cao nhất' : 'điểm') : 'theo cấu hình đề thi') + '</small>' +
                 '</div>' +
             '</div>' +
             '<h3 class="student-result-card-title">' + escapeStudentText(result.exam_name || 'Bài thi chưa có tên') + '</h3>' +
             (isGrouped ? '<div class="student-result-group-summary"><strong>' + attemptCount + '</strong><span>lượt đã làm · đang hiển thị điểm cao nhất</span></div>' : '') +
-            '<div class="student-result-card-meta"><span>' + calendarIcon + escapeStudentText(date) + '</span>' +
-                (isGrouped ? '<span>Lần làm gần nhất</span>' : '<span>' + clockIcon + escapeStudentText(time) + '</span>') + '</div>' +
-            '<div class="student-result-violation ' + ((Number(result.cheat_warning_count) || 0) > 0 ? 'has-violation' : 'no-violation') + '">' +
+            '<div class="student-result-card-meta"><span>' + calendarIcon + (isGrouped ? 'Lần gần nhất: ' : '') + escapeStudentText(date) + '</span>' +
+                (!isGrouped ? '<span>' + clockIcon + escapeStudentText(time) + '</span>' : '') + '</div>' +
+            (!isGrouped ? '<div class="student-result-violation ' + ((Number(result.cheat_warning_count) || 0) > 0 ? 'has-violation' : 'no-violation') + '">' +
                 '<span>' + ((Number(result.cheat_warning_count) || 0) > 0 ? '⚠️' : '✓') + ' Vi phạm</span>' +
-                '<strong>' + escapeStudentText(Math.max(0, Math.floor(Number(result.cheat_warning_count) || 0))) + ' lần</strong></div>' +
-             (canScore ? '<div class="student-result-progress">' +
+                '<strong>' + escapeStudentText(Math.max(0, Math.floor(Number(result.cheat_warning_count) || 0))) + ' lần</strong></div>' : '') +
+             (!isGrouped && canScore ? '<div class="student-result-progress">' +
                 '<div class="student-result-progress-label"><span>Câu trả lời đúng</span><strong>' +
                 escapeStudentText(correct) + '/' + escapeStudentText(total) + '</strong></div>' +
                 '<div class="student-result-progress-track" role="progressbar" aria-label="Tỉ lệ câu đúng" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + progress + '">' +
