@@ -282,7 +282,10 @@ test('final hardening: SQ recognizes only safe numeric equivalence', () => {
 test('final hardening: custom essay prompt is frozen and AI invalid scores never become completed zero', () => {
   const security = fs.readFileSync(new URL('../functions/api/exam/security.ts', import.meta.url), 'utf8');
   const grade = fs.readFileSync(new URL('../functions/api/exam/grade.ts', import.meta.url), 'utf8');
+  const generate = fs.readFileSync(new URL('../functions/api/exam/generate.ts', import.meta.url), 'utf8');
   assert.match(security, /'aiPrompt','ai_prompt'/);
+  assert.match(generate, /tokenGradeSessionConfig/);
+  assert.match(generate, /aiPrompt: _aiPrompt, ai_prompt: _aiPromptSnake/);
   assert.match(grade, /const teacherPrompt = String/);
   assert.match(grade, /examConfig\.aiPrompt \?\? examConfig\.ai_prompt/);
   assert.match(grade, /Number\.isFinite\(numericEssayScore\)/);
