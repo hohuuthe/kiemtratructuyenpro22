@@ -5,6 +5,7 @@ on:
     paths:
       - 'src/main.js'
       - 'src/student-exam-session-guard.js'
+      - 'src/student-exam-background.js'
       - 'functions/api/exam/generate.ts'
       - 'tests/student-exam-auto-submit-guard.test.mjs'
       - '.github/workflows/student-exam-auto-submit-guard.yml'
