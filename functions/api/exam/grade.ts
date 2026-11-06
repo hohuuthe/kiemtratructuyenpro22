@@ -539,8 +539,17 @@ YÊU CẦU:
         const calculatedRaw = roundScore(rawEarnedScore, 2);
         const finalScore = calculatedRaw;
 
-        const cheatWarningCount = Number(body.cheatWarningCount ?? body.studentInfo?.cheatWarningCount ?? 0) || 0;
+        const cheatWarningCount = Math.max(0, Math.floor(Number(body.cheatWarningCount ?? body.studentInfo?.cheatWarningCount ?? 0) || 0));
         const correctCount = detailedResults.filter((d: any) => d.isCorrect && d.question.type !== 'TL').length;
+
+        // Ranking time is server-authoritative. A browser cannot improve its
+        // tie-break position by sending a fake timeTaken value.
+        const issuedAtMs = Number(decoded.timestamp);
+        const signedLimitSeconds = Math.max(1, Math.floor(Number(decoded.timeLimitSeconds) || 1));
+        const elapsedByServer = Number.isFinite(issuedAtMs) && issuedAtMs > 0
+            ? Math.max(0, Math.floor((Date.now() - issuedAtMs) / 1000))
+            : signedLimitSeconds;
+        const authoritativeTimeTaken = Math.min(signedLimitSeconds, elapsedByServer);
 
         // Claim immediately before persistence. Two concurrent requests may both
         // calculate, but only one can cross this unique database gate and create a row.
@@ -644,7 +653,7 @@ YÊU CẦU:
                 String(examConfig.name || studentInfo.examName || ''),
                 String(examConfig.id || studentInfo.examId || ''),
                 finalScore,
-                timeTaken || 0,
+                authoritativeTimeTaken,
                 correctCount,
                 clientQuestions.length,
                 JSON.stringify(detailedResults),
@@ -701,6 +710,7 @@ YÊU CẦU:
             scale10Score: calculatedScale10,
             correctCount,
             cheatWarningCount,
+            timeTaken: authoritativeTimeTaken,
             detailedResults: clientDetailedResults
         }), {
             status: 200,
