@@ -62,7 +62,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             return new Response(JSON.stringify({ error: 'Thiếu thông tin nộp bài thi bắt buộc.' }), { status: 400, headers: corsHeaders });
         }
 
-        let authenticatedUserId = studentInfo.userId || null;
+        let authenticatedUserId: any = null;
         let authenticatedStudentName = studentInfo.name || '';
         let authenticatedLop = studentInfo.lop || '';
         let authenticatedDonvi = studentInfo.donvi || studentInfo.unit || '';
@@ -564,7 +564,7 @@ YÊU CẦU:
                 `INSERT INTO results (id, user_id, student_name, student_class, lop, don_vi, exam_name, exam_id, score, time_taken, correct_count, total_questions, details, loai_thi_sinh, cheat_warning_count, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
             ).bind(
                 resultId,
-                authenticatedUserId || studentInfo.userId || null,
+                authenticatedUserId || null,
                 authenticatedStudentName || studentInfo.name || '',
                 studentInfo.unit || authenticatedDonvi || '',
                 authenticatedLop || studentInfo.lop || '',
