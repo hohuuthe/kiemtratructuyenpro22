@@ -18,6 +18,112 @@ function notify(message, type = 'success') {
   }
 }
 
+function hasStudentExamBackground() {
+  const root = examInterface();
+  return Boolean(root && root.classList.contains('student-background-active') && root.style.getPropertyValue('--student-exam-background-image'));
+}
+
+function closeStudentExamBackgroundMenu() {
+  const menu = document.getElementById('student-exam-background-menu');
+  if (!menu) return;
+  menu.classList.add('hidden');
+  menu.setAttribute('aria-hidden', 'true');
+}
+
+function syncStudentExamBackgroundMenu() {
+  const removeButton = document.getElementById('student-exam-background-remove');
+  if (!removeButton) return;
+  const active = hasStudentExamBackground();
+  removeButton.disabled = !active;
+  removeButton.setAttribute('aria-disabled', active ? 'false' : 'true');
+  removeButton.querySelector('[data-background-remove-state]')?.replaceChildren(
+    document.createTextNode(active ? 'Xóa hình nền đang áp dụng' : 'Chưa có hình nền để xóa')
+  );
+}
+
+function ensureStudentExamBackgroundMenu() {
+  let menu = document.getElementById('student-exam-background-menu');
+  if (menu) {
+    const root = examInterface();
+    if (root && menu.parentElement !== root) root.appendChild(menu);
+    syncStudentExamBackgroundMenu();
+    return menu;
+  }
+
+  menu = document.createElement('div');
+  menu.id = 'student-exam-background-menu';
+  menu.className = 'student-exam-background-menu hidden';
+  menu.setAttribute('role', 'dialog');
+  menu.setAttribute('aria-modal', 'true');
+  menu.setAttribute('aria-hidden', 'true');
+  menu.setAttribute('aria-labelledby', 'student-exam-background-menu-title');
+  menu.innerHTML = `
+    <div class="student-exam-background-card">
+      <div class="student-exam-background-head">
+        <div class="student-exam-background-head-icon" aria-hidden="true">🖼️</div>
+        <div class="min-w-0">
+          <h3 id="student-exam-background-menu-title">Tùy chọn hình nền</h3>
+          <p>Thay đổi giao diện làm bài mà không ảnh hưởng nội dung hoặc thời gian thi.</p>
+        </div>
+        <button type="button" class="student-exam-background-close" data-background-action="close" aria-label="Đóng tùy chọn hình nền">×</button>
+      </div>
+      <div class="student-exam-background-actions">
+        <button type="button" class="student-exam-background-action is-primary" data-background-action="choose">
+          <span class="student-exam-background-action-icon" aria-hidden="true">＋</span>
+          <span>
+            <strong>Thêm / đổi hình nền</strong>
+            <small>Chọn một hình ảnh mới từ thiết bị.</small>
+          </span>
+        </button>
+        <button type="button" id="student-exam-background-remove" class="student-exam-background-action is-danger" data-background-action="remove">
+          <span class="student-exam-background-action-icon" aria-hidden="true">⌫</span>
+          <span>
+            <strong data-background-remove-state>Xóa hình nền đang áp dụng</strong>
+            <small>Trả giao diện làm bài về nền mặc định.</small>
+          </span>
+        </button>
+      </div>
+    </div>`;
+
+  menu.addEventListener('click', (event) => {
+    if (event.target === menu) {
+      closeStudentExamBackgroundMenu();
+      return;
+    }
+    const action = event.target.closest?.('[data-background-action]')?.dataset.backgroundAction;
+    if (!action) return;
+    if (action === 'close') {
+      closeStudentExamBackgroundMenu();
+      return;
+    }
+    if (action === 'choose') {
+      closeStudentExamBackgroundMenu();
+      openStudentExamBackgroundPicker();
+      return;
+    }
+    if (action === 'remove') {
+      const button = event.target.closest('[data-background-action="remove"]');
+      if (button?.disabled) return;
+      clearStudentExamBackground();
+      closeStudentExamBackgroundMenu();
+      notify('Đã xóa hình nền đang áp dụng.', 'success');
+    }
+  });
+
+  const root = examInterface() || document.body;
+  root.appendChild(menu);
+  syncStudentExamBackgroundMenu();
+  return menu;
+}
+
+export function openStudentExamBackgroundMenu() {
+  const menu = ensureStudentExamBackgroundMenu();
+  syncStudentExamBackgroundMenu();
+  menu.classList.remove('hidden');
+  menu.setAttribute('aria-hidden', 'false');
+  requestAnimationFrame(() => menu.querySelector('button:not(:disabled)')?.focus?.({ preventScroll: true }));
+}
+
 function examInterface() {
   return document.getElementById('exam-interface');
 }
@@ -30,9 +136,10 @@ export function applyStudentExamBackground(dataUrl) {
   const button = document.getElementById('btn-student-exam-background');
   if (button) {
     button.classList.add('student-background-selected');
-    button.title = 'Đổi hình nền giao diện làm bài';
-    button.setAttribute('aria-label', 'Đổi hình nền giao diện làm bài');
+    button.title = 'Tùy chọn hình nền giao diện làm bài';
+    button.setAttribute('aria-label', 'Tùy chọn hình nền giao diện làm bài');
   }
+  syncStudentExamBackgroundMenu();
   return true;
 }
 
@@ -45,10 +152,11 @@ export function clearStudentExamBackground() {
   const button = document.getElementById('btn-student-exam-background');
   if (button) {
     button.classList.remove('student-background-selected');
-    button.title = 'Chọn hình nền giao diện làm bài';
-    button.setAttribute('aria-label', 'Chọn hình nền giao diện làm bài');
+    button.title = 'Tùy chọn hình nền giao diện làm bài';
+    button.setAttribute('aria-label', 'Tùy chọn hình nền giao diện làm bài');
   }
   try { localStorage.removeItem(storageKey()); } catch {}
+  syncStudentExamBackgroundMenu();
 }
 
 function restoreBackground() {
@@ -212,8 +320,17 @@ export function openStudentExamBackgroundPicker() {
   }, { once: true });
 }
 
+window.openStudentExamBackgroundMenu = openStudentExamBackgroundMenu;
 window.openStudentExamBackgroundPicker = openStudentExamBackgroundPicker;
 window.clearStudentExamBackground = clearStudentExamBackground;
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && !document.getElementById('student-exam-background-menu')?.classList.contains('hidden')) {
+    event.preventDefault();
+    event.stopPropagation();
+    closeStudentExamBackgroundMenu();
+  }
+}, true);
 
 function initStudentBackground() {
   if (!wireInput()) {
