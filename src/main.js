@@ -1,5 +1,5 @@
 import {canDeleteRankingResult} from './ranking-result-delete-policy.js';
-import { isShortAnswerCorrect, parseTF4CorrectAnswer, clampScore, roundScore } from './exam-grading-core.js';
+import { isShortAnswerCorrect, parseTF4CorrectAnswer, examFlagEnabled, clampScore, roundScore } from './exam-grading-core.js';
 import { createExamSessionId, remainingExamSeconds, remainingExamSecondsMonotonic, canAutoSubmitExam, shouldCountExamViolation } from './student-exam-session-guard.js';
 import {questionAuthorDisplayName} from './question-creator-identity.js';
 import {examCreatorDisplayName} from './exam-creator-identity.js';
@@ -15974,7 +15974,7 @@ if (contentType && contentType.includes("application/json")) {
                             aiGradingKey: fullData.ai_grading_key || fullData.aiGradingKey || '',
                             aiPrompt: fullData.ai_prompt || fullData.aiPrompt || '',
                             pointsTL: fullData.points_tl || fullData.pointsTL || 1,
-                            autoGradeEssay: fullData.auto_grade_essay !== false && fullData.autoGradeEssay !== false
+                            autoGradeEssay: examFlagEnabled(fullData.autoGradeEssay ?? fullData.auto_grade_essay, false)
                         };
                         examConfigsCache[name] = cfg;
                         return cfg;
