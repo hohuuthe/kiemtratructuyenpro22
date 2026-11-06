@@ -714,7 +714,29 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
         const calculatedRaw = roundScore(rawEarnedScore, 2);
         const finalScore = calculatedRaw;
 
-        const cheatWarningCount = Math.max(0, Math.floor(Number(body.cheatWarningCount ?? body.studentInfo?.cheatWarningCount ?? 0) || 0));
+        let cheatWarningCount = Math.max(0, Math.floor(Number(body.cheatWarningCount ?? body.studentInfo?.cheatWarningCount ?? 0) || 0));
+        if (decoded.purpose === EXAM_SESSION_PURPOSE_ACTIVE && gradingSessionId) {
+            try {
+                await db.prepare(`
+                    CREATE TABLE IF NOT EXISTS _exam_violation_events (
+                        event_key TEXT PRIMARY KEY,
+                        session_id TEXT NOT NULL,
+                        event_id TEXT NOT NULL,
+                        reason TEXT,
+                        created_at TEXT NOT NULL
+                    )
+                `).run();
+                const violationCountRow: any = await db.prepare(
+                    'SELECT COUNT(*) AS count FROM _exam_violation_events WHERE session_id = ?'
+                ).bind(String(gradingSessionId)).first();
+                cheatWarningCount = Math.max(0, Number(violationCountRow?.count) || 0);
+            } catch (violationErr) {
+                console.error('Unable to verify server-side violation count:', violationErr);
+                return new Response(JSON.stringify({
+                    error: 'Không thể xác minh số lần vi phạm của phiên thi; hệ thống chưa lưu kết quả.'
+                }), { status: 503, headers: corsHeaders });
+            }
+        }
         const correctCount = detailedResults.filter((d: any) => d.isCorrect && d.question.type !== 'TL').length;
 
         // Ranking time is server-authoritative. Phiên mới dùng started_at/deadline_at
