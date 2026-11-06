@@ -8548,12 +8548,13 @@ if (contentType && contentType.includes("application/json")) {
                     return;
                 }
                 const result = response.body;
-                if (!result || !Array.isArray(result.questions) || result.questions.length === 0 || !result.token) {
-                    showToast('Dữ liệu đề thi không hợp lệ. Vui lòng thử lại.', 'error');
+                if (!result || result.ready !== true || !result.token || !(Number(result.questionCount) > 0)) {
+                    showToast('Đề thi chưa được máy chủ chuẩn bị đầy đủ. Vui lòng thử lại.', 'error');
                     return;
                 }
-                const examQuestions = result.questions;
-                window.currentExamToken = result.token; // Lưu khóa bảo mật để chấm điểm sau
+                // Token PRESTART chỉ xác nhận đề đã được bốc/kiểm tra/snapshot trên server.
+                // Nội dung câu hỏi chưa được gửi xuống trình duyệt ở bước này.
+                window.currentExamToken = result.token;
 
                 // Cập nhật chế độ công bố kết quả ngay lập tức trực tiếp từ phản hồi máy chủ
                 if (result.immediateFeedback !== undefined) {
@@ -8566,7 +8567,7 @@ if (contentType && contentType.includes("application/json")) {
                     : ((examConfig && typeof examConfig.maxCheatWarnings === 'number' && examConfig.maxCheatWarnings > 0) ? examConfig.maxCheatWarnings : 5);
 
                 currentExam = {
-                    questions: examQuestions,
+                    questions: [],
                     answers: {},
                     currentIndex: 0,
                     startTime: null,
@@ -8594,7 +8595,8 @@ if (contentType && contentType.includes("application/json")) {
                     autosaveInFlight: false,
                     autosavePending: false,
                     deadlineLocked: false,
-                    pendingViolationEvents: []
+                    pendingViolationEvents: [],
+                    expectedQuestionCount: Number(result.questionCount) || 0
                 };
 
                 // Việc mở toàn màn hình cần một thao tác click trực tiếp, không thể gọi
@@ -8635,14 +8637,33 @@ if (contentType && contentType.includes("application/json")) {
                             body: JSON.stringify({ token: window.currentExamToken })
                         });
                         const startResult = await response.json().catch(() => ({}));
-                        if (!response.ok || !startResult.token) {
-                            const error = new Error(startResult.error || 'Không thể xác nhận mốc bắt đầu bài thi.');
+                        if (!response.ok || !startResult.token ||
+                            !Array.isArray(startResult.questions) || startResult.questions.length === 0 ||
+                            (currentExam.expectedQuestionCount > 0 && startResult.questions.length !== currentExam.expectedQuestionCount)) {
+                            const error = new Error(startResult.error || 'Không thể nhận bộ câu hỏi đã khóa sau khi bắt đầu.');
                             error.code = startResult.code || 'EXAM_START_ACTIVATION_FAILED';
                             throw error;
                         }
 
                         window.currentExamToken = startResult.token;
-                        try { localStorage.setItem('currentExamToken', startResult.token); } catch(e) {}
+                        try {
+                            localStorage.setItem('currentExamToken', startResult.token);
+                            localStorage.setItem(window.tenantStorageKey('currentExamToken'), startResult.token);
+                            localStorage.setItem(window.tenantStorageKey('active_exam_resume_meta'), JSON.stringify({
+                                studentName: name,
+                                studentLop: inputLop,
+                                studentDonvi: inputDonvi,
+                                studentClass,
+                                teacherId,
+                                examId: selectedExamId,
+                                examName
+                            }));
+                        } catch(e) {}
+                        currentExam.questions = startResult.questions;
+                        currentExam.answers = {};
+                        if (startResult.immediateFeedback !== undefined) {
+                            examConfig.immediateFeedback = Boolean(startResult.immediateFeedback);
+                        }
                         currentExam.serverStartedAtMs = Number(startResult.startedAtMs) || Date.now();
                         currentExam.deadlineAtMs = Number(startResult.deadlineAtMs) || null;
                         currentExam.serverNowAtActivationMs = Number(startResult.serverNowMs) || Date.now();
@@ -10522,7 +10543,11 @@ if (contentType && contentType.includes("application/json")) {
 
                 const result = await response.json();
                 window.currentExamToken = null;
-                try { localStorage.removeItem('currentExamToken'); } catch(e) {}
+                try {
+                    localStorage.removeItem('currentExamToken');
+                    localStorage.removeItem(window.tenantStorageKey('currentExamToken'));
+                    localStorage.removeItem(window.tenantStorageKey('active_exam_resume_meta'));
+                } catch(e) {}
                 
                 const score = result.score;
                 const correctCount = result.correctCount;
