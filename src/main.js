@@ -10258,6 +10258,7 @@ if (contentType && contentType.includes("application/json")) {
                 const correctCount = result.correctCount;
                 const detailedResults = result.detailedResults;
                 const insertedId = result.resultId;
+                const serverTimeTaken = Number.isFinite(Number(result.timeTaken)) ? Number(result.timeTaken) : timeTaken;
                 
                 const statsByType = {
                     '4-1': { total: 0, answered: 0, correct: 0 },
@@ -10312,7 +10313,7 @@ if (contentType && contentType.includes("application/json")) {
                     examName: examName,
                     examCreator: (accountsMap && accountsMap[examConfig.creatorId]) ? accountsMap[examConfig.creatorId] : '',
                     score: score,
-                    timeTaken: timeTaken,
+                    timeTaken: serverTimeTaken,
                     correctCount: correctCount,
                     totalQuestions: totalQuestions,
                     totalTF4Statements: totalTF4Statements,
