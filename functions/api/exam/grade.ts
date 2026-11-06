@@ -196,18 +196,15 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         const pSQ = getNum(examConfig.pointsSQ ?? examConfig.points_sq, 1);
         const pTL = getNum(examConfig.pointsTL ?? examConfig.points_tl, 1);
 
-        // Fetch Exam Config từ CSDL để lấy AI Grading Key nếu có
+        // AI key lookup is bound to the signed exam ID. Browser-supplied exam
+        // names/IDs are never used to select another exam's private grading key.
         let aiKey = '';
         try {
-            if (studentInfo.examId) {
-                const { results } = await db.prepare('SELECT ai_grading_key FROM exam_configs WHERE id = ?').bind(studentInfo.examId).all();
-                if (results && results.length > 0 && results[0].ai_grading_key) {
-                    aiKey = String(results[0].ai_grading_key);
-                }
-            }
-            if (!aiKey && (studentInfo.examName || examConfig.name)) {
-                const searchName = studentInfo.examName || examConfig.name;
-                const { results } = await db.prepare('SELECT ai_grading_key FROM exam_configs WHERE name = ?').bind(searchName).all();
+            const authoritativeExamId = String(examConfig.id || '').trim();
+            if (authoritativeExamId) {
+                const { results } = await db.prepare(
+                    'SELECT ai_grading_key FROM exam_configs WHERE id = ?'
+                ).bind(authoritativeExamId).all();
                 if (results && results.length > 0 && results[0].ai_grading_key) {
                     aiKey = String(results[0].ai_grading_key);
                 }
@@ -552,7 +549,7 @@ YÊU CẦU:
                 "INSERT INTO _submitted_exam_tokens (token_hash, exam_id, student_name, user_id, submitted_at, status, result_id, claimed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (token_hash) DO NOTHING"
             ).bind(
                 tokenHash,
-                String(examConfig.id || studentInfo.examId || studentInfo.examName || ''),
+                String(examConfig.id || studentInfo.examId || ''),
                 authenticatedStudentName || studentInfo.name || '',
                 authenticatedUserId || null,
                 '',
@@ -641,11 +638,11 @@ YÊU CẦU:
                 resultId,
                 authenticatedUserId || null,
                 authenticatedStudentName || studentInfo.name || '',
-                studentInfo.unit || authenticatedDonvi || '',
+                authenticatedDonvi || studentInfo.unit || '',
                 authenticatedLop || studentInfo.lop || '',
                 authenticatedDonvi || studentInfo.donvi || studentInfo.unit || '',
-                studentInfo.examName || '',
-                String(examConfig.id || studentInfo.examId || studentInfo.examName || ''),
+                String(examConfig.name || studentInfo.examName || ''),
+                String(examConfig.id || studentInfo.examId || ''),
                 finalScore,
                 timeTaken || 0,
                 correctCount,
@@ -669,7 +666,7 @@ YÊU CẦU:
             await db.prepare(
                 "UPDATE _submitted_exam_tokens SET exam_id = ?, student_name = ?, user_id = ?, submitted_at = ?, status = ?, result_id = ? WHERE token_hash = ?"
             ).bind(
-                String(examConfig.id || studentInfo.examId || studentInfo.examName || ''),
+                String(examConfig.id || studentInfo.examId || ''),
                 authenticatedStudentName || studentInfo.name || '',
                 authenticatedUserId || null,
                 new Date().toISOString(),
