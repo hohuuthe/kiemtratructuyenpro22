@@ -328,6 +328,31 @@ test('interactive board fullscreen keeps controls clickable and left-click conte
 });
 
 
+test('interactive board replaces browser context menu with role-aware smart menu',()=>{
+  const ui=fs.readFileSync('src/interactive-board-ui.js','utf8');
+  const css=fs.readFileSync('src/style.css','utf8');
+  assert.match(ui,/function openBoardWorkspaceContextMenu/);
+  assert.match(ui,/board-workspace-context-menu/);
+  assert.match(ui,/event\.preventDefault\(\);event\.stopPropagation\(\)/);
+  assert.match(ui,/data-board-context-action/);
+  assert.match(ui,/tool:line/);
+  assert.match(ui,/tool:arrow/);
+  assert.match(ui,/tool:rect/);
+  assert.match(ui,/tool:ellipse/);
+  assert.match(ui,/action:'ai'/);
+  assert.match(ui,/action:'template'/);
+  assert.match(ui,/action:'timer'/);
+  assert.match(ui,/action:'bringhere'/);
+  assert.match(ui,/action:'lockhs'/);
+  assert.match(ui,/action:'pdf'/);
+  assert.match(ui,/boardRoom\?\.addEventListener\('contextmenu'/);
+  assert.match(ui,/input,textarea,select/);
+  assert.match(css,/\.board-workspace-context-menu/);
+  assert.match(css,/\.board-workspace-context-item/);
+  assert.match(css,/\.board-body-fullscreen \.board-workspace-context-menu\{z-index:205\}/);
+});
+
+
 test('interactive board hardening enforces live permissions and session expiry',()=>{
   const ui=fs.readFileSync('src/interactive-board-ui.js','utf8');
   const worker=fs.readFileSync('workers/interactive-board-worker.js','utf8');
