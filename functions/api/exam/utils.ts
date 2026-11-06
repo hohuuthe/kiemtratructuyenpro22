@@ -1,3 +1,4 @@
+import { getAccountAccessStatus } from '../../../src/account-expiry';
 import { createNeonD1Shim, getEffectiveDb } from '../neon-adapter';
 
 export function getDatabase(envOrContext: any, requestOrSlug?: any) {
@@ -78,34 +79,7 @@ export async function verifyJWT(token: string, secret: string) {
  * linked profile permission changes. Legacy JWTs without proof fail closed.
  */
 export function isLiveAccount(row: any): boolean {
-    if (!row || !row.id || !row.password) return false;
-    const active = (value: any) => value === undefined || value === null ||
-      !['0', 'false', 'disabled'].includes(String(value).toLowerCase().trim());
-    if (!active(row.is_active) || !active(row.profile_active)) return false;
-    const now = Date.now();
-    const notExpired = (value: any) => {
-      if (!value) return true;
-      const raw = String(value).trim();
-      let date = raw;
-      if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
-        date = raw + 'T23:59:59.999+07:00';
-      } else {
-        const vi = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-        if (vi) {
-          const day = Number(vi[1]);
-          const month = Number(vi[2]);
-          const year = Number(vi[3]);
-          const probe = new Date(Date.UTC(year, month - 1, day));
-          if (probe.getUTCFullYear() !== year || probe.getUTCMonth() !== month - 1 || probe.getUTCDate() !== day) {
-            return false;
-          }
-          date = `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T23:59:59.999+07:00`;
-        }
-      }
-      const at = Date.parse(date);
-      return Number.isFinite(at) && at >= now;
-    };
-    return notExpired(row.expiry_date) && notExpired(row.profile_expiry_date);
+    return getAccountAccessStatus(row).allowed;
 }
 
 async function accountProof(account: any, secret: string, tenantKey = ''): Promise<string> {

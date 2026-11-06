@@ -5,6 +5,7 @@ import {parseManagementPage,accountsPageQuery,resultsPageQuery,resolveTeacherMan
 import {isExamOwner,redactExamForPublic,examAccessChallenge,isProtectedExamForUser,protectedExamPreview,accessCodeMatches} from './functions/api/exam/security';
 import {listDocumentLinks,listDocumentLinksPage,parseDocumentLinkPage,listDocumentStudentClasses,createDocumentLink,updateDocumentLink,deleteDocumentLink,DocumentLinkServiceError} from './src/document-links-service.js';
 import { accountSessionMaterial, legacyAccountSessionMaterialV1, isAccountEnabled, isUnexpiredAccountToken } from './src/security-session';
+import { getAccountAccessStatus, normalizeVietnamExpiryForStorage } from './src/account-expiry';
 import { resolveTenantRoutingFromRequest } from './src/tenant-host-map';
 import crypto from 'crypto';
 import express from "express";
@@ -703,7 +704,8 @@ async function startServer() {
       
       const query = `
         SELECT accounts.id, accounts.user_id, accounts.username, accounts.password, accounts.role, accounts.is_active, accounts.expiry_date, accounts.created_at,
-               users.full_name, users.phone_number, users.target_audience, users.donvi, users.lop, users.gender, users.dob, users.address, users.occupation, users.payment_status, users.payment_method
+               users.full_name, users.phone_number, users.target_audience, users.donvi, users.lop, users.gender, users.dob, users.address, users.occupation, users.payment_status, users.payment_method,
+               users.is_active AS profile_active, users.expiry_date AS profile_expiry_date
         FROM accounts 
         LEFT JOIN users ON (users.id = accounts.user_id OR users.id = accounts.id)
         WHERE accounts.username = ?
@@ -735,8 +737,15 @@ async function startServer() {
           return res.status(400).json({ error: "Tên đăng nhập hoặc mật khẩu không đúng." });
       }
 
-      if (accountRow.is_active === 0 || accountRow.is_active === false) {
-          return res.status(403).json({ error: "Tài khoản của bạn đã bị khóa hoặc chưa được kích hoạt." });
+      const accessStatus = getAccountAccessStatus(accountRow);
+      if (!accessStatus.allowed) {
+          if (accessStatus.reason === 'expired') {
+              return res.status(403).json({ error: "Tài khoản đã hết hạn. Vui lòng liên hệ quản trị viên để gia hạn.", code: "ACCOUNT_EXPIRED" });
+          }
+          if (accessStatus.reason === 'invalid_expiry') {
+              return res.status(403).json({ error: "Thời hạn tài khoản không hợp lệ. Vui lòng liên hệ quản trị viên.", code: "ACCOUNT_EXPIRY_INVALID" });
+          }
+          return res.status(403).json({ error: "Tài khoản của bạn đã bị khóa hoặc chưa được kích hoạt.", code: "ACCOUNT_INACTIVE" });
       }
 
       // Tự động nâng cấp mật khẩu cũ (SHA-256) lên PBKDF2
@@ -1341,6 +1350,7 @@ async function startServer() {
 
                   const id = (globalThis.crypto && globalThis.crypto.randomUUID) ? globalThis.crypto.randomUUID() : Math.random().toString(36).substring(2) + Date.now().toString(36);
                   const activeVal = (is_active !== false && is_active !== 0 && is_active !== 'false') ? 1 : 0;
+                  const normalizedExpiry = normalizeVietnamExpiryForStorage(expiry_date);
                   const sql = "INSERT INTO accounts (id, user_id, username, password, role, is_active, expiry_date, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
                   await executeSqlQuery(sql, [
                       id,
@@ -1349,7 +1359,7 @@ async function startServer() {
                       hashedPassword,
                       role || 'user',
                       activeVal,
-                      expiry_date || null,
+                      normalizedExpiry,
                       new Date().toISOString()
                   ]);
                   created.push({
@@ -1394,6 +1404,7 @@ async function startServer() {
       }
 
       const id = (globalThis.crypto && globalThis.crypto.randomUUID) ? globalThis.crypto.randomUUID() : Math.random().toString(36).substring(2) + Date.now().toString(36);
+      const normalizedExpiry = normalizeVietnamExpiryForStorage(expiry_date);
       
       const sql = "INSERT INTO accounts (id, user_id, username, password, role, is_active, expiry_date, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
       const activeVal = (is_active !== false && is_active !== 0 && is_active !== 'false') ? 1 : 0;
@@ -1404,7 +1415,7 @@ async function startServer() {
         hashedPassword, 
         role || 'user', 
         activeVal, 
-        expiry_date || null, 
+        normalizedExpiry, 
         new Date().toISOString()
       ];
       
@@ -1469,7 +1480,7 @@ async function startServer() {
         updates.push("is_active = ?"); 
         params.push(activeVal); 
       }
-      if (expiry_date !== undefined) { updates.push("expiry_date = ?"); params.push(expiry_date || null); }
+      if (expiry_date !== undefined) { updates.push("expiry_date = ?"); params.push(normalizeVietnamExpiryForStorage(expiry_date)); }
 
       if (password) {
           const hashedPassword = hashPasswordPBKDF2Sync(password);

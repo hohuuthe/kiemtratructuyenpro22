@@ -1,3 +1,4 @@
+import { normalizeVietnamExpiryForStorage } from '../../../src/account-expiry';
 import { verifyAuthSession, getDynamicSecret, hashPasswordPBKDF2, getDatabase } from '../exam/utils';
 
 export async function onRequestPut(context: any) {
@@ -44,7 +45,10 @@ export async function onRequestPut(context: any) {
             updates.push("is_active = ?"); 
             sqlParams.push(activeVal); 
         }
-        if (expiry_date !== undefined) { updates.push("expiry_date = ?"); sqlParams.push(expiry_date || null); }
+        if (expiry_date !== undefined) {
+            updates.push("expiry_date = ?");
+            sqlParams.push(normalizeVietnamExpiryForStorage(expiry_date));
+        }
 
         if (password) {
             const hashedPassword = await hashPasswordPBKDF2(password);

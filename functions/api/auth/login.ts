@@ -1,3 +1,4 @@
+import { getAccountAccessStatus } from '../../../src/account-expiry';
 import { signAuthSession, isLiveAccount, getDynamicSecret, verifyPassword, hashPasswordPBKDF2, getDatabase, ensureUserVipColumn } from '../exam/utils';
 
 interface Env {
@@ -75,8 +76,15 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         return new Response(JSON.stringify({ error: "Tên đăng nhập hoặc mật khẩu không đúng." }), { status: 401, headers: corsHeaders });
     }
 
-    if (!isLiveAccount(result)) {
-        return new Response(JSON.stringify({ error: "Tài khoản của bạn đã bị khóa hoặc chưa được kích hoạt." }), { status: 403, headers: corsHeaders });
+    const accessStatus = getAccountAccessStatus(result);
+    if (!accessStatus.allowed) {
+        if (accessStatus.reason === 'expired') {
+            return new Response(JSON.stringify({ error: "Tài khoản đã hết hạn. Vui lòng liên hệ quản trị viên để gia hạn.", code: "ACCOUNT_EXPIRED" }), { status: 403, headers: corsHeaders });
+        }
+        if (accessStatus.reason === 'invalid_expiry') {
+            return new Response(JSON.stringify({ error: "Thời hạn tài khoản không hợp lệ. Vui lòng liên hệ quản trị viên.", code: "ACCOUNT_EXPIRY_INVALID" }), { status: 403, headers: corsHeaders });
+        }
+        return new Response(JSON.stringify({ error: "Tài khoản của bạn đã bị khóa hoặc chưa được kích hoạt.", code: "ACCOUNT_INACTIVE" }), { status: 403, headers: corsHeaders });
     }
 
     // Tự động nâng cấp mật khẩu cũ (SHA-256) lên PBKDF2 cấp ngân hàng khi đăng nhập thành công
