@@ -197,3 +197,17 @@ test('browser user id cannot become authenticated result identity', () => {
   assert.doesNotMatch(grade, /let authenticatedUserId = studentInfo\.userId/);
   assert.match(grade, /Tài khoản nộp bài không khớp tài khoản đã nhận phiên thi/);
 });
+
+
+test('hidden-detail responses strip nested question.answer and correctness hints', () => {
+  const grade = fs.readFileSync(new URL('../functions/api/exam/grade.ts', import.meta.url), 'utf8');
+  assert.match(grade, /sanitizeGradingDetailForClient/);
+  assert.match(grade, /const \{ answer, \.\.\.safeQuestion \} = question/);
+  assert.match(grade, /const \{ correctAnswer, aiFeedback, isCorrect, correctStatements, \.\.\.safeD \}/);
+});
+
+test('public shared result API is summary-only', () => {
+  const results = fs.readFileSync(new URL('../functions/api/results.ts', import.meta.url), 'utf8');
+  assert.match(results, /if \(idParam && !user\)/);
+  assert.match(results, /if \(examIdParam && !user && includeDetails\)/);
+});
