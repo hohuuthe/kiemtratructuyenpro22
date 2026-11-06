@@ -42,7 +42,8 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
   try {
     const body: any = await request.json();
-    const { username, password } = body;
+    const username = String(body?.username ?? '').trim();
+    const password = String(body?.password ?? '');
 
     if (!username || !password) {
       return new Response(JSON.stringify({ error: 'Thiếu tên đăng nhập hoặc mật khẩu.' }), { status: 400, headers: corsHeaders });
