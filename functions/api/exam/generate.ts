@@ -606,9 +606,15 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                     question_snapshot TEXT NOT NULL,
                     exam_config TEXT NOT NULL,
                     created_at TEXT NOT NULL,
+                    started_at TEXT,
                     expires_at TEXT NOT NULL
                 )
             `).run();
+            try {
+                await db.prepare('ALTER TABLE _exam_grade_sessions ADD COLUMN IF NOT EXISTS started_at TEXT').run();
+            } catch (schemaErr) {
+                console.warn('Could not ensure grading session started_at column:', schemaErr);
+            }
             // Best-effort cleanup keeps the ephemeral snapshot table bounded.
             try {
                 await db.prepare('DELETE FROM _exam_grade_sessions WHERE expires_at < ?')
