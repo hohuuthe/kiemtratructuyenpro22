@@ -229,3 +229,72 @@ test('Node/local server delegates grading to the same hardened Cloudflare handle
   assert.doesNotMatch(route, /scale10Score/);
   assert.doesNotMatch(route, /studentInfo\.userId \|\| null/);
 });
+
+
+test('prepared exam questions stay server-side until authoritative start', () => {
+  const generate = readFileSync('functions/api/exam/generate.ts', 'utf8');
+  const start = readFileSync('functions/api/exam/start.ts', 'utf8');
+  const main = readFileSync('src/main.js', 'utf8');
+
+  assert.match(generate, /ready:\s*true/);
+  assert.match(generate, /questionCount:\s*questionIds\.length/);
+  assert.doesNotMatch(generate, /questions:\s*clientQuestions/);
+  assert.doesNotMatch(generate, /const clientQuestions = selectedQuestions\.map/);
+
+  assert.match(start, /question_snapshot/);
+  assert.match(start, /const clientQuestions = frozenQuestions\.map/);
+  assert.match(start, /questions:\s*clientQuestions/);
+  assert.match(start, /const immediateFeedback = Boolean\(decoded\.immediateFeedback\)/);
+  assert.match(start, /if \(immediateFeedback\)[\s\S]{0,140}return \{ \.\.\.q \}/);
+
+  assert.match(main, /result\.ready !== true/);
+  assert.match(main, /startResult\.questions/);
+  assert.match(main, /currentExam\.questions = startResult\.questions/);
+});
+
+test('resume restores the same active session without resetting server deadline', () => {
+  const resume = readFileSync('functions/api/exam/resume.ts', 'utf8');
+  const start = readFileSync('functions/api/exam/start.ts', 'utf8');
+  const main = readFileSync('src/main.js', 'utf8');
+  const route = readFileSync('functions/[slug]/api/[[path]].ts', 'utf8');
+
+  assert.match(start, /CREATE TABLE IF NOT EXISTS _exam_answer_drafts/);
+  assert.match(start, /new Array\(frozenIds\.length\)\.fill\(null\)/);
+  assert.match(resume, /EXAM_SESSION_PURPOSE_ACTIVE/);
+  assert.match(resume, /EXAM_SESSION_PURPOSE_PRESTART/);
+  assert.match(resume, /EXAM_RESUME_NOT_STARTED/);
+  assert.match(resume, /session\.started_at/);
+  assert.match(resume, /resolveAuthoritativeExamTiming/);
+  assert.match(resume, /_exam_answer_drafts/);
+  assert.match(resume, /question_snapshot/);
+  assert.match(resume, /remainingExamSecondsFromDeadline/);
+  assert.match(route, /'exam\/resume': examResume/);
+
+  assert.match(main, /tryResumeActiveExam/);
+  assert.match(main, /\/api\/exam\/resume/);
+  assert.match(main, /active_exam_resume_meta/);
+  assert.match(main, /Đồng hồ tiếp tục theo deadline cũ/);
+  assert.match(main, /serverStartedAtMs:\s*Number\(data\.startedAtMs\)/);
+  assert.match(main, /deadlineAtMs:\s*Number\(data\.deadlineAtMs\)/);
+});
+
+test('refresh before Start never auto-starts a READY-only session', () => {
+  const resume = readFileSync('functions/api/exam/resume.ts', 'utf8');
+  const main = readFileSync('src/main.js', 'utf8');
+  assert.match(resume, /decoded\.purpose === EXAM_SESSION_PURPOSE_PRESTART/);
+  assert.match(resume, /!session\.started_at \|\| !session\.deadline_at/);
+  assert.match(resume, /EXAM_RESUME_NOT_STARTED/);
+  assert.match(main, /EXAM_RESUME_NOT_STARTED/);
+  assert.match(main, /clearStoredActiveExamResume/);
+});
+
+test('Immediate Feedback remains enabled after start, not during READY preparation', () => {
+  const generate = readFileSync('functions/api/exam/generate.ts', 'utf8');
+  const start = readFileSync('functions/api/exam/start.ts', 'utf8');
+  const resume = readFileSync('functions/api/exam/resume.ts', 'utf8');
+
+  assert.match(generate, /immediateFeedback:\s*isImmediateFeedback/);
+  assert.doesNotMatch(generate, /if \(isImmediateFeedback\)[\s\S]{0,160}return \{ \.\.\.q \}/);
+  assert.match(start, /if \(immediateFeedback\)[\s\S]{0,160}return \{ \.\.\.q \}/);
+  assert.match(resume, /if \(immediateFeedback\) return \{ \.\.\.q \}/);
+});
