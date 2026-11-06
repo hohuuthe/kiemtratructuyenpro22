@@ -1437,6 +1437,7 @@ if (contentTypeConfig && contentTypeConfig.includes("application/json")) {
         let currentExam = {
             questions: [],
             answers: {},
+            feedback: {},
             currentIndex: 0,
             startTime: null,
             timerInterval: null,
@@ -8559,6 +8560,7 @@ if (contentType && contentType.includes("application/json")) {
                 currentExam = {
                     questions: examQuestions,
                     answers: {},
+                    feedback: {},
                     currentIndex: 0,
                     startTime: null,
                     timerInterval: null,
@@ -8991,21 +8993,8 @@ if (contentType && contentType.includes("application/json")) {
                 
                 let btnClass = 'bg-gray-100 text-gray-600 hover:bg-gray-200 border border-gray-200';
                 
-                if (immediateFeedbackOn && isAnswered) {
-                    let isAllCorrect = false;
-                    if (q.type === '4-1') {
-                        isAllCorrect = currentExam.answers[i] === q.answer;
-                    } else if (q.type === 'TF4') {
-                        const correctStates = parseTF4CorrectAnswer(q.answer || '');
-                        const ans = currentExam.answers[i] || {};
-                        isAllCorrect = Boolean(correctStates &&
-                            ['A', 'B', 'C', 'D'].every(k =>
-                                (ans[k] === true || ans[k] === false) && ans[k] === correctStates[k]
-                            ));
-                    } else if (q.type === 'SQ') {
-                        isAllCorrect = isSQCorrect(currentExam.answers[i], q.answer);
-                    }
-
+                if (immediateFeedbackOn && isAnswered && currentExam.feedback?.[i]?.checked === true) {
+                    const isAllCorrect = currentExam.feedback[i].allCorrect === true;
                     if (isCurrent) {
                         btnClass = isAllCorrect
                             ? 'current ring-2 ring-emerald-500 ring-offset-2 bg-emerald-600 text-white shadow-md transform scale-110'
@@ -9217,15 +9206,17 @@ if (contentType && contentType.includes("application/json")) {
                     const label = String.fromCharCode(65 + i);
                     const optionData = (q.options && q.options[opt]) ? q.options[opt] : { text: '', image: '' };
                     const isSelected = selectedAnswer === opt;
-                    const isCorrectAnswer = q.answer === opt;
+                    const feedback = currentExam.feedback?.[index];
+                    const hasCheckedFeedback = immediateFeedbackOn && feedback?.checked === true;
+                    const selectedIsCorrect = hasCheckedFeedback && feedback.allCorrect === true;
                     
                     let optionClass = '';
                     let labelClass = 'text-gray-700 group-hover:text-indigo-600';
                     let badgeHtml = '';
 
-                    if (immediateFeedbackOn && hasAnswered) {
+                    if (hasCheckedFeedback && hasAnswered) {
                         if (isSelected) {
-                            if (isCorrectAnswer) {
+                            if (selectedIsCorrect) {
                                 optionClass = 'selected border-emerald-500 bg-emerald-50 text-emerald-900 shadow-md ring-2 ring-emerald-400 font-bold';
                                 labelClass = 'text-emerald-700 font-black';
                                 badgeHtml = '<span class="ml-auto text-xs px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700 font-bold flex items-center gap-1 shrink-0">✅ Đúng</span>';
@@ -9234,9 +9225,6 @@ if (contentType && contentType.includes("application/json")) {
                                 labelClass = 'text-rose-700 font-black';
                                 badgeHtml = '<span class="ml-auto text-xs px-2.5 py-1 rounded-full bg-rose-100 text-rose-700 font-bold flex items-center gap-1 shrink-0">❌ Sai</span>';
                             }
-                        } else if (isCorrectAnswer) {
-                            optionClass = 'border-emerald-400 bg-emerald-50/50 text-emerald-800 border-dashed';
-                            badgeHtml = '<span class="ml-auto text-xs px-2.5 py-1 rounded-full bg-emerald-100/90 text-emerald-700 font-semibold flex items-center gap-1 shrink-0">Đáp án đúng</span>';
                         } else {
                             optionClass = 'border-gray-200 opacity-60 bg-white';
                         }
@@ -9264,7 +9252,7 @@ if (contentType && contentType.includes("application/json")) {
             const currentAnswers = currentExam.answers[index] || {};
             const options = q.shuffledOptions || ['A', 'B', 'C', 'D'];
             const immediateFeedbackOn = examConfig.immediateFeedback !== undefined ? examConfig.immediateFeedback : appSettings.immediateFeedback;
-            const correctStates = q && q.answer ? parseTF4CorrectAnswer(q.answer) : null;
+            const feedback = currentExam.feedback?.[index];
 
             return `<div class="space-y-1.5 w-full">
                 ${options.map((opt, i) => {
@@ -9272,13 +9260,15 @@ if (contentType && contentType.includes("application/json")) {
                     const optionData = (q.options && q.options[opt]) ? q.options[opt] : { text: '', image: '' };
                     const selected = currentAnswers[opt];
                     const isAnswered = selected === true || selected === false;
-                    const isCorrect = isAnswered && Boolean(correctStates) ? selected === correctStates[opt] : false;
+                    const hasStatementFeedback = immediateFeedbackOn && feedback?.checked === true &&
+                        Object.prototype.hasOwnProperty.call(feedback.statementResults || {}, opt);
+                    const isCorrect = hasStatementFeedback ? feedback.statementResults[opt] === true : false;
                     
                     let containerClass = 'border-gray-200 hover:border-indigo-300 hover:bg-indigo-50/30 bg-white';
                     let labelClass = 'text-gray-600 group-hover:text-indigo-600';
                     let badgeHtml = '';
 
-                    if (immediateFeedbackOn && isAnswered) {
+                    if (hasStatementFeedback && isAnswered) {
                         if (isCorrect) {
                             containerClass = 'border-emerald-500 bg-emerald-50/70 shadow-sm ring-1 ring-emerald-400';
                             labelClass = 'text-emerald-700 font-bold';
@@ -9286,7 +9276,7 @@ if (contentType && contentType.includes("application/json")) {
                         } else {
                             containerClass = 'border-rose-500 bg-rose-50/70 shadow-sm ring-1 ring-rose-400';
                             labelClass = 'text-rose-700 font-bold';
-                            badgeHtml = `<span class="text-xs px-2.5 py-1 rounded-full bg-rose-100 text-rose-700 font-bold flex items-center gap-1 shrink-0">❌ Sai (Đúng là: ${isOptionTrue ? 'Đúng' : 'Sai'})</span>`;
+                            badgeHtml = '<span class="text-xs px-2.5 py-1 rounded-full bg-rose-100 text-rose-700 font-bold flex items-center gap-1 shrink-0">❌ Sai</span>';
                         }
                     } else {
                         if (selected === true) {
@@ -9532,10 +9522,12 @@ if (contentType && contentType.includes("application/json")) {
             const currentAnswer = currentExam.answers[index] || '';
             const immediateFeedbackOn = examConfig.immediateFeedback !== undefined ? examConfig.immediateFeedback : appSettings.immediateFeedback;
             const hasAnswer = currentAnswer.trim().length > 0;
-            const isCorrect = (hasAnswer && q && q.answer) ? isSQCorrect(currentAnswer, q.answer) : false;
+            const feedback = currentExam.feedback?.[index];
+            const hasCheckedFeedback = immediateFeedbackOn && feedback?.checked === true;
+            const isCorrect = hasCheckedFeedback && feedback.allCorrect === true;
             
             let inputBorder = 'border-gray-300 bg-white';
-            if (immediateFeedbackOn && hasAnswer) {
+            if (hasCheckedFeedback && hasAnswer) {
                 inputBorder = isCorrect ? 'border-emerald-500 bg-emerald-50 text-emerald-900 ring-2 ring-emerald-300' : 'border-rose-400 bg-rose-50 text-rose-900 ring-2 ring-rose-300';
             }
 
@@ -9553,9 +9545,9 @@ if (contentType && contentType.includes("application/json")) {
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                         <p class="text-sm font-medium">Nhập đáp án, nhấn Enter hoặc nhấn vào đây để kiểm tra</p>
                     </div>
-                    ${hasAnswer ? (isCorrect 
+                    ${hasCheckedFeedback && hasAnswer ? (isCorrect 
                         ? '<div class="text-sm font-bold text-emerald-700 bg-emerald-100 px-4 py-1.5 rounded-full shadow-sm flex items-center gap-1.5">✅ Chính xác!</div>' 
-                        : `<div class="text-sm font-bold text-rose-700 bg-rose-100 px-4 py-1.5 rounded-full shadow-sm flex items-center gap-1.5">❌ Chưa chính xác (Đáp án đúng: <span class="underline">${escapeHTML(q && q.answer ? q.answer : '')}</span>)</div>`
+                        : '<div class="text-sm font-bold text-rose-700 bg-rose-100 px-4 py-1.5 rounded-full shadow-sm flex items-center gap-1.5">❌ Chưa chính xác</div>'
                     ) : ''}
                 </div>
                 ` : `
@@ -9569,6 +9561,7 @@ if (contentType && contentType.includes("application/json")) {
 
         window.handleSQSingleInput = function handleSQSingleInput(value, index) {
             currentExam.answers[index] = value;
+            if (currentExam.feedback) delete currentExam.feedback[index];
             currentExam.currentIndex = index;
             renderQuestionNav();
             updateProgress();
@@ -9585,22 +9578,18 @@ if (contentType && contentType.includes("application/json")) {
             });
         }
 
-        window.checkSQAnswer = function checkSQAnswer(index) {
+        window.checkSQAnswer = async function checkSQAnswer(index) {
             const immediateFeedbackOn = examConfig.immediateFeedback !== undefined ? examConfig.immediateFeedback : appSettings.immediateFeedback;
             if (!immediateFeedbackOn) return;
-            const value = currentExam.answers[index] || '';
             const q = currentExam.questions[index];
             if (!q) return;
-            const isCorrect = isSQCorrect(value, q.answer);
-            if (isCorrect) {
-                showToast('✅ Chính xác!', 'success', 'large');
-            } else {
-                showToast('❌ Sai rồi, hãy thử lại!', 'error', 'large');
-            }
+            const feedback = await window.requestImmediateExamFeedback(index);
+            if (!feedback?.checked) return;
+            const isCorrect = feedback.allCorrect === true;
+            showToast(isCorrect ? '✅ Chính xác!' : '❌ Sai rồi, hãy thử lại!', isCorrect ? 'success' : 'error', 'large');
             playFeedbackSound(isCorrect);
-            if (typeof updateQuestionOptions === 'function') {
-                updateQuestionOptions(index);
-            }
+            if (typeof updateQuestionOptions === 'function') updateQuestionOptions(index);
+            renderQuestionNav();
         }
 
         function updateQuestionOptions(index) {
@@ -9699,8 +9688,43 @@ if (contentType && contentType.includes("application/json")) {
             window.scheduleExamCheckpoint();
         };
 
-        window.selectAnswer = function selectAnswer(option, index = currentExam.currentIndex) {
+        window.requestImmediateExamFeedback = async function requestImmediateExamFeedback(index, selectedOption = '') {
+            const immediateFeedbackOn = examConfig.immediateFeedback !== undefined ? examConfig.immediateFeedback : appSettings.immediateFeedback;
+            if (!immediateFeedbackOn || !window.currentExamToken || currentExam.submitting) return null;
+            const q = currentExam.questions?.[index];
+            const questionId = String(q?.id ?? q?.questionId ?? '').trim();
+            if (!q || !questionId) return null;
+            const sessionId = currentExam.sessionId;
+            try {
+                const authToken = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
+                const headers = { 'Content-Type': 'application/json' };
+                if (authToken) headers['Authorization'] = 'Bearer ' + authToken;
+                const response = await fetch('/api/exam/feedback', {
+                    method: 'POST',
+                    headers,
+                    cache: 'no-store',
+                    body: JSON.stringify({
+                        token: window.currentExamToken,
+                        index,
+                        questionId,
+                        userAnswer: currentExam.answers[index],
+                        selectedOption
+                    })
+                });
+                if (!response.ok) return null;
+                const data = await response.json().catch(() => ({}));
+                if (!isSameExamSession(sessionId) || data?.checked !== true) return null;
+                if (!currentExam.feedback) currentExam.feedback = {};
+                currentExam.feedback[index] = data;
+                return data;
+            } catch (_) {
+                return null;
+            }
+        };
+
+        window.selectAnswer = async function selectAnswer(option, index = currentExam.currentIndex) {
             currentExam.answers[index] = option;
+            if (currentExam.feedback) delete currentExam.feedback[index];
             currentExam.currentIndex = index;
             renderQuestionNav();
             updateQuestionOptions(index);
@@ -9709,22 +9733,21 @@ if (contentType && contentType.includes("application/json")) {
             
             const immediateFeedbackOn = examConfig.immediateFeedback !== undefined ? examConfig.immediateFeedback : appSettings.immediateFeedback;
             if (immediateFeedbackOn) {
-                const q = currentExam.questions[index];
-                const isCorrect = q && option === q.answer;
-                if (isCorrect) {
-                    showToast('✅ Chính xác!', 'success', 'large');
-                } else {
-                    showToast('❌ Sai rồi, hãy thử lại!', 'error', 'large');
+                const feedback = await window.requestImmediateExamFeedback(index);
+                if (feedback?.checked) {
+                    const isCorrect = feedback.allCorrect === true;
+                    showToast(isCorrect ? '✅ Chính xác!' : '❌ Sai rồi, hãy thử lại!', isCorrect ? 'success' : 'error', 'large');
+                    playFeedbackSound(isCorrect);
+                    renderQuestionNav();
+                    updateQuestionOptions(index);
                 }
-                playFeedbackSound(isCorrect);
             }
         }
 
-        window.selectTFAnswer = function selectTFAnswer(option, value, index = currentExam.currentIndex) {
-            if (!currentExam.answers[index]) {
-                currentExam.answers[index] = {};
-            }
+        window.selectTFAnswer = async function selectTFAnswer(option, value, index = currentExam.currentIndex) {
+            if (!currentExam.answers[index]) currentExam.answers[index] = {};
             currentExam.answers[index][option] = value;
+            if (currentExam.feedback) delete currentExam.feedback[index];
             currentExam.currentIndex = index;
             renderQuestionNav();
             updateQuestionOptions(index);
@@ -9733,16 +9756,14 @@ if (contentType && contentType.includes("application/json")) {
             
             const immediateFeedbackOn = examConfig.immediateFeedback !== undefined ? examConfig.immediateFeedback : appSettings.immediateFeedback;
             if (immediateFeedbackOn) {
-                const q = currentExam.questions[index];
-                const correctStates = q && q.answer ? parseTF4CorrectAnswer(q.answer) : null;
-                const isCorrect = Boolean(correctStates && correctStates[option] === value);
-                
-                if (isCorrect) {
-                    showToast('✅ Chính xác!', 'success', 'large');
-                } else {
-                    showToast('❌ Sai rồi, hãy thử lại!', 'error', 'large');
+                const feedback = await window.requestImmediateExamFeedback(index, option);
+                if (feedback?.checked) {
+                    const isCorrect = feedback.selectedCorrect === true;
+                    showToast(isCorrect ? '✅ Chính xác!' : '❌ Sai rồi, hãy thử lại!', isCorrect ? 'success' : 'error', 'large');
+                    playFeedbackSound(isCorrect);
+                    renderQuestionNav();
+                    updateQuestionOptions(index);
                 }
-                playFeedbackSound(isCorrect);
             }
         }
 
@@ -10918,6 +10939,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             currentExam = {
                 questions: [],
                 answers: {},
+                feedback: {},
                 currentIndex: 0,
                 startTime: null,
                 timerInterval: null,
