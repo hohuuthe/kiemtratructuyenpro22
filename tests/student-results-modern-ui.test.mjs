@@ -64,7 +64,7 @@ test('Original student-only private API contract is retained',()=>{
     const to=app.indexOf('window.refreshRankingResults',from);
     assert.ok(from>0 && to>from);
     const segment=app.slice(from,to);
-    assert.match(segment,/fetch\('\/api\/results\/me\?limit=30&offset='/);
+    assert.match(segment,/fetch\('\/api\/results\/me\?grouped=1&limit=30&offset='/);
     assert.match(segment,/fetch\('\/api\/results\/me\?id='/);
     assert.doesNotMatch(segment,/fetch\('\/api\/results\?/);
     assert.match(segment,/seq !== myStudentRequestSeq/);
