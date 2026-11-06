@@ -333,6 +333,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         detailedResults.forEach((d: any) => {
             let questionScore = 0;
             if (d.question.type === '4-1') {
+                d.maxScore = p41;
                 if (d.isCorrect) questionScore = p41;
             } else if (d.question.type === 'TF4') {
                 const tf4 = evaluateTF4(d.correctAnswer, d.userAnswer);
@@ -343,6 +344,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                 d.correctStatements = tf4.correctCount;
 
                 const isTf4CustomMode = examFlagEnabled(examConfig.tf4ScoringMode ?? examConfig.tf4_scoring_mode, false);
+                d.maxScore = isTf4CustomMode && tf4PointsMap && tf4PointsMap[4] !== undefined
+                    ? Number(tf4PointsMap[4]) || 0
+                    : pTF4;
                 if (isTf4CustomMode && tf4PointsMap && tf4PointsMap[tf4.correctCount] !== undefined) {
                     questionScore = Number(tf4PointsMap[tf4.correctCount]) || 0;
                 } else {
@@ -350,8 +354,10 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                     questionScore = pTF4 * (ratioMap[tf4.correctCount] || 0);
                 }
             } else if (d.question.type === 'SQ') {
+                d.maxScore = pSQ;
                 if (d.isCorrect) questionScore = pSQ;
             } else if (d.question.type === 'TL') {
+                d.maxScore = pTL;
                 tlQuestionsToGrade.push(d);
             }
 
@@ -579,7 +585,10 @@ YÊU CẦU:
                 new Date().toISOString()
             ).run();
         } catch (dbErr) {
-            console.error("Lỗi khi lưu kết quả bài thi vào CSDL D1:", dbErr);
+            console.error("Lỗi khi lưu kết quả bài thi vào CSDL:", dbErr);
+            // Fail closed: never tell the student that submission succeeded if the
+            // authoritative result row was not durably persisted.
+            throw new Error('Không thể lưu kết quả bài thi. Phiên thi chưa bị đánh dấu đã nộp; vui lòng gửi lại bài.');
         }
 
         // BẢO MẬT: Đánh dấu token đã nộp bài thành công vào bảng kiểm soát để ngăn chặn nộp lại
@@ -595,6 +604,17 @@ YÊU CẦU:
             ).run();
         } catch (markErr) {
             console.error('Error marking token as submitted:', markErr);
+            // The result has already been persisted. Do not fail the student response,
+            // but retain the result ID so any replay can be audited and de-duplicated.
+        }
+
+        if (gradingSessionId) {
+            try {
+                await db.prepare('DELETE FROM _exam_grade_sessions WHERE session_id = ?')
+                    .bind(String(gradingSessionId)).run();
+            } catch (cleanupErr) {
+                console.warn('Could not delete consumed grading snapshot:', cleanupErr);
+            }
         }
 
         // BẢO MẬT: Nếu cấu hình không cho xem chi tiết đáp án, loại bỏ hoàn toàn correctAnswer và ảnh đáp án trước khi trả về client
