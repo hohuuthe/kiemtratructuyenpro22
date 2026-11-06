@@ -102,7 +102,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         answers_json = excluded.answers_json,
         revision = excluded.revision,
         saved_at = excluded.saved_at
-      WHERE excluded.revision >= _exam_answer_drafts.revision
+      WHERE excluded.revision > _exam_answer_drafts.revision
     `).bind(gradingSessionId, answersJson, revision, savedAt).run();
 
     return new Response(JSON.stringify({
