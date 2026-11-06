@@ -34,7 +34,17 @@ export function remainingExamSecondsFromDeadline(deadlineAtMs, nowMs = Date.now(
 
 function parseDateMs(value) {
   if (value === undefined || value === null || value === '') return null;
-  const ms = new Date(value).getTime();
+  const raw = String(value).trim();
+  if (!raw) return null;
+
+  // Giá trị từ input datetime-local không mang múi giờ. Toàn hệ thống vận hành
+  // theo giờ Việt Nam, vì vậy phải gắn UTC+07:00 tường minh thay vì phụ thuộc
+  // múi giờ runtime của Cloudflare/Node.
+  const vietnamLocal = raw.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/);
+  const normalized = vietnamLocal
+    ? `${vietnamLocal[1]}T${vietnamLocal[2]}:${vietnamLocal[3] || '00'}${vietnamLocal[4] ? '.' + vietnamLocal[4] : ''}+07:00`
+    : raw;
+  const ms = Date.parse(normalized);
   return Number.isFinite(ms) ? ms : NaN;
 }
 
