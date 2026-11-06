@@ -8575,6 +8575,11 @@ if (contentType && contentType.includes("application/json")) {
                     serverStartedAt: null,
                     serverElapsedSeconds: 0,
                     lockedSubmissionAnswers: null,
+                    checkpointSeq: 0,
+                    checkpointDebounce: null,
+                    checkpointInterval: null,
+                    lastCheckpointSequence: 0,
+                    lastCheckpointAt: null,
                     lastViolationAt: 0,
                     lastViolationReason: '',
                     startTick: null,
@@ -9630,7 +9635,69 @@ if (contentType && contentType.includes("application/json")) {
             }
         }
 
-        window.backupExamState = function() {};
+        window.saveExamCheckpoint = async function saveExamCheckpoint(options = {}) {
+            const force = options?.force === true;
+            const examInterface = document.getElementById('exam-interface');
+            const examResults = document.getElementById('exam-results');
+            const isExamActive = examInterface && !examInterface.classList.contains('hidden') &&
+                examResults && examResults.classList.contains('hidden') &&
+                currentExam && currentExam.sessionId && currentExam.startTime &&
+                Array.isArray(currentExam.questions) && currentExam.questions.length > 0;
+            if (!isExamActive || !window.currentExamToken || (currentExam.submitting && !force)) return false;
+
+            const questionIds = currentExam.questions.map(q => String(q?.id ?? q?.questionId ?? '').trim());
+            if (questionIds.some(id => !id)) return false;
+
+            let answersSnapshot;
+            try {
+                answersSnapshot = structuredClone(currentExam.answers);
+            } catch (_) {
+                answersSnapshot = JSON.parse(JSON.stringify(currentExam.answers || {}));
+            }
+            const studentAnswers = currentExam.questions.map((q, i) => answersSnapshot?.[i]);
+            const sequence = Math.max(0, Number(currentExam.checkpointSeq) || 0) + 1;
+            currentExam.checkpointSeq = sequence;
+            const sessionId = currentExam.sessionId;
+
+            try {
+                const checkpointAuth = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
+                const headers = { 'Content-Type': 'application/json' };
+                if (checkpointAuth) headers['Authorization'] = 'Bearer ' + checkpointAuth;
+                const response = await fetch('/api/exam/checkpoint', {
+                    method: 'POST',
+                    headers,
+                    cache: 'no-store',
+                    body: JSON.stringify({
+                        token: window.currentExamToken,
+                        questionIds,
+                        studentAnswers,
+                        sequence
+                    })
+                });
+                if (!response.ok) return false;
+                const data = await response.json().catch(() => ({}));
+                if (isSameExamSession(sessionId) && data?.accepted !== false) {
+                    currentExam.lastCheckpointSequence = sequence;
+                    currentExam.lastCheckpointAt = data?.savedAt || new Date().toISOString();
+                }
+                return Boolean(data?.ok);
+            } catch (_) {
+                return false;
+            }
+        };
+
+        window.scheduleExamCheckpoint = function scheduleExamCheckpoint() {
+            if (!currentExam?.startTime || currentExam?.submitting) return;
+            if (currentExam.checkpointDebounce) clearTimeout(currentExam.checkpointDebounce);
+            currentExam.checkpointDebounce = setTimeout(() => {
+                currentExam.checkpointDebounce = null;
+                void window.saveExamCheckpoint();
+            }, 250);
+        };
+
+        window.backupExamState = function backupExamState() {
+            window.scheduleExamCheckpoint();
+        };
 
         window.selectAnswer = function selectAnswer(option, index = currentExam.currentIndex) {
             currentExam.answers[index] = option;
@@ -10008,6 +10075,12 @@ if (contentType && contentType.includes("application/json")) {
             if (supportsFullscreen && !document.fullscreenElement) return;
             currentExam.violationEpisodeActive = false;
             currentExam.lastViolationReason = '';
+            currentExam.checkpointSeq = 0;
+            currentExam.lastCheckpointSequence = 0;
+            if (currentExam.checkpointInterval) clearInterval(currentExam.checkpointInterval);
+            currentExam.checkpointInterval = setInterval(() => {
+                if (!currentExam.submitting) void window.saveExamCheckpoint();
+            }, 3000);
         }
 
         document.addEventListener('visibilitychange', () => {
@@ -10219,6 +10292,14 @@ if (contentType && contentType.includes("application/json")) {
                 window.releaseExamWakeLock();
             }
             clearInterval(currentExam.timerInterval);
+            if (currentExam.checkpointDebounce) {
+                clearTimeout(currentExam.checkpointDebounce);
+                currentExam.checkpointDebounce = null;
+            }
+            if (currentExam.checkpointInterval) {
+                clearInterval(currentExam.checkpointInterval);
+                currentExam.checkpointInterval = null;
+            }
             const floatingTimerEl = document.getElementById('floating-exam-timer');
             if (floatingTimerEl) {
                 floatingTimerEl.classList.add('hidden');
@@ -10454,6 +10535,10 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                     isSameExamSession(submissionSessionId)) {
                     // Submission failed while time remains: resume the same monotonic timer.
                     startTimer();
+                    if (currentExam.checkpointInterval) clearInterval(currentExam.checkpointInterval);
+                    currentExam.checkpointInterval = setInterval(() => {
+                        if (!currentExam.submitting) void window.saveExamCheckpoint();
+                    }, 3000);
                     if (typeof window.enterExamFullscreen === 'function') {
                         Promise.resolve(window.enterExamFullscreen()).catch(() => {});
                     }
