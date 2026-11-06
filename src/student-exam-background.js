@@ -36,9 +36,14 @@ function syncStudentExamBackgroundMenu() {
   const active = hasStudentExamBackground();
   removeButton.disabled = !active;
   removeButton.setAttribute('aria-disabled', active ? 'false' : 'true');
+  removeButton.classList.toggle('is-disabled', !active);
   removeButton.querySelector('[data-background-remove-state]')?.replaceChildren(
-    document.createTextNode(active ? 'Xóa hình nền đang áp dụng' : 'Chưa có hình nền để xóa')
+    document.createTextNode('Xóa hình nền đang áp dụng')
   );
+  const help = removeButton.querySelector('[data-background-remove-help]');
+  if (help) help.textContent = active
+    ? 'Xóa ngay hình nền hiện tại và trở về nền mặc định.'
+    : 'Hiện chưa có hình nền nào đang áp dụng.';
 }
 
 function ensureStudentExamBackgroundMenu() {
@@ -79,7 +84,7 @@ function ensureStudentExamBackgroundMenu() {
           <span class="student-exam-background-action-icon" aria-hidden="true">⌫</span>
           <span>
             <strong data-background-remove-state>Xóa hình nền đang áp dụng</strong>
-            <small>Trả giao diện làm bài về nền mặc định.</small>
+            <small data-background-remove-help>Xóa ngay hình nền hiện tại và trở về nền mặc định.</small>
           </span>
         </button>
       </div>
