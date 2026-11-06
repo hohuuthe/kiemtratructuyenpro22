@@ -37,6 +37,16 @@ export function parseTF4CorrectAnswer(correctAnswer) {
   const raw = String(correctAnswer ?? '').trim();
   if (!raw) return null;
   const keys = ['A', 'B', 'C', 'D'];
+  const compact = upper(raw).replace(/\s+/g, '');
+  if (['NONE', 'KHÔNGCÓÝĐÚNG', 'KHONGCOYDUNG', '----'].includes(compact)) {
+    return { A: false, B: false, C: false, D: false };
+  }
+  if (/^[ĐDSF]{4}$/.test(compact)) {
+    const parsed = [...compact].map(parseTruthToken);
+    if (parsed.every(v => v !== null)) {
+      return { A: parsed[0], B: parsed[1], C: parsed[2], D: parsed[3] };
+    }
+  }
 
   const explicit = {};
   let explicitCount = 0;
@@ -60,7 +70,9 @@ export function parseTF4CorrectAnswer(correctAnswer) {
 
   const parts = raw.split(/[&,;/\\s]+/).map(p => p.trim()).filter(Boolean);
   if (parts.length > 0 && parts.every(p => keys.includes(upper(p)))) {
-    const trueSet = new Set(parts.map(upper));
+    const normalized = parts.map(upper);
+    if (new Set(normalized).size !== normalized.length) return null;
+    const trueSet = new Set(normalized);
     return { A: trueSet.has('A'), B: trueSet.has('B'), C: trueSet.has('C'), D: trueSet.has('D') };
   }
 
