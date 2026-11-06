@@ -14,6 +14,9 @@ const corsHeaders = {
   'Content-Type': 'application/json'
 };
 
+const normalizeGuestKeyPart = (value: unknown) =>
+  String(value ?? '').normalize('NFKC').trim().toLowerCase().replace(/\s+/g, ' ');
+
 export const onRequestOptions: PagesFunction<Env> = async () =>
   new Response(null, { status: 204, headers: corsHeaders });
 
@@ -78,6 +81,115 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       });
     }
 
+    let attemptNumber: number | null = null;
+    const maxAttempts = Math.max(0, Math.floor(Number(decoded.maxAttempts) || 0));
+    const examId = String(decoded?.examConfig?.id || '').trim();
+
+    // The start endpoint is the authoritative attempt gate. A slot is consumed
+    // exactly when the student actually enters the exam, not while viewing the ready dialog.
+    if (!session.started_at && maxAttempts > 0) {
+      if (!examId) {
+        return new Response(JSON.stringify({
+          error: 'Không xác định được mã đề thi để khóa lượt làm bài.'
+        }), { status: 409, headers: corsHeaders });
+      }
+
+      const guestName = String(decoded.studentName || '').trim();
+      const guestClass = String(decoded.studentClass || decoded.studentLop || '').trim();
+      const guestUnit = String(decoded.studentDonvi || '').trim();
+      const candidateKey = signedStudentUserId
+        ? 'user:' + signedStudentUserId
+        : 'guest:' + [
+            normalizeGuestKeyPart(guestName),
+            normalizeGuestKeyPart(guestClass),
+            normalizeGuestKeyPart(guestUnit)
+          ].join('|');
+
+      if (!signedStudentUserId && !normalizeGuestKeyPart(guestName)) {
+        return new Response(JSON.stringify({
+          error: 'Không xác định được danh tính thí sinh để khóa lượt làm bài.'
+        }), { status: 409, headers: corsHeaders });
+      }
+
+      await db.prepare(`
+        CREATE TABLE IF NOT EXISTS _exam_attempt_slots (
+          exam_id TEXT NOT NULL,
+          candidate_key TEXT NOT NULL,
+          attempt_no INTEGER NOT NULL,
+          session_id TEXT NOT NULL UNIQUE,
+          started_at TEXT NOT NULL,
+          PRIMARY KEY (exam_id, candidate_key, attempt_no)
+        )
+      `).run();
+
+      const existingSlot: any = await db.prepare(
+        'SELECT attempt_no FROM _exam_attempt_slots WHERE session_id = ?'
+      ).bind(sessionId).first();
+
+      if (existingSlot?.attempt_no) {
+        attemptNumber = Number(existingSlot.attempt_no);
+      } else {
+        let completedCount = 0;
+        if (signedStudentUserId) {
+          const row: any = await db.prepare(
+            'SELECT COUNT(*) AS count FROM results WHERE exam_id = ? AND user_id = ?'
+          ).bind(examId, signedStudentUserId).first();
+          completedCount = Math.max(0, Number(row?.count || 0));
+        } else {
+          // Compatibility with historical guest results: guest identity was stored
+          // by name. New sessions additionally use class/unit in candidate_key to
+          // prevent concurrent slot collisions among distinct signed guest identities.
+          const row: any = await db.prepare(
+            'SELECT COUNT(*) AS count FROM results WHERE exam_id = ? AND LOWER(TRIM(student_name)) = LOWER(TRIM(?))'
+          ).bind(examId, guestName).first();
+          completedCount = Math.max(0, Number(row?.count || 0));
+        }
+
+        if (completedCount >= maxAttempts) {
+          return new Response(JSON.stringify({
+            code: 'EXAM_ATTEMPT_LIMIT_REACHED',
+            attemptCount: completedCount,
+            maxAttempts,
+            error: `Bạn đã đạt giới hạn số lần làm bài thi này! (Bạn đã hoàn thành ${completedCount} lần / Tối đa ${maxAttempts} lần làm bài quy định).`
+          }), { status: 403, headers: corsHeaders });
+        }
+
+        const slotStartedAt = new Date().toISOString();
+        for (let slot = completedCount + 1; slot <= maxAttempts; slot++) {
+          const insert = await db.prepare(
+            `INSERT INTO _exam_attempt_slots
+              (exam_id, candidate_key, attempt_no, session_id, started_at)
+             VALUES (?, ?, ?, ?, ?)
+             ON CONFLICT DO NOTHING`
+          ).bind(examId, candidateKey, slot, sessionId, slotStartedAt).run();
+
+          if (Number(insert?.meta?.changes || 0) === 1) {
+            attemptNumber = slot;
+            break;
+          }
+
+          // A concurrent request for this same session may have won the unique
+          // session_id race. Re-read before trying another attempt slot.
+          const sameSession: any = await db.prepare(
+            'SELECT attempt_no FROM _exam_attempt_slots WHERE session_id = ?'
+          ).bind(sessionId).first();
+          if (sameSession?.attempt_no) {
+            attemptNumber = Number(sameSession.attempt_no);
+            break;
+          }
+        }
+
+        if (!attemptNumber) {
+          return new Response(JSON.stringify({
+            code: 'EXAM_ATTEMPT_LIMIT_REACHED',
+            attemptCount: maxAttempts,
+            maxAttempts,
+            error: `Bạn đã đạt giới hạn ${maxAttempts} lượt làm bài được phép.`
+          }), { status: 403, headers: corsHeaders });
+        }
+      }
+    }
+
     let startedAt = session.started_at ? String(session.started_at) : '';
     if (!startedAt) {
       const candidate = new Date().toISOString();
@@ -94,6 +206,8 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     return new Response(JSON.stringify({
       ok: true,
       startedAt,
+      attemptNumber,
+      maxAttempts,
       timeLimitSeconds: Math.max(1, Math.floor(Number(decoded.timeLimitSeconds) || 1))
     }), { status: 200, headers: corsHeaders });
   } catch (err: any) {
