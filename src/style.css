@@ -1335,7 +1335,7 @@ html.kttt-modal-open, body.kttt-modal-open { overflow: hidden !important; oversc
 .board-pseudo-fullscreen {
   position:fixed!important;
   inset:0!important;
-  z-index:90!important;
+  z-index:150!important;
   width:100vw!important;
   height:100dvh!important;
   max-width:none!important;
@@ -1346,6 +1346,16 @@ html.kttt-modal-open, body.kttt-modal-open { overflow: hidden !important; oversc
 .board-pseudo-fullscreen .board-room-grid { height:calc(100dvh - 72px); min-height:0!important; }
 .board-pseudo-fullscreen .board-stage-scroll { max-height:none!important; height:100%; }
 .board-body-fullscreen { overflow:hidden!important; }
+.board-body-fullscreen #app-sidebar,
+.board-body-fullscreen #sidebar-backdrop {
+  opacity:0!important;
+  visibility:hidden!important;
+  pointer-events:none!important;
+}
+.board-body-fullscreen #modal-container,
+.board-body-fullscreen #secondary-modal-container {
+  z-index:300!important;
+}
 @media (max-width:1023px) {
   .board-pseudo-fullscreen .board-room-header { top:0; }
   .board-pseudo-fullscreen .board-tools-panel { top:62px; }
@@ -2545,7 +2555,7 @@ html.kttt-modal-open, body.kttt-modal-open { overflow: hidden !important; oversc
 
 /* Smart left-click context toolbar for selected board objects */
 .board-object-context-menu{
- position:fixed;z-index:95;max-width:min(430px,calc(100vw - 16px));padding:7px;border-radius:13px;
+ position:fixed;z-index:190;max-width:min(430px,calc(100vw - 16px));padding:7px;border-radius:13px;
  border:1px solid #cbd5e1;background:rgba(255,255,255,.98);box-shadow:0 18px 45px rgba(15,23,42,.24);
  backdrop-filter:blur(10px);color:#0f172a
 }
@@ -2562,7 +2572,7 @@ html.kttt-modal-open, body.kttt-modal-open { overflow: hidden !important; oversc
 .board-object-context-menu button:hover:not(:disabled){background:#eef2ff}
 .board-object-context-menu button:disabled{opacity:.4;cursor:not-allowed}
 .board-object-context-menu .board-object-context-danger{background:#fff1f2;color:#be123c;border-color:#fecdd3}
-.board-body-fullscreen .board-object-context-menu{z-index:95}
+.board-body-fullscreen .board-object-context-menu{z-index:190}
 
 /* QL hồ sơ người dùng: cột chọn tối giản, cột thao tác luôn nổi cố định bên phải */
 #th-users-select{
