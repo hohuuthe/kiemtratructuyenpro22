@@ -156,6 +156,22 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       return new Response(JSON.stringify({ error: 'Không thể thiết lập mốc thời gian thi an toàn.' }), { status: 503, headers: corsHeaders });
     }
 
+    // TTL kỹ thuật của phiên hoạt động phải độc lập với thời gian học sinh đã chờ
+    // ở hộp sẵn sàng. Luôn giữ snapshot/token sống đến ít nhất 1 giờ sau deadline
+    // để cho phép retry nộp bản đã khóa, nhưng deadline làm bài vẫn không thay đổi.
+    const activeExpiresAtMs = deadlineAtMs + 60 * 60 * 1000;
+    const activeExpiresAt = new Date(activeExpiresAtMs).toISOString();
+    try {
+      await db.prepare(
+        'UPDATE _exam_grade_sessions SET expires_at = ? WHERE session_id = ?'
+      ).bind(activeExpiresAt, gradingSessionId).run();
+    } catch (expiryUpdateError) {
+      console.error('Cannot extend technical active-session TTL:', expiryUpdateError);
+      return new Response(JSON.stringify({
+        error: 'Không thể khóa thời hạn kỹ thuật của phiên thi; bài thi chưa được bắt đầu.'
+      }), { status: 503, headers: corsHeaders });
+    }
+
     const activePayload = {
       ...decoded,
       purpose: EXAM_SESSION_PURPOSE_ACTIVE,
@@ -163,7 +179,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       deadlineAtMs,
       timestamp: startedAtMs,
       timeLimitSeconds,
-      exp: Number(decoded.exp)
+      exp: Math.floor(activeExpiresAtMs / 1000)
     };
     const activeToken = await signJWT(activePayload, SECRET);
     const responseNowMs = Date.now();
