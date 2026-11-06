@@ -133,11 +133,11 @@ function normalizeDecimalComma(text) {
  */
 export function normalizeShortAnswer(value, options = {}) {
   let text = normalizeUnicodeMath(String(value ?? '').trim());
-  text = normalizeDecimalComma(text);
 
   if (!options.caseSensitive) text = text.toLowerCase();
 
   if (!options.punctuationSensitive) {
+    text = normalizeDecimalComma(text);
     // Remove only cosmetic prose punctuation. Never remove - / . + = < > ^ * %
     // because doing so changes mathematical meaning.
     text = text
