@@ -1,5 +1,6 @@
 import { verifyAuthSession, verifyJWT, getDynamicSecret, hashToken, getDatabase } from './utils';
 import { evaluateTF4, isShortAnswerCorrect, examFlagEnabled, clampScore, roundScore, validateQuestionAnswer } from '../../../src/exam-grading-core.js';
+import { EXAM_SESSION_PURPOSE_PRESTART, EXAM_SESSION_PURPOSE_ACTIVE, resolveAuthoritativeExamTiming } from '../../../src/exam-time-authority.js';
 
 interface Env {
   NEON_DATABASE_URL?: string;
@@ -79,9 +80,11 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     try {
         const body: any = await request.json();
         const { token, studentAnswers, clientQuestions, studentInfo, timeTaken } = body;
+        let authoritativeTiming: any = null;
+        let usedDeadlineDraft = false;
 
-        if (!token || !studentAnswers || !clientQuestions || !studentInfo) {
-            return new Response(JSON.stringify({ error: 'Thiếu thông tin nộp bài thi bắt buộc.' }), { status: 400, headers: corsHeaders });
+        if (!token || !Array.isArray(studentAnswers) || !Array.isArray(clientQuestions) || !studentInfo) {
+            return new Response(JSON.stringify({ error: 'Thiếu hoặc sai định dạng thông tin nộp bài thi bắt buộc.' }), { status: 400, headers: corsHeaders });
         }
 
         let authenticatedUserId: any = null;
@@ -111,6 +114,12 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         const decoded = await verifyJWT(token, SECRET);
         if (!decoded) {
             return new Response(JSON.stringify({ error: 'Mã phiên thi không hợp lệ hoặc đã hết hạn.' }), { status: 403, headers: corsHeaders });
+        }
+        if (decoded.purpose === EXAM_SESSION_PURPOSE_PRESTART) {
+            return new Response(JSON.stringify({
+                code: 'EXAM_NOT_ACTIVATED',
+                error: 'Phiên thi chưa được máy chủ kích hoạt bắt đầu; hệ thống chưa chấm bài.'
+            }), { status: 409, headers: corsHeaders });
         }
 
         const { questionIds, teacherId, gradingSessionId, studentUserId: sessionStudentUserId } = decoded;
@@ -247,7 +256,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         if (gradingSessionId) {
             try {
                 const snapshotRow: any = await db.prepare(
-                    'SELECT question_ids, question_snapshot, exam_config, expires_at FROM _exam_grade_sessions WHERE session_id = ?'
+                    'SELECT question_ids, question_snapshot, exam_config, expires_at, started_at, deadline_at FROM _exam_grade_sessions WHERE session_id = ?'
                 ).bind(String(gradingSessionId)).first();
                 if (!snapshotRow) {
                     return new Response(JSON.stringify({ error: 'Phiên chấm điểm không tồn tại hoặc đã được thu hồi.' }), { status: 409, headers: corsHeaders });
@@ -273,6 +282,45 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                     }), { status: 409, headers: corsHeaders });
                 }
                 examConfig = JSON.parse(String(snapshotRow.exam_config || '{}')) || {};
+
+                // Phiên mới phải dùng mốc bắt đầu/deadline do server lưu. Nếu request
+                // đến sau deadline, tuyệt đối không chấm payload mới từ trình duyệt;
+                // chỉ chấm bản autosave cuối cùng đã được server nhận trước hạn.
+                if (decoded.purpose === EXAM_SESSION_PURPOSE_ACTIVE) {
+                    authoritativeTiming = resolveAuthoritativeExamTiming(decoded, snapshotRow, Date.now());
+                    if (!authoritativeTiming.valid) {
+                        return new Response(JSON.stringify({
+                            error: 'Mốc thời gian phiên thi không hợp lệ; hệ thống chưa chấm và chưa lưu kết quả.'
+                        }), { status: 409, headers: corsHeaders });
+                    }
+                    if (authoritativeTiming.expired) {
+                        let draftRow: any = null;
+                        try {
+                            draftRow = await db.prepare(
+                                'SELECT answers_json, saved_at FROM _exam_answer_drafts WHERE session_id = ?'
+                            ).bind(String(gradingSessionId)).first();
+                        } catch (draftErr) {
+                            console.error('Could not load deadline-safe answer draft:', draftErr);
+                        }
+                        if (!draftRow?.answers_json) {
+                            return new Response(JSON.stringify({
+                                code: 'EXAM_DEADLINE_REACHED',
+                                error: 'Bài thi đã hết giờ nhưng chưa có bản lưu đáp án an toàn trước hạn. Hệ thống từ chối chấm dữ liệu gửi muộn để bảo vệ tính công bằng.'
+                            }), { status: 409, headers: corsHeaders });
+                        }
+                        let draftAnswers: any[] = [];
+                        try { draftAnswers = JSON.parse(String(draftRow.answers_json || '[]')); } catch {}
+                        if (!Array.isArray(draftAnswers) || draftAnswers.length !== issuedIds.length) {
+                            return new Response(JSON.stringify({
+                                code: 'EXAM_DEADLINE_DRAFT_INVALID',
+                                error: 'Bản lưu đáp án trước hạn không đầy đủ; hệ thống chưa chấm và chưa lưu kết quả.'
+                            }), { status: 409, headers: corsHeaders });
+                        }
+                        studentAnswers.splice(0, studentAnswers.length, ...draftAnswers);
+                        usedDeadlineDraft = true;
+                    }
+                }
+
                 for (const row of frozenQuestions) {
                     let parsedOptions = row.options;
                     if (typeof parsedOptions === 'string') {
@@ -669,14 +717,17 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
         const cheatWarningCount = Math.max(0, Math.floor(Number(body.cheatWarningCount ?? body.studentInfo?.cheatWarningCount ?? 0) || 0));
         const correctCount = detailedResults.filter((d: any) => d.isCorrect && d.question.type !== 'TL').length;
 
-        // Ranking time is server-authoritative. A browser cannot improve its
-        // tie-break position by sending a fake timeTaken value.
+        // Ranking time is server-authoritative. Phiên mới dùng started_at/deadline_at
+        // do máy chủ tạo lúc học sinh thực sự bấm Bắt đầu. Phiên cũ đang dở khi triển
+        // khai vẫn giữ cơ chế timestamp cũ để không làm mất bài.
         const issuedAtMs = Number(decoded.timestamp);
         const signedLimitSeconds = Math.max(1, Math.floor(Number(decoded.timeLimitSeconds) || 1));
-        const elapsedByServer = Number.isFinite(issuedAtMs) && issuedAtMs > 0
+        const legacyElapsedByServer = Number.isFinite(issuedAtMs) && issuedAtMs > 0
             ? Math.max(0, Math.floor((Date.now() - issuedAtMs) / 1000))
             : signedLimitSeconds;
-        const authoritativeTimeTaken = Math.min(signedLimitSeconds, elapsedByServer);
+        const authoritativeTimeTaken = authoritativeTiming?.valid
+            ? Math.min(signedLimitSeconds, Number(authoritativeTiming.elapsedSeconds) || 0)
+            : Math.min(signedLimitSeconds, legacyElapsedByServer);
 
         // Claim immediately before persistence. Two concurrent requests may both
         // calculate, but only one can cross this unique database gate and create a row.
@@ -840,6 +891,7 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
             correctCount,
             cheatWarningCount,
             timeTaken: authoritativeTimeTaken,
+            deadlineSnapshotUsed: usedDeadlineDraft,
             gradingPending: hasPendingEssayGrades,
             scoreFinalized: !hasPendingEssayGrades,
             detailedResults: clientDetailedResults
