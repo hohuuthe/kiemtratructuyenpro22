@@ -380,7 +380,7 @@ function renderList(){
 }
 async function load(){
  const seq=++generation;const root=$('boards-list');if(root)root.innerHTML='<div class="col-span-full text-center p-8 text-slate-500">Đang tải danh sách bảng...</div>';
- try{const result=await api('GET','/api/boards?page='+page+'&limit=20'+(manage?'&manage=1':''));if(seq!==generation)return;list=result.data||[];total=Number(result.total)||0;if(manage&&typeof result.can_create==='boolean')canCreateBoard=result.can_create;$('boards-new')?.classList.toggle('hidden',!manage);renderList();}
+ try{const result=await api('GET','/api/boards?page='+page+'&limit=20'+(manage?'&manage=1':''));if(seq!==generation)return;list=result.data||[];total=Number(result.total)||0;if(manage&&typeof result.can_create==='boolean')canCreateBoard=result.can_create;$('boards-new')?.classList.toggle('hidden',!canCreateBoard);renderList();}
  catch(e){if(seq!==generation)return;list=[];renderList();feedback(e.message,true);}
 }
 function toggleAccessFields(){
@@ -1162,9 +1162,10 @@ export function initInteractiveBoards(user){
  actor=user||null;const role=String(actor?.role||'').toLowerCase(),aud=String(actor?.target_audience||'').toLowerCase();
  const isAdmin=role==='admin'||aud==='quản trị viên';
  const isTeacher=role==='teacher'||role==='giáo viên'||aud==='giáo viên';
- manage=isAdmin||isTeacher;
- canCreateBoard=isAdmin||(isTeacher&&vipFlag(actor?.is_vip));
- $('boards-new')?.classList.toggle('hidden',!manage);load();
+ const isStudent=role==='student'||role==='học sinh'||aud==='học sinh';
+ manage=!isStudent&&(isAdmin||isTeacher);
+ canCreateBoard=!isStudent&&(isAdmin||(isTeacher&&vipFlag(actor?.is_vip)));
+ $('boards-new')?.classList.toggle('hidden',!canCreateBoard);load();
 }
 export function connectInteractiveBoards(){
  if(wired||!$('boards-list'))return;wired=true;installBoardButtonHelp();

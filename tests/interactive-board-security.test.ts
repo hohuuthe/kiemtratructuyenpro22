@@ -169,6 +169,15 @@ test('VIP teacher policy gates smart board creation server-side',()=>{
   assert.equal(canUseInteractiveBoardVip(admin,true,false),true);
 });
 
+test('student UI can never expose interactive board create button',()=>{
+  const ui=fs.readFileSync('src/interactive-board-ui.js','utf8');
+  assert.match(ui,/const isStudent=role==='student'\|\|role==='học sinh'\|\|aud==='học sinh'/);
+  assert.match(ui,/manage=!isStudent&&\(isAdmin\|\|isTeacher\)/);
+  assert.match(ui,/canCreateBoard=!isStudent&&\(isAdmin\|\|\(isTeacher&&vipFlag\(actor\?\.is_vip\)\)\)/);
+  const visibilityGuards=ui.match(/boards-new'\)\?\.classList\.toggle\('hidden',!canCreateBoard\)/g)||[];
+  assert.ok(visibilityGuards.length>=2);
+});
+
 test('VIP profile field is wired through schema auth APIs and UI',()=>{
   const schema=fs.readFileSync('database-schema.sql','utf8');
   const utils=fs.readFileSync('functions/api/exam/utils.ts','utf8');
