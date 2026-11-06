@@ -112,7 +112,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         const signedStudentUserId = sessionStudentUserId ? String(sessionStudentUserId) : '';
         if (signedStudentUserId) {
             if (!verifiedRequestUserId || verifiedRequestUserId !== signedStudentUserId) {
-                throw new Error('Tài khoản nộp bài không khớp tài khoản đã nhận phiên thi.');
+                return new Response(JSON.stringify({
+                    error: 'Tài khoản nộp bài không khớp tài khoản đã nhận phiên thi.'
+                }), { status: 403, headers: corsHeaders });
             }
             authenticatedUserId = signedStudentUserId;
         } else if (!authHeader) {
