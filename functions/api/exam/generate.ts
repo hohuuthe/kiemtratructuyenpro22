@@ -670,6 +670,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             studentClass: issuedStudentClass,
             examConfig: tokenGradeSessionConfig,
             maxCheatWarnings: maxCheatWarningsFromDB,
+            maxAttempts: Number.isFinite(maxAttemptsVal) && maxAttemptsVal > 0 ? Math.floor(maxAttemptsVal) : 0,
             timeLimitSeconds,
             teacherId: effectiveTeacherId,
             timestamp: Date.now(),
