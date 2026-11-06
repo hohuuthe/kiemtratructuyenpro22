@@ -11,7 +11,16 @@ test('student exam exposes a background image control beside fullscreen controls
   assert.match(html, /id="btn-student-exam-background"/);
   assert.match(html, /id="student-exam-background-input"/);
   assert.match(html, /accept="image\/\*"/);
-  assert.match(html, /openStudentExamBackgroundPicker\(\)/);
+  assert.match(html, /openStudentExamBackgroundMenu\(\)/);
+  assert.match(moduleSource, /openStudentExamBackgroundMenu/);
+  assert.match(moduleSource, /student-exam-background-remove/);
+});
+
+test('background menu exposes add or replace and remove actions', () => {
+  assert.match(moduleSource, /Thêm \/ đổi hình nền/);
+  assert.match(moduleSource, /Xóa hình nền đang áp dụng/);
+  assert.match(moduleSource, /clearStudentExamBackground\(\)/);
+  assert.match(moduleSource, /disabled = !active/);
 });
 
 test('background module persists, restores and applies the image to exam interface', () => {
@@ -31,4 +40,6 @@ test('background styling works on normal and fullscreen exam interface', () => {
   assert.match(css, /#exam-interface\.student-background-active/);
   assert.match(css, /:fullscreen/);
   assert.match(css, /background-image:.*--student-exam-background-image/s);
+  assert.match(css, /\.student-exam-background-menu/);
+  assert.match(css, /#exam-interface:fullscreen \.student-exam-background-menu/);
 });
