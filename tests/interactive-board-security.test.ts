@@ -309,6 +309,22 @@ test('interactive board professional controls keep selection, cancellation and m
 });
 
 
+test('interactive board fullscreen keeps controls clickable and left-click context safe',()=>{
+  const ui=fs.readFileSync('src/interactive-board-ui.js','utf8');
+  const css=fs.readFileSync('src/style.css','utf8');
+  assert.match(ui,/function setBoardFullscreenState/);
+  assert.match(ui,/document\.documentElement/);
+  assert.match(ui,/boardFullscreenActive\(\)/);
+  assert.match(ui,/e\.pointerType==='mouse'.*e\.button!==0/);
+  assert.match(ui,/board-object-context-menu/);
+  assert.match(ui,/function openBoardObjectContextMenu/);
+  assert.match(ui,/tool!=='select'\)closeBoardObjectContextMenu/);
+  assert.match(css,/\.board-object-context-menu/);
+  assert.match(css,/\.board-pseudo-fullscreen[\s\S]*z-index:90!important/);
+  assert.match(css,/#board-room \.board-room-header button[\s\S]*pointer-events:auto/);
+});
+
+
 test('interactive board hardening enforces live permissions and session expiry',()=>{
   const ui=fs.readFileSync('src/interactive-board-ui.js','utf8');
   const worker=fs.readFileSync('workers/interactive-board-worker.js','utf8');
