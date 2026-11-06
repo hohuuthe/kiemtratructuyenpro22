@@ -323,3 +323,17 @@ test('local Node server routes exam READY and session lifecycle through Cloudfla
   assert.doesNotMatch(generateRoute, /questions:\s*clientQuestions/);
   assert.match(server, /invokeExamPagesPostHandler/);
 });
+
+
+test('resume preserves Immediate Feedback and fails closed on legacy score visibility', () => {
+  const resume = readFileSync('functions/api/exam/resume.ts', 'utf8');
+  const security = readFileSync('functions/api/exam/security.ts', 'utf8');
+  assert.match(resume, /needsLegacyFeedback/);
+  assert.match(resume, /SELECT immediate_feedback, show_score, show_details FROM exam_configs/);
+  assert.match(resume, /const immediateFeedback = decoded\.immediateFeedback !== undefined/);
+  assert.match(resume, /const showScore = hasFrozenShowScore/);
+  assert.match(resume, /immediateFeedback,/);
+  assert.match(resume, /showScore,/);
+  assert.match(resume, /showDetails,/);
+  assert.match(security, /'showScore','show_score'/);
+});
