@@ -8,10 +8,22 @@ export function isAccountEnabled(row: any): boolean {
   if (row.is_active === 0 || row.is_active === false || row.is_active === '0' || row.is_active === 'false') return false;
   const expiry = String(row.expiry_date || '').trim();
   if (expiry) {
-    const expiration = /^\d{4}-\d{2}-\d{2}$/.test(expiry)
-      ? Date.parse(expiry + 'T23:59:59.999Z')
-      : Date.parse(expiry);
-    if (Number.isFinite(expiration) && expiration < Date.now()) return false;
+    let normalized = expiry;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(expiry)) {
+      normalized = expiry + 'T23:59:59.999+07:00';
+    } else {
+      const vi = expiry.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if (vi) {
+        const day = Number(vi[1]);
+        const month = Number(vi[2]);
+        const year = Number(vi[3]);
+        const probe = new Date(Date.UTC(year, month - 1, day));
+        if (probe.getUTCFullYear() !== year || probe.getUTCMonth() !== month - 1 || probe.getUTCDate() !== day) return false;
+        normalized = `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T23:59:59.999+07:00`;
+      }
+    }
+    const expiration = Date.parse(normalized);
+    if (!Number.isFinite(expiration) || expiration < Date.now()) return false;
   }
   return true;
 }
