@@ -695,7 +695,8 @@ async function startServer() {
   // --- API Authentication: Login ---
   app.post("/api/auth/login", async (req, res) => {
     try {
-      const { username, password } = req.body;
+      const username = String(req.body?.username ?? '').trim();
+      const password = String(req.body?.password ?? '');
       if (!username || !password) {
          return res.status(400).json({ error: "Thiếu tên đăng nhập hoặc mật khẩu." });
       }
