@@ -128,13 +128,28 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     const proposedStartedAt = new Date(proposedStartedAtMs).toISOString();
     const proposedDeadlineAt = new Date(proposedDeadlineAtMs).toISOString();
 
+    // Ghi cả started_at và deadline_at trong cùng lần claim đầu tiên. Không cho một
+    // request đến sau tạo deadline mới dựa trên "bây giờ" nếu started_at đã tồn tại.
     await db.prepare(
-      'UPDATE _exam_grade_sessions SET started_at = COALESCE(started_at, ?), deadline_at = COALESCE(deadline_at, ?) WHERE session_id = ?'
+      'UPDATE _exam_grade_sessions SET started_at = ?, deadline_at = ? WHERE session_id = ? AND started_at IS NULL'
     ).bind(proposedStartedAt, proposedDeadlineAt, gradingSessionId).run();
 
-    const authoritative: any = await db.prepare(
+    let authoritative: any = await db.prepare(
       'SELECT started_at, deadline_at FROM _exam_grade_sessions WHERE session_id = ?'
     ).bind(gradingSessionId).first();
+
+    // Tự sửa dữ liệu chuyển tiếp nếu bản ghi cũ hiếm gặp đã có started_at nhưng thiếu deadline.
+    const existingStartedAtMs = new Date(String(authoritative?.started_at || '')).getTime();
+    if (Number.isFinite(existingStartedAtMs) && existingStartedAtMs > 0 && !authoritative?.deadline_at) {
+      const recoveredDeadlineAt = new Date(existingStartedAtMs + timeLimitSeconds * 1000).toISOString();
+      await db.prepare(
+        'UPDATE _exam_grade_sessions SET deadline_at = ? WHERE session_id = ? AND deadline_at IS NULL'
+      ).bind(recoveredDeadlineAt, gradingSessionId).run();
+      authoritative = await db.prepare(
+        'SELECT started_at, deadline_at FROM _exam_grade_sessions WHERE session_id = ?'
+      ).bind(gradingSessionId).first();
+    }
+
     const startedAtMs = new Date(String(authoritative?.started_at || proposedStartedAt)).getTime();
     const deadlineAtMs = new Date(String(authoritative?.deadline_at || proposedDeadlineAt)).getTime();
     if (!Number.isFinite(startedAtMs) || !Number.isFinite(deadlineAtMs) || deadlineAtMs <= startedAtMs) {
