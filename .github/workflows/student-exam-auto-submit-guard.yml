@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'src/main.js'
+      - 'server.ts'
       - 'src/student-exam-session-guard.js'
       - 'src/student-exam-background.js'
       - 'functions/api/exam/generate.ts'
@@ -18,6 +19,7 @@ on:
   push:
     paths:
       - 'src/main.js'
+      - 'server.ts'
       - 'src/student-exam-session-guard.js'
       - 'src/student-exam-background.js'
       - 'functions/api/exam/generate.ts'
