@@ -35,6 +35,10 @@ import { TEACHER_DELETE_CASCADE_SQL, TEACHER_DELETE_CALL_SQL, parseTeacherDeleti
 import { STUDENT_DELETE_CASCADE_SQL, STUDENT_DELETE_CALL_SQL, parseStudentDeletionResult, studentDeleteHttpError } from './src/student-delete-cascade';
 import { USER_DELETE_CASCADE_SQL, USER_DELETE_CALL_SQL, parseUserDeletionResult, userDeleteHttpError } from './src/user-delete-cascade';
 import { onRequestPost as hardenedExamGradeHandler } from './functions/api/exam/grade';
+import { onRequestPost as hardenedExamStartHandler } from './functions/api/exam/start';
+import { onRequestPost as hardenedExamSaveHandler } from './functions/api/exam/save';
+import { onRequestPost as hardenedExamViolationHandler } from './functions/api/exam/violation';
+import { onRequestPost as hardenedExamResumeHandler } from './functions/api/exam/resume';
 
 dotenv.config({ override: true });
 
@@ -5606,6 +5610,49 @@ async function getServerSecret(): Promise<string> {
           return res.status(500).json({ error: 'Lỗi khi tạo file Word đề thi: ' + (err.message || err) });
       }
   });
+
+  // Các endpoint phiên thi local/dev dùng đúng handler Cloudflare production
+  // để không có hai logic thời gian/resume khác nhau giữa môi trường.
+  const invokeExamPagesPostHandler = async (req: any, res: any, handler: any, label: string) => {
+      try {
+          const protocol = req.protocol || 'http';
+          const host = req.get('host') || `localhost:${PORT}`;
+          const requestUrl = `${protocol}://${host}${req.originalUrl || req.url || '/api/exam'}`;
+          const webHeaders = new Headers();
+          for (const [name, value] of Object.entries(req.headers || {})) {
+              if (value === undefined) continue;
+              if (Array.isArray(value)) {
+                  for (const item of value) webHeaders.append(name, String(item));
+              } else {
+                  webHeaders.set(name, String(value));
+              }
+          }
+          webHeaders.set('content-type', 'application/json');
+          const webRequest = new Request(requestUrl, {
+              method: 'POST',
+              headers: webHeaders,
+              body: JSON.stringify(req.body || {})
+          });
+          const response = await handler({ request: webRequest, env: process.env } as any);
+          res.status(response.status);
+          response.headers.forEach((value: string, name: string) => {
+              if (name.toLowerCase() !== 'content-length') res.setHeader(name, value);
+          });
+          return res.send(await response.text());
+      } catch (err: any) {
+          console.error(`Local hardened ${label} adapter error:`, err);
+          return res.status(500).json({ error: 'Không thể xử lý phiên thi bằng engine thống nhất.' });
+      }
+  };
+
+  app.post("/api/exam/start", (req, res) =>
+      invokeExamPagesPostHandler(req, res, hardenedExamStartHandler, '/api/exam/start'));
+  app.post("/api/exam/save", (req, res) =>
+      invokeExamPagesPostHandler(req, res, hardenedExamSaveHandler, '/api/exam/save'));
+  app.post("/api/exam/violation", (req, res) =>
+      invokeExamPagesPostHandler(req, res, hardenedExamViolationHandler, '/api/exam/violation'));
+  app.post("/api/exam/resume", (req, res) =>
+      invokeExamPagesPostHandler(req, res, hardenedExamResumeHandler, '/api/exam/resume'));
 
   // Dùng duy nhất engine chấm đã được harden ở Cloudflare Functions.
   // Local/dev không duy trì một bản logic chấm riêng để tránh sai lệch điểm, thời gian,
