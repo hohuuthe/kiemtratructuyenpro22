@@ -118,6 +118,8 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
           attempt_no INTEGER NOT NULL,
           session_id TEXT NOT NULL UNIQUE,
           started_at TEXT NOT NULL,
+          completed_at TEXT,
+          result_id TEXT,
           PRIMARY KEY (exam_id, candidate_key, attempt_no)
         )
       `).run();
