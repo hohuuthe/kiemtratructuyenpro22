@@ -898,11 +898,19 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
         }
 
         if (gradingSessionId) {
-            try {
-                await db.prepare('DELETE FROM _exam_grade_sessions WHERE session_id = ?')
-                    .bind(String(gradingSessionId)).run();
-            } catch (cleanupErr) {
-                console.warn('Could not delete consumed grading snapshot:', cleanupErr);
+            const consumedSessionId = String(gradingSessionId);
+            // Chỉ dọn dữ liệu kỹ thuật sau khi kết quả đã được persist. Mỗi DELETE
+            // là best-effort độc lập; lỗi dọn rác không được làm mất kết quả đã chấm.
+            for (const [sql, label] of [
+                ['DELETE FROM _exam_answer_drafts WHERE session_id = ?', 'answer draft'],
+                ['DELETE FROM _exam_violation_events WHERE session_id = ?', 'violation events'],
+                ['DELETE FROM _exam_grade_sessions WHERE session_id = ?', 'grading snapshot']
+            ]) {
+                try {
+                    await db.prepare(sql).bind(consumedSessionId).run();
+                } catch (cleanupErr) {
+                    console.warn(`Could not delete consumed exam ${label}:`, cleanupErr);
+                }
             }
         }
 
