@@ -87,10 +87,11 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
     // The start endpoint is the authoritative attempt gate. A slot is consumed
     // exactly when the student actually enters the exam, not while viewing the ready dialog.
-    if (!session.started_at && maxAttempts > 0) {
+    // Even an unlimited-attempt exam permits only ONE active session per candidate.
+    if (!session.started_at) {
       if (!examId) {
         return new Response(JSON.stringify({
-          error: 'Không xác định được mã đề thi để khóa lượt làm bài.'
+          error: 'Không xác định được mã đề thi để khóa phiên làm bài.'
         }), { status: 409, headers: corsHeaders });
       }
 
@@ -107,7 +108,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
       if (!signedStudentUserId && !normalizeGuestKeyPart(guestName)) {
         return new Response(JSON.stringify({
-          error: 'Không xác định được danh tính thí sinh để khóa lượt làm bài.'
+          error: 'Không xác định được danh tính thí sinh để khóa phiên làm bài.'
         }), { status: 409, headers: corsHeaders });
       }
 
@@ -138,8 +139,8 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         }), { status: 503, headers: corsHeaders });
       }
 
-      // An expired session still consumes its attempt slot, but it must no longer
-      // block the candidate from starting the next allowed attempt.
+      // An expired session still consumes its attempt number, but it must no longer
+      // block the candidate from starting a later allowed attempt.
       await db.prepare(
         "UPDATE _exam_attempt_slots SET completed_at = COALESCE(completed_at, expires_at) WHERE completed_at IS NULL AND expires_at IS NOT NULL AND expires_at < ?"
       ).bind(new Date().toISOString()).run();
@@ -161,74 +162,75 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
           }), { status: 409, headers: corsHeaders });
         }
 
-        let completedCount = 0;
+        let historicalCompletedCount = 0;
         if (signedStudentUserId) {
           const row: any = await db.prepare(
             'SELECT COUNT(*) AS count FROM results WHERE exam_id = ? AND user_id = ?'
           ).bind(examId, signedStudentUserId).first();
-          completedCount = Math.max(0, Number(row?.count || 0));
+          historicalCompletedCount = Math.max(0, Number(row?.count || 0));
         } else {
-          // Compatibility with historical guest results: guest identity was stored
-          // by name. New sessions additionally use class/unit in candidate_key to
-          // prevent concurrent slot collisions among distinct signed guest identities.
+          // For legacy guest results, match the full available identity rather than
+          // name alone to avoid consuming another student's attempt when names collide.
           const row: any = await db.prepare(
-            'SELECT COUNT(*) AS count FROM results WHERE exam_id = ? AND LOWER(TRIM(student_name)) = LOWER(TRIM(?))'
-          ).bind(examId, guestName).first();
-          completedCount = Math.max(0, Number(row?.count || 0));
+            `SELECT COUNT(*) AS count
+               FROM results
+              WHERE exam_id = ?
+                AND LOWER(TRIM(student_name)) = LOWER(TRIM(?))
+                AND LOWER(TRIM(COALESCE(lop, ''))) = LOWER(TRIM(?))
+                AND LOWER(TRIM(COALESCE(donvi, ''))) = LOWER(TRIM(?))`
+          ).bind(examId, guestName, String(decoded.studentLop || guestClass || ''), guestUnit).first();
+          historicalCompletedCount = Math.max(0, Number(row?.count || 0));
         }
 
-        if (completedCount >= maxAttempts) {
+        const slotMaxRow: any = await db.prepare(
+          'SELECT MAX(attempt_no) AS max_attempt_no FROM _exam_attempt_slots WHERE exam_id = ? AND candidate_key = ?'
+        ).bind(examId, candidateKey).first();
+        const highestReservedAttempt = Math.max(0, Number(slotMaxRow?.max_attempt_no || 0));
+        const nextAttempt = Math.max(historicalCompletedCount, highestReservedAttempt) + 1;
+
+        if (maxAttempts > 0 && nextAttempt > maxAttempts) {
           return new Response(JSON.stringify({
             code: 'EXAM_ATTEMPT_LIMIT_REACHED',
-            attemptCount: completedCount,
+            attemptCount: Math.max(historicalCompletedCount, highestReservedAttempt),
             maxAttempts,
-            error: `Bạn đã đạt giới hạn số lần làm bài thi này! (Bạn đã hoàn thành ${completedCount} lần / Tối đa ${maxAttempts} lần làm bài quy định).`
+            error: `Bạn đã đạt giới hạn ${maxAttempts} lượt làm bài được phép.`
           }), { status: 403, headers: corsHeaders });
         }
 
         const slotStartedAt = new Date().toISOString();
         const signedLimitSeconds = Math.max(1, Math.floor(Number(decoded.timeLimitSeconds) || 1));
         const attemptExpiresAt = new Date(Date.now() + (signedLimitSeconds + 15) * 1000).toISOString();
-        for (let slot = completedCount + 1; slot <= maxAttempts; slot++) {
-          const insert = await db.prepare(
-            `INSERT INTO _exam_attempt_slots
-              (exam_id, candidate_key, attempt_no, session_id, started_at, expires_at)
-             VALUES (?, ?, ?, ?, ?, ?)
-             ON CONFLICT DO NOTHING`
-          ).bind(examId, candidateKey, slot, sessionId, slotStartedAt, attemptExpiresAt).run();
+        const insert = await db.prepare(
+          `INSERT INTO _exam_attempt_slots
+            (exam_id, candidate_key, attempt_no, session_id, started_at, expires_at)
+           VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT DO NOTHING`
+        ).bind(examId, candidateKey, nextAttempt, sessionId, slotStartedAt, attemptExpiresAt).run();
 
-          if (Number(insert?.meta?.changes || 0) === 1) {
-            attemptNumber = slot;
-            break;
-          }
-
-          // A concurrent request for this same session may have won the unique
-          // session_id race. Re-read before trying another attempt slot.
+        if (Number(insert?.meta?.changes || 0) === 1) {
+          attemptNumber = nextAttempt;
+        } else {
+          // Resolve both possible races deterministically: the same session may have
+          // been inserted by a retry, or another session may have won the one-active lock.
           const sameSession: any = await db.prepare(
             'SELECT attempt_no FROM _exam_attempt_slots WHERE session_id = ?'
           ).bind(sessionId).first();
           if (sameSession?.attempt_no) {
             attemptNumber = Number(sameSession.attempt_no);
-            break;
-          }
-          const concurrentActive: any = await db.prepare(
-            'SELECT session_id FROM _exam_attempt_slots WHERE exam_id = ? AND candidate_key = ? AND completed_at IS NULL LIMIT 1'
-          ).bind(examId, candidateKey).first();
-          if (concurrentActive) {
+          } else {
+            const concurrentActive: any = await db.prepare(
+              'SELECT session_id FROM _exam_attempt_slots WHERE exam_id = ? AND candidate_key = ? AND completed_at IS NULL LIMIT 1'
+            ).bind(examId, candidateKey).first();
+            if (concurrentActive) {
+              return new Response(JSON.stringify({
+                code: 'EXAM_ATTEMPT_ALREADY_ACTIVE',
+                error: 'Một lượt làm bài khác vừa được bắt đầu. Hệ thống không cho phép hai lượt chạy đồng thời.'
+              }), { status: 409, headers: corsHeaders });
+            }
             return new Response(JSON.stringify({
-              code: 'EXAM_ATTEMPT_ALREADY_ACTIVE',
-              error: 'Một lượt làm bài khác vừa được bắt đầu. Hệ thống không cho phép hai lượt chạy đồng thời.'
+              error: 'Không thể giữ chỗ lượt làm bài một cách nguyên tử. Vui lòng thử lại.'
             }), { status: 409, headers: corsHeaders });
           }
-        }
-
-        if (!attemptNumber) {
-          return new Response(JSON.stringify({
-            code: 'EXAM_ATTEMPT_LIMIT_REACHED',
-            attemptCount: maxAttempts,
-            maxAttempts,
-            error: `Bạn đã đạt giới hạn ${maxAttempts} lượt làm bài được phép.`
-          }), { status: 403, headers: corsHeaders });
         }
       }
     }
