@@ -467,3 +467,17 @@ test('seventh audit: changing an answer invalidates stale immediate feedback', (
   assert.match(main, /requestImmediateExamFeedback\(index, option\)/);
   assert.match(main, /selectedCorrect === true/);
 });
+
+
+test('eighth audit: exact identity prevents false attempt-limit collisions', () => {
+  const generate = fs.readFileSync(new URL('../functions/api/exam/generate.ts', import.meta.url), 'utf8');
+  const start = fs.readFileSync(new URL('../functions/api/exam/start.ts', import.meta.url), 'utf8');
+  assert.match(generate, /COUNT\(\*\) AS count FROM results WHERE exam_id = \? AND user_id = \?/);
+  assert.match(generate, /COALESCE\(lop, ''\)/);
+  assert.match(generate, /COALESCE\(don_vi, ''\)/);
+  assert.doesNotMatch(generate, /user_id[^\n]+OR[^\n]+student_name/);
+  assert.match(start, /Even an unlimited-attempt exam permits only ONE active session/);
+  assert.match(start, /MAX\(attempt_no\) AS max_attempt_no/);
+  assert.match(start, /nextAttempt > maxAttempts/);
+  assert.match(start, /COALESCE\(don_vi, ''\)/);
+});
