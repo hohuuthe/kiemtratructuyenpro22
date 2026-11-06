@@ -19,6 +19,11 @@ export const onRequestOptions: PagesFunction<Env> = async () => {
   return new Response(null, { status: 204, headers: corsHeaders });
 };
 
+const finiteNumber = (value: any, fallback = 1): number => {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+};
+
 export const onRequestPost: PagesFunction<Env> = async (context) => {
   const db = getDatabase(context);
     const { request, env } = context;
@@ -111,10 +116,10 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                 countTF4: targetCountTF4,
                 countSQ: targetCountSQ,
                 countTL: targetCountTL,
-                points41: Number(mappedExam.points_41 ?? mappedExam.points41 ?? 1) || 1,
-                pointsTF4: Number(mappedExam.points_tf4 ?? mappedExam.pointsTF4 ?? 1) || 1,
-                pointsSQ: Number(mappedExam.points_sq ?? mappedExam.pointsSQ ?? 1) || 1,
-                pointsTL: Number(mappedExam.points_tl ?? mappedExam.pointsTL ?? 1) || 1,
+                points41: finiteNumber(mappedExam.points_41 ?? mappedExam.points41, 1),
+                pointsTF4: finiteNumber(mappedExam.points_tf4 ?? mappedExam.pointsTF4, 1),
+                pointsSQ: finiteNumber(mappedExam.points_sq ?? mappedExam.pointsSQ, 1),
+                pointsTL: finiteNumber(mappedExam.points_tl ?? mappedExam.pointsTL, 1),
                 count41NB: Number(finalCountsDetail.count41NB || 0),
                 count41TH: Number(finalCountsDetail.count41TH || 0),
                 count41VD: Number(finalCountsDetail.count41VD || 0),
@@ -147,10 +152,10 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                 countTF4: targetCountTF4,
                 countSQ: targetCountSQ,
                 countTL: targetCountTL,
-                points41: Number(examConfig.points41 ?? examConfig.points_41 ?? 1) || 1,
-                pointsTF4: Number(examConfig.pointsTF4 ?? examConfig.points_tf4 ?? 1) || 1,
-                pointsSQ: Number(examConfig.pointsSQ ?? examConfig.points_sq ?? 1) || 1,
-                pointsTL: Number(examConfig.pointsTL ?? examConfig.points_tl ?? 1) || 1,
+                points41: finiteNumber(examConfig.points41 ?? examConfig.points_41, 1),
+                pointsTF4: finiteNumber(examConfig.pointsTF4 ?? examConfig.points_tf4, 1),
+                pointsSQ: finiteNumber(examConfig.pointsSQ ?? examConfig.points_sq, 1),
+                pointsTL: finiteNumber(examConfig.pointsTL ?? examConfig.points_tl, 1),
                 immediate_feedback: immediateVal,
                 immediateFeedback: Boolean(immediateVal === 1),
                 maxCheatWarnings: maxCheatWarningsFromDB 
