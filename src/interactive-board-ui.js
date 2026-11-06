@@ -1162,8 +1162,9 @@ export function initInteractiveBoards(user){
  actor=user||null;const role=String(actor?.role||'').toLowerCase(),aud=String(actor?.target_audience||'').toLowerCase();
  const isAdmin=role==='admin'||aud==='quản trị viên';
  const isTeacher=role==='teacher'||role==='giáo viên'||aud==='giáo viên';
- manage=isAdmin||isTeacher;
- canCreateBoard=isAdmin||(isTeacher&&vipFlag(actor?.is_vip));
+ const isStudent=role==='student'||role==='học sinh'||aud==='học sinh';
+ manage=!isStudent&&(isAdmin||isTeacher);
+ canCreateBoard=!isStudent&&(isAdmin||(isTeacher&&vipFlag(actor?.is_vip)));
  $('boards-new')?.classList.toggle('hidden',!canCreateBoard);load();
 }
 export function connectInteractiveBoards(){
