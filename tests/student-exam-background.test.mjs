@@ -21,6 +21,8 @@ test('background menu exposes add or replace and remove actions', () => {
   assert.match(moduleSource, /Xóa hình nền đang áp dụng/);
   assert.match(moduleSource, /clearStudentExamBackground\(\)/);
   assert.match(moduleSource, /disabled = !active/);
+  assert.match(moduleSource, /data-background-remove-help/);
+  assert.match(css, /student-exam-background-action\.is-danger\{background:#fff7f7/);
 });
 
 test('background module persists, restores and applies the image to exam interface', () => {
