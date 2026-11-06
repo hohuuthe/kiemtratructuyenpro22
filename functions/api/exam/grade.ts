@@ -162,8 +162,8 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                 await db.prepare(sql).run();
             }
 
-            const existing: any = await db.prepare(
-                "SELECT token_hash, status, result_id FROM _submitted_exam_tokens WHERE token_hash = ?"
+            let existing: any = await db.prepare(
+                "SELECT token_hash, status, result_id, claimed_at FROM _submitted_exam_tokens WHERE token_hash = ?"
             ).bind(tokenHash).first();
             if (existing) {
                 if (existing.result_id) {
@@ -198,9 +198,27 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                         }), { status: 200, headers: corsHeaders });
                     }
                 }
-                return new Response(JSON.stringify({
-                    error: 'Phiên thi đang được xử lý hoặc đã được nộp trước đó. Hệ thống không tạo thêm bản ghi điểm.'
-                }), { status: 409, headers: corsHeaders });
+
+                // The atomic claim is taken only after all grading has completed, so a
+                // processing claim without a result for >120s is a crash residue, not
+                // legitimate long-running AI grading. Reclaim it with a compare-and-delete.
+                const claimedAtMs = Date.parse(String(existing.claimed_at || ''));
+                const staleProcessingClaim = existing.status === 'processing' &&
+                    Number.isFinite(claimedAtMs) && Date.now() - claimedAtMs > 120000;
+                if (staleProcessingClaim) {
+                    const released = await db.prepare(
+                        "DELETE FROM _submitted_exam_tokens WHERE token_hash = ? AND status = ? AND claimed_at = ? AND NOT EXISTS (SELECT 1 FROM results WHERE id = ?)"
+                    ).bind(tokenHash, 'processing', String(existing.claimed_at), String(existing.result_id || '')).run();
+                    if (Number(released?.meta?.changes || 0) === 1) {
+                        existing = null;
+                    }
+                }
+
+                if (existing) {
+                    return new Response(JSON.stringify({
+                        error: 'Phiên thi đang được xử lý hoặc đã được nộp trước đó. Hệ thống không tạo thêm bản ghi điểm.'
+                    }), { status: 409, headers: corsHeaders });
+                }
             }
 
             // Do not claim yet. All validation/grading errors above result persistence
