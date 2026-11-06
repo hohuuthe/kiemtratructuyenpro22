@@ -139,11 +139,12 @@ function clearAuthToken() {
 
 function updateSelection(tab) {
   const ids = selectedAccountIds(tab);
-  const count = document.getElementById('account-password-reset-count');
   const button = document.getElementById('account-password-reset-open');
-  if (count) count.textContent = String(ids.length);
   if (button) {
     button.disabled = ids.length === 0;
+    button.innerHTML = ids.length
+      ? `🔑 Reset mật khẩu <span class="management-action-count">(${ids.length})</span>`
+      : '🔑 Reset mật khẩu';
     button.title = ids.length
       ? `Reset mật khẩu cho ${ids.length} tài khoản đã chọn`
       : 'Hãy chọn ít nhất một tài khoản';
@@ -298,10 +299,11 @@ function ensureStyles() {
   const style = document.createElement('style');
   style.id = 'account-password-reset-style';
   style.textContent = `
-    .account-password-reset-tools{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 14px;padding:12px 14px;border:1px solid #ddd6fe;border-radius:14px;background:#faf5ff}
-    .account-password-reset-tools strong{display:block;color:#4c1d95;font-size:13px}.account-password-reset-tools small{display:block;margin-top:2px;color:#6b7280;font-size:11px}
-    #account-password-reset-open{border:0;border-radius:10px;padding:9px 13px;background:#7c3aed;color:#fff;font-weight:800;font-size:12px;cursor:pointer}
+    .management-native-actions{display:flex!important;flex-wrap:nowrap!important;align-items:center!important;gap:8px!important;overflow-x:auto!important;overflow-y:hidden!important;padding-bottom:3px;scrollbar-width:thin;-webkit-overflow-scrolling:touch}
+    .management-native-actions>button,.management-native-actions>label{flex:0 0 auto!important}
+    #account-password-reset-open{border:0;border-radius:10px;padding:9px 13px;background:#7c3aed;color:#fff;font-weight:800;font-size:12px;cursor:pointer;white-space:nowrap;box-shadow:0 2px 6px rgba(124,58,237,.18)}
     #account-password-reset-open:disabled{cursor:not-allowed;opacity:.45}
+    .management-action-count{font-weight:900}
     .account-reset-select{display:inline-flex;align-items:center;margin-right:8px;vertical-align:middle}
     .account-reset-row-checkbox{width:17px;height:17px;accent-color:#7c3aed;cursor:pointer}
     .account-password-reset-modal{position:fixed;inset:0;z-index:1000005;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(15,23,42,.58);backdrop-filter:blur(5px)}
@@ -321,7 +323,7 @@ function ensureStyles() {
     .account-password-reset-actions button{border-radius:10px;padding:9px 13px;font-size:12px;font-weight:800}
     .account-password-reset-cancel{border:1px solid #cbd5e1;background:#fff;color:#475569}.account-password-reset-submit{border:0;background:#7c3aed;color:#fff}
     .account-password-reset-submit:disabled{opacity:.55;cursor:wait}
-    @media(max-width:640px){.account-password-reset-tools{align-items:stretch;flex-direction:column}#account-password-reset-open{width:100%}.account-password-reset-actions{display:grid;grid-template-columns:1fr 1fr}}
+    @media(max-width:640px){#account-password-reset-open{width:auto}.account-password-reset-actions{display:grid;grid-template-columns:1fr 1fr}}
   `;
   document.head.append(style);
 }
@@ -332,23 +334,48 @@ function accountTabIsAvailable(tab) {
   return tab.children.length > 0;
 }
 
+function findAccountActionBar(tab) {
+  const anchors = [
+    document.getElementById('btn-delete-selected-accounts'),
+    ...Array.from(tab.querySelectorAll('button')).filter(button => {
+      const label = String(button.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+      return label.includes('xuất excel') || label.includes('nhập excel') || label === '+ thêm' || label.includes('thêm tài khoản');
+    })
+  ].filter(Boolean);
+
+  for (const anchor of anchors) {
+    const parent = anchor.parentElement;
+    if (parent && parent !== tab) return parent;
+  }
+  return null;
+}
+
 function ensureTools() {
   const tab = document.getElementById('tab-accounts');
   if (!tab || !accountTabIsAvailable(tab)) return;
   injectCheckboxesWhenMissing(tab);
 
-  if (!document.getElementById('account-password-reset-tools')) {
-    const tools = document.createElement('div');
-    tools.id = 'account-password-reset-tools';
-    tools.className = 'account-password-reset-tools';
-    tools.innerHTML = `
-      <div>
-        <strong>Reset mật khẩu hàng loạt · Đã chọn <span id="account-password-reset-count">0</span> tài khoản</strong>
-        <small>Chọn một hoặc nhiều tài khoản trong danh sách rồi đặt mật khẩu mặc định mới.</small>
-      </div>
-      <button type="button" id="account-password-reset-open" disabled>🔑 Reset mật khẩu</button>`;
-    tab.prepend(tools);
-    tools.querySelector('#account-password-reset-open')?.addEventListener('click', () => openModal(tab));
+  // Xóa khối chức năng cũ nếu còn tồn tại từ bản trước.
+  document.getElementById('account-password-reset-tools')?.remove();
+
+  const actionBar = findAccountActionBar(tab);
+  if (actionBar) {
+    actionBar.classList.add('management-native-actions');
+    let button = document.getElementById('account-password-reset-open');
+    if (!button) {
+      button = document.createElement('button');
+      button.type = 'button';
+      button.id = 'account-password-reset-open';
+      button.disabled = true;
+      button.textContent = '🔑 Reset mật khẩu';
+      button.addEventListener('click', () => openModal(tab));
+
+      const deleteButton = document.getElementById('btn-delete-selected-accounts');
+      if (deleteButton?.parentElement === actionBar) deleteButton.after(button);
+      else actionBar.append(button);
+    } else if (button.parentElement !== actionBar) {
+      actionBar.append(button);
+    }
   }
 
   if (!tab.dataset.passwordResetBound) {
