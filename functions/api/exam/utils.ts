@@ -86,8 +86,22 @@ export function isLiveAccount(row: any): boolean {
     const notExpired = (value: any) => {
       if (!value) return true;
       const raw = String(value).trim();
-      const date = /^\d{4}-\d{2}-\d{2}$/.test(raw)
-        ? raw + 'T23:59:59.999+07:00' : raw;
+      let date = raw;
+      if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+        date = raw + 'T23:59:59.999+07:00';
+      } else {
+        const vi = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+        if (vi) {
+          const day = Number(vi[1]);
+          const month = Number(vi[2]);
+          const year = Number(vi[3]);
+          const probe = new Date(Date.UTC(year, month - 1, day));
+          if (probe.getUTCFullYear() !== year || probe.getUTCMonth() !== month - 1 || probe.getUTCDate() !== day) {
+            return false;
+          }
+          date = `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T23:59:59.999+07:00`;
+        }
+      }
       const at = Date.parse(date);
       return Number.isFinite(at) && at >= now;
     };
