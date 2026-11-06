@@ -135,16 +135,49 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     let revision = 0;
     let savedAt = null;
     try {
-      const draft: any = await db.prepare(
+      await db.prepare(`
+        CREATE TABLE IF NOT EXISTS _exam_answer_drafts (
+          session_id TEXT PRIMARY KEY,
+          answers_json TEXT NOT NULL,
+          revision INTEGER NOT NULL DEFAULT 0,
+          saved_at TEXT NOT NULL
+        )
+      `).run();
+
+      let draft: any = await db.prepare(
         'SELECT answers_json, revision, saved_at FROM _exam_answer_drafts WHERE session_id = ?'
       ).bind(gradingSessionId).first();
+
+      // Tự-heal race cực hiếm: start đã claim thời gian nhưng Worker chết trước
+      // khi baseline draft được tạo. Chỉ tạo mảng trống, tuyệt đối không thêm đáp án.
+      if (!draft) {
+        const baselineSavedAt = session.started_at || new Date(timing.startedAtMs).toISOString();
+        await db.prepare(`
+          INSERT INTO _exam_answer_drafts (session_id, answers_json, revision, saved_at)
+          VALUES (?, ?, 0, ?)
+          ON CONFLICT (session_id) DO NOTHING
+        `).bind(
+          gradingSessionId,
+          JSON.stringify(new Array(questionIds.length).fill(null)),
+          baselineSavedAt
+        ).run();
+        draft = await db.prepare(
+          'SELECT answers_json, revision, saved_at FROM _exam_answer_drafts WHERE session_id = ?'
+        ).bind(gradingSessionId).first();
+      }
+
       if (draft?.answers_json) {
         const parsed = JSON.parse(String(draft.answers_json || '[]'));
         if (Array.isArray(parsed) && parsed.length === questionIds.length) answers = parsed;
         revision = Math.max(0, Number(draft.revision) || 0);
         savedAt = draft.saved_at || null;
       }
-    } catch {}
+    } catch (draftError) {
+      console.error('Cannot restore/create resume draft:', draftError);
+      return new Response(JSON.stringify({
+        error: 'Không thể khôi phục bản lưu bài thi an toàn.'
+      }), { status: 503, headers: corsHeaders });
+    }
 
     let cheatWarningCount = 0;
     try {
