@@ -36,7 +36,7 @@ const normalizeType = (type: any): string => {
 
 function sanitizeGradingDetailForClient(detail: any, showDetails: boolean): any {
     if (showDetails) return detail;
-    const { correctAnswer, aiFeedback, isCorrect, correctStatements, ...safeD } = detail || {};
+    const { correctAnswer, aiFeedback, aiSuggestedScore, isCorrect, correctStatements, ...safeD } = detail || {};
     const question = safeD.question && typeof safeD.question === 'object' ? safeD.question : {};
     const { answer, ...safeQuestion } = question;
     if (safeQuestion.options && typeof safeQuestion.options === 'object') {
@@ -611,11 +611,13 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
                                         continue;
                                     }
                                     const essayScore = roundScore(numericEssayScore, 2);
-                                    d.score = essayScore;
+                                    // AI semantic grading is advisory only. For an
+                                    // auditable final score, a teacher must confirm it.
+                                    d.aiSuggestedScore = essayScore;
+                                    d.score = 0;
                                     d.aiFeedback = typeof parsed?.feedback === 'string' ? parsed.feedback : '';
-                                    d.gradingStatus = 'completed';
-                                    d.needsGrading = false;
-                                    rawEarnedScore += essayScore;
+                                    d.gradingStatus = 'pending_manual_ai_suggested';
+                                    d.needsGrading = true;
                                     gradedSuccessfully = true;
                                     break;
                                 }
