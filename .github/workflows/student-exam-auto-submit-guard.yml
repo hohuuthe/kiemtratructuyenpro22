@@ -7,6 +7,11 @@ on:
       - 'src/student-exam-session-guard.js'
       - 'src/student-exam-background.js'
       - 'functions/api/exam/generate.ts'
+      - 'functions/api/exam/start.ts'
+      - 'functions/api/exam/save.ts'
+      - 'functions/api/exam/grade.ts'
+      - 'src/exam-time-authority.js'
+      - 'functions/[slug]/api/[[path]].ts'
       - 'tests/student-exam-auto-submit-guard.test.mjs'
       - '.github/workflows/student-exam-auto-submit-guard.yml'
   push:
@@ -15,6 +20,11 @@ on:
       - 'src/student-exam-session-guard.js'
       - 'src/student-exam-background.js'
       - 'functions/api/exam/generate.ts'
+      - 'functions/api/exam/start.ts'
+      - 'functions/api/exam/save.ts'
+      - 'functions/api/exam/grade.ts'
+      - 'src/exam-time-authority.js'
+      - 'functions/[slug]/api/[[path]].ts'
       - 'tests/student-exam-auto-submit-guard.test.mjs'
       - '.github/workflows/student-exam-auto-submit-guard.yml'
 
