@@ -89,6 +89,63 @@ export async function queryOwnResultHistory(db: any, user: any, url: URL) {
       return reply({ data: projected, total: projected.length, exam_id: requestedExamId, error: null });
     }
 
+    const grouped = url.searchParams.get('grouped') === '1';
+
+    // Main student result screen is grouped by immutable exam ID. Pagination is
+    // therefore by exam, never by individual attempt. Individual attempts are
+    // fetched only through the examId branch above after the student clicks.
+    if (grouped) {
+      const limitRaw = Number(url.searchParams.get('limit') || 30);
+      const offsetRaw = Number(url.searchParams.get('offset') || 0);
+      if (!Number.isSafeInteger(limitRaw) || limitRaw < 1 || limitRaw > 100 ||
+          !Number.isSafeInteger(offsetRaw) || offsetRaw < 0 || offsetRaw > 1000000) {
+        return reply({ error: 'Tham số phân trang không hợp lệ.' }, 400);
+      }
+
+      const groupKey = "COALESCE(NULLIF(TRIM(r.exam_id), ''), 'legacy-result:' || r.id)";
+      const totalAttemptsRow: any = await db.prepare(
+        'SELECT COUNT(*) AS total FROM results WHERE ' + scope
+      ).bind(...ids).first();
+      const totalExamsRow: any = await db.prepare(
+        "SELECT COUNT(DISTINCT COALESCE(NULLIF(TRIM(exam_id), ''), 'legacy-result:' || id)) AS total FROM results WHERE " + scope
+      ).bind(...ids).first();
+
+      const groupedSql =
+        'WITH ranked AS (' +
+        ' SELECT r.id, r.exam_id, r.exam_name, r.score, r.correct_count, r.total_questions, ' +
+        'r.time_taken, r.created_at, r.cheat_warning_count, ec.show_score AS exam_show_score, ' +
+        'ec.show_details AS exam_show_details, ' +
+        'COUNT(*) OVER (PARTITION BY ' + groupKey + ') AS attempt_count, ' +
+        'MAX(r.created_at) OVER (PARTITION BY ' + groupKey + ') AS latest_created_at, ' +
+        'ROW_NUMBER() OVER (PARTITION BY ' + groupKey +
+        ' ORDER BY r.score DESC NULLS LAST, r.created_at DESC, r.id DESC) AS pick_rank ' +
+        'FROM results r LEFT JOIN exam_configs ec ON ec.id = r.exam_id WHERE r.' + scope +
+        ') SELECT * FROM ranked WHERE pick_rank = 1 ' +
+        'ORDER BY latest_created_at DESC, id DESC LIMIT ? OFFSET ?';
+
+      const response: any = await db.prepare(groupedSql).bind(...ids, limitRaw, offsetRaw).all();
+      const rows = Array.isArray(response?.results) ? response.results : [];
+      const projected = rows.map((row: any) => ({
+        ...projectStudentResultRow({ ...row, created_at: row.latest_created_at || row.created_at }),
+        attempt_count: Math.max(1, Math.floor(Number(row.attempt_count) || 1)),
+        latest_created_at: row.latest_created_at || row.created_at,
+        is_grouped: true
+      }));
+      const totalAttempts = Math.max(0, Number(totalAttemptsRow?.total) || 0);
+      const totalExams = Math.max(0, Number(totalExamsRow?.total) || 0);
+      return reply({
+        data: projected,
+        total: totalExams,
+        total_exams: totalExams,
+        total_attempts: totalAttempts,
+        limit: limitRaw,
+        offset: offsetRaw,
+        has_more: offsetRaw + rows.length < totalExams,
+        grouped: true,
+        error: null
+      });
+    }
+
     // Small, bounded pages prevent large database dumps to student browsers.
     const limitRaw = Number(url.searchParams.get('limit') || 30);
     const offsetRaw = Number(url.searchParams.get('offset') || 0);

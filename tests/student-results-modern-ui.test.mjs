@@ -64,7 +64,7 @@ test('Original student-only private API contract is retained',()=>{
     const to=app.indexOf('window.refreshRankingResults',from);
     assert.ok(from>0 && to>from);
     const segment=app.slice(from,to);
-    assert.match(segment,/fetch\('\/api\/results\/me\?limit=30&offset='/);
+    assert.match(segment,/fetch\('\/api\/results\/me\?grouped=1&limit=30&offset='/);
     assert.match(segment,/fetch\('\/api\/results\/me\?id='/);
     assert.doesNotMatch(segment,/fetch\('\/api\/results\?/);
     assert.match(segment,/seq !== myStudentRequestSeq/);
@@ -127,4 +127,14 @@ test('Student result cards always show the recorded violation count',()=>{
     assert.match(ui,/Math\.max\(0, Math\.floor\(Number\(result\.cheat_warning_count\) \|\| 0\)\)/);
     assert.match(css,/\.student-result-violation\.no-violation/);
     assert.match(css,/\.student-result-violation\.has-violation/);
+});
+
+test('Grouped student result cards show one exam summary and defer attempt details',()=>{
+    const ui=readFileSync('src/student-results-ui.js','utf8');
+    const app=readFileSync('src/main.js','utf8');
+    assert.match(app,/\/api\/results\/me\?grouped=1&limit=30&offset=/);
+    assert.match(ui,/result\.is_grouped === true/);
+    assert.match(ui,/attempt_count/);
+    assert.match(ui,/điểm cao nhất/);
+    assert.match(ui,/!isGrouped && canDetail/);
 });

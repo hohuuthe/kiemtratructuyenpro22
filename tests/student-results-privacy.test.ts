@@ -102,7 +102,7 @@ test('Student view does not fetch bulk results and clears cross-login data',()=>
  assert.ok(loadData.includes("fetch('/api/bootstrap',{cache:'no-store'})"));
  assert.ok(!loadData.includes("fetch('/api/results"));
  assert.ok(!loadData.includes("fetch('/api/accounts"));
- assert.ok(src.includes("fetch('/api/results/me?limit=30&offset='"));
+ assert.ok(src.includes("fetch('/api/results/me?grouped=1&limit=30&offset='"));
  assert.ok(src.includes("resetMyStudentResults();"));
  assert.ok(src.includes('visible = isTeacher || isAdmin || Boolean(currentUser)'));
  assert.ok(html.includes('ranking-student-panel'));
