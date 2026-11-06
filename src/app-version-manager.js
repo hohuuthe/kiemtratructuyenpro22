@@ -104,8 +104,15 @@ function hasVisibleBlockingModal() {
     if (root && Array.from(root.children).some(isVisible)) return true;
   }
 
+  const versionModalRoot = document.getElementById('app-version-update-modal');
+
   return Array.from(document.querySelectorAll('[role="dialog"], dialog[open], .modal:not(.hidden)'))
-    .some((element) => element.id !== 'app-version-update-modal' && isVisible(element));
+    .some((element) => {
+      if (versionModalRoot && (element === versionModalRoot || versionModalRoot.contains(element))) {
+        return false;
+      }
+      return isVisible(element);
+    });
 }
 
 function isEditableElement(element) {
@@ -322,26 +329,19 @@ function showUpdateModal() {
   const reloadButton = document.createElement('button');
   reloadButton.type = 'button';
   reloadButton.className = 'rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-black text-white shadow-sm transition hover:bg-emerald-700 active:scale-[0.98]';
-  reloadButton.textContent = 'Tải phiên bản mới';
+  reloadButton.textContent = 'Khởi động lại';
   reloadButton.addEventListener('click', async () => {
-    if (!pendingVersion) return;
+    if (!pendingVersion || reloadButton.disabled) return;
 
-    if (isUnsafeForVersionPrompt()) {
-      closeUpdateModal();
-      if (typeof window.showToast === 'function') {
-        window.showToast(
-          'Hệ thống đang phát hiện một phiên làm việc chưa an toàn để tải lại. Bản cập nhật sẽ được nhắc lại sau.',
-          'info'
-        );
-      }
-      scheduleSafePrompt();
-      return;
-    }
-
+    const targetVersion = pendingVersion.version;
     reloadButton.disabled = true;
-    reloadButton.textContent = 'Đang cập nhật...';
-    markReloadAttempt(pendingVersion.version);
-    await navigateToLatestVersion(pendingVersion.version, 'user-confirmed');
+    reloadButton.textContent = 'Đang khởi động lại...';
+
+    // Modal chỉ được hiển thị khi hệ thống đã ở trạng thái an toàn. Khi người dùng
+    // chủ động bấm Khởi động lại thì phải đi thẳng vào quy trình reload, tuyệt đối
+    // không chạy lại nhánh kiểm tra modal khiến chính modal cập nhật tự chặn nó.
+    markReloadAttempt(targetVersion);
+    await navigateToLatestVersion(targetVersion, 'user-confirmed');
   });
 
   actions.append(closeButton, reloadButton);
