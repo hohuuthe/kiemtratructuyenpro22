@@ -113,7 +113,14 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             return new Response(JSON.stringify({ error: 'Mã phiên thi không hợp lệ hoặc đã hết hạn.' }), { status: 403, headers: corsHeaders });
         }
 
-        const { questionIds, teacherId, gradingSessionId, studentUserId: sessionStudentUserId } = decoded;
+        const {
+            questionIds, teacherId, gradingSessionId,
+            studentUserId: sessionStudentUserId,
+            studentName: sessionStudentName,
+            studentLop: sessionStudentLop,
+            studentDonvi: sessionStudentDonvi,
+            studentClass: sessionStudentClass
+        } = decoded;
         let examConfig: any = decoded.examConfig || {};
 
         // Verify session ownership BEFORE any replay/result lookup.
@@ -128,6 +135,14 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             authenticatedUserId = signedStudentUserId;
         } else if (!authHeader) {
             authenticatedUserId = null;
+        }
+
+        // Guest identity is frozen into the signed exam token at issue time.
+        // Never let the browser rename/reclassify the candidate at submission.
+        if (!signedStudentUserId) {
+            if (sessionStudentName !== undefined && sessionStudentName !== null) authenticatedStudentName = String(sessionStudentName);
+            if (sessionStudentLop !== undefined && sessionStudentLop !== null) authenticatedLop = String(sessionStudentLop);
+            if (sessionStudentDonvi !== undefined && sessionStudentDonvi !== null) authenticatedDonvi = String(sessionStudentDonvi);
         }
 
         // BẢO MẬT: claim token atomically BEFORE grading so two simultaneous
@@ -200,6 +215,11 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         if (!Array.isArray(questionIds) || !Array.isArray(clientQuestions) || clientQuestions.length !== questionIds.length) {
             return new Response(JSON.stringify({ error: 'Danh sách câu hỏi không khớp với đề thi đã phát.' }), { status: 400, headers: corsHeaders });
         }
+        if (!Array.isArray(studentAnswers) || studentAnswers.length !== questionIds.length) {
+            return new Response(JSON.stringify({
+                error: 'Số lượng đáp án nộp lên không khớp chính xác số câu hỏi đã phát; hệ thống chưa chấm và chưa lưu kết quả.'
+            }), { status: 409, headers: corsHeaders });
+        }
 
         // Khóa tuyệt đối quan hệ vị trí câu hỏi -> đáp án. Chỉ kiểm tra đủ số lượng là chưa đủ:
         // nếu client vô tình/ác ý đảo thứ tự câu hỏi thì đáp án có thể bị chấm sang câu khác.
@@ -242,6 +262,12 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         // 2. Grade against the immutable server-side snapshot issued with this session.
         // Legacy sessions created before this release fall back to the live DB, but all new
         // sessions must have a valid snapshot and fail closed if it is unavailable.
+        if (!gradingSessionId) {
+            return new Response(JSON.stringify({
+                error: 'Phiên thi không có snapshot chấm điểm bất biến; hệ thống từ chối chấm để không dùng đáp án có thể đã thay đổi.'
+            }), { status: 409, headers: corsHeaders });
+        }
+
         let trueQuestionsMap: Record<string | number, any> = {};
         let loadedFromSnapshot = false;
         if (gradingSessionId) {
@@ -292,27 +318,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         }
 
         if (!loadedFromSnapshot) {
-            try {
-                if (questionIds && questionIds.length > 0) {
-                    const placeholders = questionIds.map(() => '?').join(',');
-                    const { results: qRows } = await db.prepare(`SELECT * FROM questions WHERE id IN (${placeholders})`).bind(...questionIds).all();
-                    if (qRows && qRows.length > 0) {
-                        for (const row of qRows) {
-                            let parsedOptions = row.options;
-                            if (typeof parsedOptions === 'string') {
-                                try { parsedOptions = JSON.parse(parsedOptions); } catch { parsedOptions = {}; }
-                            }
-                            trueQuestionsMap[row.id as any] = {
-                                ...row,
-                                type: normalizeType(row.type),
-                                options: parsedOptions || {}
-                            };
-                        }
-                    }
-                }
-            } catch (e) {
-                console.error('Error fetching legacy live questions from DB', e);
-            }
+            return new Response(JSON.stringify({
+                error: 'Không thể xác minh snapshot chấm điểm bất biến; hệ thống chưa chấm và chưa lưu kết quả.'
+            }), { status: 409, headers: corsHeaders });
         }
 
         // Mọi câu phải tồn tại và có khóa đáp án hợp lệ trước khi tính bất kỳ điểm nào.
@@ -718,8 +726,8 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
                             correctCount: Number(stored.correct_count) || 0,
                             totalQuestions: Number(stored.total_questions) || 0,
                             cheatWarningCount: Number(stored.cheat_warning_count) || 0,
-                            gradingPending: hasPendingEssayGrading(storedDetails),
-                            scoreFinalized: !hasPendingEssayGrading(storedDetails),
+                            gradingPending: hasPendingEssayGrading(details),
+                            scoreFinalized: !hasPendingEssayGrading(details),
                             detailedResults: safeDetails,
                             alreadySubmitted: true
                         }), { status: 200, headers: corsHeaders });
@@ -776,9 +784,9 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
                 resultId,
                 authenticatedUserId || null,
                 authenticatedStudentName || studentInfo.name || '',
-                authenticatedDonvi || studentInfo.unit || '',
-                authenticatedLop || studentInfo.lop || '',
-                authenticatedDonvi || studentInfo.donvi || studentInfo.unit || '',
+                authenticatedLop || sessionStudentClass || studentInfo.studentClass || studentInfo.lop || '',
+                authenticatedLop || sessionStudentLop || studentInfo.lop || '',
+                authenticatedDonvi || sessionStudentDonvi || studentInfo.donvi || studentInfo.unit || '',
                 String(examConfig.name || studentInfo.examName || ''),
                 String(examConfig.id || studentInfo.examId || ''),
                 finalScore,
