@@ -127,12 +127,14 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     const proposedDeadlineAtMs = proposedStartedAtMs + timeLimitSeconds * 1000;
     const proposedStartedAt = new Date(proposedStartedAtMs).toISOString();
     const proposedDeadlineAt = new Date(proposedDeadlineAtMs).toISOString();
+    const proposedActiveExpiresAtMs = proposedDeadlineAtMs + 60 * 60 * 1000;
+    const proposedActiveExpiresAt = new Date(proposedActiveExpiresAtMs).toISOString();
 
-    // Ghi cả started_at và deadline_at trong cùng lần claim đầu tiên. Không cho một
-    // request đến sau tạo deadline mới dựa trên "bây giờ" nếu started_at đã tồn tại.
+    // Claim đầu tiên ghi đồng thời start + deadline + TTL kỹ thuật. Không tồn tại
+    // trạng thái "đã bắt đầu nhưng TTL chưa cập nhật" nếu một lệnh DB phía sau lỗi.
     await db.prepare(
-      'UPDATE _exam_grade_sessions SET started_at = ?, deadline_at = ? WHERE session_id = ? AND started_at IS NULL'
-    ).bind(proposedStartedAt, proposedDeadlineAt, gradingSessionId).run();
+      'UPDATE _exam_grade_sessions SET started_at = ?, deadline_at = ?, expires_at = ? WHERE session_id = ? AND started_at IS NULL'
+    ).bind(proposedStartedAt, proposedDeadlineAt, proposedActiveExpiresAt, gradingSessionId).run();
 
     let authoritative: any = await db.prepare(
       'SELECT started_at, deadline_at FROM _exam_grade_sessions WHERE session_id = ?'
@@ -161,14 +163,16 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     // để cho phép retry nộp bản đã khóa, nhưng deadline làm bài vẫn không thay đổi.
     const activeExpiresAtMs = deadlineAtMs + 60 * 60 * 1000;
     const activeExpiresAt = new Date(activeExpiresAtMs).toISOString();
+    // Với phiên chuyển tiếp/claim cạnh tranh, bảo đảm expires_at không ngắn hơn
+    // deadline + 1 giờ. Phiên mới đã có giá trị này ngay trong atomic claim trên.
     try {
       await db.prepare(
-        'UPDATE _exam_grade_sessions SET expires_at = ? WHERE session_id = ?'
-      ).bind(activeExpiresAt, gradingSessionId).run();
+        'UPDATE _exam_grade_sessions SET expires_at = ? WHERE session_id = ? AND expires_at < ?'
+      ).bind(activeExpiresAt, gradingSessionId, activeExpiresAt).run();
     } catch (expiryUpdateError) {
-      console.error('Cannot extend technical active-session TTL:', expiryUpdateError);
+      console.error('Cannot verify technical active-session TTL:', expiryUpdateError);
       return new Response(JSON.stringify({
-        error: 'Không thể khóa thời hạn kỹ thuật của phiên thi; bài thi chưa được bắt đầu.'
+        error: 'Không thể xác minh thời hạn kỹ thuật của phiên thi; bài thi chưa được mở.'
       }), { status: 503, headers: corsHeaders });
     }
 
