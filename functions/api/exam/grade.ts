@@ -104,6 +104,21 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             return new Response(JSON.stringify({ error: 'Mã phiên thi không hợp lệ hoặc đã hết hạn.' }), { status: 403, headers: corsHeaders });
         }
 
+        const { questionIds, teacherId, gradingSessionId, studentUserId: sessionStudentUserId } = decoded;
+        let examConfig: any = decoded.examConfig || {};
+
+        // Verify session ownership BEFORE any replay/result lookup.
+        const verifiedRequestUserId = authenticatedUserId ? String(authenticatedUserId) : '';
+        const signedStudentUserId = sessionStudentUserId ? String(sessionStudentUserId) : '';
+        if (signedStudentUserId) {
+            if (!verifiedRequestUserId || verifiedRequestUserId !== signedStudentUserId) {
+                throw new Error('Tài khoản nộp bài không khớp tài khoản đã nhận phiên thi.');
+            }
+            authenticatedUserId = signedStudentUserId;
+        } else if (!authHeader) {
+            authenticatedUserId = null;
+        }
+
         // BẢO MẬT: claim token atomically BEFORE grading so two simultaneous
         // submissions cannot both create result rows.
         tokenHash = await hashToken(token);
@@ -167,22 +182,6 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             return new Response(JSON.stringify({
                 error: 'Không thể khóa phiên nộp bài an toàn. Hệ thống chưa chấm và chưa lưu kết quả.'
             }), { status: 503, headers: corsHeaders });
-        }
-
-        const { questionIds, teacherId, gradingSessionId, studentUserId: sessionStudentUserId } = decoded;
-        let examConfig: any = decoded.examConfig || {};
-
-        // A logged-in exam session is bound to the verified account that received it.
-        // Never trust studentInfo.userId from the browser as an authenticated identity.
-        const verifiedRequestUserId = authenticatedUserId ? String(authenticatedUserId) : '';
-        const signedStudentUserId = sessionStudentUserId ? String(sessionStudentUserId) : '';
-        if (signedStudentUserId) {
-            if (!verifiedRequestUserId || verifiedRequestUserId !== signedStudentUserId) {
-                throw new Error('Tài khoản nộp bài không khớp tài khoản đã nhận phiên thi.');
-            }
-            authenticatedUserId = signedStudentUserId;
-        } else if (!authHeader) {
-            authenticatedUserId = null;
         }
 
         if (!questionIds || clientQuestions.length !== questionIds.length) {
