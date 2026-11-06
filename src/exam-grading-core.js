@@ -166,6 +166,40 @@ export function normalizeShortAnswer(value, options = {}) {
   return text;
 }
 
+function parseFiniteNumericShortAnswer(value) {
+  const text = normalizeUnicodeMath(String(value ?? '').trim())
+    .replace(/\s+/g, '')
+    .replace(/(\d),(\d)/g, '$1.$2');
+  if (!text) return null;
+
+  const numeric = '[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?';
+  const fractionMatch = text.match(new RegExp('^(' + numeric + ')\\/(' + numeric + ')$'));
+  if (fractionMatch) {
+    const numerator = Number(fractionMatch[1]);
+    const denominator = Number(fractionMatch[2]);
+    if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator === 0) return null;
+    const result = numerator / denominator;
+    return Number.isFinite(result) ? result : null;
+  }
+
+  if (!new RegExp('^' + numeric + '$').test(text)) return null;
+  const number = Number(text);
+  return Number.isFinite(number) ? number : null;
+}
+
+function numericShortAnswersEqual(left, right, tolerance = 0) {
+  const a = parseFiniteNumericShortAnswer(left);
+  const b = parseFiniteNumericShortAnswer(right);
+  if (a === null || b === null) return false;
+
+  const configuredTolerance = Number(tolerance);
+  const safeTolerance = Number.isFinite(configuredTolerance) && configuredTolerance >= 0
+    ? configuredTolerance
+    : 0;
+  const machineTolerance = Number.EPSILON * 16 * Math.max(1, Math.abs(a), Math.abs(b));
+  return Math.abs(a - b) <= Math.max(safeTolerance, machineTolerance);
+}
+
 export function isShortAnswerCorrect(userAnswer, correctAnswer, options = {}) {
   const user = normalizeShortAnswer(userAnswer, options);
   if (!user) return false;
@@ -179,7 +213,14 @@ export function isShortAnswerCorrect(userAnswer, correctAnswer, options = {}) {
     .filter(Boolean);
 
   if (rawAlternatives.length === 0) return false;
-  return rawAlternatives.some(answer => normalizeShortAnswer(answer, options) === user);
+  return rawAlternatives.some(answer => {
+    if (normalizeShortAnswer(answer, options) === user) return true;
+
+    // Numeric equivalence is intentionally conservative: only finite decimal/scientific
+    // literals and one simple fraction are accepted. No eval, no arbitrary expressions.
+    if (options.punctuationSensitive || options.numericEquivalent === false) return false;
+    return numericShortAnswersEqual(userAnswer, answer, options.numericTolerance ?? 0);
+  });
 }
 
 export function clampScore(value, maxScore) {

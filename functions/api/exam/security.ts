@@ -43,13 +43,13 @@ export function redactExamForPublic(row: any): any {
   }
   return safe;
 }
-/** Only the fields actually needed by /api/exam/grade are present in the signed session. */
+/** Fields needed by server grading snapshot. Private fields are stripped before the readable JWT is returned. */
 const gradeFields = [
   'id','name','creator_id','points41','points_41','pointsTF4','points_tf4',
   'pointsSQ','points_sq','pointsTL','points_tl','tf4Points','tf4_points',
   'tf4ScoringMode','tf4_scoring_mode','sqCaseSensitive','sq_case_sensitive',
   'sqPunctuationSensitive','sq_punctuation_sensitive','autoGradeEssay',
-  'auto_grade_essay','keepRawScore','keep_raw_score','scoringScale',
+  'auto_grade_essay','aiPrompt','ai_prompt','keepRawScore','keep_raw_score','scoringScale',
   'showDetails','show_details'
 ];
 export function makeGradeSessionConfig(row: any): any {

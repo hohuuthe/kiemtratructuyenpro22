@@ -47,6 +47,15 @@ function sanitizeGradingDetailForClient(detail: any, showDetails: boolean): any 
     return safeD;
 }
 
+function hasPendingEssayGrading(details: any[]): boolean {
+    return Array.isArray(details) && details.some((d: any) =>
+        d?.question?.type === 'TL' &&
+        d?.needsGrading === true &&
+        d?.gradingStatus !== 'completed' &&
+        d?.gradingStatus !== 'completed_manual'
+    );
+}
+
 const getBase64Data = (dataUri: string) => {
     if (!dataUri || !dataUri.includes('base64,')) return null;
     try {
@@ -167,6 +176,8 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                             correctCount: Number(stored.correct_count) || 0,
                             totalQuestions: Number(stored.total_questions) || 0,
                             cheatWarningCount: Number(stored.cheat_warning_count) || 0,
+                            gradingPending: hasPendingEssayGrading(storedDetails),
+                            scoreFinalized: !hasPendingEssayGrading(storedDetails),
                             detailedResults: replayDetails,
                             alreadySubmitted: true
                         }), { status: 200, headers: corsHeaders });
@@ -477,7 +488,10 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                     continue;
                 }
 
-                const prompt = `
+                const teacherPrompt = String(
+                    examConfig.aiPrompt ?? examConfig.ai_prompt ?? ''
+                ).trim();
+                const defaultPrompt = `
 Bạn là một giám khảo chấm thi tự luận.
 THÔNG TIN ĐỀ BÀI:
 - Câu hỏi: ${d.question.content || ''}
@@ -494,6 +508,25 @@ YÊU CẦU:
   "score": (số điểm),
   "feedback": "Nhận xét"
 }`;
+                const resolvedTeacherPrompt = teacherPrompt
+                    ? teacherPrompt
+                        .replaceAll('${d.question.content}', String(d.question.content || ''))
+                        .replaceAll('${d.correctAnswer}', String(d.correctAnswer || ''))
+                        .replaceAll('${d.userAnswer || \'(Trống)\'}', studentAnsText || '(Trống)')
+                        .replaceAll('${examConfig.pointsTL ?? 1}', String(pTL))
+                    : '';
+                const prompt = resolvedTeacherPrompt
+                    ? resolvedTeacherPrompt + `
+
+DỮ LIỆU CHẤM BẮT BUỘC:
+- Câu hỏi: ${d.question.content || ''}
+- Đáp án/Hướng dẫn: ${d.correctAnswer || ''}
+- Bài làm học sinh: ${studentAnsText || '(Trống)'}
+- Điểm tối đa: ${pTL}
+
+RÀNG BUỘC ĐẦU RA BẮT BUỘC:
+Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận xét"}. score phải từ 0 đến ${pTL} và tối đa 2 chữ số thập phân.`
+                    : defaultPrompt;
                 
                 let parts: any[] = [{ text: prompt }];
 
@@ -530,10 +563,25 @@ YÊU CẦU:
                                 const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
                                 if (text) {
                                     const parsed = JSON.parse(text);
-                                    const essayScore = clampScore(parsed.score, pTL);
+                                    const rawEssayScore = parsed?.score;
+                                    const numericEssayScore = typeof rawEssayScore === 'number'
+                                        ? rawEssayScore
+                                        : (typeof rawEssayScore === 'string' && rawEssayScore.trim() !== ''
+                                            ? Number(rawEssayScore)
+                                            : NaN);
+                                    if (!Number.isFinite(numericEssayScore) ||
+                                        numericEssayScore < 0 || numericEssayScore > pTL ||
+                                        Math.abs(numericEssayScore * 100 - Math.round(numericEssayScore * 100)) > 1e-9) {
+                                        d.gradingStatus = 'pending_manual';
+                                        d.needsGrading = true;
+                                        d.aiFeedback = 'AI trả về điểm không hợp lệ hoặc vượt thang điểm. Câu này chưa được chấm; cần giáo viên kiểm tra.';
+                                        continue;
+                                    }
+                                    const essayScore = roundScore(numericEssayScore, 2);
                                     d.score = essayScore;
-                                    d.aiFeedback = parsed.feedback || '';
+                                    d.aiFeedback = typeof parsed?.feedback === 'string' ? parsed.feedback : '';
                                     d.gradingStatus = 'completed';
+                                    d.needsGrading = false;
                                     rawEarnedScore += essayScore;
                                     gradedSuccessfully = true;
                                     break;
@@ -572,11 +620,14 @@ YÊU CẦU:
                 }
 
                 if (!gradedSuccessfully) {
-                    d.gradingStatus = 'failed';
-                    d.aiFeedback = d.aiFeedback || 'Không thể chấm bằng AI (tất cả API Key trong danh sách đều đã hết hạn mức hoặc gặp lỗi).';
+                    d.gradingStatus = 'pending_manual';
+                    d.needsGrading = true;
+                    d.aiFeedback = d.aiFeedback || 'Không thể chấm bằng AI. Câu tự luận chưa được tính là đã chấm và cần giáo viên chấm thủ công.';
                 }
             }
         }
+
+        const hasPendingEssayGrades = hasPendingEssayGrading(detailedResults);
 
         // Tính điểm thô và quy đổi điểm theo thang điểm 10 an toàn, chính xác
         let totalMaxScore = 0;
@@ -667,6 +718,8 @@ YÊU CẦU:
                             correctCount: Number(stored.correct_count) || 0,
                             totalQuestions: Number(stored.total_questions) || 0,
                             cheatWarningCount: Number(stored.cheat_warning_count) || 0,
+                            gradingPending: hasPendingEssayGrading(storedDetails),
+                            scoreFinalized: !hasPendingEssayGrading(storedDetails),
                             detailedResults: safeDetails,
                             alreadySubmitted: true
                         }), { status: 200, headers: corsHeaders });
@@ -787,6 +840,8 @@ YÊU CẦU:
             correctCount,
             cheatWarningCount,
             timeTaken: authoritativeTimeTaken,
+            gradingPending: hasPendingEssayGrades,
+            scoreFinalized: !hasPendingEssayGrades,
             detailedResults: clientDetailedResults
         }), {
             status: 200,
