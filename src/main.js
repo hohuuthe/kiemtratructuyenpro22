@@ -10424,6 +10424,8 @@ if (contentType && contentType.includes("application/json")) {
                     answeredStatementsCount: answeredStatementsCount,
                     statsByType: statsByType,
                     cheatWarningCount: currentExam.cheatWarningCount || 0,
+                    gradingPending: result.gradingPending === true,
+                    scoreFinalized: result.scoreFinalized !== false,
                     timestamp: new Date().toISOString()
                 };
 
@@ -10672,14 +10674,10 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             `;
 
             let tlWarningHTML = '';
-            if (stats['TL'] && stats['TL'].total > 0) {
-                if (examConfig.autoGradeEssay === false) {
-                    tlWarningHTML = `<div class="mt-1.5 text-purple-600 font-bold text-[11px] md:text-sm border border-red-200 bg-purple-50 p-1.5 rounded-lg shadow-sm">Đây mới chỉ là điểm trắc nghiệm, điểm tự luận giáo viên sẽ chấm sau và cộng vào điểm bài làm.</div>`;
-                } else if (result.aiGradingError) {
-                    tlWarningHTML = `<div class="mt-1.5 text-purple-600 font-bold text-[11px] md:text-sm border-2 border-red-500 bg-purple-50 p-2 rounded-xl shadow-md animate-pulse">
-                        ⚠️ Quá trình chấm bài tự động cho câu tự luận không thành công, giáo viên sẽ chấm lại phần tự luận và cập nhật điểm cho bạn sau.
-                    </div>`;
-                }
+            if (stats['TL'] && stats['TL'].total > 0 && result.gradingPending) {
+                tlWarningHTML = `<div class="mt-1.5 text-amber-800 font-bold text-[11px] md:text-sm border border-amber-300 bg-amber-50 p-2 rounded-lg shadow-sm">
+                    ⏳ Điểm hiện tại là điểm tạm tính của phần đã được chấm chắc chắn. Phần tự luận còn chờ giáo viên xác nhận/chấm; điểm cuối cùng sẽ được cập nhật sau.
+                </div>`;
             }
 
             document.getElementById('results-content').innerHTML = `
@@ -10694,7 +10692,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 <div class="grid grid-cols-2 md:grid-cols-3 gap-2 md:gap-3 mb-4">
                     <div class="p-3 bg-blue-50 rounded-lg text-center shadow-sm relative border border-blue-100/50 flex flex-col justify-center">
                         <p class="text-3xl sm:text-4xl lg:text-5xl font-black text-blue-600 leading-tight">${showScore ? (Number(result.score) || 0).toFixed(2) : '***'}</p>
-                        <p class="text-xs md:text-sm text-blue-500 uppercase font-bold tracking-widest mt-0.5">Điểm số</p>
+                        <p class="text-xs md:text-sm text-blue-500 uppercase font-bold tracking-widest mt-0.5">${result.gradingPending ? 'Điểm tạm tính' : 'Điểm số'}</p>
                         <div class="mt-1 text-xs md:text-sm text-blue-700 bg-white/50 py-1 px-2.5 rounded-full inline-block border border-blue-200">
                             Đã làm: <b>${result.answeredQuestionsCount}</b>/${result.totalQuestions}
                         </div>
