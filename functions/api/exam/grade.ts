@@ -335,23 +335,19 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             if (d.question.type === '4-1') {
                 if (d.isCorrect) questionScore = p41;
             } else if (d.question.type === 'TF4') {
-                const userAnswers = d.userAnswer || {};
-                let correctStatementCount = 0;
+                const tf4 = evaluateTF4(d.correctAnswer, d.userAnswer);
+                if (!tf4.validKey) {
+                    throw new Error(`Đáp án Đúng/Sai của câu hỏi ${d.question.id} không hợp lệ.`);
+                }
+                d.answeredStatements = tf4.answeredCount;
+                d.correctStatements = tf4.correctCount;
 
-                ['A', 'B', 'C', 'D'].forEach(opt => {
-                    if (getTF4Expected(d.correctAnswer, opt) === isTF4UserOptTrue(userAnswers, opt)) {
-                        correctStatementCount++;
-                    }
-                });
-
-                d.correctStatements = correctStatementCount;
-
-                const isTf4CustomMode = Boolean(examConfig.tf4ScoringMode || examConfig.tf4_scoring_mode);
-                if (isTf4CustomMode && tf4PointsMap && tf4PointsMap[correctStatementCount] !== undefined) {
-                    questionScore = Number(tf4PointsMap[correctStatementCount]) || 0;
+                const isTf4CustomMode = examFlagEnabled(examConfig.tf4ScoringMode ?? examConfig.tf4_scoring_mode, false);
+                if (isTf4CustomMode && tf4PointsMap && tf4PointsMap[tf4.correctCount] !== undefined) {
+                    questionScore = Number(tf4PointsMap[tf4.correctCount]) || 0;
                 } else {
                     const ratioMap: Record<number, number> = { 0: 0, 1: 0.25, 2: 0.5, 3: 0.75, 4: 1.0 };
-                    questionScore = pTF4 * (ratioMap[correctStatementCount] || 0);
+                    questionScore = pTF4 * (ratioMap[tf4.correctCount] || 0);
                 }
             } else if (d.question.type === 'SQ') {
                 if (d.isCorrect) questionScore = pSQ;
@@ -364,7 +360,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         });
 
         // AI Grading for TL (Tự luận) - Hỗ trợ danh sách nhiều key cách nhau bằng dấu cách, tự động chuyển key khi hết hạn mức
-        const isAutoGradeEssay = examConfig.autoGradeEssay !== false && examConfig.auto_grade_essay !== false;
+        const isAutoGradeEssay = examFlagEnabled(examConfig.autoGradeEssay ?? examConfig.auto_grade_essay, false);
         const rawAiKeys = (aiKey || '').trim().split(/\s+/).filter((k: string) => k.length > 5 && !k.includes("••••••••") && !k.includes("YOUR_"));
 
         if (isAutoGradeEssay && rawAiKeys.length > 0 && tlQuestionsToGrade.length > 0) {
@@ -439,7 +435,7 @@ YÊU CẦU:
                                 const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
                                 if (text) {
                                     const parsed = JSON.parse(text);
-                                    const essayScore = Math.max(0, Math.min(pTL, Number(parsed.score) || 0));
+                                    const essayScore = clampScore(parsed.score, pTL);
                                     d.score = essayScore;
                                     d.aiFeedback = parsed.feedback || '';
                                     d.gradingStatus = 'completed';
@@ -491,7 +487,13 @@ YÊU CẦU:
         let totalMaxScore = 0;
         detailedResults.forEach((d: any) => {
             if (d.question.type === '4-1') totalMaxScore += p41;
-            else if (d.question.type === 'TF4') totalMaxScore += pTF4;
+            else if (d.question.type === 'TF4') {
+                const isTf4CustomMode = examFlagEnabled(examConfig.tf4ScoringMode ?? examConfig.tf4_scoring_mode, false);
+                const maxTf4 = isTf4CustomMode && tf4PointsMap && tf4PointsMap[4] !== undefined
+                    ? Number(tf4PointsMap[4]) || 0
+                    : pTF4;
+                totalMaxScore += maxTf4;
+            }
             else if (d.question.type === 'SQ') totalMaxScore += pSQ;
             else if (d.question.type === 'TL') totalMaxScore += pTL;
             else totalMaxScore += 1;
@@ -514,8 +516,8 @@ YÊU CẦU:
         scale10Score = Math.max(0, Math.min(10, scale10Score));
         
         // Theo yêu cầu tuyệt đối: Hệ thống giữ nguyên điểm thô, lưu nguyên xi điểm thô vào kết quả, không phiên sang thang điểm 10.
-        const calculatedScale10 = Number(scale10Score.toFixed(2));
-        const calculatedRaw = Number(rawEarnedScore.toFixed(2));
+        const calculatedScale10 = roundScore(scale10Score, 2);
+        const calculatedRaw = roundScore(rawEarnedScore, 2);
         const finalScore = calculatedRaw;
 
         const cheatWarningCount = Number(body.cheatWarningCount ?? body.studentInfo?.cheatWarningCount ?? 0) || 0;
