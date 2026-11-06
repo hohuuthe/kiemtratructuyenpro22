@@ -32,20 +32,32 @@ test('Hung network releases pending request by timeout', async () => {
   }),'/api/exam/generate',{},15),/quá thời gian/);
   assert.equal(aborted,true);
 });
-test('Front end never enters fullscreen before server accepts exam start', () => {
+test('Exam starts timer only after authoritative server start; fullscreen keeps direct click activation', () => {
   const s=readFileSync('src/main.js','utf8');
   const region=s.slice(s.indexOf('window.startExam = async function startExam('),s.indexOf('function generateExamQuestions()',s.indexOf('window.startExam = async function startExam(')));
   assert.match(region,/if \(examStartPending\) return/);
   assert.match(region,/parseExamAttemptLimitError\(response.status, response.body\)/);
   assert.match(region,/showModal\(buildExamAttemptLimitModal/);
   assert.match(region,/finally \{\s*examStartPending = false;/);
-  assert.doesNotMatch(region,/enterExamFullscreen\(/);
   assert.match(region,/exam-start-ready-confirm/);
-  assert.match(region,/readyButton.addEventListener\('click'/);
-  assert.match(region,/startExamUI\(\)/);
+  assert.match(region,/readyButton.addEventListener\('click', async/);
+
+  const readyStart=region.indexOf("readyButton.addEventListener('click', async");
+  const readyRegion=region.slice(readyStart);
+  const fullscreenAt=readyRegion.indexOf('window.enterExamFullscreen()');
+  const serverStartAt=readyRegion.indexOf("fetch('/api/exam/start'");
+  const startUiAt=readyRegion.indexOf('startExamUI()');
+  assert.ok(fullscreenAt >= 0 && serverStartAt > fullscreenAt,
+    'Fullscreen must be requested from the direct click before awaiting the server.');
+  assert.ok(startUiAt > serverStartAt,
+    'The exam UI/timer must start only after the server start request succeeds.');
+  assert.match(readyRegion,/currentExam\.serverStartedAt = startResult\.startedAt/);
+  assert.match(readyRegion,/currentExam\.serverElapsedSeconds/);
   assert.doesNotMatch(region,/KIỂM TRA TRƯỚC SỐ LẦN LÀM BÀI TRÊN CLIENT/);
-  for(const path of ['functions/api/exam/generate.ts','server.ts']) {
-    const backend=readFileSync(path,'utf8');
-    assert.match(backend,/code: 'EXAM_ATTEMPT_LIMIT_REACHED', attemptCount, maxAttempts: maxAttemptsVal/);
-  }
+
+  const generate=readFileSync('functions/api/exam/generate.ts','utf8');
+  assert.match(generate,/code: 'EXAM_ATTEMPT_LIMIT_REACHED'/);
+  const start=readFileSync('functions/api/exam/start.ts','utf8');
+  assert.match(start,/EXAM_ATTEMPT_LIMIT_REACHED/);
+  assert.match(start,/EXAM_ATTEMPT_ALREADY_ACTIVE/);
 });
