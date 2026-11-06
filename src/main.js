@@ -10481,6 +10481,9 @@ if (contentType && contentType.includes("application/json")) {
                         clientQuestions: currentExam.questions,
                         timeTaken,
                         cheatWarningCount: currentExam.cheatWarningCount || 0,
+                        pendingViolationEvents: Array.isArray(currentExam.pendingViolationEvents)
+                            ? currentExam.pendingViolationEvents.slice(0, 200)
+                            : [],
                         studentInfo: {
                             name,
                             unit: inputDonvi || studentClass,
