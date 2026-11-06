@@ -8376,6 +8376,7 @@ if (contentType && contentType.includes("application/json")) {
         };
 
         function clearStoredActiveExamResume() {
+            window.__EXAM_RESUME_BLOCK_NEW__ = false;
             try {
                 localStorage.removeItem('currentExamToken');
                 localStorage.removeItem(window.tenantStorageKey('currentExamToken'));
@@ -8429,7 +8430,17 @@ if (contentType && contentType.includes("application/json")) {
                     clearStoredActiveExamResume();
                 }
                 if (data?.code === 'EXAM_SUBMISSION_PROCESSING') {
-                    showToast('Bài thi trước đó đang được máy chủ xử lý nộp bài. Không tạo phiên mới.', 'warning');
+                    window.__EXAM_RESUME_BLOCK_NEW__ = true;
+                    try { switchTab('exam'); } catch(e) {}
+                    showModal(`
+                        <div class="p-4 sm:p-5 text-center">
+                            <div class="text-4xl mb-2">⏳</div>
+                            <h3 class="text-lg font-bold text-gray-800 mb-2">Bài thi đang được xử lý</h3>
+                            <p class="text-sm text-gray-600">Máy chủ đang hoàn tất lần nộp trước. Hệ thống tạm khóa việc tạo phiên mới để tránh trùng kết quả.</p>
+                            <button id="exam-processing-recheck" class="mt-3 px-5 py-2.5 rounded-xl bg-indigo-600 text-white font-bold">Kiểm tra lại</button>
+                        </div>
+                    `, 'student-exam-compact', false);
+                    document.getElementById('exam-processing-recheck')?.addEventListener('click', () => location.reload(), { once: true });
                     return true;
                 }
                 return false;
@@ -8439,6 +8450,7 @@ if (contentType && contentType.includes("application/json")) {
                 return false;
             }
 
+            window.__EXAM_RESUME_BLOCK_NEW__ = false;
             window.currentExamToken = data.token || token;
             try {
                 localStorage.setItem('currentExamToken', window.currentExamToken);
@@ -8538,6 +8550,10 @@ if (contentType && contentType.includes("application/json")) {
 
         let examStartPending = false;
         window.startExam = async function startExam(btn) {
+            if (window.__EXAM_RESUME_BLOCK_NEW__) {
+                showToast('Bài thi trước đang được máy chủ xử lý. Vui lòng kiểm tra lại trước khi tạo phiên mới.', 'warning');
+                return;
+            }
             if (examStartPending) return;
             examStartPending = true;
             console.log('startExam called');
