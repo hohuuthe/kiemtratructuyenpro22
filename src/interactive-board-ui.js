@@ -8,7 +8,7 @@ let undoStack=[],redoStack=[],renderQueued=false,lastRateNotice=0,userLocked=fal
 let pendingReliable=new Map(),dragState=null,snapshotLoading=false,participantsCache=[],blockedUsers=[];
 let remoteLasers=new Map(),lastLaserSent=0,imageCache=new Map(),strokePathCache=new Map(),pendingBoardImageMode='object';
 let zoomLevel=1,panDrag=null,panPointers=new Map(),pinchStart=null,timerState=null,timerTick=null,aiResultText='',aiClusterPlan=null,followTeacher=true,mobileGesture=false,selectedObjectId='',resizeState=null;
-let studentControlLocks=new Set(),studentControlMenuTarget=null;
+let studentControlLocks=new Set(),studentControlMenuTarget=null,boardObjectMenuTargetId='';
 
 function token(){return localStorage.getItem(window.tenantStorageKey?window.tenantStorageKey('auth_token'):'auth_token')||'';}
 async function api(method,url,body){
@@ -37,8 +37,17 @@ function closeStudentControlMenu(){
 }
 function studentControlMenuHost(){
  const roomEl=$('board-room'),fs=document.fullscreenElement;
+ if(fs===document.documentElement)return document.body;
  if(fs&&roomEl&&(fs===roomEl||fs.contains(roomEl)||roomEl.contains(fs)))return fs;
  return document.body;
+}
+function boardFullscreenActive(){return !!$('board-room')?.classList.contains('board-pseudo-fullscreen');}
+function setBoardFullscreenState(active){
+ const roomEl=$('board-room');if(!roomEl)return;
+ roomEl.classList.toggle('board-pseudo-fullscreen',!!active);
+ document.body.classList.toggle('board-body-fullscreen',!!active);
+ const btn=$('board-fullscreen');if(btn){btn.textContent=active?'⤢':'⛶';btn.setAttribute('aria-pressed',active?'true':'false');}
+ if(!active){closeStudentControlMenu();closeBoardObjectContextMenu();}
 }
 function ensureStudentControlMenu(){
  let menu=$('board-student-control-menu');
@@ -80,6 +89,54 @@ function applyStudentControlLocksUi(){
    else{btn.removeAttribute('data-student-lock-block');}
  });
  refreshBoardButtonHelp(root);
+}
+
+function objectTypeLabel(o){return {image:'Ảnh',note:'Ghi chú',text:'Văn bản',stroke:'Nét vẽ',line:'Đường thẳng',arrow:'Mũi tên',rect:'Hình chữ nhật',ellipse:'Hình elip'}[o?.type]||'Đối tượng';}
+function closeBoardObjectContextMenu(){const menu=$('board-object-context-menu');menu?.classList.add('hidden');boardObjectMenuTargetId='';}
+function ensureBoardObjectContextMenu(){
+ let menu=$('board-object-context-menu');
+ if(!menu){
+  menu=document.createElement('div');menu.id='board-object-context-menu';menu.className='board-object-context-menu hidden';
+  menu.setAttribute('role','toolbar');menu.setAttribute('aria-label','Thao tác nhanh với đối tượng đang chọn');
+  menu.innerHTML='<div class="board-object-context-title" data-object-context-title>Đối tượng</div><div class="board-object-context-actions">'+
+   '<button type="button" data-object-action="duplicate">⧉ Nhân bản</button>'+
+   '<button type="button" data-object-action="layer-up">⬆ Lên lớp</button>'+
+   '<button type="button" data-object-action="layer-down">⬇ Xuống lớp</button>'+
+   '<button type="button" data-object-action="lock">🔒 Khóa</button>'+
+   '<button type="button" data-object-action="delete" class="board-object-context-danger">⌫ Xóa</button></div>';
+  menu.addEventListener('pointerdown',e=>e.stopPropagation());
+  menu.addEventListener('click',e=>{
+    const action=e.target.closest?.('[data-object-action]')?.dataset.objectAction;if(!action)return;
+    const ids={duplicate:'board-duplicate-selected','layer-up':'board-image-layer-up','layer-down':'board-image-layer-down',lock:'board-lock-selected',delete:'board-delete-selected'};
+    const btn=$(ids[action]);if(btn&&!btn.disabled)btn.click();
+    if(action==='delete')closeBoardObjectContextMenu();else queueMicrotask(syncBoardObjectContextMenu);
+  });
+ }
+ const host=studentControlMenuHost();if(menu.parentElement!==host)host.appendChild(menu);
+ return menu;
+}
+function syncBoardObjectContextMenu(){
+ const menu=$('board-object-context-menu');if(!menu||menu.classList.contains('hidden'))return;
+ const o=selectedObject();if(!o){closeBoardObjectContextMenu();return;}
+ boardObjectMenuTargetId=o.id;
+ const manager=!!room?.board?.can_manage,own=manager||String(o.creatorId||'')===myId(),editable=own&&canEdit()&&!o.locked;
+ const title=menu.querySelector('[data-object-context-title]');if(title)title.textContent=objectTypeLabel(o)+(o.locked?' • đang khóa':'');
+ const setAction=(name,{show=true,enabled=true,label=''}={})=>{const btn=menu.querySelector('[data-object-action="'+name+'"]');if(!btn)return;btn.classList.toggle('hidden',!show);btn.disabled=!enabled;if(label)btn.textContent=label;};
+ setAction('duplicate',{show:own,enabled:editable});
+ const isImage=o.type==='image'&&manager;
+ const up=$('board-image-layer-up'),down=$('board-image-layer-down');
+ setAction('layer-up',{show:isImage,enabled:isImage&&!up?.disabled});
+ setAction('layer-down',{show:isImage,enabled:isImage&&!down?.disabled});
+ setAction('lock',{show:manager,enabled:manager&&!snapshotLoading&&ws?.readyState===WebSocket.OPEN,label:o.locked?'🔓 Mở khóa':'🔒 Khóa'});
+ setAction('delete',{show:own,enabled:editable});
+}
+function openBoardObjectContextMenu(o,event){
+ if(!o||tool!=='select'){closeBoardObjectContextMenu();return;}
+ boardObjectMenuTargetId=o.id;const menu=ensureBoardObjectContextMenu();menu.classList.remove('hidden');syncBoardObjectContextMenu();
+ const rect=menu.getBoundingClientRect(),pad=8;
+ const x=Math.min(Math.max(pad,event.clientX+14),Math.max(pad,window.innerWidth-rect.width-pad));
+ const y=Math.min(Math.max(pad,event.clientY+14),Math.max(pad,window.innerHeight-rect.height-pad));
+ menu.style.left=x+'px';menu.style.top=y+'px';
 }
 
 const BOARD_BUTTON_HELP={
@@ -348,6 +405,7 @@ function syncSelectionButtons(){
  if(up){up.classList.toggle('hidden',!imageEditable);up.disabled=!imageEditable||imageIndex<0||imageIndex>=imageCount-1;}
  if(down){down.classList.toggle('hidden',!imageEditable);down.disabled=!imageEditable||imageIndex<=0;}
  if($('board-delete-selected'))$('board-delete-selected').disabled=!editable;
+ syncBoardObjectContextMenu();
 }
 function renderSelectedOwner(o){
  const box=$('board-object-owner');if(!box)return;
@@ -823,7 +881,7 @@ function syncBoardToolButtons(){
 }
 function selectBoardTool(name){
  if(room&&!room?.board?.can_manage&&!boardToolAllowed(name))return;
- tool=name||'pen';syncBoardToolButtons();
+ tool=name||'pen';if(tool!=='select')closeBoardObjectContextMenu();syncBoardToolButtons();
  const active=document.querySelector('[data-board-tool="'+CSS.escape(tool)+'"]');active?.scrollIntoView?.({block:'nearest',inline:'nearest',behavior:'smooth'});
 }
 function isCoarseBoardPointer(){return window.matchMedia?.('(pointer: coarse)')?.matches||navigator.maxTouchPoints>0;}
@@ -860,7 +918,9 @@ function syncBoardPermissionUi(){
  syncSelectionButtons();applyStudentControlLocksUi();
 }
 function pointerDown(e){
- if(!room)return;const p=logicalPoint(e);canvas().setPointerCapture?.(e.pointerId);
+ if(!room)return;if(e.pointerType==='mouse'&&(e.button!==0||e.isPrimary===false))return;
+ const p=logicalPoint(e);canvas().setPointerCapture?.(e.pointerId);
+ if(tool!=='select')closeBoardObjectContextMenu();
  const touchGesture=e.pointerType==='touch'&&(tool==='pan'||panPointers.size>0);
  if(e.pointerType==='touch'){
    panPointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
@@ -889,7 +949,7 @@ function pointerDown(e){
    }
    const target=hitObject(p);if(!target){clearSelection();return;}
    if(!room.board.can_manage&&room.board.student_permission==='comment'&&!['note','text'].includes(target.type))return;
-   selectedObjectId=target.id;syncSelectionButtons();scheduleRender();
+   selectedObjectId=target.id;syncSelectionButtons();scheduleRender();openBoardObjectContextMenu(target,e);
    if(target.locked)return;
    dragState={id:target.id,start:p,before:cloneObject(target)};
    return;
@@ -927,6 +987,7 @@ function pointerMove(e){
    objects.set(resized.id,resized);scheduleRender();return;
  }
  if(dragState){
+   closeBoardObjectContextMenu();
    const dx=p[0]-dragState.start[0],dy=p[1]-dragState.start[1],moved=translateObject(dragState.before,dx,dy);
    objects.set(moved.id,moved);scheduleRender();return;
  }
@@ -972,7 +1033,7 @@ function pointerUp(e){
 function exitRoom(){
  manualExit=true;if(reconnectTimer){clearTimeout(reconnectTimer);reconnectTimer=null;}tool='pen';
  if(ws)try{ws.onclose=null;ws.close(1000,'exit')}catch{};ws=null;room=null;activeBoard=null;activeAccessCode='';reconnectAttempts=0;
- stopHeartbeat();roomTokenExpiresAt=0;tokenRefreshAttempts=0;currentPageId='';userLocked=false;studentControlLocks.clear();closeStudentControlMenu();snapshotLoading=false;selectedObjectId='';participantsCache=[];blockedUsers=[];imageCache.clear();renderBlockedUsers();renderSelectedOwner(null);pendingReliable.clear();dragState=null;resizeState=null;panDrag=null;panPointers.clear();pinchStart=null;mobileGesture=false;remoteLasers.clear();zoomLevel=1;aiResultText='';aiClusterPlan=null;timerState=null;followTeacher=true;if(timerTick){clearInterval(timerTick);timerTick=null;}undoStack=[];redoStack=[];objects.clear();remoteStrokes.clear();drawing=null;const roomEl=$('board-room');roomEl?.classList.remove('board-pseudo-fullscreen');document.body.classList.remove('board-body-fullscreen');roomEl?.classList.add('hidden');$('boards-home')?.classList.remove('hidden');
+ stopHeartbeat();roomTokenExpiresAt=0;tokenRefreshAttempts=0;currentPageId='';userLocked=false;studentControlLocks.clear();closeStudentControlMenu();closeBoardObjectContextMenu();setBoardFullscreenState(false);snapshotLoading=false;selectedObjectId='';participantsCache=[];blockedUsers=[];imageCache.clear();renderBlockedUsers();renderSelectedOwner(null);pendingReliable.clear();dragState=null;resizeState=null;panDrag=null;panPointers.clear();pinchStart=null;mobileGesture=false;remoteLasers.clear();zoomLevel=1;aiResultText='';aiClusterPlan=null;timerState=null;followTeacher=true;if(timerTick){clearInterval(timerTick);timerTick=null;}undoStack=[];redoStack=[];objects.clear();remoteStrokes.clear();drawing=null;const roomEl=$('board-room');roomEl?.classList.remove('board-pseudo-fullscreen');document.body.classList.remove('board-body-fullscreen');roomEl?.classList.add('hidden');$('boards-home')?.classList.remove('hidden');
 }
 
 export function resetInteractiveBoards(){generation++;list=[];actor=null;manage=false;canCreateBoard=false;page=1;total=0;exitRoom();}
@@ -995,8 +1056,9 @@ export function connectInteractiveBoards(){
    }
  },true);
  document.addEventListener('click',e=>{if(!e.target.closest?.('#board-student-control-menu'))closeStudentControlMenu();});
- document.addEventListener('keydown',e=>{if(e.key==='Escape')closeStudentControlMenu();});
- document.addEventListener('fullscreenchange',()=>{closeStudentControlMenu();ensureStudentControlMenu();});
+ document.addEventListener('pointerdown',e=>{if(!e.target.closest?.('#board-object-context-menu')&&!e.target.closest?.('#board-canvas'))closeBoardObjectContextMenu();},true);
+ document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeStudentControlMenu();closeBoardObjectContextMenu();}});
+ document.addEventListener('fullscreenchange',()=>{closeStudentControlMenu();closeBoardObjectContextMenu();if(boardFullscreenActive()&&!document.fullscreenElement)setBoardFullscreenState(false);ensureStudentControlMenu();});
  window.addEventListener('resize',closeStudentControlMenu);
  $('boards-new')?.addEventListener('click',()=>openEdit());
  $('boards-reload')?.addEventListener('click',()=>load());
@@ -1044,14 +1106,17 @@ export function connectInteractiveBoards(){
  $('board-zoom-label')?.addEventListener('click',resetView);
  $('board-fullscreen')?.addEventListener('click',async()=>{
  const roomEl=$('board-room');if(!roomEl)return;
+ if(boardFullscreenActive()){
+  setBoardFullscreenState(false);
+  if(document.fullscreenElement){try{await document.exitFullscreen?.();}catch{}}
+  return;
+ }
+ setBoardFullscreenState(true);
  try{
-  if(document.fullscreenElement){await document.exitFullscreen?.();roomEl.classList.remove('board-pseudo-fullscreen');document.body.classList.remove('board-body-fullscreen');return;}
-  if(roomEl.requestFullscreen){await roomEl.requestFullscreen();return;}
-  roomEl.classList.toggle('board-pseudo-fullscreen');
-  document.body.classList.toggle('board-body-fullscreen',roomEl.classList.contains('board-pseudo-fullscreen'));
+  const root=document.documentElement;
+  if(root?.requestFullscreen&&!document.fullscreenElement)await root.requestFullscreen();
  }catch{
-  roomEl.classList.toggle('board-pseudo-fullscreen');
-  document.body.classList.toggle('board-body-fullscreen',roomEl.classList.contains('board-pseudo-fullscreen'));
+  // CSS fullscreen remains active as a safe fallback when the browser denies native fullscreen.
  }
 });
  $('board-stage-scroll')?.addEventListener('wheel',e=>{if(!e.ctrlKey&&!e.metaKey)return;e.preventDefault();setZoom(zoomLevel+(e.deltaY<0?.1:-.1));},{passive:false});
