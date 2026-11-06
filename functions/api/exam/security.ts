@@ -49,7 +49,7 @@ const gradeFields = [
   'pointsSQ','points_sq','pointsTL','points_tl','tf4Points','tf4_points',
   'tf4ScoringMode','tf4_scoring_mode','sqCaseSensitive','sq_case_sensitive',
   'sqPunctuationSensitive','sq_punctuation_sensitive','autoGradeEssay',
-  'auto_grade_essay','keepRawScore','keep_raw_score','scoringScale',
+  'auto_grade_essay','aiPrompt','ai_prompt','keepRawScore','keep_raw_score','scoringScale',
   'showDetails','show_details'
 ];
 export function makeGradeSessionConfig(row: any): any {
