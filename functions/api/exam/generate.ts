@@ -1,5 +1,6 @@
 import { signJWT, verifyAuthSession, getDynamicSecret, getDatabase } from './utils';
 import {makeGradeSessionConfig, accessCodeMatches} from './security';
+import { examFlagEnabled, validateQuestionAnswer } from '../../../src/exam-grading-core.js';
 
 interface Env {
   NEON_DATABASE_URL?: string;
@@ -134,8 +135,8 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                 countTLVD: Number(finalCountsDetail.countTLVD || 0),
                 selectedLessons: finalSelectedLessons,
                 maxCheatWarnings: maxCheatWarningsFromDB,
-                immediate_feedback: mappedExam.immediate_feedback !== undefined ? mappedExam.immediate_feedback : (examConfig?.immediateFeedback ? 1 : 0),
-                immediateFeedback: Boolean(mappedExam.immediate_feedback == 1 || mappedExam.immediate_feedback === true || mappedExam.immediate_feedback === '1' || examConfig?.immediateFeedback)
+                immediate_feedback: mappedExam.immediate_feedback ?? 0,
+                immediateFeedback: examFlagEnabled(mappedExam.immediate_feedback, false)
             };
         } else if (examConfig) {
             finalSelectedLessons = Array.isArray(examConfig.selectedLessons) ? examConfig.selectedLessons : (Array.isArray(examConfig.selected_lessons) ? examConfig.selected_lessons : []);
@@ -145,7 +146,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             targetCountSQ = Number(examConfig.countSQ || 0);
             targetCountTL = Number(examConfig.countTL || 0);
             maxCheatWarningsFromDB = Math.max(1, Number(examConfig.maxCheatWarnings || 5));
-            const immediateVal = (examConfig.immediateFeedback || examConfig.immediate_feedback) ? 1 : 0;
+            const immediateVal = examFlagEnabled(examConfig.immediateFeedback ?? examConfig.immediate_feedback, false) ? 1 : 0;
             activeExamConfig = { 
                 ...examConfig, 
                 count41: targetCount41,
@@ -162,6 +163,18 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             };
         } else {
             return new Response(JSON.stringify({ error: 'Không tìm thấy thông tin cấu hình đề thi' }), { status: 400, headers: corsHeaders });
+        }
+
+        for (const [label, value] of [
+            ['Trắc nghiệm', activeExamConfig.points41],
+            ['Đúng/Sai', activeExamConfig.pointsTF4],
+            ['Trả lời ngắn', activeExamConfig.pointsSQ],
+            ['Tự luận', activeExamConfig.pointsTL]
+        ] as any[]) {
+            const point = Number(value);
+            if (!Number.isFinite(point) || point < 0 || point > 1000) {
+                return new Response(JSON.stringify({ error: `Điểm cấu hình ${label} không hợp lệ.` }), { status: 400, headers: corsHeaders });
+            }
         }
 
         const effectiveTeacherId = dbExam?.creator_id || teacherId;
@@ -235,10 +248,6 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                         isSameDonVi = true;
                     } else if (allowedUnits.some((au: string) => au && (au === userDonvi || userDonvi.includes(au) || au.includes(userDonvi)))) {
                         isSameDonVi = true;
-                    } else if (teacherDonvi && candidateInputDonvi && (candidateInputDonvi === teacherDonvi || candidateInputDonvi.includes(teacherDonvi) || teacherDonvi.includes(candidateInputDonvi))) {
-                        isSameDonVi = true;
-                    } else if (allowedUnits.some((au: string) => au && (au === candidateInputDonvi || candidateInputDonvi.includes(au) || au.includes(candidateInputDonvi)))) {
-                        isSameDonVi = true;
                     }
                 } else {
                     if (teacherDonvi && candidateInputDonvi && (candidateInputDonvi === teacherDonvi || candidateInputDonvi.includes(teacherDonvi) || teacherDonvi.includes(candidateInputDonvi))) {
@@ -263,9 +272,8 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                     const userLop = normalizeLop(tokenUser.lop || '');
                     const candidateClass = normalizeLop(body.studentLop || body.userLop || body.studentClass || '');
                     const allowedLops = targetLop.split(/[,;\n]+/).map((s: string) => normalizeLop(s)).filter(Boolean);
-                    const isLopMatched = allowedLops.some((al: string) => 
-                        (userLop && (al === userLop || userLop === 'lớp' + al || al === 'lớp' + userLop || userLop.endsWith(al) || al.endsWith(userLop))) ||
-                        (candidateClass && (al === candidateClass || candidateClass === 'lớp' + al || al === 'lớp' + candidateClass || candidateClass.endsWith(al) || al.endsWith(candidateClass)))
+                    const isLopMatched = allowedLops.some((al: string) =>
+                        userLop && (al === userLop || userLop === 'lớp' + al || al === 'lớp' + userLop || userLop.endsWith(al) || al.endsWith(userLop))
                     );
                     if (!isLopMatched) {
                         return new Response(JSON.stringify({ error: `🛑 Bạn không có quyền làm đề thi này do Lớp không phù hợp! (Đề thi chỉ dành riêng cho học sinh Lớp ${targetLop}. Tài khoản của bạn thuộc Lớp ${tokenUser.lop || 'khác'}).` }), { status: 403, headers: corsHeaders });
@@ -442,7 +450,18 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                 image: q.image || '',
                 creatorId: q.creator_id
             }))
-            .filter(q => isQuestionInSelectedLessons(q.lesson));
+            .filter(q => {
+                if (!isQuestionInSelectedLessons(q.lesson)) return false;
+                const verdict = validateQuestionAnswer(q.type, q.answer, q.options);
+                if (!verdict.ok) return false;
+                if (q.type === '4-1') {
+                    return ['A','B','C','D'].every(key =>
+                        q.options && q.options[key] &&
+                        String(q.options[key]?.text ?? q.options[key] ?? '').trim()
+                    );
+                }
+                return true;
+            });
 
         const totalRequired = targetCount41 + targetCountTF4 + targetCountSQ + targetCountTL;
         if (totalRequired === 0) {
@@ -522,13 +541,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
         selectedQuestions = shuffle(selectedQuestions);
 
-        const isImmediateFeedback = Boolean(
-            activeExamConfig.immediate_feedback == 1 ||
-            activeExamConfig.immediate_feedback === true ||
-            activeExamConfig.immediate_feedback === '1' ||
-            activeExamConfig.immediateFeedback === true ||
-            activeExamConfig.immediateFeedback == 1 ||
-            (examConfig && (examConfig.immediateFeedback || examConfig.immediate_feedback == 1))
+        const isImmediateFeedback = examFlagEnabled(
+            activeExamConfig.immediateFeedback ?? activeExamConfig.immediate_feedback,
+            false
         );
 
         const questionIds: any[] = [];
