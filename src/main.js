@@ -8663,7 +8663,7 @@ if (contentType && contentType.includes("application/json")) {
                         } catch(e) {}
                         showToast(error?.message || 'Không thể bắt đầu bài thi. Vui lòng thử lại.', 'error');
                     }
-                }, { once: true });
+                });
                 document.getElementById('exam-start-ready-cancel')?.addEventListener('click', closeModal, { once: true });
                 readyButton.focus();
             } catch (error) {
