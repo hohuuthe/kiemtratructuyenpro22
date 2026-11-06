@@ -117,12 +117,33 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                         "SELECT id, score, correct_count, total_questions, details, cheat_warning_count FROM results WHERE id = ?"
                     ).bind(String(existing.result_id)).first();
                     if (stored) {
+                        let storedDetails: any[] = [];
+                        try {
+                            storedDetails = Array.isArray(stored.details)
+                                ? stored.details
+                                : JSON.parse(String(stored.details || '[]'));
+                        } catch { storedDetails = []; }
+                        const replayShowDetails = examFlagEnabled(
+                            decoded?.examConfig?.showDetails ?? decoded?.examConfig?.show_details,
+                            false
+                        );
+                        const replayDetails = storedDetails.map((d: any) => {
+                            if (replayShowDetails) return d;
+                            const { correctAnswer, aiFeedback, ...safeD } = d || {};
+                            if (safeD.question?.options?.answerImage) {
+                                const { answerImage, ...safeOptions } = safeD.question.options;
+                                safeD.question = { ...safeD.question, options: safeOptions };
+                            }
+                            return safeD;
+                        });
                         return new Response(JSON.stringify({
                             resultId: stored.id,
                             score: Number(stored.score) || 0,
+                            rawEarnedScore: Number(stored.score) || 0,
                             correctCount: Number(stored.correct_count) || 0,
                             totalQuestions: Number(stored.total_questions) || 0,
                             cheatWarningCount: Number(stored.cheat_warning_count) || 0,
+                            detailedResults: replayDetails,
                             alreadySubmitted: true
                         }), { status: 200, headers: corsHeaders });
                     }
