@@ -1184,6 +1184,99 @@ async function startServer() {
     }
   });
 
+  // Reset mật khẩu hàng loạt (Admin only). Một UPDATE duy nhất đảm bảo không có trạng thái nửa chừng.
+  app.post("/api/accounts/reset-password", authLimiter, async (req, res) => {
+    try {
+      const authHeader = req.headers.authorization || '';
+      if (!authHeader.startsWith("Bearer ")) {
+        return res.status(401).json({ error: "Yêu cầu đăng nhập Admin." });
+      }
+      const actor: any = verifyJWTSync(authHeader.substring(7), await getServerSecret());
+      if (!checkIsAdmin(actor)) {
+        return res.status(403).json({ error: "Chỉ Admin mới được reset mật khẩu tài khoản." });
+      }
+
+      const rawIds = Array.isArray(req.body?.account_ids) ? req.body.account_ids : [];
+      const accountIds = [...new Set(rawIds.map((id: any) => String(id ?? '').trim()).filter(Boolean))] as string[];
+      const password = String(req.body?.password ?? '');
+      const maxAccounts = 500;
+
+      if (!accountIds.length) {
+        return res.status(400).json({ error: "Chưa chọn tài khoản cần reset mật khẩu." });
+      }
+      if (accountIds.length > maxAccounts) {
+        return res.status(400).json({ error: `Mỗi lần chỉ được reset tối đa ${maxAccounts} tài khoản.` });
+      }
+      if (password.length < 6) {
+        return res.status(400).json({ error: "Mật khẩu mặc định phải có ít nhất 6 ký tự." });
+      }
+      if (password.length > 128) {
+        return res.status(400).json({ error: "Mật khẩu mặc định không được vượt quá 128 ký tự." });
+      }
+
+      const marks = accountIds.map(() => '?').join(',');
+      const before = await executeSqlQuery(
+        `SELECT id FROM accounts WHERE id IN (${marks})`,
+        accountIds
+      );
+      const foundIds = new Set((before.results || []).map((row: any) => String(row.id)));
+      const missing = accountIds.filter(id => !foundIds.has(id));
+      if (missing.length || foundIds.size !== accountIds.length) {
+        return res.status(409).json({
+          error: "Danh sách tài khoản đã thay đổi. Không có mật khẩu nào được reset.",
+          code: "ACCOUNT_SELECTION_CHANGED",
+          missing_account_ids: missing
+        });
+      }
+
+      const hashedPassword = hashPasswordPBKDF2Sync(password);
+      if (!hashedPassword.startsWith('pbkdf2:sha256:') || !verifyPasswordSync(password, hashedPassword)) {
+        return res.status(500).json({
+          error: "Không thể xác minh kết quả mã hóa mật khẩu. Không có tài khoản nào được cập nhật."
+        });
+      }
+
+      await executeSqlQuery(
+        `UPDATE accounts SET password = ? WHERE id IN (${marks})`,
+        [hashedPassword, ...accountIds]
+      );
+
+      const after = await executeSqlQuery(
+        `SELECT id,password FROM accounts WHERE id IN (${marks})`,
+        accountIds
+      );
+      const rows = after.results || [];
+      const confirmed = new Set(
+        rows
+          .filter((row: any) => String(row.password || '') === hashedPassword)
+          .map((row: any) => String(row.id))
+      );
+      if (rows.length !== accountIds.length ||
+          accountIds.some(id => !confirmed.has(id)) ||
+          !verifyPasswordSync(password, hashedPassword)) {
+        return res.status(500).json({
+          error: "Không thể xác nhận toàn bộ mật khẩu sau khi ghi. Cần kiểm tra cơ sở dữ liệu trước khi tiếp tục.",
+          code: "PASSWORD_RESET_VERIFY_FAILED"
+        });
+      }
+
+      return res.json({
+        data: {
+          success: true,
+          updated: accountIds.length,
+          account_ids: accountIds,
+          password_scheme: "pbkdf2:sha256",
+          session_tokens_invalidated: true,
+          self_reset: accountIds.includes(String(actor.id || ''))
+        },
+        error: null
+      });
+    } catch (e: any) {
+      console.error("POST /api/accounts/reset-password error::", e);
+      return res.status(500).json({ error: e.message || "Không thể reset mật khẩu tài khoản." });
+    }
+  });
+
   // 2. Tạo tài khoản mới (Admin only)
   app.post("/api/accounts", async (req, res) => {
     try {
