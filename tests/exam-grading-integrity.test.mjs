@@ -326,8 +326,8 @@ test('fourth audit: server start timestamp is mandatory and bounds result time',
   assert.match(start, /UPDATE _exam_grade_sessions SET started_at/);
   assert.match(start, /Tài khoản bắt đầu bài thi không khớp phiên đã phát/);
   assert.match(grade, /serverStartedAtMs/);
-  assert.match(grade, /submissionTransportGraceSeconds = 15/);
-  assert.match(grade, /elapsedByServer > signedLimitSeconds \+ submissionTransportGraceSeconds/);
+  assert.doesNotMatch(grade, /submissionTransportGraceSeconds/);
+  assert.match(grade, /elapsedByServer > signedLimitSeconds/);
   assert.match(main, /fetch\('\/api\/exam\/start'/);
   assert.match(main, /currentExam\.serverStartedAt = startResult\.startedAt/);
 });
@@ -403,4 +403,36 @@ test('fifth audit: stale crashed persistence claim is recoverable but fresh clai
   const grade = fs.readFileSync(new URL('../functions/api/exam/grade.ts', import.meta.url), 'utf8');
   assert.match(grade, /Date\.now\(\) - claimedAtMs > 120000/);
   assert.match(grade, /claimed_at = \? AND NOT EXISTS \(SELECT 1 FROM results WHERE id = \?\)/);
+});
+
+
+test('sixth audit: on-time answer checkpoints protect deadline recovery without accepting late edits', () => {
+  const checkpoint = fs.readFileSync(new URL('../functions/api/exam/checkpoint.ts', import.meta.url), 'utf8');
+  const grade = fs.readFileSync(new URL('../functions/api/exam/grade.ts', import.meta.url), 'utf8');
+  const main = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+  assert.match(checkpoint, /requestReceivedAtMs > startedAtMs \+ limitSeconds \* 1000/);
+  assert.match(checkpoint, /ON CONFLICT \(session_id\) DO UPDATE SET/);
+  assert.match(checkpoint, /WHERE _exam_answer_checkpoints\.sequence < EXCLUDED\.sequence/);
+  assert.match(grade, /SELECT question_ids, answers, saved_at FROM _exam_answer_checkpoints/);
+  assert.match(grade, /checkpointSavedAtMs > deadlineMs/);
+  assert.match(grade, /gradingAnswers = checkpointAnswers/);
+  assert.match(grade, /recoveredFromCheckpoint = true/);
+  assert.match(main, /fetch\('\/api\/exam\/checkpoint'/);
+  assert.match(main, /window\.backupExamState = function backupExamState/);
+  assert.match(main, /checkpointInterval = setInterval/);
+});
+
+test('sixth audit: no client answers are trusted after exact deadline', () => {
+  const grade = fs.readFileSync(new URL('../functions/api/exam/grade.ts', import.meta.url), 'utf8');
+  assert.match(grade, /if \(elapsedByServer > signedLimitSeconds\)/);
+  assert.doesNotMatch(grade, /elapsedByServer > signedLimitSeconds \+/);
+  assert.match(grade, /SUBMISSION_AFTER_DEADLINE_NO_CHECKPOINT/);
+});
+
+test('sixth audit: one candidate cannot run multiple attempts concurrently', () => {
+  const start = fs.readFileSync(new URL('../functions/api/exam/start.ts', import.meta.url), 'utf8');
+  assert.match(start, /idx_exam_attempt_slots_one_active/);
+  assert.match(start, /WHERE completed_at IS NULL/);
+  assert.match(start, /EXAM_ATTEMPT_ALREADY_ACTIVE/);
+  assert.match(start, /attemptExpiresAt/);
 });
