@@ -8513,16 +8513,20 @@ if (contentType && contentType.includes("application/json")) {
             if (resumeButton) {
                 resumeButton.addEventListener('click', async () => {
                     resumeButton.disabled = true;
-                    if (!data.expired && typeof window.enterExamFullscreen === 'function') {
+                    closeModal();
+
+                    if (data.expired) {
+                        currentExam.deadlineLocked = true;
+                        showToast('Đã hết giờ. Hệ thống đang nộp bản đáp án đã lưu trước hạn.', 'warning');
+                        executeSubmit();
+                        return;
+                    }
+
+                    if (typeof window.enterExamFullscreen === 'function') {
                         Promise.resolve(window.enterExamFullscreen()).catch(() => {});
                     }
-                    closeModal();
                     window.startExamUI(true);
-                    if (data.expired) {
-                        showToast('Đã hết giờ. Hệ thống đang nộp bản đáp án đã lưu trước hạn.', 'warning');
-                    } else {
-                        showToast('Đã khôi phục bài thi. Đồng hồ tiếp tục theo deadline cũ.', 'success');
-                    }
+                    showToast('Đã khôi phục bài thi. Đồng hồ tiếp tục theo deadline cũ.', 'success');
                 }, { once: true });
                 resumeButton.focus();
             }
