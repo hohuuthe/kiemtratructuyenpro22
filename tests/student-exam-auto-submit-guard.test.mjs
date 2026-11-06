@@ -74,7 +74,8 @@ test('server freezes authoritative exam duration into the generated session', ()
   assert.match(generate, /const timeLimitSeconds = Math\.max\(1, Math\.round\(timeLimitMinutes \* 60\)\)/);
   assert.match(generate, /timeLimitSeconds,/);
   assert.match(generate, /timeLimitMinutes,/);
-  assert.match(generate, /exp:[\s\S]{0,180}timeLimitSeconds \+ 3600/);
+  assert.match(generate, /Math\.max\(3600, Math\.min\(8 \* 3600, timeLimitSeconds \+ 3600\)\)/);
+  assert.match(generate, /purpose:\s*EXAM_SESSION_PURPOSE_PRESTART/);
 });
 
 test('main exam flow binds timer and delayed anti-cheat submit to the current session', () => {
@@ -147,7 +148,7 @@ test('new sessions cannot be graded before activation and late grading uses serv
   const grade = readFileSync('functions/api/exam/grade.ts', 'utf8');
   const route = readFileSync('functions/[slug]/api/[[path]].ts', 'utf8');
 
-  assert.match(generate, /EXAM_SESSION_PURPOSE_PRESTART/);
+  assert.match(generate, /purpose:\s*EXAM_SESSION_PURPOSE_PRESTART/);
   assert.match(generate, /evaluateExamAccessWindow/);
   assert.match(start, /EXAM_SESSION_PURPOSE_ACTIVE/);
   assert.match(start, /SET started_at = \?, deadline_at = \?/);
