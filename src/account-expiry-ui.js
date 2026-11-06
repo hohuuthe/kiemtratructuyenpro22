@@ -1,6 +1,7 @@
 const BULK_EXPIRY_INPUT_ID = 'bulk-account-expiry-vn';
 let bulkExpiryDate = '';
 let bulkExpiryMounted = false;
+const seenBulkContainers = new WeakSet();
 
 function textOf(node) {
   return String(node?.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
@@ -25,6 +26,11 @@ function ensureBulkExpiryField() {
   if (container.querySelector('#' + BULK_EXPIRY_INPUT_ID)) {
     bulkExpiryMounted = true;
     return;
+  }
+
+  if (!seenBulkContainers.has(container)) {
+    bulkExpiryDate = '';
+    seenBulkContainers.add(container);
   }
 
   const wrap = document.createElement('div');
