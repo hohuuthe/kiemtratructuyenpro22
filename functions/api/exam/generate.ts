@@ -637,11 +637,15 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             }), { status: 503, headers: corsHeaders });
         }
 
+        // The server-side snapshot may contain private grading instructions.
+        // Strip those fields from the readable JWT returned to the browser.
+        const { aiPrompt: _aiPrompt, ai_prompt: _aiPromptSnake, ...tokenGradeSessionConfig } = gradeSessionConfig;
+
         const payload = {
             questionIds,
             gradingSessionId,
             studentUserId: tokenUser?.user_id || tokenUser?.id || null,
-            examConfig: gradeSessionConfig,
+            examConfig: tokenGradeSessionConfig,
             maxCheatWarnings: maxCheatWarningsFromDB,
             timeLimitSeconds,
             teacherId: effectiveTeacherId,
