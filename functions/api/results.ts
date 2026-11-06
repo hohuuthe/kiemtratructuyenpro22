@@ -490,16 +490,21 @@ export const onRequestPut: PagesFunction<Env> = async (context) => {
       if (!Number.isFinite(maxScore) || maxScore < 0) {
         throw new Error('Không xác định được điểm tối đa của câu tự luận.');
       }
-      const score = roundScore(clampScore(incoming.score, maxScore), 2);
+      const requestedScore = Number(incoming.score);
+      if (!Number.isFinite(requestedScore) || requestedScore < 0 || requestedScore > maxScore ||
+          Math.abs(requestedScore * 100 - Math.round(requestedScore * 100)) > 1e-9) {
+        throw new Error(`Điểm tự luận tại vị trí ${index + 1} không hợp lệ, vượt thang điểm hoặc có quá 2 chữ số thập phân.`);
+      }
+      const score = roundScore(requestedScore, 2);
       const next = {
         ...storedDetail,
         score,
         maxScore,
         isCorrect: maxScore > 0 && score >= maxScore - 0.000001,
-        needsGrading: false
+        needsGrading: false,
+        gradingStatus: 'completed_manual'
       };
       if (typeof incoming.aiFeedback === 'string') next.aiFeedback = incoming.aiFeedback.slice(0, 20000);
-      if (typeof incoming.gradingStatus === 'string') next.gradingStatus = incoming.gradingStatus.slice(0, 50);
       return next;
     });
 
