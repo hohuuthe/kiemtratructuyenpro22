@@ -2574,6 +2574,50 @@ html.kttt-modal-open, body.kttt-modal-open { overflow: hidden !important; oversc
 .board-object-context-menu .board-object-context-danger{background:#fff1f2;color:#be123c;border-color:#fecdd3}
 .board-body-fullscreen .board-object-context-menu{z-index:190}
 
+
+/* Context-aware right-click menu for Interactive Board workspace */
+.board-workspace-context-menu{
+ position:fixed;z-index:205;width:min(330px,calc(100vw - 16px));max-height:min(76vh,640px);overflow:auto;
+ padding:8px;border:1px solid rgba(203,213,225,.95);border-radius:15px;background:rgba(255,255,255,.985);
+ box-shadow:0 22px 55px rgba(15,23,42,.28);backdrop-filter:blur(14px);color:#0f172a;
+ scrollbar-width:thin;overscroll-behavior:contain
+}
+.board-workspace-context-menu.hidden{display:none!important}
+.board-workspace-context-head{
+ display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 8px 9px;
+ border-bottom:1px solid #e2e8f0
+}
+.board-workspace-context-head>div{min-width:0;display:flex;flex-direction:column}
+.board-workspace-context-head strong{font-size:13px;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.board-workspace-context-head span:not(.board-workspace-context-badge){margin-top:1px;font-size:10px;color:#64748b}
+.board-workspace-context-badge{
+ flex:0 0 auto;padding:3px 7px;border-radius:999px;background:#ecfdf5;color:#047857;font-size:10px;font-weight:900
+}
+.board-workspace-context-section{padding:6px 0;border-bottom:1px solid #f1f5f9}
+.board-workspace-context-section:last-child{border-bottom:0;padding-bottom:0}
+.board-workspace-context-section-title{
+ padding:3px 8px 5px;font-size:9px;font-weight:900;letter-spacing:.06em;text-transform:uppercase;color:#94a3b8
+}
+.board-workspace-context-item{
+ width:100%;min-height:38px;display:grid;grid-template-columns:25px minmax(0,1fr) auto;align-items:center;gap:7px;
+ padding:7px 8px;border-radius:9px;text-align:left;font-size:12px;font-weight:750;transition:background-color .12s ease,color .12s ease
+}
+.board-workspace-context-item:hover:not(:disabled),
+.board-workspace-context-item:focus-visible:not(:disabled){background:#f1f5f9;outline:none}
+.board-workspace-context-item:focus-visible{box-shadow:inset 0 0 0 2px #10b981}
+.board-workspace-context-item:disabled{opacity:.38;cursor:not-allowed}
+.board-workspace-context-icon{display:grid;place-items:center;min-width:25px;font-size:14px}
+.board-workspace-context-label{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.board-workspace-context-hint{font-size:9px;color:#94a3b8;font-weight:800;white-space:nowrap}
+.board-workspace-context-item.is-danger{color:#be123c}
+.board-workspace-context-item.is-danger:hover:not(:disabled),
+.board-workspace-context-item.is-danger:focus-visible:not(:disabled){background:#fff1f2}
+.board-body-fullscreen .board-workspace-context-menu{z-index:205}
+@media(max-width:640px){
+ .board-workspace-context-menu{width:min(310px,calc(100vw - 12px));max-height:68vh;padding:7px}
+ .board-workspace-context-item{min-height:42px;font-size:12px}
+}
+
 /* QL hồ sơ người dùng: cột chọn tối giản, cột thao tác luôn nổi cố định bên phải */
 #th-users-select{
   width:38px!important;
