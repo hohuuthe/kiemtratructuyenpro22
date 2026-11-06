@@ -113,10 +113,11 @@ function updateButtons() {
   for (const scope of ['accounts', 'users']) {
     const ids = selectedIds(scope);
     const button = document.querySelector(`[data-bulk-expiry-open="${scope}"]`);
-    const count = document.querySelector(`[data-bulk-expiry-count="${scope}"]`);
-    if (count) count.textContent = String(ids.length);
     if (button) {
       button.disabled = ids.length === 0;
+      button.innerHTML = ids.length
+        ? `📅 Hạn dùng <span class="management-action-count">(${ids.length})</span>`
+        : '📅 Hạn dùng';
       button.title = ids.length
         ? `Cập nhật hạn dùng cho ${ids.length} ${scopeLabel(scope)} đã chọn`
         : `Hãy chọn ít nhất một ${scopeLabel(scope)}`;
@@ -129,9 +130,9 @@ function ensureStyles() {
   const style = document.createElement('style');
   style.id = 'bulk-expiry-style';
   style.textContent = `
-    .bulk-expiry-tools{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 14px;padding:11px 13px;border:1px solid #bae6fd;border-radius:14px;background:#f0f9ff}
-    .bulk-expiry-tools strong{display:block;color:#0c4a6e;font-size:13px}.bulk-expiry-tools small{display:block;margin-top:2px;color:#64748b;font-size:11px}
-    .bulk-expiry-open{border:0;border-radius:10px;padding:9px 13px;background:#0284c7;color:#fff;font-weight:800;font-size:12px;cursor:pointer;white-space:nowrap}
+    .management-native-actions{display:flex!important;flex-wrap:nowrap!important;align-items:center!important;gap:8px!important;overflow-x:auto!important;overflow-y:hidden!important;padding-bottom:3px;scrollbar-width:thin;-webkit-overflow-scrolling:touch}
+    .management-native-actions>button,.management-native-actions>label{flex:0 0 auto!important}
+    .bulk-expiry-open{border:0;border-radius:10px;padding:9px 13px;background:#0284c7;color:#fff;font-weight:800;font-size:12px;cursor:pointer;white-space:nowrap;box-shadow:0 2px 6px rgba(2,132,199,.18)}
     .bulk-expiry-open:disabled{opacity:.45;cursor:not-allowed}
     .bulk-expiry-modal{position:fixed;inset:0;z-index:1000010;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(15,23,42,.58);backdrop-filter:blur(5px)}
     .bulk-expiry-modal.hidden{display:none!important}
@@ -150,7 +151,7 @@ function ensureStyles() {
     .bulk-expiry-actions button{border-radius:10px;padding:9px 13px;font-size:12px;font-weight:800}
     .bulk-expiry-cancel{border:1px solid #cbd5e1;background:#fff;color:#475569}.bulk-expiry-submit{border:0;background:#0284c7;color:#fff}
     .bulk-expiry-submit:disabled{opacity:.55;cursor:wait}
-    @media(max-width:640px){.bulk-expiry-tools{align-items:stretch;flex-direction:column}.bulk-expiry-open{width:100%}.bulk-expiry-actions{display:grid;grid-template-columns:1fr 1fr}}
+    @media(max-width:640px){.bulk-expiry-open{width:auto}.bulk-expiry-actions{display:grid;grid-template-columns:1fr 1fr}}
   `;
   document.head.append(style);
 }
@@ -242,17 +243,36 @@ async function submitExpiry(event) {
     const label = payload.data.unlimited ? 'Vô thời hạn' : expiryDate;
     closeModal();
 
-    // Đồng bộ snapshot cục bộ để giao diện không hiển thị hạn cũ trong lúc chờ lần tải kế tiếp.
-    if (scope === 'accounts' && Array.isArray(window.accounts)) {
-      window.accounts.forEach(row => {
-        if (ids.includes(String(row?.id || ''))) row.expiry_date = payload.data.expiry_date;
-      });
-      if (typeof window.renderAccounts === 'function') window.renderAccounts();
-    } else if (scope === 'users' && Array.isArray(window.users)) {
-      window.users.forEach(row => {
-        if (ids.includes(String(row?.id || ''))) row.expiry_date = payload.data.expiry_date;
-      });
-      if (typeof window.renderUsers === 'function') window.renderUsers();
+    // Xóa trạng thái chọn cũ trước khi tải lại để tránh selection trỏ vào DOM/dữ liệu cũ.
+    if (scope === 'accounts' && window.selectedAccountIds instanceof Set) {
+      window.selectedAccountIds.clear();
+    }
+    if (scope === 'users' && window.selectedUserIds instanceof Set) {
+      window.selectedUserIds.clear();
+    }
+
+    // Bắt buộc tải lại dữ liệu thật từ server sau khi cập nhật thành công.
+    // Không chỉ sửa snapshot cục bộ, để hạn dùng hiển thị đúng ngay trên danh sách.
+    if (scope === 'accounts') {
+      if (typeof window.refreshAccountsData === 'function') {
+        await window.refreshAccountsData();
+      } else if (typeof window.fetchAllAccountsChunked === 'function') {
+        window.accounts = await window.fetchAllAccountsChunked();
+        if (typeof window.renderAccounts === 'function') await window.renderAccounts();
+      } else {
+        window.location.reload();
+        return;
+      }
+    } else {
+      if (typeof window.refreshUsersData === 'function') {
+        await window.refreshUsersData();
+      } else if (typeof window.fetchAllUsersChunked === 'function') {
+        window.usersList = await window.fetchAllUsersChunked();
+        if (typeof window.renderUsers === 'function') await window.renderUsers();
+      } else {
+        window.location.reload();
+        return;
+      }
     }
 
     updateButtons();
@@ -310,32 +330,66 @@ function ensureModal() {
   modal.querySelector('form').addEventListener('submit', submitExpiry);
 }
 
-function makeTools(scope) {
-  const tools = document.createElement('div');
-  tools.id = `bulk-expiry-tools-${scope}`;
-  tools.className = 'bulk-expiry-tools';
-  tools.innerHTML = `
-    <div>
-      <strong>Cập nhật hạn dùng hàng loạt · Đã chọn <span data-bulk-expiry-count="${scope}">0</span> ${scopeLabel(scope)}</strong>
-      <small>Chọn một hoặc nhiều dòng để đặt ngày hết hạn mới hoặc chuyển sang vô thời hạn.</small>
-    </div>
-    <button type="button" class="bulk-expiry-open" data-bulk-expiry-open="${scope}" disabled>📅 Cập nhật hạn dùng</button>`;
-  tools.querySelector('button').addEventListener('click', () => openModal(scope));
-  return tools;
+function actionBarForScope(scope, tab) {
+  const preferredIds = scope === 'accounts'
+    ? ['btn-delete-selected-accounts', 'account-password-reset-open']
+    : ['btn-delete-selected-users', 'btn-batch-create-accounts', 'btn-import-users-excel', 'btn-add-user', 'btn-open-teacher-assignment-app'];
+
+  for (const id of preferredIds) {
+    const anchor = document.getElementById(id);
+    if (anchor?.parentElement && tab.contains(anchor)) return anchor.parentElement;
+  }
+
+  const buttons = [...tab.querySelectorAll('button')];
+  const anchor = buttons.find(button => {
+    const label = String(button.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    return label.includes('xuất excel') || label.includes('nhập excel') ||
+      label.includes('thêm người dùng') || label.includes('thêm tài khoản');
+  });
+  return anchor?.parentElement || null;
+}
+
+function createExpiryButton(scope) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'bulk-expiry-open';
+  button.dataset.bulkExpiryOpen = scope;
+  button.disabled = true;
+  button.textContent = '📅 Hạn dùng';
+  button.addEventListener('click', () => openModal(scope));
+  return button;
+}
+
+function mountExpiryButton(scope, tab) {
+  // Xóa khối lớn của phiên bản cũ nếu nó còn tồn tại trên DOM.
+  document.getElementById(`bulk-expiry-tools-${scope}`)?.remove();
+
+  const actionBar = actionBarForScope(scope, tab);
+  if (!actionBar) return;
+  actionBar.classList.add('management-native-actions');
+
+  let button = document.querySelector(`[data-bulk-expiry-open="${scope}"]`);
+  if (!button) button = createExpiryButton(scope);
+
+  if (button.parentElement !== actionBar) {
+    if (scope === 'accounts') {
+      const passwordButton = document.getElementById('account-password-reset-open');
+      if (passwordButton?.parentElement === actionBar) passwordButton.after(button);
+      else actionBar.append(button);
+    } else {
+      const batchButton = document.getElementById('btn-batch-create-accounts');
+      if (batchButton?.parentElement === actionBar) batchButton.after(button);
+      else actionBar.append(button);
+    }
+  }
 }
 
 function ensureTools() {
   const accountTab = document.getElementById('tab-accounts');
-  if (accountTab && accountTab.children.length && !document.getElementById('bulk-expiry-tools-accounts')) {
-    const passwordTools = document.getElementById('account-password-reset-tools');
-    if (passwordTools?.parentElement === accountTab) passwordTools.after(makeTools('accounts'));
-    else accountTab.prepend(makeTools('accounts'));
-  }
+  if (accountTab?.children.length) mountExpiryButton('accounts', accountTab);
 
   const userTab = document.getElementById('tab-users');
-  if (userTab && userTab.children.length && !document.getElementById('bulk-expiry-tools-users')) {
-    userTab.prepend(makeTools('users'));
-  }
+  if (userTab?.children.length) mountExpiryButton('users', userTab);
 
   updateButtons();
 }
