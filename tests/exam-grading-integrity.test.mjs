@@ -436,3 +436,32 @@ test('sixth audit: one candidate cannot run multiple attempts concurrently', () 
   assert.match(start, /EXAM_ATTEMPT_ALREADY_ACTIVE/);
   assert.match(start, /attemptExpiresAt/);
 });
+
+
+test('seventh audit: immediate feedback never exposes answer keys to the browser', () => {
+  const generate = fs.readFileSync(new URL('../functions/api/exam/generate.ts', import.meta.url), 'utf8');
+  const feedback = fs.readFileSync(new URL('../functions/api/exam/feedback.ts', import.meta.url), 'utf8');
+  const main = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+
+  assert.doesNotMatch(generate, /if \(isImmediateFeedback\)[\s\S]{0,200}return \{ \.\.\.q \}/);
+  assert.match(generate, /const \{ answer, \.\.\.qWithoutAnswer \} = q/);
+  assert.match(feedback, /SELECT question_ids, question_snapshot, exam_config, started_at FROM _exam_grade_sessions/);
+  assert.match(feedback, /allCorrect:/);
+  assert.doesNotMatch(feedback, /correctAnswer\s*:/);
+  assert.match(main, /fetch\('\/api\/exam\/feedback'/);
+
+  const examUiStart = main.indexOf('function renderQuestionNav()');
+  const examUiEnd = main.indexOf('// ==================== EXAM ANTI-CHEAT & MONITORING', examUiStart);
+  assert.ok(examUiStart >= 0 && examUiEnd > examUiStart);
+  const studentFeedbackUi = main.slice(examUiStart, examUiEnd);
+  assert.doesNotMatch(studentFeedbackUi, /q\.answer/);
+  assert.doesNotMatch(studentFeedbackUi, /Đáp án đúng:/);
+  assert.match(studentFeedbackUi, /currentExam\.feedback/);
+});
+
+test('seventh audit: changing an answer invalidates stale immediate feedback', () => {
+  const main = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+  assert.match(main, /delete currentExam\.feedback\[index\]/);
+  assert.match(main, /requestImmediateExamFeedback\(index, option\)/);
+  assert.match(main, /selectedCorrect === true/);
+});
