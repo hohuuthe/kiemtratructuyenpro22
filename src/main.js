@@ -8309,8 +8309,11 @@ if (contentType && contentType.includes("application/json")) {
                 window.initExamMonitoring();
             }
 
-            currentExam.startTime = Date.now();
-            currentExam.startTick = (typeof performance !== 'undefined' && Number.isFinite(performance.now())) ? performance.now() : null;
+            const serverElapsedSeconds = Math.max(0, Number(currentExam.serverElapsedSeconds) || 0);
+            currentExam.startTime = Date.now() - Math.round(serverElapsedSeconds * 1000);
+            currentExam.startTick = (typeof performance !== 'undefined' && Number.isFinite(performance.now()))
+                ? performance.now() - (serverElapsedSeconds * 1000)
+                : null;
             currentExam.violationEpisodeActive = false;
             if (!Number.isFinite(Number(currentExam.timeLimitSeconds)) || Number(currentExam.timeLimitSeconds) <= 0) {
                 currentExam.timeLimitSeconds = Math.max(1, Math.round((Number(currentExam.timeLimitMinutes) || Number(examConfig?.timeLimit) || 45) * 60));
@@ -8569,6 +8572,9 @@ if (contentType && contentType.includes("application/json")) {
                     maxCheatWarnings: maxCheatAllowed,
                     timeLimitSeconds: Math.max(1, Number(result.timeLimitSeconds) || Math.round((Number(result.timeLimitMinutes) || Number(examConfig.timeLimit) || 45) * 60)),
                     timeLimitMinutes: Number(result.timeLimitMinutes) || Number(examConfig.timeLimit) || 45,
+                    serverStartedAt: null,
+                    serverElapsedSeconds: 0,
+                    lockedSubmissionAnswers: null,
                     lastViolationAt: 0,
                     lastViolationReason: '',
                     startTick: null,
@@ -8622,6 +8628,7 @@ if (contentType && contentType.includes("application/json")) {
                             throw new Error(startResult?.error || 'Không thể xác nhận thời điểm bắt đầu bài thi.');
                         }
                         currentExam.serverStartedAt = startResult.startedAt;
+                        currentExam.serverElapsedSeconds = Math.max(0, Number(startResult.elapsedSeconds) || 0);
                         closeModal();
                         startExamUI();
                         showToast('Bắt đầu làm bài! Chúc bạn thi tốt.', 'success');
