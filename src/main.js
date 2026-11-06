@@ -5720,7 +5720,7 @@ if (contentType && contentType.includes("application/json")) {
                 }
             }
             
-            const avgScore = filteredResults.length > 0 ? (filteredResults.reduce((sum, r) => sum + r.score, 0) / filteredResults.length).toFixed(1) : '0.0';
+            const avgScore = filteredResults.length > 0 ? (filteredResults.reduce((sum, r) => sum + r.score, 0) / filteredResults.length).toFixed(2) : '0.0';
             if (elAvg) elAvg.textContent = avgScore;
         }
 
@@ -10571,7 +10571,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 </div>
                 <div class="grid grid-cols-2 md:grid-cols-3 gap-2 md:gap-3 mb-4">
                     <div class="p-3 bg-blue-50 rounded-lg text-center shadow-sm relative border border-blue-100/50 flex flex-col justify-center">
-                        <p class="text-3xl sm:text-4xl lg:text-5xl font-black text-blue-600 leading-tight">${showScore ? (Number(result.score) || 0).toFixed(1) : '***'}</p>
+                        <p class="text-3xl sm:text-4xl lg:text-5xl font-black text-blue-600 leading-tight">${showScore ? (Number(result.score) || 0).toFixed(2) : '***'}</p>
                         <p class="text-xs md:text-sm text-blue-500 uppercase font-bold tracking-widest mt-0.5">Điểm số</p>
                         <div class="mt-1 text-xs md:text-sm text-blue-700 bg-white/50 py-1 px-2.5 rounded-full inline-block border border-blue-200">
                             Đã làm: <b>${result.answeredQuestionsCount}</b>/${result.totalQuestions}
@@ -16011,7 +16011,7 @@ if (contentType && contentType.includes("application/json")) {
             });
             
             const elTotal = document.getElementById(`total-score-val-${resultId}`);
-            if (elTotal) elTotal.textContent = (Number(newTotalScore) || 0).toFixed(1);
+            if (elTotal) elTotal.textContent = (Number(newTotalScore) || 0).toFixed(2);
             
             const elCorrect = document.getElementById(`total-correct-val-${resultId}`);
             if (elCorrect) elCorrect.textContent = `${newCorrectCount}/${result.totalQuestions}`;
@@ -16768,7 +16768,7 @@ CẤU TRÚC JSON:
                             ${escapeHTML(r.donvi || r.studentClass || '-')}
                         </td>
                         <td class="px-2 py-1.5 text-center whitespace-nowrap">
-                            <span class="px-2 py-0.5 rounded-full font-bold ${r.score >= 8 ? 'bg-green-100 text-green-700' : r.score >= 5 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-purple-700'}">${(Number(r.score) || 0).toFixed(1)}</span>
+                            <span class="px-2 py-0.5 rounded-full font-bold ${r.score >= 8 ? 'bg-green-100 text-green-700' : r.score >= 5 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-purple-700'}">${(Number(r.score) || 0).toFixed(2)}</span>
                         </td>
                         <td class="px-2 py-1.5 text-center text-gray-600 whitespace-nowrap">${r.correctCount}/${r.totalQuestions}</td>
                         <td class="px-2 py-1.5 text-center text-gray-600 whitespace-nowrap">${formatTime(r.timeTaken)}</td>
@@ -16847,7 +16847,7 @@ CẤU TRÚC JSON:
                             <div>
                                 <p class="text-[10px] text-gray-500 uppercase font-bold mb-0.5">Điểm số</p>
                                 <span class="text-xl font-black ${r.score >= 8 ? 'text-green-600' : r.score >= 5 ? 'text-yellow-600' : 'text-purple-600'}">
-                                    ${(Number(r.score) || 0).toFixed(1)}
+                                    ${(Number(r.score) || 0).toFixed(2)}
                                 </span>
                             </div>
                             <div>
@@ -17175,7 +17175,7 @@ CẤU TRÚC JSON:
                     
                     <div class="grid grid-cols-3 gap-2 mb-3 text-center">
                         <div class="p-2 bg-blue-50 rounded-lg shadow-sm border border-blue-100/50">
-                            <p id="total-score-val-${resultId}" class="text-xl sm:text-2xl font-black text-blue-600">${(Number(result.score) || 0).toFixed(1)}</p>
+                            <p id="total-score-val-${resultId}" class="text-xl sm:text-2xl font-black text-blue-600">${(Number(result.score) || 0).toFixed(2)}</p>
                             <p class="text-[10px] text-gray-500 uppercase font-bold tracking-wider mt-1">Điểm</p>
                             <p class="text-[10px] text-blue-700 mt-1 font-bold">Làm: ${result.answeredQuestionsCount || 0}/${result.totalQuestions}</p>
                         </div>
@@ -17476,7 +17476,7 @@ CẤU TRÚC JSON:
 
             const studentName = result.studentName || 'thí sinh';
             const examName = result.examName || 'bài thi';
-            const scoreText = (Number(result.score) || 0).toFixed(1);
+            const scoreText = (Number(result.score) || 0).toFixed(2);
 
             showConfirmModal(
                 `<div class="space-y-2.5">
@@ -17729,7 +17729,7 @@ CẤU TRÚC JSON:
                     const creatorId = examToCreatorMap[r.examName];
                     const teacherName = examCreatorDisplayName(r,accountsMap,currentUser);
                     const row = worksheet.addRow([
-                        i + 1, r.loaiThiSinh || 'Tự do', r.studentName, r.lop || '-', r.donvi || r.studentClass || '-', parseFloat((Number(r.score) || 0).toFixed(1)),
+                        i + 1, r.loaiThiSinh || 'Tự do', r.studentName, r.lop || '-', r.donvi || r.studentClass || '-', parseFloat((Number(r.score) || 0).toFixed(2)),
                         r.correctCount, r.totalQuestions, r.timeTaken, Number(r.cheatWarningCount) || 0, r.aiGradingSummary || '-', r.examName, teacherName,
                         window.formatVNTime(r.timestamp)
                     ]);
@@ -17768,7 +17768,7 @@ CẤU TRÚC JSON:
                 showToast('Lỗi khi xuất file Excel cao cấp! Đang thử lại chế độ cơ bản...', 'error');
                 
                 const data = [['Hạng', 'Loại Thí sinh', 'Họ tên', 'Lớp', 'Đơn vị / Trường', 'Điểm', 'Đúng', 'Tổng', 'Vi phạm (lần)', 'Đề thi']];
-                sortedResults.forEach((r, i) => data.push([i+1, r.loaiThiSinh || 'Tự do', r.studentName, r.lop || '-', r.donvi || r.studentClass || '-', parseFloat((Number(r.score) || 0).toFixed(1)), r.correctCount, r.totalQuestions, Number(r.cheatWarningCount) || 0, r.examName]));
+                sortedResults.forEach((r, i) => data.push([i+1, r.loaiThiSinh || 'Tự do', r.studentName, r.lop || '-', r.donvi || r.studentClass || '-', parseFloat((Number(r.score) || 0).toFixed(2)), r.correctCount, r.totalQuestions, Number(r.cheatWarningCount) || 0, r.examName]));
                 const ws = XLSX.utils.aoa_to_sheet(data);
                 const wb = XLSX.utils.book_new();
                 XLSX.utils.book_append_sheet(wb, ws, 'XepHang');
@@ -17884,7 +17884,7 @@ CẤU TRÚC JSON:
                                         children: [
                                             new TableCell({ children: [new Paragraph({ text: r.studentName })] }),
                                             new TableCell({ children: [new Paragraph({ text: r.studentClass })] }),
-                                            new TableCell({ children: [new Paragraph({ text: (Number(r.score) || 0).toFixed(1) })] }),
+                                            new TableCell({ children: [new Paragraph({ text: (Number(r.score) || 0).toFixed(2) })] }),
                                             new TableCell({ children: [new Paragraph({ text: r.timeTaken + "s" })] }),
                                         ],
                                     }))
@@ -25308,7 +25308,7 @@ CẤU TRÚC JSON:
                                 }
                             </td>
                             <td class="px-2 py-1 text-center font-bold text-slate-700">${attemptsCount}</td>
-                            <td class="px-2 py-1 text-center font-bold ${isDone ? 'text-amber-600' : 'text-slate-400'}">${isDone ? (Number(maxScore) || 0).toFixed(1) : '-'}</td>
+                            <td class="px-2 py-1 text-center font-bold ${isDone ? 'text-amber-600' : 'text-slate-400'}">${isDone ? (Number(maxScore) || 0).toFixed(2) : '-'}</td>
                             <td class="px-2 py-1 text-center text-slate-600 font-medium hidden sm:table-cell">${isDone ? formatReportTime(timeTaken) : '-'}</td>
                             <td class="px-2 py-1 text-center text-slate-500 font-medium hidden md:table-cell whitespace-nowrap">${isDone ? formattedDoneAt : '-'}</td>
                             <td class="px-2 py-1 text-center">
@@ -25552,7 +25552,7 @@ CẤU TRÚC JSON:
                                 student.donvi || '-',
                                 isDone ? 'Đã làm' : 'Chưa',
                                 attemptsCount,
-                                isDone ? Number((Number(maxScore) || 0).toFixed(1)) : '-',
+                                isDone ? Number((Number(maxScore) || 0).toFixed(2)) : '-',
                                 isDone ? formatReportTime(timeTaken) : '-',
                                 isDone ? formattedDoneAt : '-'
                             ]);
