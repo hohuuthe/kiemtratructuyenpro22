@@ -1564,6 +1564,17 @@ Trả về kết quả dưới dạng JSON Array, mỗi phần tử tương ứn
 
         async function init() {
             try {
+                // Giữ một bản token/meta phiên thi từ đúng thời điểm page boot. Một số
+                // hàm tải selector cũ có thể gọi resetExam(); không được để chúng xóa
+                // mất bằng chứng Resume trước khi /exam/resume kịp xác minh trên server.
+                let bootExamResumeToken = '';
+                let bootExamResumeMeta = '';
+                try {
+                    bootExamResumeToken = localStorage.getItem(window.tenantStorageKey('currentExamToken')) ||
+                        localStorage.getItem('currentExamToken') || '';
+                    bootExamResumeMeta = localStorage.getItem(window.tenantStorageKey('active_exam_resume_meta')) || '';
+                } catch(e) {}
+
                 // Xóa cấu hình cũ có thể chứa khóa quản trị từng được lưu trên trình duyệt.
                 try { localStorage.removeItem('appSettings'); } catch (_) {}
                 console.log('Initializing application components...');
@@ -1582,6 +1593,22 @@ Trả về kết quả dưới dạng JSON Array, mỗi phần tử tương ứn
                     await loadData().catch(err => console.error('Data loading failed:', err));
                 }
                 
+                // Khôi phục token/meta boot nếu các thao tác tải dữ liệu/selector cũ
+                // đã reset UI trước khi Resume được xác minh.
+                if (bootExamResumeToken) {
+                    try {
+                        if (!localStorage.getItem(window.tenantStorageKey('currentExamToken'))) {
+                            localStorage.setItem(window.tenantStorageKey('currentExamToken'), bootExamResumeToken);
+                        }
+                        if (!localStorage.getItem('currentExamToken')) {
+                            localStorage.setItem('currentExamToken', bootExamResumeToken);
+                        }
+                        if (bootExamResumeMeta && !localStorage.getItem(window.tenantStorageKey('active_exam_resume_meta'))) {
+                            localStorage.setItem(window.tenantStorageKey('active_exam_resume_meta'), bootExamResumeMeta);
+                        }
+                    } catch(e) {}
+                }
+
                 // Các bước khởi tạo giao diện
                 try { updateStats(); } catch (e) { console.warn('updateStats init error:', e); }
                 try { updateCurrentExamInfo(); } catch (e) { console.warn('updateCurrentExamInfo init error:', e); }
