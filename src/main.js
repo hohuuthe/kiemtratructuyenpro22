@@ -1600,17 +1600,26 @@ Trả về kết quả dưới dạng JSON Array, mỗi phần tử tương ứn
 
                 // Lazy load questions
                 // Do not prefetch questions.
+
+                let resumedActiveExam = false;
+                try {
+                    resumedActiveExam = await tryResumeActiveExam();
+                } catch (e) {
+                    console.warn('Exam resume init error:', e);
+                }
                 
                 // Khách và học sinh bắt đầu tại Làm bài; không tải tab quản trị.
                 try {
-                    if (!isAdminLoggedIn && !isTeacherLoggedIn) switchTab('exam');
-                    else if (!document.querySelector('.tab-content.active')) switchTab('help');
+                    if (!resumedActiveExam) {
+                        if (!isAdminLoggedIn && !isTeacherLoggedIn) switchTab('exam');
+                        else if (!document.querySelector('.tab-content.active')) switchTab('help');
+                    }
                 } catch (e) {
                     console.warn('switchTab init error:', e);
                 }
                 
-                // Đảm bảo xóa thông tin học sinh nếu không có người dùng đăng nhập
-                if (!currentUser) {
+                // Chỉ xóa form khách khi không có phiên đang được khôi phục.
+                if (!currentUser && !resumedActiveExam) {
                     const studentName = document.getElementById('guest_data_1');
                     const studentLop = document.getElementById('guest_data_lop') || document.getElementById('guest_data_2');
                     const studentDonvi = document.getElementById('guest_data_donvi');
@@ -8339,6 +8348,161 @@ if (contentType && contentType.includes("application/json")) {
             window.scrollTo({ top: 0, behavior: 'smooth' });
         };
 
+        function clearStoredActiveExamResume() {
+            try {
+                localStorage.removeItem('currentExamToken');
+                localStorage.removeItem(window.tenantStorageKey('currentExamToken'));
+                localStorage.removeItem(window.tenantStorageKey('active_exam_resume_meta'));
+            } catch(e) {}
+        }
+
+        async function tryResumeActiveExam() {
+            if (isAdminLoggedIn || isTeacherLoggedIn) return false;
+
+            let token = '';
+            let meta = {};
+            try {
+                token = localStorage.getItem(window.tenantStorageKey('currentExamToken')) ||
+                    localStorage.getItem('currentExamToken') || '';
+                const rawMeta = localStorage.getItem(window.tenantStorageKey('active_exam_resume_meta')) || '';
+                if (rawMeta) {
+                    try { meta = JSON.parse(rawMeta) || {}; } catch(e) { meta = {}; }
+                }
+            } catch(e) {}
+            if (!token) return false;
+
+            const authToken = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
+            const headers = { 'Content-Type': 'application/json' };
+            if (authToken) headers['Authorization'] = 'Bearer ' + authToken;
+
+            let response;
+            let data = {};
+            try {
+                response = await fetch('/api/exam/resume', {
+                    method: 'POST',
+                    headers,
+                    cache: 'no-store',
+                    body: JSON.stringify({ token })
+                });
+                data = await response.json().catch(() => ({}));
+            } catch (error) {
+                console.warn('[ExamResume] Không thể kiểm tra phiên đang làm:', error);
+                return false;
+            }
+
+            if (response.ok && data?.alreadySubmitted) {
+                clearStoredActiveExamResume();
+                showToast('Bài thi trước đó đã được nộp thành công.', 'success');
+                return false;
+            }
+
+            if (!response.ok) {
+                if (['EXAM_RESUME_INVALID','EXAM_RESUME_NOT_FOUND','EXAM_RESUME_OWNER_MISMATCH'].includes(String(data?.code || '')) ||
+                    response.status === 403) {
+                    clearStoredActiveExamResume();
+                }
+                if (data?.code === 'EXAM_SUBMISSION_PROCESSING') {
+                    showToast('Bài thi trước đó đang được máy chủ xử lý nộp bài. Không tạo phiên mới.', 'warning');
+                    return true;
+                }
+                return false;
+            }
+
+            if (!data?.resumed || !Array.isArray(data.questions) || data.questions.length === 0) {
+                return false;
+            }
+
+            window.currentExamToken = data.token || token;
+            try {
+                localStorage.setItem('currentExamToken', window.currentExamToken);
+                localStorage.setItem(window.tenantStorageKey('currentExamToken'), window.currentExamToken);
+            } catch(e) {}
+
+            if (data.examConfig && typeof data.examConfig === 'object') {
+                examConfig = { ...examConfig, ...data.examConfig };
+            }
+            examConfig.immediateFeedback = Boolean(data.immediateFeedback);
+
+            const restoredAnswers = Array.isArray(data.answers) ? data.answers : [];
+            currentExam = {
+                questions: data.questions,
+                answers: restoredAnswers,
+                currentIndex: 0,
+                startTime: Number(data.startedAtMs) || Date.now(),
+                timerInterval: null,
+                sessionId: createExamSessionId(),
+                submitting: false,
+                studentName: String(meta.studentName || currentUser?.full_name || currentUser?.ho_ten || ''),
+                studentLop: String(meta.studentLop || currentUser?.lop || ''),
+                studentDonvi: String(meta.studentDonvi || currentUser?.donvi || currentUser?.address || ''),
+                studentClass: String(meta.studentClass || meta.studentLop || currentUser?.lop || ''),
+                cheatWarningCount: Math.max(0, Number(data.cheatWarningCount) || 0),
+                maxCheatWarnings: Math.max(1, Number(data.maxCheatWarnings) || 5),
+                timeLimitSeconds: Math.max(1, Number(data.timeLimitSeconds) || 1),
+                timeLimitMinutes: Math.max(1 / 60, Number(data.timeLimitSeconds || 1) / 60),
+                lastViolationAt: 0,
+                lastViolationReason: '',
+                startTick: null,
+                violationEpisodeActive: false,
+                serverStartedAtMs: Number(data.startedAtMs) || null,
+                deadlineAtMs: Number(data.deadlineAtMs) || null,
+                serverNowAtActivationMs: Number(data.serverNowMs) || Date.now(),
+                serverActivationTick: (typeof performance !== 'undefined' && Number.isFinite(performance.now())) ? performance.now() : null,
+                autosaveRevision: Math.max(0, Number(data.autosaveRevision) || 0),
+                autosaveTimer: null,
+                autosaveInFlight: false,
+                autosavePending: false,
+                deadlineLocked: Boolean(data.expired),
+                pendingViolationEvents: []
+            };
+
+            try { switchTab('exam'); } catch(e) {}
+            const nameInput = document.getElementById('guest_data_1');
+            const lopInput = document.getElementById('guest_data_lop') || document.getElementById('guest_data_2');
+            const donviInput = document.getElementById('guest_data_donvi');
+            if (nameInput && currentExam.studentName) nameInput.value = currentExam.studentName;
+            if (lopInput && currentExam.studentLop) lopInput.value = currentExam.studentLop;
+            if (donviInput && currentExam.studentDonvi) donviInput.value = currentExam.studentDonvi;
+
+            const remaining = Math.max(0, Number(data.remainingSeconds) || 0);
+            const mins = Math.floor(remaining / 60);
+            const secs = String(remaining % 60).padStart(2, '0');
+            showModal(`
+                <div class="p-4 sm:p-5 text-center">
+                    <div class="text-4xl mb-2">${data.expired ? '⏱️' : '🔄'}</div>
+                    <h3 class="text-lg sm:text-xl font-bold text-gray-800 mb-2">${data.expired ? 'Bài thi đã hết giờ' : 'Phát hiện bài thi đang làm'}</h3>
+                    <p class="text-sm text-gray-600 mb-2">
+                        ${data.expired
+                            ? 'Hệ thống đã giữ bản đáp án lưu cuối cùng trước hạn. Bấm tiếp tục để hoàn tất nộp bài.'
+                            : `Bài thi sẽ tiếp tục đúng phiên cũ. Thời gian còn lại: <b>${mins}:${secs}</b>. Thời gian không được đặt lại.`}
+                    </p>
+                    <button id="exam-resume-confirm" class="mt-3 px-5 py-2.5 rounded-xl bg-indigo-600 text-white font-bold hover:bg-indigo-700">
+                        ${data.expired ? 'Hoàn tất bài thi' : 'Tiếp tục làm bài'}
+                    </button>
+                </div>
+            `, 'student-exam-compact', false);
+
+            const resumeButton = document.getElementById('exam-resume-confirm');
+            if (resumeButton) {
+                resumeButton.addEventListener('click', async () => {
+                    resumeButton.disabled = true;
+                    if (!data.expired && typeof window.enterExamFullscreen === 'function') {
+                        Promise.resolve(window.enterExamFullscreen()).catch(() => {});
+                    }
+                    closeModal();
+                    window.startExamUI(true);
+                    if (data.expired) {
+                        showToast('Đã hết giờ. Hệ thống đang nộp bản đáp án đã lưu trước hạn.', 'warning');
+                    } else {
+                        showToast('Đã khôi phục bài thi. Đồng hồ tiếp tục theo deadline cũ.', 'success');
+                    }
+                }, { once: true });
+                resumeButton.focus();
+            }
+            return true;
+        }
+        window.tryResumeActiveExam = tryResumeActiveExam;
+
         let examStartPending = false;
         window.startExam = async function startExam(btn) {
             if (examStartPending) return;
@@ -11040,6 +11204,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 questionBankRevision++;
             }
             window.currentExamToken = null;
+            clearStoredActiveExamResume();
             currentExam = {
                 questions: [],
                 answers: {},
