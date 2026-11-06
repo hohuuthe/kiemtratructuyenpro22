@@ -1,4 +1,4 @@
-import { verifyAuthSession, getDynamicSecret, hashPasswordPBKDF2, getDatabase, checkIsAdmin, checkIsTeacherOrAdmin } from './exam/utils';
+import { verifyAuthSession, getDynamicSecret, hashPasswordPBKDF2, verifyPassword, getDatabase, checkIsAdmin, checkIsTeacherOrAdmin } from './exam/utils';
 
 export async function onRequestGet(context: any) {
     const { request, env } = context;
@@ -229,6 +229,9 @@ export async function onRequestPost(context: any) {
                         hashedPassword = lastHashed;
                     } else {
                         hashedPassword = await hashPasswordPBKDF2(password);
+                        if (!(await verifyPassword(String(password), hashedPassword))) {
+                            throw new Error("Không thể xác minh mật khẩu vừa mã hóa");
+                        }
                         lastPassword = password;
                         lastHashed = hashedPassword;
                     }
@@ -276,6 +279,9 @@ export async function onRequestPost(context: any) {
         }
 
         const hashedPassword = await hashPasswordPBKDF2(password);
+        if (!(await verifyPassword(String(password), hashedPassword))) {
+            return new Response(JSON.stringify({ error: "Không thể xác minh mật khẩu vừa mã hóa" }), { status: 500, headers: corsHeaders });
+        }
         const id = crypto.randomUUID();
         const activeVal = (is_active !== false && is_active !== 0 && is_active !== 'false') ? 1 : 0;
         
