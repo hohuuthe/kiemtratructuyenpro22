@@ -20,6 +20,16 @@ const corsHeaders = {
   'Content-Type': 'application/json'
 };
 
+function resumeFlag(value: any, fallback = false): boolean {
+  if (value === undefined || value === null || value === '') return fallback;
+  if (value === true || value === 1) return true;
+  if (value === false || value === 0) return false;
+  const normalized = String(value).trim().toLowerCase();
+  if (['1','true','yes','on'].includes(normalized)) return true;
+  if (['0','false','no','off'].includes(normalized)) return false;
+  return fallback;
+}
+
 export const onRequestOptions: PagesFunction<Env> = async () =>
   new Response(null, { status: 204, headers: corsHeaders });
 
@@ -120,7 +130,36 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       }
     }
 
-    const immediateFeedback = Boolean(decoded.immediateFeedback);
+    let frozenExamConfig: any = {};
+    try { frozenExamConfig = JSON.parse(String(session.exam_config || '{}')) || {}; } catch {}
+
+    // Phiên mới có immediateFeedback ký trực tiếp trong token. Với phiên đang làm
+    // từ bản cũ trước khi nâng cấp, fallback duy nhất sang cấu hình DB hiện tại để
+    // không làm mất chức năng Immediate Feedback sau refresh.
+    let liveExamConfig: any = null;
+    const needsLegacyFeedback = decoded.immediateFeedback === undefined;
+    const hasFrozenShowScore = frozenExamConfig.showScore !== undefined || frozenExamConfig.show_score !== undefined;
+    if (needsLegacyFeedback || !hasFrozenShowScore) {
+      const legacyExamId = String(session?.exam_id || decoded?.examConfig?.id || '').trim();
+      if (legacyExamId) {
+        try {
+          liveExamConfig = await db.prepare(
+            'SELECT immediate_feedback, show_score, show_details FROM exam_configs WHERE id = ? LIMIT 1'
+          ).bind(legacyExamId).first();
+        } catch {}
+      }
+    }
+
+    const immediateFeedback = decoded.immediateFeedback !== undefined
+      ? resumeFlag(decoded.immediateFeedback, false)
+      : resumeFlag(liveExamConfig?.immediate_feedback, false);
+    const showScore = hasFrozenShowScore
+      ? resumeFlag(frozenExamConfig.showScore ?? frozenExamConfig.show_score, false)
+      : resumeFlag(liveExamConfig?.show_score, false);
+    const showDetails = (frozenExamConfig.showDetails !== undefined || frozenExamConfig.show_details !== undefined)
+      ? resumeFlag(frozenExamConfig.showDetails ?? frozenExamConfig.show_details, false)
+      : resumeFlag(liveExamConfig?.show_details, false);
+
     const questions = frozenQuestions.map((q: any) => {
       if (immediateFeedback) return { ...q };
       const { answer, ...withoutAnswer } = q || {};
@@ -223,10 +262,13 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       immediateFeedback,
       examConfig: {
         ...(decoded.examConfig || {}),
-        id: decoded?.examConfig?.id || '',
-        name: decoded?.examConfig?.name || '',
-        creatorId: decoded.teacherId || '',
+        ...frozenExamConfig,
+        id: decoded?.examConfig?.id || frozenExamConfig?.id || '',
+        name: decoded?.examConfig?.name || frozenExamConfig?.name || '',
+        creatorId: decoded.teacherId || frozenExamConfig?.creator_id || '',
         immediateFeedback,
+        showScore,
+        showDetails,
         timeLimit: timing.limitSeconds / 60
       }
     }), { status: 200, headers: corsHeaders });
