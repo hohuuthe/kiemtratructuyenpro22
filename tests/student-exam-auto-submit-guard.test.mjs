@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import {
   createExamSessionId,
   remainingExamSeconds,
+  remainingExamSecondsMonotonic,
   canAutoSubmitExam,
   shouldCountExamViolation
 } from '../src/student-exam-session-guard.js';
@@ -14,6 +15,14 @@ test('exam countdown starts only from the real UI start time', () => {
   assert.equal(remainingExamSeconds(start, 600, start + 30_000), 570);
   assert.equal(remainingExamSeconds(start, 600, start + 599_000), 1);
   assert.equal(remainingExamSeconds(start, 600, start + 600_000), 0);
+});
+
+test('monotonic countdown is immune to wall-clock jumps', () => {
+  const startTick = 5_000;
+  assert.equal(remainingExamSecondsMonotonic(startTick, 600, 35_000), 570);
+  assert.equal(remainingExamSecondsMonotonic(startTick, 600, 604_000), 1);
+  assert.equal(remainingExamSecondsMonotonic(startTick, 600, 605_000), 0);
+  assert.equal(remainingExamSecondsMonotonic(startTick, 600, 4_000), null);
 });
 
 test('automatic submit is fail-closed unless its reason is independently valid', () => {
@@ -67,10 +76,23 @@ test('main exam flow binds timer and delayed anti-cheat submit to the current se
   assert.match(main, /startTime:\s*null,[\s\S]{0,500}sessionId:\s*createExamSessionId\(\)/);
   assert.match(main, /currentExam\.startTime\s*=\s*Date\.now\(\);[\s\S]{0,700}timeLimitSeconds[\s\S]{0,700}startTimer\(\)/);
   assert.match(main, /const frozenSeconds = Number\(currentExam\?\.timeLimitSeconds\)/);
+  assert.match(main, /remainingExamSecondsMonotonic/);
+  assert.match(main, /currentExam\.startTick/);
+  assert.match(main, /violationEpisodeActive/);
+  assert.match(main, /function resetViolationEpisodeIfRecovered/);
   assert.match(main, /shouldCountExamViolation/);
   assert.match(main, /currentCount > maxWarnings/);
   assert.match(main, /window\.submitExam\(true,\s*'time_expired',\s*sessionId\)/);
   assert.match(main, /window\.submitExam\(true,\s*'cheat_limit',\s*sessionId\)/);
   assert.match(main, /canAutoSubmitExam\([\s\S]{0,500}autoReason/);
   assert.match(main, /isSameExamSession\(sessionId\)/);
+});
+
+test('legitimate file pickers are protected from late browser violation events', () => {
+  const main = readFileSync('src/main.js', 'utf8');
+  const background = readFileSync('src/student-exam-background.js', 'utf8');
+  assert.match(main, /studentAnswerFilePickerGraceUntil/);
+  assert.match(main, /studentBackgroundPickerGraceUntil/);
+  assert.match(background, /studentBackgroundPickerGraceUntil = Date\.now\(\) \+ 1500/);
+  assert.match(main, /window\.studentBackgroundPickerActive \|\|[\s\S]{0,180}Date\.now\(\) < backgroundGraceUntil/);
 });
