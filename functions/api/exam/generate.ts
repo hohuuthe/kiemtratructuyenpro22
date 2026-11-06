@@ -573,9 +573,23 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             questionIds.push(q.id);
             // Tuyệt đối không gửi khóa đáp án xuống trình duyệt, kể cả khi bật
             // phản hồi tức thời. Phản hồi đúng/sai được xác minh từ snapshot ở server.
-            const { answer, ...qWithoutAnswer } = q;
-            if (qWithoutAnswer.options && typeof qWithoutAnswer.options === 'object' && qWithoutAnswer.options.answerImage) {
-                const { answerImage, correctAnswer, ...opts } = qWithoutAnswer.options;
+            const {
+                answer,
+                correctAnswer: questionCorrectAnswer,
+                answerKey,
+                correct_option: questionCorrectOption,
+                ...qWithoutAnswer
+            } = q;
+            if (qWithoutAnswer.options && typeof qWithoutAnswer.options === 'object') {
+                const {
+                    answerImage,
+                    correctAnswer: optionCorrectAnswer,
+                    answer: optionAnswer,
+                    answerKey: optionAnswerKey,
+                    correctOption: optionCorrectOption,
+                    correct_option: optionCorrectOptionSnake,
+                    ...opts
+                } = qWithoutAnswer.options;
                 qWithoutAnswer.options = opts;
             }
             return qWithoutAnswer;
