@@ -1,5 +1,5 @@
 import { verifyAuthSession, verifyJWT, getDynamicSecret, hashToken, getDatabase } from './utils';
-import { evaluateTF4, isShortAnswerCorrect, examFlagEnabled, clampScore, roundScore } from '../../../src/exam-grading-core';
+import { evaluateTF4, isShortAnswerCorrect, examFlagEnabled, clampScore, roundScore } from '../../../src/exam-grading-core.js';
 
 interface Env {
   NEON_DATABASE_URL?: string;
