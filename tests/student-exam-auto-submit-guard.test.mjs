@@ -266,6 +266,9 @@ test('resume restores the same active session without resetting server deadline'
   assert.match(resume, /session\.started_at/);
   assert.match(resume, /resolveAuthoritativeExamTiming/);
   assert.match(resume, /_exam_answer_drafts/);
+  assert.match(resume, /CREATE TABLE IF NOT EXISTS _exam_answer_drafts/);
+  assert.match(resume, /new Array\(questionIds\.length\)\.fill\(null\)/);
+  assert.match(resume, /session\.started_at \|\| new Date\(timing\.startedAtMs\)/);
   assert.match(resume, /question_snapshot/);
   assert.match(resume, /remainingExamSecondsFromDeadline/);
   assert.match(route, /'exam\/resume': examResume/);
