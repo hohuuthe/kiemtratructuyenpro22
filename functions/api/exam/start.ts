@@ -126,6 +126,8 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       `).run();
       try {
         await db.prepare('ALTER TABLE _exam_attempt_slots ADD COLUMN IF NOT EXISTS expires_at TEXT').run();
+        await db.prepare('ALTER TABLE _exam_attempt_slots ADD COLUMN IF NOT EXISTS completed_at TEXT').run();
+        await db.prepare('ALTER TABLE _exam_attempt_slots ADD COLUMN IF NOT EXISTS result_id TEXT').run();
         await db.prepare(
           'CREATE UNIQUE INDEX IF NOT EXISTS idx_exam_attempt_slots_one_active ON _exam_attempt_slots(exam_id, candidate_key) WHERE completed_at IS NULL'
         ).run();
