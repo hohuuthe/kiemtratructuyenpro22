@@ -55,6 +55,12 @@ export function normalizeVietnamExpiryForStorage(value: any): string | null {
   match = raw.match(VI_DATE_RE);
   if (match) return vietnamEndOfDay(Number(match[3]), Number(match[2]), Number(match[1]));
 
+  // Legacy date-picker values were sometimes stored as UTC midnight even though
+  // they represented a calendar date. Preserve the intended "end of that date"
+  // semantics in Viet Nam instead of expiring at 07:00 local time.
+  match = raw.match(/^(\d{4})-(\d{2})-(\d{2})T00:00:00(?:\.000)?Z$/);
+  if (match) return vietnamEndOfDay(Number(match[1]), Number(match[2]), Number(match[3]));
+
   match = raw.match(LOCAL_DATE_TIME_RE);
   if (match) {
     const year = Number(match[1]);
