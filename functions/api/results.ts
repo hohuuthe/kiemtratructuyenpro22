@@ -476,6 +476,16 @@ export const onRequestPut: PagesFunction<Env> = async (context) => {
       if (type !== 'TL') return storedDetail; // Objective scores are immutable here.
 
       const incoming = incomingDetails[index] || {};
+      const storedQuestionId = String(
+        storedDetail?.question?.id ?? storedDetail?.questionId ?? ''
+      ).trim();
+      const incomingQuestionId = String(
+        incoming?.question?.id ?? incoming?.questionId ?? ''
+      ).trim();
+      if (!storedQuestionId || !incomingQuestionId || storedQuestionId !== incomingQuestionId) {
+        throw new Error(`Câu tự luận tại vị trí ${index + 1} không khớp ID bài làm gốc; từ chối cập nhật điểm.`);
+      }
+
       const maxScore = Number(storedDetail.maxScore ?? stored.points_tl ?? 0);
       if (!Number.isFinite(maxScore) || maxScore < 0) {
         throw new Error('Không xác định được điểm tối đa của câu tự luận.');
