@@ -907,6 +907,12 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
 
         if (gradingSessionId) {
             try {
+                await db.prepare('DELETE FROM _exam_answer_checkpoints WHERE session_id = ?')
+                    .bind(String(gradingSessionId)).run();
+            } catch (checkpointCleanupErr) {
+                console.warn('Could not clean exam answer checkpoint:', checkpointCleanupErr);
+            }
+            try {
                 await db.prepare('DELETE FROM _exam_grade_sessions WHERE session_id = ?')
                     .bind(String(gradingSessionId)).run();
             } catch (cleanupErr) {
