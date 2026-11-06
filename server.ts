@@ -1332,6 +1332,9 @@ async function startServer() {
                       hashedPassword = lastHashed;
                   } else {
                       hashedPassword = hashPasswordPBKDF2Sync(password);
+                      if (!verifyPasswordSync(String(password), hashedPassword)) {
+                          throw new Error("Không thể xác minh mật khẩu vừa mã hóa");
+                      }
                       lastPassword = password;
                       lastHashed = hashedPassword;
                   }
@@ -1386,6 +1389,9 @@ async function startServer() {
 
       // Mã hóa mật khẩu chuẩn PBKDF2 với Salt
       const hashedPassword = hashPasswordPBKDF2Sync(password);
+      if (!verifyPasswordSync(String(password), hashedPassword)) {
+        return res.status(500).json({ error: "Không thể xác minh mật khẩu vừa mã hóa" });
+      }
 
       const id = (globalThis.crypto && globalThis.crypto.randomUUID) ? globalThis.crypto.randomUUID() : Math.random().toString(36).substring(2) + Date.now().toString(36);
       
