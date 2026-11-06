@@ -320,7 +320,10 @@ test('interactive board fullscreen keeps controls clickable and left-click conte
   assert.match(ui,/function openBoardObjectContextMenu/);
   assert.match(ui,/tool!=='select'\)closeBoardObjectContextMenu/);
   assert.match(css,/\.board-object-context-menu/);
-  assert.match(css,/\.board-pseudo-fullscreen[\s\S]*z-index:90!important/);
+  assert.match(css,/\.board-pseudo-fullscreen[\s\S]*z-index:150!important/);
+  assert.match(css,/\.board-body-fullscreen #app-sidebar[\s\S]*visibility:hidden!important/);
+  assert.match(css,/\.board-body-fullscreen #modal-container[\s\S]*z-index:300!important/);
+  assert.match(css,/\.board-body-fullscreen \.board-object-context-menu\{z-index:190\}/);
   assert.match(css,/#board-room \.board-room-header button[\s\S]*pointer-events:auto/);
 });
 
