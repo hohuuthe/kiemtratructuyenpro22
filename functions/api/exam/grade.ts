@@ -270,16 +270,23 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
         let trueQuestionsMap: Record<string | number, any> = {};
         let loadedFromSnapshot = false;
+        let serverStartedAtMs = 0;
         if (gradingSessionId) {
             try {
                 const snapshotRow: any = await db.prepare(
-                    'SELECT question_ids, question_snapshot, exam_config, expires_at FROM _exam_grade_sessions WHERE session_id = ?'
+                    'SELECT question_ids, question_snapshot, exam_config, started_at, expires_at FROM _exam_grade_sessions WHERE session_id = ?'
                 ).bind(String(gradingSessionId)).first();
                 if (!snapshotRow) {
                     return new Response(JSON.stringify({ error: 'Phiên chấm điểm không tồn tại hoặc đã được thu hồi.' }), { status: 409, headers: corsHeaders });
                 }
                 if (snapshotRow.expires_at && new Date(String(snapshotRow.expires_at)).getTime() < Date.now()) {
                     return new Response(JSON.stringify({ error: 'Phiên chấm điểm đã hết hạn.' }), { status: 409, headers: corsHeaders });
+                }
+                serverStartedAtMs = snapshotRow.started_at ? new Date(String(snapshotRow.started_at)).getTime() : 0;
+                if (!Number.isFinite(serverStartedAtMs) || serverStartedAtMs <= 0) {
+                    return new Response(JSON.stringify({
+                        error: 'Phiên thi chưa có mốc bắt đầu do máy chủ xác nhận; hệ thống chưa chấm và chưa lưu kết quả.'
+                    }), { status: 409, headers: corsHeaders });
                 }
                 const frozenIds = JSON.parse(String(snapshotRow.question_ids || '[]')).map((id: any) => String(id));
                 const issuedIds = (questionIds || []).map((id: any) => String(id));
@@ -679,11 +686,16 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
 
         // Ranking time is server-authoritative. A browser cannot improve its
         // tie-break position by sending a fake timeTaken value.
-        const issuedAtMs = Number(decoded.timestamp);
         const signedLimitSeconds = Math.max(1, Math.floor(Number(decoded.timeLimitSeconds) || 1));
-        const elapsedByServer = Number.isFinite(issuedAtMs) && issuedAtMs > 0
-            ? Math.max(0, Math.floor((Date.now() - issuedAtMs) / 1000))
-            : signedLimitSeconds;
+        const elapsedByServer = Math.max(0, Math.floor((Date.now() - serverStartedAtMs) / 1000));
+        // Allow only a small transport/processing margin after the timer reaches zero.
+        // This prevents late submissions while not penalizing a request already in flight.
+        const submissionTransportGraceSeconds = 15;
+        if (elapsedByServer > signedLimitSeconds + submissionTransportGraceSeconds) {
+            return new Response(JSON.stringify({
+                error: 'Bài nộp đến máy chủ quá thời hạn cho phép; hệ thống chưa lưu kết quả để tránh chấm sai thời gian.'
+            }), { status: 409, headers: corsHeaders });
+        }
         const authoritativeTimeTaken = Math.min(signedLimitSeconds, elapsedByServer);
 
         // Claim immediately before persistence. Two concurrent requests may both
