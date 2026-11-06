@@ -583,20 +583,10 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             false
         );
 
-        const questionIds: any[] = [];
-        const clientQuestions = selectedQuestions.map((q) => {
-            questionIds.push(q.id);
-            if (isImmediateFeedback) {
-                // Giữ nguyên đáp án để thí sinh biết đúng/sai ngay lập tức khi làm bài
-                return { ...q };
-            }
-            const { answer, ...qWithoutAnswer } = q;
-            if (qWithoutAnswer.options && qWithoutAnswer.options.answerImage) {
-                const { answerImage, ...opts } = qWithoutAnswer.options;
-                qWithoutAnswer.options = opts;
-            }
-            return qWithoutAnswer;
-        });
+        // Bước generate chỉ chuẩn bị và kiểm tra đề trên server. Tuyệt đối chưa
+        // gửi nội dung câu hỏi xuống trình duyệt trước khi server ghi started_at.
+        // Immediate Feedback vẫn được giữ nguyên, nhưng chỉ được kích hoạt sau /exam/start.
+        const questionIds: any[] = selectedQuestions.map((q) => q.id);
 
         // Thời lượng phiên thi phải lấy từ cấu hình CSDL đã xác thực và được đóng băng
         // ngay khi phát đề. Client không được tiếp tục phụ thuộc vào examConfig có thể thay đổi.
@@ -672,6 +662,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             examConfig: tokenGradeSessionConfig,
             maxCheatWarnings: maxCheatWarningsFromDB,
             timeLimitSeconds,
+            immediateFeedback: isImmediateFeedback,
             teacherId: effectiveTeacherId,
             timestamp: Date.now(),
             exp: expiresAtEpoch
@@ -680,7 +671,8 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         const token = await signJWT(payload, SECRET);
 
         return new Response(JSON.stringify({
-            questions: clientQuestions,
+            ready: true,
+            questionCount: questionIds.length,
             token,
             examName: activeExamConfig.name || dbExam?.name || examName || '',
             maxCheatWarnings: maxCheatWarningsFromDB,
