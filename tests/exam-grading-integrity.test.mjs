@@ -351,3 +351,56 @@ test('fourth audit: candidate identity is frozen at issue time', () => {
   assert.match(grade, /sessionStudentLop/);
   assert.match(grade, /sessionStudentDonvi/);
 });
+
+
+test('fifth audit: attempt slots are atomically reserved only at actual server start', () => {
+  const generate = fs.readFileSync(new URL('../functions/api/exam/generate.ts', import.meta.url), 'utf8');
+  const start = fs.readFileSync(new URL('../functions/api/exam/start.ts', import.meta.url), 'utf8');
+  const grade = fs.readFileSync(new URL('../functions/api/exam/grade.ts', import.meta.url), 'utf8');
+  assert.match(generate, /maxAttempts:/);
+  assert.match(start, /CREATE TABLE IF NOT EXISTS _exam_attempt_slots/);
+  assert.match(start, /PRIMARY KEY \(exam_id, candidate_key, attempt_no\)/);
+  assert.match(start, /session_id TEXT NOT NULL UNIQUE/);
+  assert.match(start, /ON CONFLICT DO NOTHING/);
+  assert.match(start, /EXAM_ATTEMPT_LIMIT_REACHED/);
+  assert.match(grade, /UPDATE _exam_attempt_slots SET completed_at = \?, result_id = \?/);
+});
+
+test('fifth audit: submission deadline uses request arrival, not AI processing completion', () => {
+  const grade = fs.readFileSync(new URL('../functions/api/exam/grade.ts', import.meta.url), 'utf8');
+  assert.match(grade, /const requestReceivedAtMs = Date\.now\(\)/);
+  assert.match(grade, /requestReceivedAtMs - serverStartedAtMs/);
+  assert.doesNotMatch(grade, /Math\.floor\(\(Date\.now\(\) - serverStartedAtMs\)/);
+});
+
+test('fifth audit: client timer is synchronized to server elapsed time', () => {
+  const start = fs.readFileSync(new URL('../functions/api/exam/start.ts', import.meta.url), 'utf8');
+  const main = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+  assert.match(start, /elapsedSeconds/);
+  assert.match(main, /currentExam\.serverElapsedSeconds = Math\.max/);
+  assert.match(main, /performance\.now\(\) - \(serverElapsedSeconds \* 1000\)/);
+});
+
+test('fifth audit: AI essay score is advisory until teacher confirmation', () => {
+  const grade = fs.readFileSync(new URL('../functions/api/exam/grade.ts', import.meta.url), 'utf8');
+  const main = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+  assert.match(grade, /d\.aiSuggestedScore = essayScore/);
+  assert.match(grade, /d\.gradingStatus = 'pending_manual_ai_suggested'/);
+  assert.match(grade, /d\.needsGrading = true/);
+  assert.doesNotMatch(grade, /d\.gradingStatus = 'completed';\s*d\.needsGrading = false;\s*rawEarnedScore \+= essayScore/);
+  assert.match(main, /d\.aiSuggestedScore \?\? d\.score \?\? 0/);
+  assert.match(main, /AI đề xuất:/);
+});
+
+test('fifth audit: concurrent manual essay grading uses compare-and-swap', () => {
+  const results = fs.readFileSync(new URL('../functions/api/results.ts', import.meta.url), 'utf8');
+  assert.match(results, /originalDetailsRaw/);
+  assert.match(results, /WHERE id = \? AND details = \?/);
+  assert.match(results, /RESULT_GRADING_CONFLICT/);
+});
+
+test('fifth audit: stale crashed persistence claim is recoverable but fresh claim is not', () => {
+  const grade = fs.readFileSync(new URL('../functions/api/exam/grade.ts', import.meta.url), 'utf8');
+  assert.match(grade, /Date\.now\(\) - claimedAtMs > 120000/);
+  assert.match(grade, /claimed_at = \? AND NOT EXISTS \(SELECT 1 FROM results WHERE id = \?\)/);
+});
