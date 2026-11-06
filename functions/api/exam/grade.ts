@@ -49,6 +49,10 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
   const db = getDatabase(context);
     const { request, env } = context;
     const SECRET = await getDynamicSecret(db, env.JWT_SECRET);
+    let tokenHash = '';
+    let tokenClaimed = false;
+    let resultPersisted = false;
+    let claimedResultId = '';
 
     try {
         const body: any = await request.json();
@@ -87,27 +91,80 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             return new Response(JSON.stringify({ error: 'Mã phiên thi không hợp lệ hoặc đã hết hạn.' }), { status: 403, headers: corsHeaders });
         }
 
-        // BẢO MẬT: Chống nộp bài trùng lặp (Token Replay Prevention)
-        const tokenHash = await hashToken(token);
+        // BẢO MẬT: claim token atomically BEFORE grading so two simultaneous
+        // submissions cannot both create result rows.
+        tokenHash = await hashToken(token);
+        claimedResultId = crypto.randomUUID();
         try {
             await db.prepare(
                 "CREATE TABLE IF NOT EXISTS _submitted_exam_tokens (token_hash TEXT PRIMARY KEY, exam_id TEXT, student_name TEXT, user_id TEXT, submitted_at TEXT)"
             ).run();
-            await db.prepare(
-                "ALTER TABLE _submitted_exam_tokens ADD COLUMN IF NOT EXISTS user_id TEXT"
-            ).run();
-            const existingSubmission = await db.prepare(
-                "SELECT token_hash FROM _submitted_exam_tokens WHERE token_hash = ?"
-            ).bind(tokenHash).first();
-            if (existingSubmission) {
-                return new Response(JSON.stringify({ error: 'Phiên thi này đã được nộp bài trước đó. Không thể nộp lại nhiều lần!' }), { status: 400, headers: corsHeaders });
+            for (const sql of [
+                "ALTER TABLE _submitted_exam_tokens ADD COLUMN IF NOT EXISTS user_id TEXT",
+                "ALTER TABLE _submitted_exam_tokens ADD COLUMN IF NOT EXISTS status TEXT",
+                "ALTER TABLE _submitted_exam_tokens ADD COLUMN IF NOT EXISTS result_id TEXT",
+                "ALTER TABLE _submitted_exam_tokens ADD COLUMN IF NOT EXISTS claimed_at TEXT"
+            ]) {
+                await db.prepare(sql).run();
             }
+
+            const existing: any = await db.prepare(
+                "SELECT token_hash, status, result_id FROM _submitted_exam_tokens WHERE token_hash = ?"
+            ).bind(tokenHash).first();
+            if (existing) {
+                if (existing.result_id) {
+                    const stored: any = await db.prepare(
+                        "SELECT id, score, correct_count, total_questions, details, cheat_warning_count FROM results WHERE id = ?"
+                    ).bind(String(existing.result_id)).first();
+                    if (stored) {
+                        return new Response(JSON.stringify({
+                            resultId: stored.id,
+                            score: Number(stored.score) || 0,
+                            correctCount: Number(stored.correct_count) || 0,
+                            totalQuestions: Number(stored.total_questions) || 0,
+                            cheatWarningCount: Number(stored.cheat_warning_count) || 0,
+                            alreadySubmitted: true
+                        }), { status: 200, headers: corsHeaders });
+                    }
+                }
+                return new Response(JSON.stringify({
+                    error: 'Phiên thi đang được xử lý hoặc đã được nộp trước đó. Hệ thống không tạo thêm bản ghi điểm.'
+                }), { status: 409, headers: corsHeaders });
+            }
+
+            const claim = await db.prepare(
+                "INSERT INTO _submitted_exam_tokens (token_hash, exam_id, student_name, user_id, submitted_at, status, result_id, claimed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (token_hash) DO NOTHING"
+            ).bind(
+                tokenHash, '', '', null, '', 'processing', claimedResultId, new Date().toISOString()
+            ).run();
+            if (Number(claim?.meta?.changes || 0) !== 1) {
+                return new Response(JSON.stringify({
+                    error: 'Phiên thi đang được xử lý hoặc đã được nộp trước đó. Hệ thống không tạo thêm bản ghi điểm.'
+                }), { status: 409, headers: corsHeaders });
+            }
+            tokenClaimed = true;
         } catch (tokErr) {
-            console.error('Error checking submitted token:', tokErr);
+            console.error('Error claiming submission token:', tokErr);
+            return new Response(JSON.stringify({
+                error: 'Không thể khóa phiên nộp bài an toàn. Hệ thống chưa chấm và chưa lưu kết quả.'
+            }), { status: 503, headers: corsHeaders });
         }
 
-        const { questionIds, teacherId, gradingSessionId } = decoded;
+        const { questionIds, teacherId, gradingSessionId, studentUserId: sessionStudentUserId } = decoded;
         let examConfig: any = decoded.examConfig || {};
+
+        // A logged-in exam session is bound to the verified account that received it.
+        // Never trust studentInfo.userId from the browser as an authenticated identity.
+        const verifiedRequestUserId = authenticatedUserId ? String(authenticatedUserId) : '';
+        const signedStudentUserId = sessionStudentUserId ? String(sessionStudentUserId) : '';
+        if (signedStudentUserId) {
+            if (!verifiedRequestUserId || verifiedRequestUserId !== signedStudentUserId) {
+                throw new Error('Tài khoản nộp bài không khớp tài khoản đã nhận phiên thi.');
+            }
+            authenticatedUserId = signedStudentUserId;
+        } else if (!authHeader) {
+            authenticatedUserId = null;
+        }
 
         if (!questionIds || clientQuestions.length !== questionIds.length) {
             return new Response(JSON.stringify({ error: 'Danh sách câu hỏi không khớp với đề thi đã phát.' }), { status: 400, headers: corsHeaders });
@@ -260,8 +317,6 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                 });
             } else if (trueQ.type === 'TL') {
                 isCorrect = false;
-            } else if (trueQ.type === 'TL') {
-                isCorrect = false; 
             }
 
             return { question: trueQ, userAnswer, isCorrect, correctAnswer, needsGrading: trueQ.type === 'TL', score: 0, aiFeedback: '' };
@@ -471,7 +526,7 @@ YÊU CẦU:
         const correctCount = detailedResults.filter((d: any) => d.isCorrect && d.question.type !== 'TL').length;
 
         // Lưu kết quả bài thi vào cơ sở dữ liệu Cloudflare D1
-        const resultId = crypto.randomUUID();
+        const resultId = claimedResultId || crypto.randomUUID();
         try {
             await db.prepare(`
                 CREATE TABLE IF NOT EXISTS results (
@@ -525,6 +580,7 @@ YÊU CẦU:
                 cheatWarningCount,
                 new Date().toISOString()
             ).run();
+            resultPersisted = true;
         } catch (dbErr) {
             console.error("Lỗi khi lưu kết quả bài thi vào CSDL:", dbErr);
             // Fail closed: never tell the student that submission succeeded if the
@@ -532,21 +588,22 @@ YÊU CẦU:
             throw new Error('Không thể lưu kết quả bài thi. Phiên thi chưa bị đánh dấu đã nộp; vui lòng gửi lại bài.');
         }
 
-        // BẢO MẬT: Đánh dấu token đã nộp bài thành công vào bảng kiểm soát để ngăn chặn nộp lại
+        // Finalize the atomic token claim. Even if this metadata update fails, the
+        // unique claim remains and still prevents a duplicate result row.
         try {
             await db.prepare(
-                "INSERT INTO _submitted_exam_tokens (token_hash, exam_id, student_name, user_id, submitted_at) VALUES (?, ?, ?, ?, ?)"
+                "UPDATE _submitted_exam_tokens SET exam_id = ?, student_name = ?, user_id = ?, submitted_at = ?, status = ?, result_id = ? WHERE token_hash = ?"
             ).bind(
-                tokenHash,
                 String(examConfig.id || studentInfo.examId || studentInfo.examName || ''),
-                studentInfo.name || '',
+                authenticatedStudentName || studentInfo.name || '',
                 authenticatedUserId || null,
-                new Date().toISOString()
+                new Date().toISOString(),
+                'completed',
+                resultId,
+                tokenHash
             ).run();
         } catch (markErr) {
-            console.error('Error marking token as submitted:', markErr);
-            // The result has already been persisted. Do not fail the student response,
-            // but retain the result ID so any replay can be audited and de-duplicated.
+            console.error('Error finalizing submitted token metadata:', markErr);
         }
 
         if (gradingSessionId) {
@@ -587,6 +644,14 @@ YÊU CẦU:
         });
 
     } catch (err: any) {
+        if (tokenClaimed && !resultPersisted && tokenHash) {
+            try {
+                await db.prepare("DELETE FROM _submitted_exam_tokens WHERE token_hash = ? AND status = ?")
+                    .bind(tokenHash, 'processing').run();
+            } catch (releaseErr) {
+                console.error('Error releasing failed submission claim:', releaseErr);
+            }
+        }
         console.error("Lỗi POST /api/exam/grade:", err);
         return new Response(JSON.stringify({ error: err.message || 'Lỗi xử lý chấm điểm' }), { status: 500, headers: corsHeaders });
     }
