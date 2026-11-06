@@ -174,7 +174,10 @@ test('student UI can never expose interactive board create button',()=>{
   assert.match(ui,/const isStudent=role==='student'\|\|role==='học sinh'\|\|aud==='học sinh'/);
   assert.match(ui,/manage=!isStudent&&\(isAdmin\|\|isTeacher\)/);
   assert.match(ui,/canCreateBoard=!isStudent&&\(isAdmin\|\|\(isTeacher&&vipFlag\(actor\?\.is_vip\)\)\)/);
-  const visibilityGuards=ui.match(/boards-new'\)\?\.classList\.toggle\('hidden',!canCreateBoard\)/g)||[];
+  assert.match(ui,/function setCreateBoardButtonVisible/);
+  assert.match(ui,/btn\.hidden=!show/);
+  assert.match(ui,/btn\.style\.display=show\?'inline-flex':'none'/);
+  const visibilityGuards=ui.match(/setCreateBoardButtonVisible\(canCreateBoard\)/g)||[];
   assert.ok(visibilityGuards.length>=2);
 });
 
