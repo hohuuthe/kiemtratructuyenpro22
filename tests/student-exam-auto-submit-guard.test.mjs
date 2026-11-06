@@ -154,6 +154,9 @@ test('new sessions cannot be graded before activation and late grading uses serv
   assert.match(start, /SET started_at = \?, deadline_at = \?/);
   assert.match(start, /WHERE session_id = \? AND started_at IS NULL/);
   assert.match(start, /deadline_at IS NULL/);
+  assert.match(start, /activeExpiresAtMs = deadlineAtMs \+ 60 \* 60 \* 1000/);
+  assert.match(start, /SET expires_at = \?/);
+  assert.match(start, /exp: Math\.floor\(activeExpiresAtMs \/ 1000\)/);
   assert.match(save, /EXAM_DEADLINE_REACHED/);
   assert.match(save, /_exam_answer_drafts/);
   assert.match(grade, /EXAM_NOT_ACTIVATED/);
