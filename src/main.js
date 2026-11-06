@@ -17222,6 +17222,7 @@ CẤU TRÚC JSON:
                             ${(d.question.options && d.question.options.answerImage) ? `<img src="${d.question.options.answerImage}" class="mt-2 max-w-[200px] h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage(this.src)">` : ''}
                         </div>
                         ${d.aiFeedback ? `<div class="mt-2 text-base text-purple-700 bg-purple-50 p-2 rounded border border-purple-100 break-words">🤖 Nhận xét: ${formatContent(d.aiFeedback)}</div>` : ''}
+                        ${Number.isFinite(Number(d.aiSuggestedScore)) ? `<div class="mt-2 text-sm font-bold text-amber-800 bg-amber-50 p-2 rounded border border-amber-200">AI đề xuất: ${Number(d.aiSuggestedScore)} điểm — giáo viên cần xác nhận trước khi điểm được chốt.</div>` : ''}
                         <div class="mt-3 flex flex-wrap items-center gap-3 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
                             <div class="flex items-center gap-2">
                                 <label class="text-sm font-bold text-yellow-800 whitespace-nowrap">Chấm điểm:</label>
@@ -17230,7 +17231,7 @@ CẤU TRÚC JSON:
                                     step="0.01" 
                                     min="0"
                                     max="${Number(d.maxScore ?? targetConfig.pointsTL ?? 1)}" 
-                                    value="${d.score || 0}" 
+                                    value="${d.aiSuggestedScore ?? d.score ?? 0}" 
                                     oninput="updateLiveTotalScore('${resultId}')"
                                     ${isExamCreator ? '' : 'disabled'}
                                     class="w-20 px-2 py-1 border-2 ${isExamCreator ? 'border-yellow-300 focus:border-yellow-500' : 'border-gray-200 bg-gray-100 cursor-not-allowed'} rounded focus:outline-none font-bold text-center"
