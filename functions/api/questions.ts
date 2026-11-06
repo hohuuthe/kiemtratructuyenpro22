@@ -241,9 +241,16 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         }
         if (normalizedType === '4-1') {
           for (const key of ['A','B','C','D']) {
-            if (!optionObject[key] || !String(optionObject[key]?.text ?? optionObject[key] ?? '').trim()) {
+            const option: any = optionObject[key];
+            const text = option && typeof option === 'object'
+              ? String(option.text ?? option.content ?? option.value ?? '').trim()
+              : String(option ?? '').trim();
+            const image = option && typeof option === 'object'
+              ? String(option.image ?? option.img ?? option.src ?? option.url ?? '').trim()
+              : '';
+            if (!text && !image) {
               return new Response(JSON.stringify({
-                error: `Câu hỏi ${qId}: câu trắc nghiệm phải có đủ phương án A, B, C, D.`,
+                error: `Câu hỏi ${qId}: câu trắc nghiệm phải có đủ phương án A, B, C, D (văn bản hoặc hình ảnh).`,
                 code: 'INVALID_QUESTION_OPTIONS'
               }), {status:400,headers:corsHeaders});
             }
