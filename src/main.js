@@ -8786,10 +8786,43 @@ if (contentType && contentType.includes("application/json")) {
             const floatingTimerEl = document.getElementById('floating-exam-timer');
             const floatingTextEl = document.getElementById('floating-timer-text');
 
+            const syncFullscreenTimerEmphasis = () => {
+                const inFullscreen = Boolean(document.fullscreenElement);
+                if (floatingTimerEl) {
+                    if (inFullscreen) {
+                        floatingTimerEl.style.backgroundColor = '#dc2626';
+                        floatingTimerEl.style.borderColor = '#b91c1c';
+                        floatingTimerEl.style.color = '#ffffff';
+                        floatingTimerEl.style.fontWeight = '900';
+                        floatingTimerEl.style.boxShadow = '0 8px 24px rgba(127, 29, 29, 0.35)';
+                    } else {
+                        floatingTimerEl.style.backgroundColor = '';
+                        floatingTimerEl.style.borderColor = '';
+                        floatingTimerEl.style.color = '';
+                        floatingTimerEl.style.fontWeight = '';
+                        floatingTimerEl.style.boxShadow = '';
+                    }
+                }
+                if (floatingTextEl) {
+                    if (inFullscreen) {
+                        floatingTextEl.style.color = '#ffffff';
+                        floatingTextEl.style.fontWeight = '900';
+                        floatingTextEl.style.fontVariantNumeric = 'tabular-nums';
+                        floatingTextEl.style.textShadow = '0 1px 2px rgba(0,0,0,0.25)';
+                    } else {
+                        floatingTextEl.style.color = '';
+                        floatingTextEl.style.fontWeight = '';
+                        floatingTextEl.style.fontVariantNumeric = '';
+                        floatingTextEl.style.textShadow = '';
+                    }
+                }
+            };
+
             if (floatingTimerEl) {
                 floatingTimerEl.classList.remove('hidden');
                 floatingTimerEl.classList.add('flex');
             }
+            syncFullscreenTimerEmphasis();
 
             const totalSeconds = Number(currentExam?.timeLimitSeconds) > 0 ? Number(currentExam.timeLimitSeconds) : Number(examConfig.timeLimit) * 60;
             if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) return;
@@ -8852,6 +8885,9 @@ if (contentType && contentType.includes("application/json")) {
                         floatingTextEl.classList.add('text-amber-300');
                         floatingTextEl.classList.remove('text-rose-300', 'text-white', 'font-black');
                     }
+                    // Fullscreen appearance always wins over countdown warning colors:
+                    // red background, white bold digits for maximum visibility.
+                    syncFullscreenTimerEmphasis();
                 }
 
                 // Định kỳ kiểm tra và đảm bảo ràng buộc toàn màn hình
