@@ -1,5 +1,5 @@
 import { verifyAuthSession, verifyJWT, getDynamicSecret, hashToken, getDatabase } from './utils';
-import { evaluateTF4, isShortAnswerCorrect, examFlagEnabled, clampScore, roundScore } from '../../../src/exam-grading-core.js';
+import { evaluateTF4, isShortAnswerCorrect, examFlagEnabled, clampScore, roundScore, validateQuestionAnswer } from '../../../src/exam-grading-core.js';
 
 interface Env {
   NEON_DATABASE_URL?: string;
@@ -186,15 +186,24 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             }), { status: 503, headers: corsHeaders });
         }
 
-        if (!questionIds || clientQuestions.length !== questionIds.length) {
+        if (!Array.isArray(questionIds) || !Array.isArray(clientQuestions) || clientQuestions.length !== questionIds.length) {
             return new Response(JSON.stringify({ error: 'Danh sách câu hỏi không khớp với đề thi đã phát.' }), { status: 400, headers: corsHeaders });
         }
 
-        // 1. Chuẩn hóa thang điểm từ examConfig
-        const p41 = getNum(examConfig.points41 ?? examConfig.points_41, 1);
-        const pTF4 = getNum(examConfig.pointsTF4 ?? examConfig.points_tf4, 1);
-        const pSQ = getNum(examConfig.pointsSQ ?? examConfig.points_sq, 1);
-        const pTL = getNum(examConfig.pointsTL ?? examConfig.points_tl, 1);
+        // Khóa tuyệt đối quan hệ vị trí câu hỏi -> đáp án. Chỉ kiểm tra đủ số lượng là chưa đủ:
+        // nếu client vô tình/ác ý đảo thứ tự câu hỏi thì đáp án có thể bị chấm sang câu khác.
+        const issuedQuestionIds = questionIds.map((id: any) => String(id ?? '').trim());
+        if (issuedQuestionIds.some((id: string) => !id) || new Set(issuedQuestionIds).size !== issuedQuestionIds.length) {
+            return new Response(JSON.stringify({ error: 'Phiên thi chứa mã câu hỏi rỗng hoặc trùng lặp; hệ thống từ chối chấm để bảo vệ điểm.' }), { status: 409, headers: corsHeaders });
+        }
+        for (let i = 0; i < issuedQuestionIds.length; i++) {
+            const clientId = String(clientQuestions[i]?.id ?? clientQuestions[i]?.questionId ?? '').trim();
+            if (!clientId || clientId !== issuedQuestionIds[i]) {
+                return new Response(JSON.stringify({
+                    error: `Thứ tự câu hỏi nộp bài không khớp phiên đã phát tại vị trí ${i + 1}; hệ thống chưa lưu kết quả.`
+                }), { status: 409, headers: corsHeaders });
+            }
+        }
 
         // AI key lookup is bound to the signed exam ID. Browser-supplied exam
         // names/IDs are never used to select another exam's private grading key.
@@ -244,6 +253,14 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                 if (!Array.isArray(frozenQuestions) || frozenQuestions.length !== issuedIds.length) {
                     return new Response(JSON.stringify({ error: 'Snapshot chấm điểm không đầy đủ.' }), { status: 409, headers: corsHeaders });
                 }
+                const snapshotIds = frozenQuestions.map((row: any) => String(row?.id ?? '').trim());
+                if (snapshotIds.some((id: string) => !id) ||
+                    new Set(snapshotIds).size !== snapshotIds.length ||
+                    snapshotIds.some((id: string, index: number) => id !== issuedIds[index])) {
+                    return new Response(JSON.stringify({
+                        error: 'Snapshot chấm điểm không khớp chính xác thứ tự câu hỏi đã phát.'
+                    }), { status: 409, headers: corsHeaders });
+                }
                 examConfig = JSON.parse(String(snapshotRow.exam_config || '{}')) || {};
                 for (const row of frozenQuestions) {
                     let parsedOptions = row.options;
@@ -287,6 +304,44 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             }
         }
 
+        // Mọi câu phải tồn tại và có khóa đáp án hợp lệ trước khi tính bất kỳ điểm nào.
+        // Không bao giờ biến lỗi dữ liệu hệ thống thành 0 điểm của học sinh.
+        for (let i = 0; i < issuedQuestionIds.length; i++) {
+            const id = issuedQuestionIds[i];
+            const trueQ = trueQuestionsMap[id] || trueQuestionsMap[Number(id)];
+            if (!trueQ) {
+                return new Response(JSON.stringify({
+                    error: `Không tìm thấy dữ liệu chấm điểm của câu ${i + 1}; hệ thống chưa lưu kết quả.`
+                }), { status: 409, headers: corsHeaders });
+            }
+            const verdict = validateQuestionAnswer(trueQ.type, trueQ.answer, trueQ.options);
+            if (!verdict.ok) {
+                return new Response(JSON.stringify({
+                    error: `Khóa đáp án câu ${i + 1} không hợp lệ: ${verdict.reason || 'không xác định'} Hệ thống chưa lưu kết quả.`
+                }), { status: 409, headers: corsHeaders });
+            }
+        }
+
+        // Điểm phải được lấy từ cấu hình đã ký/snapshot và phải hữu hạn, không âm,
+        // không vượt biên bảo vệ, tối đa 2 chữ số thập phân.
+        const readPoint = (value: any, fallback: number, label: string): number | null => {
+            const n = getNum(value, fallback);
+            if (!Number.isFinite(n) || n < 0 || n > 1000 || Math.abs(n * 100 - Math.round(n * 100)) > 1e-9) {
+                console.error('Invalid scoring point in grading session', { label, value });
+                return null;
+            }
+            return n;
+        };
+        const p41 = readPoint(examConfig.points41 ?? examConfig.points_41, 1, '4-1');
+        const pTF4 = readPoint(examConfig.pointsTF4 ?? examConfig.points_tf4, 1, 'TF4');
+        const pSQ = readPoint(examConfig.pointsSQ ?? examConfig.points_sq, 1, 'SQ');
+        const pTL = readPoint(examConfig.pointsTL ?? examConfig.points_tl, 1, 'TL');
+        if (p41 === null || pTF4 === null || pSQ === null || pTL === null) {
+            return new Response(JSON.stringify({
+                error: 'Cấu hình điểm của phiên thi không hợp lệ; hệ thống chưa chấm và chưa lưu kết quả.'
+            }), { status: 409, headers: corsHeaders });
+        }
+
         // Parse tf4 points configuration
         let tf4PointsMap: any = null;
         if (examConfig.tf4Points) {
@@ -301,6 +356,27 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                 try { tf4PointsMap = JSON.parse(examConfig.tf4_points); } catch(e) {}
             } else if (typeof examConfig.tf4_points === 'object') {
                 tf4PointsMap = examConfig.tf4_points;
+            }
+        }
+
+        const customTf4Mode = examFlagEnabled(examConfig.tf4ScoringMode ?? examConfig.tf4_scoring_mode, false);
+        if (customTf4Mode) {
+            if (!tf4PointsMap || typeof tf4PointsMap !== 'object' || Array.isArray(tf4PointsMap)) {
+                return new Response(JSON.stringify({
+                    error: 'Đề thi bật bảng điểm Đúng/Sai tùy chỉnh nhưng bảng điểm không hợp lệ; hệ thống chưa lưu kết quả.'
+                }), { status: 409, headers: corsHeaders });
+            }
+            const customValues = [1, 2, 3, 4].map((key) => Number(tf4PointsMap[key]));
+            const invalidCustom = customValues.some((value) =>
+                !Number.isFinite(value) || value < 0 || value > 1000 ||
+                Math.abs(value * 100 - Math.round(value * 100)) > 1e-9
+            );
+            const nonMonotonic = !invalidCustom &&
+                !(customValues[0] <= customValues[1] && customValues[1] <= customValues[2] && customValues[2] <= customValues[3]);
+            if (invalidCustom || nonMonotonic) {
+                return new Response(JSON.stringify({
+                    error: 'Bảng điểm Đúng/Sai tùy chỉnh không hợp lệ; hệ thống chưa lưu kết quả.'
+                }), { status: 409, headers: corsHeaders });
             }
         }
 
@@ -356,7 +432,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                 d.answeredStatements = tf4.answeredCount;
                 d.correctStatements = tf4.correctCount;
 
-                const isTf4CustomMode = examFlagEnabled(examConfig.tf4ScoringMode ?? examConfig.tf4_scoring_mode, false);
+                const isTf4CustomMode = customTf4Mode;
                 d.maxScore = isTf4CustomMode && tf4PointsMap && tf4PointsMap[4] !== undefined
                     ? Number(tf4PointsMap[4]) || 0
                     : pTF4;
@@ -507,7 +583,7 @@ YÊU CẦU:
         detailedResults.forEach((d: any) => {
             if (d.question.type === '4-1') totalMaxScore += p41;
             else if (d.question.type === 'TF4') {
-                const isTf4CustomMode = examFlagEnabled(examConfig.tf4ScoringMode ?? examConfig.tf4_scoring_mode, false);
+                const isTf4CustomMode = customTf4Mode;
                 const maxTf4 = isTf4CustomMode && tf4PointsMap && tf4PointsMap[4] !== undefined
                     ? Number(tf4PointsMap[4]) || 0
                     : pTF4;

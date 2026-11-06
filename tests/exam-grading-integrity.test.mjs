@@ -240,3 +240,28 @@ test('second audit: image-only MC options remain valid through save and generati
   assert.match(questions, /!text && !image/);
   assert.match(generate, /Boolean\(text \|\| image\)/);
 });
+
+
+test('third audit: client question order must exactly match signed issued order', () => {
+  const grade = fs.readFileSync(new URL('../functions/api/exam/grade.ts', import.meta.url), 'utf8');
+  assert.match(grade, /const issuedQuestionIds = questionIds\.map/);
+  assert.match(grade, /new Set\(issuedQuestionIds\)\.size !== issuedQuestionIds\.length/);
+  assert.match(grade, /clientQuestions\[i\]\?\.id \?\? clientQuestions\[i\]\?\.questionId/);
+  assert.match(grade, /Thứ tự câu hỏi nộp bài không khớp phiên đã phát/);
+});
+
+test('third audit: snapshot order and answer-key integrity fail closed', () => {
+  const grade = fs.readFileSync(new URL('../functions/api/exam/grade.ts', import.meta.url), 'utf8');
+  assert.match(grade, /Snapshot chấm điểm không khớp chính xác thứ tự câu hỏi đã phát/);
+  assert.match(grade, /validateQuestionAnswer\(trueQ\.type, trueQ\.answer, trueQ\.options\)/);
+  assert.match(grade, /Không tìm thấy dữ liệu chấm điểm của câu/);
+  assert.match(grade, /Khóa đáp án câu .* không hợp lệ/);
+});
+
+test('third audit: grading validates signed point precision and custom TF4 map', () => {
+  const grade = fs.readFileSync(new URL('../functions/api/exam/grade.ts', import.meta.url), 'utf8');
+  assert.match(grade, /const readPoint = \(value: any, fallback: number, label: string\): number \| null/);
+  assert.match(grade, /Math\.abs\(n \* 100 - Math\.round\(n \* 100\)\) > 1e-9/);
+  assert.match(grade, /const customTf4Mode = examFlagEnabled/);
+  assert.match(grade, /Bảng điểm Đúng\/Sai tùy chỉnh không hợp lệ; hệ thống chưa lưu kết quả/);
+});
