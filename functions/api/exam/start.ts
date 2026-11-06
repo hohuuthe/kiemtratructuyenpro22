@@ -188,7 +188,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         for (let slot = completedCount + 1; slot <= maxAttempts; slot++) {
           const insert = await db.prepare(
             `INSERT INTO _exam_attempt_slots
-              (exam_id, candidate_key, attempt_no, session_id, started_at)
+              (exam_id, candidate_key, attempt_no, session_id, started_at, expires_at)
              VALUES (?, ?, ?, ?, ?, ?)
              ON CONFLICT DO NOTHING`
           ).bind(examId, candidateKey, slot, sessionId, slotStartedAt, String(session.expires_at || '')).run();
