@@ -15885,7 +15885,7 @@ if (contentType && contentType.includes("application/json")) {
                 
                 // Tính toán lại tổng điểm dựa trên details (có thể đã được cập nhật)
                 newTotalScore += parseFloat(d.score) || 0;
-                if (d.isCorrect) newCorrectCount++;
+                if (d.question && d.question.type !== 'TL' && d.isCorrect) newCorrectCount++;
             });
 
             // Nếu không có thay đổi ở từng câu, hãy kiểm tra xem tổng điểm có khác với điểm cũ không
@@ -15919,10 +15919,13 @@ if (contentType && contentType.includes("application/json")) {
                     throw new Error(resJson.error || 'Lỗi khi cập nhật điểm');
                 }
 
-                // Cập nhật state toàn cục sau khi lưu thành công
-                results[resultIndex].score = finalRoundedScore;
-                results[resultIndex].correctCount = newCorrectCount;
-                results[resultIndex].details = updatedDetails;
+                // Cập nhật state bằng dữ liệu canonical do server tính lại.
+                // Không tin tổng điểm do trình duyệt tự cộng.
+                const canonicalScore = Number(resJson.score);
+                const canonicalCorrectCount = Number(resJson.correct_count);
+                results[resultIndex].score = Number.isFinite(canonicalScore) ? canonicalScore : finalRoundedScore;
+                results[resultIndex].correctCount = Number.isFinite(canonicalCorrectCount) ? canonicalCorrectCount : newCorrectCount;
+                results[resultIndex].details = Array.isArray(resJson.details) ? resJson.details : updatedDetails;
 
                 showToast('Đã lưu điểm thành công!', 'success');
                 renderRanking(); // Cập nhật lại giao diện
