@@ -12,7 +12,7 @@ test('Student-result formatter is defined in the student view and used for resul
   const studentView = source.slice(source.indexOf('// Student history is isolated'), source.indexOf('window.myStudentResultsPage'));
   assert.match(studentView, /formatMyStudentResultTime\(result\.time_taken\)/);
   assert.doesNotMatch(studentView, /\bformatTime\(/);
-  assert.match(studentView, /fetch\('\/api\/results\/me\?limit=30&offset='/);
+  assert.match(studentView, /fetch\('\/api\/results\/me\?grouped=1&limit=30&offset='/);
   assert.doesNotMatch(studentView, /fetch\('\/api\/results\?(?!me)/);
 });
 
