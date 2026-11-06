@@ -8903,10 +8903,12 @@ if (contentType && contentType.includes("application/json")) {
                     if (q.type === '4-1') {
                         isAllCorrect = currentExam.answers[i] === q.answer;
                     } else if (q.type === 'TF4') {
-                        const correctAnswers = (q.answer || '').split('&');
+                        const correctStates = parseTF4CorrectAnswer(q.answer || '');
                         const ans = currentExam.answers[i] || {};
-                        const keys = Object.keys(ans);
-                        isAllCorrect = keys.length > 0 && keys.every(k => (ans[k] === true && correctAnswers.includes(k)) || (ans[k] === false && !correctAnswers.includes(k)));
+                        isAllCorrect = Boolean(correctStates &&
+                            ['A', 'B', 'C', 'D'].every(k =>
+                                (ans[k] === true || ans[k] === false) && ans[k] === correctStates[k]
+                            ));
                     } else if (q.type === 'SQ') {
                         isAllCorrect = isSQCorrect(currentExam.answers[i], q.answer);
                     }
@@ -9169,16 +9171,15 @@ if (contentType && contentType.includes("application/json")) {
             const currentAnswers = currentExam.answers[index] || {};
             const options = q.shuffledOptions || ['A', 'B', 'C', 'D'];
             const immediateFeedbackOn = examConfig.immediateFeedback !== undefined ? examConfig.immediateFeedback : appSettings.immediateFeedback;
-            const correctAnswers = (q && q.answer) ? q.answer.split('&') : [];
+            const correctStates = q && q.answer ? parseTF4CorrectAnswer(q.answer) : null;
 
             return `<div class="space-y-1.5 w-full">
                 ${options.map((opt, i) => {
                     const label = String.fromCharCode(65 + i);
                     const optionData = (q.options && q.options[opt]) ? q.options[opt] : { text: '', image: '' };
                     const selected = currentAnswers[opt];
-                    const isAnswered = selected !== undefined;
-                    const isOptionTrue = correctAnswers.includes(opt);
-                    const isCorrect = isAnswered ? ((selected === true && isOptionTrue) || (selected === false && !isOptionTrue)) : false;
+                    const isAnswered = selected === true || selected === false;
+                    const isCorrect = isAnswered && Boolean(correctStates) ? selected === correctStates[opt] : false;
                     
                     let containerClass = 'border-gray-200 hover:border-indigo-300 hover:bg-indigo-50/30 bg-white';
                     let labelClass = 'text-gray-600 group-hover:text-indigo-600';
@@ -10466,14 +10467,13 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                         ${scoreDisplay}
                     `;
                 } else if (d.question.type === 'TF4') {
-                    const correctAnswers = (d.correctAnswer || d.question?.answer || '').split('&');
+                    const correctStates = parseTF4CorrectAnswer(d.correctAnswer || d.question?.answer || '');
                     const userAnswers = d.userAnswer || {};
                     let userAnsHtml = [];
                     ['A', 'B', 'C', 'D'].forEach(opt => {
-                        if (userAnswers[opt] !== undefined) {
-                            const isCorrectStatement = correctAnswers.includes(opt);
+                        if (userAnswers[opt] === true || userAnswers[opt] === false) {
                             const userResponse = userAnswers[opt];
-                            const isMatch = isCorrectStatement === userResponse;
+                            const isMatch = Boolean(correctStates) && correctStates[opt] === userResponse;
                             const colorClass = !showDetails ? 'text-gray-800' : (isMatch ? 'text-green-600' : 'text-purple-600');
                             userAnsHtml.push(`<span class="${colorClass}">${opt}: ${userResponse ? 'Đ' : 'S'}</span></u>`);
                         } else {
