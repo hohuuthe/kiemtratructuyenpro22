@@ -1287,6 +1287,91 @@ async function startServer() {
     }
   });
 
+  // Cập nhật hạn dùng hàng loạt cho tài khoản (Admin only).
+  app.post("/api/accounts/bulk-expiry", authLimiter, async (req, res) => {
+    try {
+      const authHeader = req.headers.authorization || '';
+      if (!authHeader.startsWith("Bearer ")) {
+        return res.status(401).json({ error: "Yêu cầu đăng nhập Admin." });
+      }
+      const actor: any = verifyJWTSync(authHeader.substring(7), await getServerSecret());
+      if (!checkIsAdmin(actor)) {
+        return res.status(403).json({ error: "Chỉ Admin mới được cập nhật hạn dùng tài khoản." });
+      }
+
+      const rawIds = Array.isArray(req.body?.account_ids) ? req.body.account_ids : [];
+      const accountIds = [...new Set(rawIds.map((id: any) => String(id ?? '').trim()).filter(Boolean))] as string[];
+      const maxAccounts = 500;
+      if (!accountIds.length) {
+        return res.status(400).json({ error: "Chưa chọn tài khoản cần cập nhật hạn dùng." });
+      }
+      if (accountIds.length > maxAccounts) {
+        return res.status(400).json({ error: `Mỗi lần chỉ được cập nhật tối đa ${maxAccounts} tài khoản.` });
+      }
+
+      let expiry: string | null;
+      try {
+        expiry = normalizeVietnamExpiryForStorage(req.body?.expiry_date);
+      } catch {
+        return res.status(400).json({ error: "Ngày hết hạn không hợp lệ." });
+      }
+
+      const marks = accountIds.map(() => '?').join(',');
+      const before = await executeSqlQuery(
+        `SELECT id FROM accounts WHERE id IN (${marks})`,
+        accountIds
+      );
+      const found = new Set((before.results || []).map((row: any) => String(row.id)));
+      const missing = accountIds.filter(id => !found.has(id));
+      if (missing.length || found.size !== accountIds.length) {
+        return res.status(409).json({
+          error: "Danh sách tài khoản đã thay đổi. Chưa cập nhật hạn dùng cho tài khoản nào.",
+          code: "ACCOUNT_SELECTION_CHANGED",
+          missing_account_ids: missing
+        });
+      }
+
+      await executeSqlQuery(
+        `UPDATE accounts SET expiry_date = ? WHERE id IN (${marks})`,
+        [expiry, ...accountIds]
+      );
+
+      const after = await executeSqlQuery(
+        `SELECT id, expiry_date FROM accounts WHERE id IN (${marks})`,
+        accountIds
+      );
+      const rows = after.results || [];
+      const expected = expiry || '';
+      const confirmed = new Set(
+        rows
+          .filter((row: any) => String(row.expiry_date || '') === expected)
+          .map((row: any) => String(row.id))
+      );
+      if (rows.length !== accountIds.length || accountIds.some(id => !confirmed.has(id))) {
+        return res.status(500).json({
+          error: "Không thể xác nhận toàn bộ hạn dùng sau khi ghi. Cần kiểm tra lại dữ liệu.",
+          code: "ACCOUNT_EXPIRY_VERIFY_FAILED"
+        });
+      }
+
+      return res.json({
+        data: {
+          success: true,
+          updated: accountIds.length,
+          verified: accountIds.length,
+          account_ids: accountIds,
+          expiry_date: expiry,
+          unlimited: expiry === null,
+          self_account_updated: accountIds.includes(String(actor.id || ''))
+        },
+        error: null
+      });
+    } catch (e: any) {
+      console.error("POST /api/accounts/bulk-expiry error::", e);
+      return res.status(500).json({ error: e.message || "Không thể cập nhật hạn dùng tài khoản." });
+    }
+  });
+
   // 2. Tạo tài khoản mới (Admin only)
   app.post("/api/accounts", async (req, res) => {
     try {
@@ -1817,6 +1902,91 @@ async function startServer() {
     }catch(e:any){
       console.error("GET /api/users error:",e);
       return res.status(500).json({error:e.message||'Lỗi server'});
+    }
+  });
+
+  // Cập nhật hạn dùng hàng loạt cho hồ sơ người dùng (Admin only).
+  app.post("/api/users/bulk-expiry", authLimiter, async (req, res) => {
+    try {
+      const authHeader = req.headers.authorization || '';
+      if (!authHeader.startsWith("Bearer ")) {
+        return res.status(401).json({ error: "Yêu cầu đăng nhập Admin." });
+      }
+      const actor: any = verifyJWTSync(authHeader.substring(7), await getServerSecret());
+      if (!checkIsAdmin(actor)) {
+        return res.status(403).json({ error: "Chỉ Admin mới được cập nhật hạn dùng người dùng." });
+      }
+
+      const rawIds = Array.isArray(req.body?.user_ids) ? req.body.user_ids : [];
+      const userIds = [...new Set(rawIds.map((id: any) => String(id ?? '').trim()).filter(Boolean))] as string[];
+      const maxUsers = 500;
+      if (!userIds.length) {
+        return res.status(400).json({ error: "Chưa chọn người dùng cần cập nhật hạn dùng." });
+      }
+      if (userIds.length > maxUsers) {
+        return res.status(400).json({ error: `Mỗi lần chỉ được cập nhật tối đa ${maxUsers} người dùng.` });
+      }
+
+      let expiry: string | null;
+      try {
+        expiry = normalizeVietnamExpiryForStorage(req.body?.expiry_date);
+      } catch {
+        return res.status(400).json({ error: "Ngày hết hạn không hợp lệ." });
+      }
+
+      const marks = userIds.map(() => '?').join(',');
+      const before = await executeSqlQuery(
+        `SELECT id FROM users WHERE id IN (${marks})`,
+        userIds
+      );
+      const found = new Set((before.results || []).map((row: any) => String(row.id)));
+      const missing = userIds.filter(id => !found.has(id));
+      if (missing.length || found.size !== userIds.length) {
+        return res.status(409).json({
+          error: "Danh sách người dùng đã thay đổi. Chưa cập nhật hạn dùng cho người dùng nào.",
+          code: "USER_SELECTION_CHANGED",
+          missing_user_ids: missing
+        });
+      }
+
+      await executeSqlQuery(
+        `UPDATE users SET expiry_date = ? WHERE id IN (${marks})`,
+        [expiry, ...userIds]
+      );
+
+      const after = await executeSqlQuery(
+        `SELECT id, expiry_date FROM users WHERE id IN (${marks})`,
+        userIds
+      );
+      const rows = after.results || [];
+      const expected = expiry || '';
+      const confirmed = new Set(
+        rows
+          .filter((row: any) => String(row.expiry_date || '') === expected)
+          .map((row: any) => String(row.id))
+      );
+      if (rows.length !== userIds.length || userIds.some(id => !confirmed.has(id))) {
+        return res.status(500).json({
+          error: "Không thể xác nhận toàn bộ hạn dùng người dùng sau khi ghi. Cần kiểm tra lại dữ liệu.",
+          code: "USER_EXPIRY_VERIFY_FAILED"
+        });
+      }
+
+      return res.json({
+        data: {
+          success: true,
+          updated: userIds.length,
+          verified: userIds.length,
+          user_ids: userIds,
+          expiry_date: expiry,
+          unlimited: expiry === null,
+          self_profile_updated: userIds.includes(String(actor.user_id || actor.id || ''))
+        },
+        error: null
+      });
+    } catch (e: any) {
+      console.error("POST /api/users/bulk-expiry error::", e);
+      return res.status(500).json({ error: e.message || "Không thể cập nhật hạn dùng người dùng." });
     }
   });
 
