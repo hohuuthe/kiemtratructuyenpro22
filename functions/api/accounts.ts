@@ -1,3 +1,4 @@
+import { normalizeVietnamExpiryForStorage } from '../../src/account-expiry';
 import { verifyAuthSession, getDynamicSecret, hashPasswordPBKDF2, verifyPassword, getDatabase, checkIsAdmin, checkIsTeacherOrAdmin } from './exam/utils';
 
 export async function onRequestGet(context: any) {
@@ -238,6 +239,7 @@ export async function onRequestPost(context: any) {
 
                     const id = crypto.randomUUID();
                     const activeVal = (is_active !== false && is_active !== 0 && is_active !== 'false') ? 1 : 0;
+                    const normalizedExpiry = normalizeVietnamExpiryForStorage(expiry_date);
                     
                     const sql = "INSERT INTO accounts (id, user_id, username, password, role, is_active, expiry_date, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
                     await db.prepare(sql).bind(
@@ -247,7 +249,7 @@ export async function onRequestPost(context: any) {
                         hashedPassword,
                         role || 'user',
                         activeVal,
-                        expiry_date || null,
+                        normalizedExpiry,
                         new Date().toISOString()
                     ).run();
 
@@ -284,6 +286,7 @@ export async function onRequestPost(context: any) {
         }
         const id = crypto.randomUUID();
         const activeVal = (is_active !== false && is_active !== 0 && is_active !== 'false') ? 1 : 0;
+        const normalizedExpiry = normalizeVietnamExpiryForStorage(expiry_date);
         
         const sql = "INSERT INTO accounts (id, user_id, username, password, role, is_active, expiry_date, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
         await db.prepare(sql).bind(
@@ -293,7 +296,7 @@ export async function onRequestPost(context: any) {
             hashedPassword,
             role || 'user',
             activeVal,
-            expiry_date || null,
+            normalizedExpiry,
             new Date().toISOString()
         ).run();
 
