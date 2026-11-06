@@ -203,6 +203,33 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       return withoutAnswer;
     });
 
+    // Tạo baseline draft ngay khi kích hoạt để phiên có thể resume an toàn ngay
+    // cả khi trình duyệt crash trước lần autosave đầu tiên.
+    try {
+      await db.prepare(`
+        CREATE TABLE IF NOT EXISTS _exam_answer_drafts (
+          session_id TEXT PRIMARY KEY,
+          answers_json TEXT NOT NULL,
+          revision INTEGER NOT NULL DEFAULT 0,
+          saved_at TEXT NOT NULL
+        )
+      `).run();
+      await db.prepare(`
+        INSERT INTO _exam_answer_drafts (session_id, answers_json, revision, saved_at)
+        VALUES (?, ?, 0, ?)
+        ON CONFLICT (session_id) DO NOTHING
+      `).bind(
+        gradingSessionId,
+        JSON.stringify(new Array(frozenIds.length).fill(null)),
+        new Date().toISOString()
+      ).run();
+    } catch (draftError) {
+      console.error('Cannot create initial exam draft:', draftError);
+      return new Response(JSON.stringify({
+        error: 'Không thể tạo bản lưu an toàn ban đầu; bài thi chưa được mở.'
+      }), { status: 503, headers: corsHeaders });
+    }
+
     const activePayload = {
       ...decoded,
       purpose: EXAM_SESSION_PURPOSE_ACTIVE,
