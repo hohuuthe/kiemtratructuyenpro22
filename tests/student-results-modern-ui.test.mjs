@@ -128,3 +128,13 @@ test('Student result cards always show the recorded violation count',()=>{
     assert.match(css,/\.student-result-violation\.no-violation/);
     assert.match(css,/\.student-result-violation\.has-violation/);
 });
+
+test('Grouped student result cards show one exam summary and defer attempt details',()=>{
+    const ui=readFileSync('src/student-results-ui.js','utf8');
+    const app=readFileSync('src/main.js','utf8');
+    assert.match(app,/\/api\/results\/me\?grouped=1&limit=30&offset=/);
+    assert.match(ui,/result\.is_grouped === true/);
+    assert.match(ui,/attempt_count/);
+    assert.match(ui,/điểm cao nhất/);
+    assert.match(ui,/!isGrouped && canDetail/);
+});
