@@ -8,6 +8,12 @@ import {
   canAutoSubmitExam,
   shouldCountExamViolation
 } from '../src/student-exam-session-guard.js';
+import {
+  examDeadlineAtMs,
+  remainingExamSecondsFromDeadline,
+  evaluateExamAccessWindow,
+  resolveAuthoritativeExamTiming
+} from '../src/exam-time-authority.js';
 
 test('exam countdown starts only from the real UI start time', () => {
   const start = 10_000;
@@ -74,7 +80,12 @@ test('server freezes authoritative exam duration into the generated session', ()
 test('main exam flow binds timer and delayed anti-cheat submit to the current session', () => {
   const main = readFileSync('src/main.js', 'utf8');
   assert.match(main, /startTime:\s*null,[\s\S]{0,500}sessionId:\s*createExamSessionId\(\)/);
-  assert.match(main, /currentExam\.startTime\s*=\s*Date\.now\(\);[\s\S]{0,700}timeLimitSeconds[\s\S]{0,700}startTimer\(\)/);
+  assert.match(main, /currentExam\.startTime\s*=\s*Number\(currentExam\.serverStartedAtMs\)/);
+  assert.match(main, /currentExam\.deadlineAtMs/);
+  assert.match(main, /serverNowAtActivationMs/);
+  assert.match(main, /\/api\/exam\/start/);
+  assert.match(main, /\/api\/exam\/save/);
+  assert.match(main, /window\.flushExamAutosave/);
   assert.match(main, /const frozenSeconds = Number\(currentExam\?\.timeLimitSeconds\)/);
   assert.match(main, /remainingExamSecondsMonotonic/);
   assert.match(main, /currentExam\.startTick/);
@@ -95,4 +106,66 @@ test('legitimate file pickers are protected from late browser violation events',
   assert.match(main, /studentBackgroundPickerGraceUntil/);
   assert.match(background, /studentBackgroundPickerGraceUntil = Date\.now\(\) \+ 1500/);
   assert.match(main, /window\.studentBackgroundPickerActive \|\|[\s\S]{0,180}Date\.now\(\) < backgroundGraceUntil/);
+});
+
+
+test('server deadline helpers use an immutable start and reject wall-clock extension', () => {
+  assert.equal(examDeadlineAtMs(1_000_000, 600), 1_600_000);
+  assert.equal(remainingExamSecondsFromDeadline(1_600_000, 1_000_000), 600);
+  assert.equal(remainingExamSecondsFromDeadline(1_600_000, 1_599_001), 1);
+  assert.equal(remainingExamSecondsFromDeadline(1_600_000, 1_600_000), 0);
+
+  const active = resolveAuthoritativeExamTiming(
+    { timeLimitSeconds: 600, startedAtMs: 1_000_000, deadlineAtMs: 1_600_000 },
+    {},
+    1_300_000
+  );
+  assert.equal(active.valid, true);
+  assert.equal(active.expired, false);
+  assert.equal(active.elapsedSeconds, 300);
+
+  const expired = resolveAuthoritativeExamTiming(
+    { timeLimitSeconds: 600, startedAtMs: 1_000_000, deadlineAtMs: 1_600_000 },
+    {},
+    1_600_001
+  );
+  assert.equal(expired.expired, true);
+  assert.equal(expired.elapsedSeconds, 600);
+});
+
+test('server access window is authoritative and deterministic', () => {
+  const config = { accessControl: { enabled: true, startTime: '2026-11-07T08:00:00.000Z', endTime: '2026-11-07T09:00:00.000Z' } };
+  assert.equal(evaluateExamAccessWindow(config, Date.parse('2026-11-07T07:59:59.000Z')).code, 'EXAM_NOT_STARTED');
+  assert.equal(evaluateExamAccessWindow(config, Date.parse('2026-11-07T08:30:00.000Z')).allowed, true);
+  assert.equal(evaluateExamAccessWindow(config, Date.parse('2026-11-07T09:00:00.001Z')).code, 'EXAM_WINDOW_CLOSED');
+});
+
+test('new sessions cannot be graded before activation and late grading uses server draft', () => {
+  const generate = readFileSync('functions/api/exam/generate.ts', 'utf8');
+  const start = readFileSync('functions/api/exam/start.ts', 'utf8');
+  const save = readFileSync('functions/api/exam/save.ts', 'utf8');
+  const grade = readFileSync('functions/api/exam/grade.ts', 'utf8');
+  const route = readFileSync('functions/[slug]/api/[[path]].ts', 'utf8');
+
+  assert.match(generate, /EXAM_SESSION_PURPOSE_PRESTART/);
+  assert.match(generate, /evaluateExamAccessWindow/);
+  assert.match(start, /EXAM_SESSION_PURPOSE_ACTIVE/);
+  assert.match(start, /started_at = COALESCE/);
+  assert.match(start, /deadline_at = COALESCE/);
+  assert.match(save, /EXAM_DEADLINE_REACHED/);
+  assert.match(save, /_exam_answer_drafts/);
+  assert.match(grade, /EXAM_NOT_ACTIVATED/);
+  assert.match(grade, /authoritativeTiming\.expired/);
+  assert.match(grade, /_exam_answer_drafts/);
+  assert.match(grade, /studentAnswers\.splice/);
+  assert.match(route, /'exam\/start': examStart/);
+  assert.match(route, /'exam\/save': examSave/);
+});
+
+test('submit failure restores the live timer when time remains and locks answers after deadline', () => {
+  const main = readFileSync('src/main.js', 'utf8');
+  assert.match(main, /remainingAfterFailure/);
+  assert.match(main, /startTimer\(\)/);
+  assert.match(main, /currentExam\.deadlineLocked = true/);
+  assert.match(main, /Gửi lại bài đã khóa/);
 });
