@@ -84,7 +84,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     }
 
     const snapshot: any = await db.prepare(
-      'SELECT session_id, exam_id, question_ids, expires_at, started_at, deadline_at FROM _exam_grade_sessions WHERE session_id = ?'
+      'SELECT session_id, exam_id, question_ids, question_snapshot, exam_config, expires_at, started_at, deadline_at FROM _exam_grade_sessions WHERE session_id = ?'
     ).bind(gradingSessionId).first();
     if (!snapshot) {
       return new Response(JSON.stringify({ error: 'Phiên thi không tồn tại hoặc đã được thu hồi.' }), { status: 409, headers: corsHeaders });
@@ -176,6 +176,33 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       }), { status: 503, headers: corsHeaders });
     }
 
+    let frozenQuestions: any[] = [];
+    try { frozenQuestions = JSON.parse(String(snapshot.question_snapshot || '[]')); } catch {}
+    if (!Array.isArray(frozenQuestions) || frozenQuestions.length !== frozenIds.length) {
+      return new Response(JSON.stringify({ error: 'Snapshot câu hỏi không hợp lệ; bài thi chưa được mở.' }), { status: 409, headers: corsHeaders });
+    }
+    for (let i = 0; i < frozenQuestions.length; i++) {
+      const frozenId = String(frozenQuestions[i]?.id ?? frozenQuestions[i]?.questionId ?? '');
+      if (!frozenId || frozenId !== frozenIds[i]) {
+        return new Response(JSON.stringify({ error: 'Snapshot câu hỏi không khớp phiên đã chuẩn bị.' }), { status: 409, headers: corsHeaders });
+      }
+    }
+
+    const immediateFeedback = Boolean(decoded.immediateFeedback);
+    const clientQuestions = frozenQuestions.map((q: any) => {
+      if (immediateFeedback) {
+        // Giữ nguyên chức năng Immediate Feedback theo yêu cầu: sau khi thời gian
+        // đã bắt đầu, client nhận đáp án để phản hồi tức thời như logic hiện tại.
+        return { ...q };
+      }
+      const { answer, ...withoutAnswer } = q || {};
+      if (withoutAnswer?.options && typeof withoutAnswer.options === 'object') {
+        const { answerImage, ...safeOptions } = withoutAnswer.options;
+        withoutAnswer.options = safeOptions;
+      }
+      return withoutAnswer;
+    });
+
     const activePayload = {
       ...decoded,
       purpose: EXAM_SESSION_PURPOSE_ACTIVE,
@@ -194,7 +221,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       deadlineAtMs,
       serverNowMs: responseNowMs,
       timeLimitSeconds,
-      remainingSeconds: remainingExamSecondsFromDeadline(deadlineAtMs, responseNowMs)
+      remainingSeconds: remainingExamSecondsFromDeadline(deadlineAtMs, responseNowMs),
+      questions: clientQuestions,
+      immediateFeedback
     }), { status: 200, headers: corsHeaders });
   } catch (error: any) {
     console.error('POST /api/exam/start error:', error);
