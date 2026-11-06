@@ -366,6 +366,15 @@ function installBoardButtonHelp(){
  const root=$('tab-boards');if(!root||root.dataset.boardHelpReady==='1')return;
  root.dataset.boardHelpReady='1';refreshBoardButtonHelp(root);
 }
+function setCreateBoardButtonVisible(visible){
+ const btn=$('boards-new');if(!btn)return;
+ const show=Boolean(visible);
+ btn.hidden=!show;
+ btn.setAttribute('aria-hidden',show?'false':'true');
+ btn.style.display=show?'inline-flex':'none';
+ btn.classList.toggle('hidden',!show);
+}
+
 function renderList(){
  const root=$('boards-list');if(!root)return;
  if(!list.length){root.innerHTML='<div class="col-span-full rounded-xl bg-slate-50 p-8 text-center text-slate-500">Chưa có bảng tương tác phù hợp.</div>';return;}
@@ -380,7 +389,7 @@ function renderList(){
 }
 async function load(){
  const seq=++generation;const root=$('boards-list');if(root)root.innerHTML='<div class="col-span-full text-center p-8 text-slate-500">Đang tải danh sách bảng...</div>';
- try{const result=await api('GET','/api/boards?page='+page+'&limit=20'+(manage?'&manage=1':''));if(seq!==generation)return;list=result.data||[];total=Number(result.total)||0;if(manage&&typeof result.can_create==='boolean')canCreateBoard=result.can_create;$('boards-new')?.classList.toggle('hidden',!canCreateBoard);renderList();}
+ try{const result=await api('GET','/api/boards?page='+page+'&limit=20'+(manage?'&manage=1':''));if(seq!==generation)return;list=result.data||[];total=Number(result.total)||0;if(manage&&typeof result.can_create==='boolean')canCreateBoard=result.can_create;setCreateBoardButtonVisible(canCreateBoard);renderList();}
  catch(e){if(seq!==generation)return;list=[];renderList();feedback(e.message,true);}
 }
 function toggleAccessFields(){
@@ -1165,7 +1174,7 @@ export function initInteractiveBoards(user){
  const isStudent=role==='student'||role==='học sinh'||aud==='học sinh';
  manage=!isStudent&&(isAdmin||isTeacher);
  canCreateBoard=!isStudent&&(isAdmin||(isTeacher&&vipFlag(actor?.is_vip)));
- $('boards-new')?.classList.toggle('hidden',!canCreateBoard);load();
+ setCreateBoardButtonVisible(canCreateBoard);load();
 }
 export function connectInteractiveBoards(){
  if(wired||!$('boards-list'))return;wired=true;installBoardButtonHelp();
