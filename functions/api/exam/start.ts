@@ -185,13 +185,15 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         }
 
         const slotStartedAt = new Date().toISOString();
+        const signedLimitSeconds = Math.max(1, Math.floor(Number(decoded.timeLimitSeconds) || 1));
+        const attemptExpiresAt = new Date(Date.now() + (signedLimitSeconds + 15) * 1000).toISOString();
         for (let slot = completedCount + 1; slot <= maxAttempts; slot++) {
           const insert = await db.prepare(
             `INSERT INTO _exam_attempt_slots
               (exam_id, candidate_key, attempt_no, session_id, started_at, expires_at)
              VALUES (?, ?, ?, ?, ?, ?)
              ON CONFLICT DO NOTHING`
-          ).bind(examId, candidateKey, slot, sessionId, slotStartedAt, String(session.expires_at || '')).run();
+          ).bind(examId, candidateKey, slot, sessionId, slotStartedAt, attemptExpiresAt).run();
 
           if (Number(insert?.meta?.changes || 0) === 1) {
             attemptNumber = slot;
