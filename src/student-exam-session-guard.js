@@ -18,6 +18,19 @@ export function remainingExamSeconds(startTime, timeLimitSeconds, now = Date.now
   return Math.max(0, Math.floor(duration) - elapsed);
 }
 
+export function remainingExamSecondsMonotonic(startTick, timeLimitSeconds, nowTick) {
+  const startedAt = Number(startTick);
+  const duration = Number(timeLimitSeconds);
+  const currentTick = Number(nowTick);
+
+  if (!Number.isFinite(startedAt) || startedAt < 0) return null;
+  if (!Number.isFinite(duration) || duration <= 0) return null;
+  if (!Number.isFinite(currentTick) || currentTick < startedAt) return null;
+
+  const elapsed = Math.max(0, Math.floor((currentTick - startedAt) / 1000));
+  return Math.max(0, Math.floor(duration) - elapsed);
+}
+
 export function canAutoSubmitExam({
   reason,
   remainingSeconds,
