@@ -47,6 +47,15 @@ function sanitizeGradingDetailForClient(detail: any, showDetails: boolean): any 
     return safeD;
 }
 
+function hasPendingEssayGrading(details: any[]): boolean {
+    return Array.isArray(details) && details.some((d: any) =>
+        d?.question?.type === 'TL' &&
+        d?.needsGrading === true &&
+        d?.gradingStatus !== 'completed' &&
+        d?.gradingStatus !== 'completed_manual'
+    );
+}
+
 const getBase64Data = (dataUri: string) => {
     if (!dataUri || !dataUri.includes('base64,')) return null;
     try {
@@ -165,10 +174,11 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                             score: Number(stored.score) || 0,
                             rawEarnedScore: Number(stored.score) || 0,
                             correctCount: Number(stored.correct_count) || 0,
-                            totalQuestions: Number(stored.total_questions) || 0,
-                            cheatWarningCount: Number(stored.cheat_warning_count) || 0,
-                            detailedResults: replayDetails,
-                            alreadySubmitted: true
+                            totalQuestions: Number(stored.total_questions) || 0,cheatWarningCount: Number(stored.cheat_warning_count) || 0,
+gradingPending: hasPendingEssayGrading(storedDetails),
+scoreFinalized: !hasPendingEssayGrading(storedDetails),
+detailedResults: replayDetails,
+alreadySubmitted: true
                         }), { status: 200, headers: corsHeaders });
                     }
                 }
@@ -604,9 +614,7 @@ YÊU CẦU:
             }
         }
 
-        const hasPendingEssayGrades = detailedResults.some((d: any) =>
-            d.question?.type === 'TL' && d.needsGrading === true && d.gradingStatus !== 'completed'
-        );
+        const hasPendingEssayGrades = hasPendingEssayGrading(detailedResults);
 
         // Tính điểm thô và quy đổi điểm theo thang điểm 10 an toàn, chính xác
         let totalMaxScore = 0;
@@ -695,10 +703,11 @@ YÊU CẦU:
                             score: Number(stored.score) || 0,
                             rawEarnedScore: Number(stored.score) || 0,
                             correctCount: Number(stored.correct_count) || 0,
-                            totalQuestions: Number(stored.total_questions) || 0,
-                            cheatWarningCount: Number(stored.cheat_warning_count) || 0,
-                            detailedResults: safeDetails,
-                            alreadySubmitted: true
+                            totalQuestions: Number(stored.total_questions) || 0,cheatWarningCount: Number(stored.cheat_warning_count) || 0,
+gradingPending: hasPendingEssayGrading(storedDetails),
+scoreFinalized: !hasPendingEssayGrading(storedDetails),
+detailedResults: safeDetails,
+alreadySubmitted: true
                         }), { status: 200, headers: corsHeaders });
                     }
                 }
