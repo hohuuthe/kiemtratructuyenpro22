@@ -153,17 +153,8 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                 }), { status: 409, headers: corsHeaders });
             }
 
-            const claim = await db.prepare(
-                "INSERT INTO _submitted_exam_tokens (token_hash, exam_id, student_name, user_id, submitted_at, status, result_id, claimed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (token_hash) DO NOTHING"
-            ).bind(
-                tokenHash, '', '', null, '', 'processing', claimedResultId, new Date().toISOString()
-            ).run();
-            if (Number(claim?.meta?.changes || 0) !== 1) {
-                return new Response(JSON.stringify({
-                    error: 'Phiên thi đang được xử lý hoặc đã được nộp trước đó. Hệ thống không tạo thêm bản ghi điểm.'
-                }), { status: 409, headers: corsHeaders });
-            }
-            tokenClaimed = true;
+            // Do not claim yet. All validation/grading errors above result persistence
+            // must remain retryable. The atomic claim is taken immediately before INSERT results.
         } catch (tokErr) {
             console.error('Error claiming submission token:', tokErr);
             return new Response(JSON.stringify({
@@ -545,6 +536,54 @@ YÊU CẦU:
 
         const cheatWarningCount = Number(body.cheatWarningCount ?? body.studentInfo?.cheatWarningCount ?? 0) || 0;
         const correctCount = detailedResults.filter((d: any) => d.isCorrect && d.question.type !== 'TL').length;
+
+        // Claim immediately before persistence. Two concurrent requests may both
+        // calculate, but only one can cross this unique database gate and create a row.
+        try {
+            const claim = await db.prepare(
+                "INSERT INTO _submitted_exam_tokens (token_hash, exam_id, student_name, user_id, submitted_at, status, result_id, claimed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (token_hash) DO NOTHING"
+            ).bind(
+                tokenHash,
+                String(examConfig.id || studentInfo.examId || studentInfo.examName || ''),
+                authenticatedStudentName || studentInfo.name || '',
+                authenticatedUserId || null,
+                '',
+                'processing',
+                claimedResultId,
+                new Date().toISOString()
+            ).run();
+            if (Number(claim?.meta?.changes || 0) !== 1) {
+                const existing: any = await db.prepare(
+                    "SELECT result_id FROM _submitted_exam_tokens WHERE token_hash = ?"
+                ).bind(tokenHash).first();
+                if (existing?.result_id) {
+                    const stored: any = await db.prepare(
+                        "SELECT id, score, correct_count, total_questions, details, cheat_warning_count FROM results WHERE id = ?"
+                    ).bind(String(existing.result_id)).first();
+                    if (stored) {
+                        let details: any[] = [];
+                        try { details = Array.isArray(stored.details) ? stored.details : JSON.parse(String(stored.details || '[]')); } catch {}
+                        return new Response(JSON.stringify({
+                            resultId: stored.id,
+                            score: Number(stored.score) || 0,
+                            rawEarnedScore: Number(stored.score) || 0,
+                            correctCount: Number(stored.correct_count) || 0,
+                            totalQuestions: Number(stored.total_questions) || 0,
+                            cheatWarningCount: Number(stored.cheat_warning_count) || 0,
+                            detailedResults: details,
+                            alreadySubmitted: true
+                        }), { status: 200, headers: corsHeaders });
+                    }
+                }
+                return new Response(JSON.stringify({
+                    error: 'Phiên thi đang được xử lý. Hệ thống không tạo thêm bản ghi điểm.'
+                }), { status: 409, headers: corsHeaders });
+            }
+            tokenClaimed = true;
+        } catch (claimErr) {
+            console.error('Error atomically claiming submission before persistence:', claimErr);
+            throw new Error('Không thể khóa phiên nộp bài an toàn. Kết quả chưa được lưu; vui lòng gửi lại.');
+        }
 
         // Lưu kết quả bài thi vào cơ sở dữ liệu Cloudflare D1
         const resultId = claimedResultId || crypto.randomUUID();
