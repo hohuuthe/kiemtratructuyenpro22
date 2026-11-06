@@ -1475,7 +1475,7 @@ Câu hỏi: \${d.question.content}
 
 Bài làm của học sinh: \${d.userAnswer || '(Trống)'}
 
-Thang điểm tối đa: \${examConfig.pointsTL || 1} điểm.
+Thang điểm tối đa: \${examConfig.pointsTL ?? 1} điểm.
 
 Quy trình chấm điểm (Tiêu chuẩn Sư phạm)
 Bước 1 - Phân tích Đáp án: Xác định các ý chính (keyword) và trọng số điểm tương ứng trong hướng dẫn chấm.
@@ -7493,7 +7493,7 @@ if (contentType && contentType.includes("application/json")) {
             if (document.getElementById('exam-points-41')) document.getElementById('exam-points-41').value = examConfig.points41;
             if (document.getElementById('exam-points-tf4')) document.getElementById('exam-points-tf4').value = examConfig.pointsTF4;
             if (document.getElementById('exam-points-sq')) document.getElementById('exam-points-sq').value = examConfig.pointsSQ;
-            if (document.getElementById('exam-points-tl')) document.getElementById('exam-points-tl').value = examConfig.pointsTL || 1;
+            if (document.getElementById('exam-points-tl')) document.getElementById('exam-points-tl').value = examConfig.pointsTL ?? 1;
             
             const elAIPrompt = document.getElementById('exam-config-ai-prompt');
             if (elAIPrompt) elAIPrompt.value = examConfig.aiPrompt || '';
@@ -14900,18 +14900,18 @@ D. Phát biểu SAI</pre>
             // Trigger update to calculate totals
             updateExamCounts();
 
-            if (document.getElementById('exam-points-41')) document.getElementById('exam-points-41').value = examConfig.points41 || 1;
-            if (document.getElementById('exam-points-tf4')) document.getElementById('exam-points-tf4').value = examConfig.pointsTF4 || 1;
-            if (document.getElementById('exam-points-sq')) document.getElementById('exam-points-sq').value = examConfig.pointsSQ || 1;
-            if (document.getElementById('exam-points-tl')) document.getElementById('exam-points-tl').value = examConfig.pointsTL || 1;
+            if (document.getElementById('exam-points-41')) document.getElementById('exam-points-41').value = examConfig.points41 ?? 1;
+            if (document.getElementById('exam-points-tf4')) document.getElementById('exam-points-tf4').value = examConfig.pointsTF4 ?? 1;
+            if (document.getElementById('exam-points-sq')) document.getElementById('exam-points-sq').value = examConfig.pointsSQ ?? 1;
+            if (document.getElementById('exam-points-tl')) document.getElementById('exam-points-tl').value = examConfig.pointsTL ?? 1;
             
             // Restore TF4 advanced scoring if it was enabled
             if (examConfig.tf4ScoringMode) {
                 document.getElementById('tf4-advanced-scoring')?.classList.remove('hidden');
-                if (document.getElementById('tf4-points-1')) document.getElementById('tf4-points-1').value = examConfig.tf4Points?.[1] || 0.25;
-                if (document.getElementById('tf4-points-2')) document.getElementById('tf4-points-2').value = examConfig.tf4Points?.[2] || 0.50;
-                if (document.getElementById('tf4-points-3')) document.getElementById('tf4-points-3').value = examConfig.tf4Points?.[3] || 0.75;
-                if (document.getElementById('tf4-points-4')) document.getElementById('tf4-points-4').value = examConfig.tf4Points?.[4] || 1.0;
+                if (document.getElementById('tf4-points-1')) document.getElementById('tf4-points-1').value = examConfig.tf4Points?.[1] ?? 0.25;
+                if (document.getElementById('tf4-points-2')) document.getElementById('tf4-points-2').value = examConfig.tf4Points?.[2] ?? 0.50;
+                if (document.getElementById('tf4-points-3')) document.getElementById('tf4-points-3').value = examConfig.tf4Points?.[3] ?? 0.75;
+                if (document.getElementById('tf4-points-4')) document.getElementById('tf4-points-4').value = examConfig.tf4Points?.[4] ?? 1.0;
             } else {
                 document.getElementById('tf4-advanced-scoring')?.classList.add('hidden');
             }
@@ -15418,10 +15418,10 @@ D. Phát biểu SAI</pre>
                     };
                 }
                 // Load values into input fields
-                if (document.getElementById('tf4-points-1')) document.getElementById('tf4-points-1').value = examConfig.tf4Points[1] || 0.25;
-                if (document.getElementById('tf4-points-2')) document.getElementById('tf4-points-2').value = examConfig.tf4Points[2] || 0.50;
-                if (document.getElementById('tf4-points-3')) document.getElementById('tf4-points-3').value = examConfig.tf4Points[3] || 0.75;
-                if (document.getElementById('tf4-points-4')) document.getElementById('tf4-points-4').value = examConfig.tf4Points[4] || 1.0;
+                if (document.getElementById('tf4-points-1')) document.getElementById('tf4-points-1').value = examConfig.tf4Points[1] ?? 0.25;
+                if (document.getElementById('tf4-points-2')) document.getElementById('tf4-points-2').value = examConfig.tf4Points[2] ?? 0.50;
+                if (document.getElementById('tf4-points-3')) document.getElementById('tf4-points-3').value = examConfig.tf4Points[3] ?? 0.75;
+                if (document.getElementById('tf4-points-4')) document.getElementById('tf4-points-4').value = examConfig.tf4Points[4] ?? 1.0;
             } else {
                 advancedDiv.classList.add('hidden');
             }
@@ -15973,7 +15973,7 @@ if (contentType && contentType.includes("application/json")) {
                             name: fullData.name,
                             aiGradingKey: fullData.ai_grading_key || fullData.aiGradingKey || '',
                             aiPrompt: fullData.ai_prompt || fullData.aiPrompt || '',
-                            pointsTL: fullData.points_tl || fullData.pointsTL || 1,
+                            pointsTL: fullData.points_tl ?? fullData.pointsTL ?? 1,
                             autoGradeEssay: examFlagEnabled(fullData.autoGradeEssay ?? fullData.auto_grade_essay, false)
                         };
                         examConfigsCache[name] = cfg;
@@ -16178,7 +16178,7 @@ Bạn là một giám khảo chấm thi tự luận chuyên nghiệp. Hãy chấ
 THÔNG TIN ĐỀ BÀI:
 - Câu hỏi (vấn bản): ${d.question.content || ''}
 - Đáp án / Hướng dẫn chấm: ${d.correctAnswer || ''}
-- Thang điểm tối đa: ${targetConfig.pointsTL || 1} điểm.
+- Thang điểm tối đa: ${targetConfig.pointsTL ?? 1} điểm.
 
 BÀI LÀM CỦA HỌC SINH:
 - Văn bản bài làm: ${studentAnsText || (studentAnsImage ? '(Học sinh chỉ cung cấp hình ảnh bài làm bên dưới)' : '(Trống)')}
@@ -17121,7 +17121,7 @@ CẤU TRÚC JSON:
                                     class="w-20 px-2 py-1 border-2 ${isExamCreator ? 'border-yellow-300 focus:border-yellow-500' : 'border-gray-200 bg-gray-100 cursor-not-allowed'} rounded focus:outline-none font-bold text-center"
                                 >
                             </div>
-                            <span class="text-[10px] text-yellow-600 font-medium italic">(Tối đa: ${targetConfig.pointsTL || 1})</span>
+                            <span class="text-[10px] text-yellow-600 font-medium italic">(Tối đa: ${targetConfig.pointsTL ?? 1})</span>
                             ${isExamCreator ? `
                             <button 
                                 id="ai-grade-btn-${resultId}-${i}"
