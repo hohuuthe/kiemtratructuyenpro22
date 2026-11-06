@@ -54,6 +54,14 @@ test('session identifiers are unique for consecutive attempts', () => {
   assert.notEqual(createExamSessionId(1234), createExamSessionId(1234));
 });
 
+test('server freezes authoritative exam duration into the generated session', () => {
+  const generate = readFileSync('functions/api/exam/generate.ts', 'utf8');
+  assert.match(generate, /const timeLimitSeconds = Math\.max\(1, Math\.round\(timeLimitMinutes \* 60\)\)/);
+  assert.match(generate, /timeLimitSeconds,/);
+  assert.match(generate, /timeLimitMinutes,/);
+  assert.match(generate, /exp:[\s\S]{0,180}timeLimitSeconds \+ 3600/);
+});
+
 test('main exam flow binds timer and delayed anti-cheat submit to the current session', () => {
   const main = readFileSync('src/main.js', 'utf8');
   assert.match(main, /startTime:\s*null,[\s\S]{0,500}sessionId:\s*createExamSessionId\(\)/);
