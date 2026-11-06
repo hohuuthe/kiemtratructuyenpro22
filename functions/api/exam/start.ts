@@ -177,7 +177,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
               WHERE exam_id = ?
                 AND LOWER(TRIM(student_name)) = LOWER(TRIM(?))
                 AND LOWER(TRIM(COALESCE(lop, ''))) = LOWER(TRIM(?))
-                AND LOWER(TRIM(COALESCE(donvi, ''))) = LOWER(TRIM(?))`
+                AND LOWER(TRIM(COALESCE(don_vi, ''))) = LOWER(TRIM(?))`
           ).bind(examId, guestName, String(decoded.studentLop || guestClass || ''), guestUnit).first();
           historicalCompletedCount = Math.max(0, Number(row?.count || 0));
         }
