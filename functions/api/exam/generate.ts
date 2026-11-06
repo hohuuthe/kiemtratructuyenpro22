@@ -603,6 +603,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         const payload = {
             questionIds,
             gradingSessionId,
+            studentUserId: tokenUser?.user_id || tokenUser?.id || null,
             examConfig: gradeSessionConfig,
             maxCheatWarnings: maxCheatWarningsFromDB,
             timeLimitSeconds,
