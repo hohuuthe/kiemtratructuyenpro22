@@ -16,6 +16,9 @@ import * as r11 from '../../api/exam-teachers';
 import * as r12 from '../../api/exam/export-docx';
 import * as r13 from '../../api/exam/generate';
 import * as r14 from '../../api/exam/grade';
+import * as examStart from '../../api/exam/start';
+import * as examSave from '../../api/exam/save';
+import * as examViolation from '../../api/exam/violation';
 import * as r15 from '../../api/exams';
 import * as r16 from '../../api/health';
 import * as r17 from '../../api/proxy-image';
@@ -57,6 +60,9 @@ const handlers: Record<string, any> = {
   'exam/export-docx': r12,
   'exam/generate': r13,
   'exam/grade': r14,
+  'exam/start': examStart,
+  'exam/save': examSave,
+  'exam/violation': examViolation,
   'exams': r15,
   'health': r16,
   'proxy-image': r17,

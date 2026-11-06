@@ -1,6 +1,7 @@
 import { signJWT, verifyAuthSession, getDynamicSecret, getDatabase } from './utils';
 import {makeGradeSessionConfig, accessCodeMatches} from './security';
 import { examFlagEnabled, validateQuestionAnswer } from '../../../src/exam-grading-core.js';
+import { EXAM_SESSION_PURPOSE_PRESTART, evaluateExamAccessWindow } from '../../../src/exam-time-authority.js';
 
 interface Env {
   NEON_DATABASE_URL?: string;
@@ -221,6 +222,20 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         }
         const isAdmin = tokenUser && tokenUser.role === 'admin';
         const isTeacher = !!tokenUser && String(tokenUser.id) === String(dbExam?.creator_id || effectiveTeacherId) && (tokenUser.target_audience === 'Giáo viên' || tokenUser.role === 'teacher');
+
+        // Khung giờ thi phải được kiểm tra trên máy chủ. Client chỉ có vai trò hiển thị.
+        // Giáo viên sở hữu đề/Admin vẫn được quyền mở cấu hình ngoài khung giờ.
+        if (!isAdmin && !isTeacher) {
+            const accessWindow = evaluateExamAccessWindow(activeExamConfig, Date.now());
+            if (!accessWindow.allowed) {
+                const error = accessWindow.code === 'EXAM_NOT_STARTED'
+                    ? 'Chưa đến thời gian được phép nhận đề thi.'
+                    : accessWindow.code === 'EXAM_WINDOW_CLOSED'
+                        ? 'Đã hết thời gian được phép nhận đề thi.'
+                        : 'Cấu hình khung thời gian của đề thi không hợp lệ.';
+                return new Response(JSON.stringify({ code: accessWindow.code, error }), { status: 403, headers: corsHeaders });
+            }
+        }
 
         if (dbExam && String(dbExam.creator_id) !== String(teacherId)) {
             return new Response(JSON.stringify({error:'Đề thi không thuộc giáo viên đã chọn'}), {status:403,headers:corsHeaders});
@@ -606,9 +621,17 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                     question_snapshot TEXT NOT NULL,
                     exam_config TEXT NOT NULL,
                     created_at TEXT NOT NULL,
-                    expires_at TEXT NOT NULL
+                    expires_at TEXT NOT NULL,
+                    started_at TEXT,
+                    deadline_at TEXT
                 )
             `).run();
+            for (const sql of [
+                'ALTER TABLE _exam_grade_sessions ADD COLUMN IF NOT EXISTS started_at TEXT',
+                'ALTER TABLE _exam_grade_sessions ADD COLUMN IF NOT EXISTS deadline_at TEXT'
+            ]) {
+                try { await db.prepare(sql).run(); } catch {}
+            }
             // Best-effort cleanup keeps the ephemeral snapshot table bounded.
             try {
                 await db.prepare('DELETE FROM _exam_grade_sessions WHERE expires_at < ?')
@@ -642,6 +665,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         const { aiPrompt: _aiPrompt, ai_prompt: _aiPromptSnake, ...tokenGradeSessionConfig } = gradeSessionConfig;
 
         const payload = {
+            purpose: EXAM_SESSION_PURPOSE_PRESTART,
             questionIds,
             gradingSessionId,
             studentUserId: tokenUser?.user_id || tokenUser?.id || null,

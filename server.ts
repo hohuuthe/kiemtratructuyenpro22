@@ -34,6 +34,7 @@ import { resolveLiveExamResultsActor } from './src/exam-results-delete-actor';
 import { TEACHER_DELETE_CASCADE_SQL, TEACHER_DELETE_CALL_SQL, parseTeacherDeletionResult, teacherDeleteHttpError } from './src/teacher-delete-cascade';
 import { STUDENT_DELETE_CASCADE_SQL, STUDENT_DELETE_CALL_SQL, parseStudentDeletionResult, studentDeleteHttpError } from './src/student-delete-cascade';
 import { USER_DELETE_CASCADE_SQL, USER_DELETE_CALL_SQL, parseUserDeletionResult, userDeleteHttpError } from './src/user-delete-cascade';
+import { onRequestPost as hardenedExamGradeHandler } from './functions/api/exam/grade';
 
 dotenv.config({ override: true });
 
@@ -5606,478 +5607,46 @@ async function getServerSecret(): Promise<string> {
       }
   });
 
+  // Dùng duy nhất engine chấm đã được harden ở Cloudflare Functions.
+  // Local/dev không duy trì một bản logic chấm riêng để tránh sai lệch điểm, thời gian,
+  // snapshot đáp án, chống replay và deadline giữa các môi trường.
   app.post("/api/exam/grade", async (req, res) => {
       try {
-          const { token, studentAnswers, clientQuestions, studentInfo, timeTaken } = req.body;
-          if (!token || !studentAnswers || !clientQuestions || !studentInfo) {
-              return res.status(400).json({ error: 'Missing required fields' });
+          const protocol = req.protocol || 'http';
+          const host = req.get('host') || `localhost:${PORT}`;
+          const requestUrl = `${protocol}://${host}${req.originalUrl || req.url || '/api/exam/grade'}`;
+          const webHeaders = new Headers();
+          for (const [name, value] of Object.entries(req.headers || {})) {
+              if (value === undefined) continue;
+              if (Array.isArray(value)) {
+                  for (const item of value) webHeaders.append(name, String(item));
+              } else {
+                  webHeaders.set(name, String(value));
+              }
           }
+          webHeaders.set('content-type', 'application/json');
 
-          const decoded = verifyJWTSync(token, (await getServerSecret()));
-          if (!decoded) {
-              return res.status(400).json({ error: 'Invalid or expired exam token' });
-          }
-
-          // BẢO MẬT: Chống nộp bài trùng lặp (Token Replay Prevention)
-          const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
-          try {
-              const existingSubmission = await executeSqlQuery("SELECT token_hash FROM _submitted_exam_tokens WHERE token_hash = ? LIMIT 1", [tokenHash]);
-              if (existingSubmission && existingSubmission.results && existingSubmission.results.length > 0) {
-                  return res.status(400).json({ error: 'Phiên thi này đã được nộp bài trước đó. Không thể nộp lại nhiều lần!' });
-              }
-          } catch (tokErr) {
-              console.error('Error checking submitted token:', tokErr);
-          }
-
-          const { questionIds, examConfig, teacherId } = decoded;
-
-          if (!questionIds || clientQuestions.length !== questionIds.length) {
-              return res.status(400).json({ error: 'Exam mismatch or invalid token' });
-          }
-
-          let aiKey = '';
-          let examConfigs: any[] = [];
-          try {
-              if (studentInfo.examId) {
-                  const res = await executeSqlQuery('SELECT ai_grading_key FROM exam_configs WHERE id = ? AND creator_id = ?', [studentInfo.examId, teacherId]);
-                  examConfigs = res.results || [];
-              }
-              if (!examConfigs || examConfigs.length === 0) {
-                  const res = await executeSqlQuery('SELECT ai_grading_key FROM exam_configs WHERE name = ? AND creator_id = ?', [studentInfo.examName, teacherId]);
-                  examConfigs = res.results || [];
-              }
-          } catch(e) {}
-          if (examConfigs && examConfigs.length > 0) {
-              aiKey = examConfigs[0].ai_grading_key;
-          }
-          
-          const normalizeTypeForGrading = (type: any) => {
-              const t = String(type || '').trim().toLowerCase();
-              if (t === '4-1' || t === 'trac_nghiem' || t === 'mcq') return '4-1';
-              if (t === 'tf4' || t === 'dung_sai' || t === 'true_false') return 'TF4';
-              if (t === 'sq' || t === 'tra_loi_ngan' || t === 'short_answer') return 'SQ';
-              if (t === 'tl' || t === 'tu_luan' || t === 'essay') return 'TL';
-              return type;
-          };
-
-          const getNum = (val: any, fallback: number): number => {
-              if (val === undefined || val === null || val === '') return fallback;
-              const num = Number(val);
-              return isNaN(num) ? fallback : num;
-          };
-
-          let trueQuestionsMap: any = {};
-          try {
-              if (questionIds && questionIds.length > 0) {
-                  const placeholders = questionIds.map(() => '?').join(',');
-                  const resQs = await executeSqlQuery(`SELECT * FROM questions WHERE id IN (${placeholders})`, questionIds);
-                  const qRows = resQs.results;
-                  if (qRows && qRows.length > 0) {
-                      for (const row of qRows) {
-                          let parsedOptions = row.options;
-                          if (typeof parsedOptions === 'string') {
-                              try { parsedOptions = JSON.parse(parsedOptions); } catch (e) {}
-                          }
-                          trueQuestionsMap[row.id] = {
-                              ...row,
-                              type: normalizeTypeForGrading(row.type),
-                              options: parsedOptions || {}
-                          };
-                      }
-                  }
-              }
-
-              const missingIds = questionIds.filter((qid: any) => !trueQuestionsMap[qid] && !trueQuestionsMap[String(qid)] && !trueQuestionsMap[Number(qid)]);
-              if (missingIds.length > 0 && teacherId) {
-                  const resQs = await executeSqlQuery('SELECT * FROM questions WHERE creator_id = ?', [teacherId]);
-                  const allQuestions = resQs.results;
-                  if (allQuestions && allQuestions.length > 0) {
-                      for (const row of allQuestions) {
-                          let parsedOptions = row.options;
-                          if (typeof parsedOptions === 'string') {
-                              try { parsedOptions = JSON.parse(parsedOptions); } catch (e) {}
-                          }
-                          trueQuestionsMap[row.id] = {
-                              ...row,
-                              type: normalizeTypeForGrading(row.type),
-                              options: parsedOptions || {}
-                          };
-                      }
-                  }
-              }
-          } catch (e) {
-              console.error('Error fetching real questions from DB in grade API:', e);
-              return res.status(500).json({ error: 'Error fetching exam data for grading' });
-          }
-
-          const getBase64Data = (dataUri) => {
-              if (!dataUri || !dataUri.includes('base64,')) return null;
-              try {
-                  const p = dataUri.split('base64,');
-                  return {
-                      mimeType: p[0].split(':')[1].split(';')[0],
-                      data: p[1]
-                  };
-              } catch (e) { return null; }
-          };
-
-          function getTF4Expected(corrAns: string, opt: string): boolean {
-              const raw = String(corrAns || '').trim();
-              if (!raw) return false;
-              const parts = raw.split('&').map(p => p.trim());
-              if (parts.every(p => ['A', 'B', 'C', 'D'].includes(p.toUpperCase()))) {
-                  return parts.map(p => p.toUpperCase()).includes(opt);
-              }
-              if (parts.length === 4) {
-                  const idx = ['A', 'B', 'C', 'D'].indexOf(opt);
-                  if (idx >= 0) {
-                      const val = parts[idx].toUpperCase();
-                      return val === 'D' || val === 'Đ' || val === 'ĐÚNG' || val === 'DUNG' || val === 'T' || val === 'TRUE' || val === '1';
-                  }
-              }
-              const match = raw.match(new RegExp(`${opt}[:=]([A-Za-zĐđ0-9]+)`, 'i'));
-              if (match) {
-                  const val = match[1].toUpperCase();
-                  return val === 'D' || val === 'Đ' || val === 'ĐÚNG' || val === 'DUNG' || val === 'T' || val === 'TRUE' || val === '1';
-              }
-              return parts.includes(opt);
-          }
-
-          function isTF4UserOptTrue(uAns: any, opt: string): boolean {
-              if (!uAns || typeof uAns !== 'object') return false;
-              const val = uAns[opt];
-              if (val === true || val === 1) return true;
-              if (typeof val === 'string') {
-                  const u = val.trim().toUpperCase();
-                  return u === 'D' || u === 'Đ' || u === 'ĐÚNG' || u === 'DUNG' || u === 'T' || u === 'TRUE' || u === '1';
-              }
-              return false;
-          }
-
-          const detailedResults = clientQuestions.map((q, i) => {
-              const trueQId = questionIds[i];
-              const trueQ = trueQuestionsMap[trueQId];
-              
-              if (!trueQ) {
-                  return { question: q, userAnswer: studentAnswers[i], isCorrect: false, correctAnswer: '', needsGrading: false, score: 0, aiFeedback: 'Không tìm thấy dữ liệu gốc của câu hỏi.' };
-              }
-
-              const userAnswer = studentAnswers[i];
-              const correctAnswer = trueQ.answer;
-
-              let isCorrect = false;
-
-              let tf4CorrectCount = 0;
-              if (trueQ.type === '4-1') {
-                  isCorrect = (userAnswer === correctAnswer);
-              } else if (trueQ.type === 'TF4') {
-                  ['A', 'B', 'C', 'D'].forEach(opt => {
-                      if (getTF4Expected(correctAnswer, opt) === isTF4UserOptTrue(userAnswer, opt)) {
-                          tf4CorrectCount++;
-                      }
-                  });
-                  isCorrect = (tf4CorrectCount === 4);
-              } else if (trueQ.type === 'SQ') {
-                  let answerText = String(userAnswer || '').trim();
-                  let correctText = String(correctAnswer || '').trim();
-                  
-                  if (examConfig.sqCaseSensitive === false) {
-                      answerText = answerText.toLowerCase();
-                      correctText = correctText.toLowerCase();
-                  }
-                  if (examConfig.sqPunctuationSensitive === false) {
-                      answerText = answerText.replace(/[.,\/#!$%^&*;:{}=\-_`~()]/g, "").replace(/\s{2,}/g, " ");
-                      correctText = correctText.replace(/[.,\/#!$%^&*;:{}=\-_`~()]/g, "").replace(/\s{2,}/g, " ");
-                  }
-                  
-                  isCorrect = (answerText === correctText);
-              } else if (trueQ.type === 'TL') {
-                  isCorrect = false; 
-              }
-
-              return { question: trueQ, userAnswer, isCorrect, correctAnswer, needsGrading: trueQ.type === 'TL', score: 0, aiFeedback: '' };
+          const webRequest = new Request(requestUrl, {
+              method: 'POST',
+              headers: webHeaders,
+              body: JSON.stringify(req.body || {})
           });
+          const response = await hardenedExamGradeHandler({
+              request: webRequest,
+              env: process.env
+          } as any);
 
-          let score = 0;
-          let tlQuestionsToGrade = [];
-
-          const p41 = Number(examConfig.points41 ?? examConfig.points_41 ?? 1) || 1;
-          const pTF4 = Number(examConfig.pointsTF4 ?? examConfig.points_tf4 ?? 1) || 1;
-          const pSQ = Number(examConfig.pointsSQ ?? examConfig.points_sq ?? 1) || 1;
-          const pTL = Number(examConfig.pointsTL ?? examConfig.points_tl ?? 1) || 1;
-
-          detailedResults.forEach((d) => {
-              let questionScore = 0;
-              if (d.question.type === '4-1') {
-                  if (d.isCorrect) questionScore = p41;
-              } else if (d.question.type === 'TF4') {
-                  const userAnswers = d.userAnswer || {};
-                  let correctStatementCount = 0;
-
-                  ['A', 'B', 'C', 'D'].forEach(opt => {
-                      if (getTF4Expected(d.correctAnswer, opt) === isTF4UserOptTrue(userAnswers, opt)) {
-                          correctStatementCount++;
-                      }
-                  });
-
-                  d.correctStatements = correctStatementCount;
-
-                  if (examConfig.tf4ScoringMode && examConfig.tf4Points) {
-                      if (correctStatementCount >= 1 && correctStatementCount <= 4) {
-                          questionScore = examConfig.tf4Points[correctStatementCount];
-                      }
-                  } else {
-                      const ratioMap = { 0: 0, 1: 0.25, 2: 0.5, 3: 0.75, 4: 1.0 };
-                      questionScore = pTF4 * (ratioMap[correctStatementCount] || 0);
-                  }
-              } else if (d.question.type === 'SQ') {
-                  if (d.isCorrect) questionScore = pSQ;
-              } else if (d.question.type === 'TL') {
-                  tlQuestionsToGrade.push(d);
-              }
-
-              d.score = questionScore;
-              score += questionScore;
+          res.status(response.status);
+          response.headers.forEach((value, name) => {
+              if (name.toLowerCase() !== 'content-length') res.setHeader(name, value);
           });
-
-          // Hỗ trợ danh sách nhiều key cách nhau bằng dấu cách, tự động chuyển key khi hết hạn mức
-          const rawAiKeys = (aiKey || '').trim().split(/\s+/).filter((k: string) => k.length > 5 && !k.includes("••••••••") && !k.includes("YOUR_"));
-          const isAutoGradeEssay = examConfig.autoGradeEssay !== false && examConfig.auto_grade_essay !== false;
-
-          if (isAutoGradeEssay && rawAiKeys.length > 0 && tlQuestionsToGrade.length > 0) {
-              let currentKeyIdx = 0;
-              const modelsToTry = ["gemini-3.8-flash", "gemini-3.1-flash-lite", "gemini-flash-latest", "gemini-3.5-flash"];
-
-              for (const d of tlQuestionsToGrade) {
-                  let studentAnsText = '';
-                  if (d.userAnswer && typeof d.userAnswer === 'object') {
-                      studentAnsText = String(d.userAnswer.text || '').trim();
-                  } else {
-                      studentAnsText = String(d.userAnswer || '').trim();
-                  }
-                  const studentAnsImage = (d.userAnswer && typeof d.userAnswer === 'object') ? d.userAnswer.image : '';
-
-                  if (!studentAnsText && !studentAnsImage) {
-                      d.score = 0;
-                      d.aiFeedback = "Học sinh không nộp bài làm (trống).";
-                      d.gradingStatus = 'completed';
-                      continue;
-                  }
-
-                  const pTL = examConfig.pointsTL || 1;
-                  const prompt = `
-Bạn là giám khảo chấm thi tự luận.
-THÔNG TIN ĐỀ BÀI:
-- Câu hỏi: ${d.question.content || ''}
-- Đáp án/Hướng dẫn: ${d.correctAnswer || ''}
-- Thang điểm: ${pTL} điểm.
-
-BÀI LÀM:
-- Chữ: ${studentAnsText || '(Trống)'}
-
-YÊU CẦU:
-1. Đọc nội dung ảnh (nếu có) và chữ.
-2. Chấm điểm chính xác theo thang điểm ${pTL}, trả về JSON: {"score": (số điểm), "feedback": "Nhận xét"}`;
-                  
-                  let parts: any[] = [{ text: prompt }];
-
-                  const qImg = getBase64Data(d.question.image);
-                  if (qImg) { parts.push({ text: "ẢNH CÂU HỎI:" }); parts.push({ inlineData: { data: qImg.data, mimeType: qImg.mimeType } }); }
-                  
-                  const aImg = getBase64Data(d.question.options?.answerImage);
-                  if (aImg) { parts.push({ text: "ẢNH ĐÁP ÁN:" }); parts.push({ inlineData: { data: aImg.data, mimeType: aImg.mimeType } }); }
-                  
-                  const sImg = getBase64Data(studentAnsImage);
-                  if (sImg) { parts.push({ text: "ẢNH BÀI LÀM CỦA HỌC SINH:" }); parts.push({ inlineData: { data: sImg.data, mimeType: sImg.mimeType } }); }
-
-                  let gradedSuccessfully = false;
-
-                  while (currentKeyIdx < rawAiKeys.length && !gradedSuccessfully) {
-                      const activeKey = rawAiKeys[currentKeyIdx];
-                      let keyNeedsSwitch = false;
-
-                      for (const m of modelsToTry) {
-                          try {
-                              const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${activeKey}`;
-                              const res = await fetch(url, {
-                                  method: 'POST',
-                                  headers: { 'Content-Type': 'application/json' },
-                                  body: JSON.stringify({
-                                      contents: [{ parts }],
-                                      generationConfig: { responseMimeType: "application/json", temperature: 0.1 }
-                                  })
-                              });
-
-                              if (res.ok) {
-                                  const json: any = await res.json();
-                                  const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
-                                  if (text) {
-                                      const parsed = JSON.parse(text);
-                                      const essayScore = Math.max(0, Math.min(pTL, Number(parsed.score) || 0));
-                                      d.score = essayScore;
-                                      d.aiFeedback = parsed.feedback || '';
-                                      d.gradingStatus = 'completed';
-                                      score += essayScore;
-                                      gradedSuccessfully = true;
-                                      break;
-                                  }
-                              }
-
-                              const errJson = await res.json().catch(() => ({})) as any;
-                              const errMsg = (errJson.error?.message || '').toLowerCase();
-                              if (res.status === 429 || res.status === 403 || res.status === 401 ||
-                                  (res.status === 400 && (errMsg.includes('key') || errMsg.includes('invalid'))) ||
-                                  errMsg.includes('quota') || errMsg.includes('resource_exhausted') || 
-                                  errMsg.includes('rate') || errMsg.includes('api_key_invalid') ||
-                                  errMsg.includes('api key not valid') || errMsg.includes('permission_denied') ||
-                                  errMsg.includes('expired') || errMsg.includes('limit')) {
-                                  keyNeedsSwitch = true;
-                                  break;
-                              }
-                          } catch (err: any) {
-                              const em = (err.message || '').toLowerCase();
-                              if (em.includes('quota') || em.includes('resource_exhausted') || em.includes('limit') || em.includes('429')) {
-                                  keyNeedsSwitch = true;
-                                  break;
-                              }
-                          }
-                      }
-
-                      if (gradedSuccessfully) {
-                          break;
-                      }
-
-                      if (keyNeedsSwitch || !gradedSuccessfully) {
-                          console.warn(`[AI Key Switcher Server]: Key ${currentKeyIdx + 1}/${rawAiKeys.length} bị lỗi hoặc hết hạn mức. Đang chuyển sang key tiếp theo...`);
-                          currentKeyIdx++;
-                      }
-                  }
-
-                  if (!gradedSuccessfully) {
-                      d.gradingStatus = 'failed';
-                      d.aiFeedback = 'Không thể chấm bằng AI (tất cả API Key trong danh sách đều đã hết hạn mức hoặc gặp lỗi).';
-                  }
-              }
-          }
-
-          let totalMaxScore = 0;
-          detailedResults.forEach((d: any) => {
-              if (d.question.type === '4-1') totalMaxScore += p41;
-              else if (d.question.type === 'TF4') totalMaxScore += pTF4;
-              else if (d.question.type === 'SQ') totalMaxScore += pSQ;
-              else if (d.question.type === 'TL') totalMaxScore += pTL;
-              else totalMaxScore += 1;
+          const text = await response.text();
+          return res.send(text);
+      } catch (err: any) {
+          console.error('Local hardened /api/exam/grade adapter error:', err);
+          return res.status(500).json({
+              error: 'Không thể xử lý chấm điểm bằng engine thống nhất.'
           });
-
-          if (totalMaxScore <= 0) {
-              totalMaxScore = clientQuestions.length || 1;
-          }
-
-          let scale10Score = 0;
-          if (totalMaxScore > 0 && !isNaN(score)) {
-              scale10Score = (score / totalMaxScore) * 10;
-          }
-          if (isNaN(scale10Score) || !isFinite(scale10Score)) {
-              scale10Score = 0;
-          }
-          scale10Score = Math.max(0, Math.min(10, scale10Score));
-
-          const cheatWarningCount = Number(req.body.cheatWarningCount ?? studentInfo.cheatWarningCount ?? 0) || 0;
-          const correctCount = detailedResults.filter((d) => d.isCorrect && d.question.type !== 'TL').length;
-
-          let authenticatedUserId = studentInfo.userId || null;
-          let authenticatedStudentName = studentInfo.name || '';
-          let authenticatedLop = studentInfo.lop || '';
-          let authenticatedDonvi = studentInfo.donvi || studentInfo.unit || '';
-
-          const gradeAuthHeader = req.headers.authorization;
-          if (gradeAuthHeader && gradeAuthHeader.startsWith("Bearer ")) {
-              try {
-                  const verifiedTokenUser = verifyJWTSync(gradeAuthHeader.substring(7), await getServerSecret());
-                  if (verifiedTokenUser && (verifiedTokenUser.id || verifiedTokenUser.user_id)) {
-                      authenticatedUserId = verifiedTokenUser.user_id || verifiedTokenUser.id;
-                      if (verifiedTokenUser.full_name) {
-                          authenticatedStudentName = verifiedTokenUser.full_name;
-                      }
-                      if (verifiedTokenUser.lop) {
-                          authenticatedLop = verifiedTokenUser.lop;
-                      }
-                      if (verifiedTokenUser.donvi) {
-                          authenticatedDonvi = verifiedTokenUser.donvi;
-                      }
-                  }
-              } catch(e) {}
-          }
-
-          const uuid = crypto.randomUUID();
-          const insertPayload = [
-              uuid,
-              authenticatedUserId || studentInfo.userId || null,
-              authenticatedStudentName || studentInfo.name || '',
-              studentInfo.unit || authenticatedDonvi || '',
-              authenticatedLop || studentInfo.lop || '',
-              authenticatedDonvi || studentInfo.donvi || studentInfo.unit || '',
-              studentInfo.examName || '',
-              String(examConfig.id || studentInfo.examName || ''),
-              Number(scale10Score.toFixed(1)),
-              timeTaken || 0,
-              correctCount,
-              clientQuestions.length,
-              JSON.stringify(detailedResults),
-              studentInfo.loaiThiSinh || (authenticatedUserId ? 'Đã đăng nhập' : 'Tự do'),
-              cheatWarningCount,
-              new Date().toISOString()
-          ];
-
-          try {
-              await executeSqlQuery(`INSERT INTO results (id, user_id, student_name, student_class, lop, don_vi, exam_name, exam_id, score, time_taken, correct_count, total_questions, details, loai_thi_sinh, cheat_warning_count, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, insertPayload);
-          } catch(err) {
-              if (err && err.message && err.message.includes("hạn mức dữ liệu")) {
-        console.warn("Insert result error:", err.message);
-      } else {
-        console.error("Insert result error:", err);
-      }
-          }
-
-          // BẢO MẬT: Đánh dấu token đã nộp bài thành công vào bảng kiểm soát để ngăn chặn nộp lại
-          try {
-              await executeSqlQuery(
-                  `INSERT INTO _submitted_exam_tokens (token_hash, exam_id, student_name, user_id, submitted_at) VALUES (?, ?, ?, ?, ?)`,
-                  [tokenHash, String(examConfig.id || studentInfo.examName || ''), studentInfo.name || '', authenticatedUserId || null, new Date().toISOString()]
-              );
-          } catch(markErr) {
-              console.error('Error marking token as submitted in server.ts:', markErr);
-          }
-
-          // BẢO MẬT: Nếu cấu hình không cho xem chi tiết đáp án, loại bỏ hoàn toàn correctAnswer và ảnh đáp án trước khi trả về client
-          const shouldShowDetails = examConfig.showDetails !== false && examConfig.show_details !== false;
-          const clientDetailedResults = detailedResults.map((d: any) => {
-              if (!shouldShowDetails) {
-                  const { correctAnswer, aiFeedback, ...safeD } = d;
-                  if (safeD.question && safeD.question.options && safeD.question.options.answerImage) {
-                      const { answerImage, ...safeOptions } = safeD.question.options;
-                      safeD.question = { ...safeD.question, options: safeOptions };
-                  }
-                  return safeD;
-              }
-              return d;
-          });
-
-          return res.json({
-              resultId: uuid,
-              score: Number(scale10Score.toFixed(1)),
-              correctCount,
-              cheatWarningCount,
-              detailedResults: clientDetailedResults
-          });
-
-      } catch (err) {
-          if (err && err.message && err.message.includes("hạn mức dữ liệu")) {
-        // quota error logged as 503
-        return res.status(400).json({ error: err.message });
-      }
-      console.error(err);
-          return res.status(500).json({ error: err.message });
       }
   });
 
