@@ -185,3 +185,39 @@ test('violation count for active sessions is persisted and read from server', ()
   assert.match(main, /flushExamViolationEvents/);
   assert.match(route, /'exam\/violation': examViolation/);
 });
+
+
+test('Vietnam datetime-local access windows are interpreted as UTC+07:00 on every runtime', () => {
+  const config = {
+    accessControl: {
+      enabled: true,
+      startTime: '2026-11-07T08:00',
+      endTime: '2026-11-07T09:00'
+    }
+  };
+  assert.equal(evaluateExamAccessWindow(config, Date.parse('2026-11-07T00:59:59.999Z')).code, 'EXAM_NOT_STARTED');
+  assert.equal(evaluateExamAccessWindow(config, Date.parse('2026-11-07T01:00:00.000Z')).allowed, true);
+  assert.equal(evaluateExamAccessWindow(config, Date.parse('2026-11-07T01:30:00.000Z')).allowed, true);
+  assert.equal(evaluateExamAccessWindow(config, Date.parse('2026-11-07T02:00:00.001Z')).code, 'EXAM_WINDOW_CLOSED');
+
+  const explicitUtc = {
+    accessControl: {
+      enabled: true,
+      startTime: '2026-11-07T08:00:00.000Z',
+      endTime: '2026-11-07T09:00:00.000Z'
+    }
+  };
+  assert.equal(evaluateExamAccessWindow(explicitUtc, Date.parse('2026-11-07T08:30:00.000Z')).allowed, true);
+});
+
+test('Node/local server delegates grading to the same hardened Cloudflare handler', () => {
+  const server = readFileSync('server.ts', 'utf8');
+  assert.match(server, /hardenedExamGradeHandler/);
+  assert.match(server, /onRequestPost as hardenedExamGradeHandler/);
+  const routeStart = server.indexOf('app.post("\/api\/exam\/grade"');
+  const routeEnd = server.indexOf('// Vite middleware for development', routeStart);
+  const route = server.slice(routeStart, routeEnd);
+  assert.match(route, /hardenedExamGradeHandler/);
+  assert.doesNotMatch(route, /scale10Score/);
+  assert.doesNotMatch(route, /studentInfo\.userId \|\| null/);
+});
