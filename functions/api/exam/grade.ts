@@ -239,6 +239,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                 error: 'Số lượng đáp án nộp lên không khớp chính xác số câu hỏi đã phát; hệ thống chưa chấm và chưa lưu kết quả.'
             }), { status: 409, headers: corsHeaders });
         }
+        let gradingAnswers: any[] = studentAnswers;
 
         // Khóa tuyệt đối quan hệ vị trí câu hỏi -> đáp án. Chỉ kiểm tra đủ số lượng là chưa đủ:
         // nếu client vô tình/ác ý đảo thứ tự câu hỏi thì đáp án có thể bị chấm sang câu khác.
@@ -349,6 +350,53 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             }), { status: 409, headers: corsHeaders });
         }
 
+        const signedLimitSeconds = Math.max(1, Math.floor(Number(decoded.timeLimitSeconds) || 1));
+        const elapsedByServer = Math.max(0, Math.floor((requestReceivedAtMs - serverStartedAtMs) / 1000));
+        const submissionTransportGraceSeconds = 15;
+        let recoveredFromCheckpoint = false;
+
+        // If the final request reaches the server too late, never trust answers
+        // carried by that late request. Grade only the latest checkpoint that the
+        // server itself accepted before the deadline.
+        if (elapsedByServer > signedLimitSeconds + submissionTransportGraceSeconds) {
+            let checkpoint: any = null;
+            try {
+                checkpoint = await db.prepare(
+                    'SELECT question_ids, answers, saved_at FROM _exam_answer_checkpoints WHERE session_id = ?'
+                ).bind(String(gradingSessionId)).first();
+            } catch (_) {
+                checkpoint = null;
+            }
+
+            if (!checkpoint) {
+                return new Response(JSON.stringify({
+                    code: 'SUBMISSION_AFTER_DEADLINE_NO_CHECKPOINT',
+                    error: 'Bài nộp đến máy chủ sau thời hạn và không có checkpoint hợp lệ trước giờ hết hạn; hệ thống chưa lưu điểm.'
+                }), { status: 409, headers: corsHeaders });
+            }
+
+            let checkpointIds: string[] = [];
+            let checkpointAnswers: any[] = [];
+            try {
+                checkpointIds = JSON.parse(String(checkpoint.question_ids || '[]')).map((id: any) => String(id));
+                checkpointAnswers = JSON.parse(String(checkpoint.answers || '[]'));
+            } catch (_) {
+                checkpointIds = [];
+                checkpointAnswers = [];
+            }
+            const checkpointSavedAtMs = Date.parse(String(checkpoint.saved_at || ''));
+            const deadlineMs = serverStartedAtMs + signedLimitSeconds * 1000;
+            if (!Number.isFinite(checkpointSavedAtMs) || checkpointSavedAtMs > deadlineMs ||
+                JSON.stringify(checkpointIds) !== JSON.stringify(issuedQuestionIds) ||
+                !Array.isArray(checkpointAnswers) || checkpointAnswers.length !== issuedQuestionIds.length) {
+                return new Response(JSON.stringify({
+                    error: 'Checkpoint trước hạn không hợp lệ hoặc không khớp đề đã phát; hệ thống chưa lưu điểm.'
+                }), { status: 409, headers: corsHeaders });
+            }
+            gradingAnswers = checkpointAnswers;
+            recoveredFromCheckpoint = true;
+        }
+
         // Mọi câu phải tồn tại và có khóa đáp án hợp lệ trước khi tính bất kỳ điểm nào.
         // Không bao giờ biến lỗi dữ liệu hệ thống thành 0 điểm của học sinh.
         for (let i = 0; i < issuedQuestionIds.length; i++) {
@@ -430,10 +478,10 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             const trueQ = trueQuestionsMap[trueQId] || trueQuestionsMap[String(trueQId)] || trueQuestionsMap[Number(trueQId)];
             
             if (!trueQ) {
-                return { question: q, userAnswer: studentAnswers[i], isCorrect: false, correctAnswer: '', needsGrading: false, score: 0, aiFeedback: 'Không tìm thấy dữ liệu gốc của câu hỏi.' };
+                return { question: q, userAnswer: gradingAnswers[i], isCorrect: false, correctAnswer: '', needsGrading: false, score: 0, aiFeedback: 'Không tìm thấy dữ liệu gốc của câu hỏi.' };
             }
 
-            const userAnswer = studentAnswers[i];
+            const userAnswer = gradingAnswers[i];
             const correctAnswer = trueQ.answer;
 
             let isCorrect = false;
@@ -706,17 +754,8 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
         const correctCount = detailedResults.filter((d: any) => d.isCorrect && d.question.type !== 'TL').length;
 
         // Ranking time is server-authoritative. A browser cannot improve its
-        // tie-break position by sending a fake timeTaken value.
-        const signedLimitSeconds = Math.max(1, Math.floor(Number(decoded.timeLimitSeconds) || 1));
-        const elapsedByServer = Math.max(0, Math.floor((requestReceivedAtMs - serverStartedAtMs) / 1000));
-        // Allow only a small transport/processing margin after the timer reaches zero.
-        // This prevents late submissions while not penalizing a request already in flight.
-        const submissionTransportGraceSeconds = 15;
-        if (elapsedByServer > signedLimitSeconds + submissionTransportGraceSeconds) {
-            return new Response(JSON.stringify({
-                error: 'Bài nộp đến máy chủ quá thời hạn cho phép; hệ thống chưa lưu kết quả để tránh chấm sai thời gian.'
-            }), { status: 409, headers: corsHeaders });
-        }
+        // tie-break position by sending a fake timeTaken value. Late recovery, when
+        // used, is always scored from the last on-time server checkpoint.
         const authoritativeTimeTaken = Math.min(signedLimitSeconds, elapsedByServer);
 
         // Claim immediately before persistence. Two concurrent requests may both
@@ -893,6 +932,7 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
             timeTaken: authoritativeTimeTaken,
             gradingPending: hasPendingEssayGrades,
             scoreFinalized: !hasPendingEssayGrades,
+            recoveredFromCheckpoint,
             detailedResults: clientDetailedResults
         }), {
             status: 200,
