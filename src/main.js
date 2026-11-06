@@ -8450,7 +8450,9 @@ if (contentType && contentType.includes("application/json")) {
             }
             examConfig.immediateFeedback = Boolean(data.immediateFeedback);
 
-            const restoredAnswers = Array.isArray(data.answers) ? data.answers : [];
+            const restoredAnswers = Array.isArray(data.answers)
+                ? data.answers.map(answer => answer === null ? undefined : answer)
+                : [];
             currentExam = {
                 questions: data.questions,
                 answers: restoredAnswers,
