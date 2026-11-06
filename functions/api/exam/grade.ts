@@ -734,6 +734,30 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
                         created_at TEXT NOT NULL
                     )
                 `).run();
+
+                // Nếu một event đã được client đếm nhưng request /violation riêng đang
+                // chậm, request nộp bài mang theo các event CHƯA được xác nhận. Upsert
+                // theo khóa phiên:eventId bảo đảm không đếm trùng do thứ tự mạng.
+                const pendingViolationEvents = Array.isArray(body.pendingViolationEvents)
+                    ? body.pendingViolationEvents.slice(0, 200)
+                    : [];
+                for (const event of pendingViolationEvents) {
+                    const eventId = String(event?.eventId || '').trim();
+                    const reason = String(event?.reason || '').trim().slice(0, 120);
+                    if (!eventId || eventId.length > 120 || !/^[A-Za-z0-9._:-]+$/.test(eventId)) continue;
+                    await db.prepare(`
+                        INSERT INTO _exam_violation_events (event_key, session_id, event_id, reason, created_at)
+                        VALUES (?, ?, ?, ?, ?)
+                        ON CONFLICT (event_key) DO NOTHING
+                    `).bind(
+                        String(gradingSessionId) + ':' + eventId,
+                        String(gradingSessionId),
+                        eventId,
+                        reason,
+                        new Date().toISOString()
+                    ).run();
+                }
+
                 const violationCountRow: any = await db.prepare(
                     'SELECT COUNT(*) AS count FROM _exam_violation_events WHERE session_id = ?'
                 ).bind(String(gradingSessionId)).first();
