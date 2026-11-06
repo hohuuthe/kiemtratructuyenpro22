@@ -115,6 +115,7 @@ function finishPicker() {
   if (!state) return;
   pickerState = null;
   window.studentBackgroundPickerActive = false;
+  window.studentBackgroundPickerGraceUntil = Date.now() + 1500;
   window.intentionalFullscreenExit = state.previousIntentional;
 
   if (state.wasFullscreen && !document.fullscreenElement) {
@@ -194,6 +195,7 @@ export function openStudentExamBackgroundPicker() {
     previousIntentional: Boolean(window.intentionalFullscreenExit)
   };
   window.studentBackgroundPickerActive = true;
+  window.studentBackgroundPickerGraceUntil = 0;
   if (pickerState.wasFullscreen) window.intentionalFullscreenExit = true;
 
   input.value = '';
