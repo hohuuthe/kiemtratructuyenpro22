@@ -665,6 +665,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         const { aiPrompt: _aiPrompt, ai_prompt: _aiPromptSnake, ...tokenGradeSessionConfig } = gradeSessionConfig;
 
         const payload = {
+            purpose: EXAM_SESSION_PURPOSE_PRESTART,
             questionIds,
             gradingSessionId,
             studentUserId: tokenUser?.user_id || tokenUser?.id || null,
