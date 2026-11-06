@@ -1,4 +1,5 @@
 import { verifyAuthSession, verifyJWT, getDynamicSecret, hashToken, getDatabase } from './utils';
+import { evaluateTF4, isShortAnswerCorrect, examFlagEnabled, clampScore, roundScore } from '../../../src/exam-grading-core';
 
 interface Env {
   NEON_DATABASE_URL?: string;
@@ -147,7 +148,8 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             console.error('Error checking submitted token:', tokErr);
         }
 
-        const { questionIds, examConfig = {}, teacherId } = decoded;
+        const { questionIds, teacherId, gradingSessionId } = decoded;
+        let examConfig: any = decoded.examConfig || {};
 
         if (!questionIds || clientQuestions.length !== questionIds.length) {
             return new Response(JSON.stringify({ error: 'Danh sách câu hỏi không khớp với đề thi đã phát.' }), { status: 400, headers: corsHeaders });
@@ -185,47 +187,72 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             console.error('Error fetching aiKey', e);
         }
 
-        // 2. Truy xuất câu hỏi gốc từ DB chính xác 100% bằng questionIds
+        // 2. Grade against the immutable server-side snapshot issued with this session.
+        // Legacy sessions created before this release fall back to the live DB, but all new
+        // sessions must have a valid snapshot and fail closed if it is unavailable.
         let trueQuestionsMap: Record<string | number, any> = {};
-        try {
-            if (questionIds && questionIds.length > 0) {
-                const placeholders = questionIds.map(() => '?').join(',');
-                const { results: qRows } = await db.prepare(`SELECT * FROM questions WHERE id IN (${placeholders})`).bind(...questionIds).all();
-                if (qRows && qRows.length > 0) {
-                    for (const row of qRows) {
-                        let parsedOptions = row.options;
-                        if (typeof parsedOptions === 'string') {
-                            try { parsedOptions = JSON.parse(parsedOptions); } catch (e) { parsedOptions = {}; }
-                        }
-                        trueQuestionsMap[row.id as any] = {
-                            ...row,
-                            type: normalizeType(row.type),
-                            options: parsedOptions || {}
-                        };
-                    }
+        let loadedFromSnapshot = false;
+        if (gradingSessionId) {
+            try {
+                const snapshotRow: any = await db.prepare(
+                    'SELECT question_ids, question_snapshot, exam_config, expires_at FROM _exam_grade_sessions WHERE session_id = ?'
+                ).bind(String(gradingSessionId)).first();
+                if (!snapshotRow) {
+                    return new Response(JSON.stringify({ error: 'Phiên chấm điểm không tồn tại hoặc đã được thu hồi.' }), { status: 409, headers: corsHeaders });
                 }
+                if (snapshotRow.expires_at && new Date(String(snapshotRow.expires_at)).getTime() < Date.now()) {
+                    return new Response(JSON.stringify({ error: 'Phiên chấm điểm đã hết hạn.' }), { status: 409, headers: corsHeaders });
+                }
+                const frozenIds = JSON.parse(String(snapshotRow.question_ids || '[]')).map((id: any) => String(id));
+                const issuedIds = (questionIds || []).map((id: any) => String(id));
+                if (JSON.stringify(frozenIds) !== JSON.stringify(issuedIds)) {
+                    return new Response(JSON.stringify({ error: 'Danh sách câu hỏi của phiên thi không khớp snapshot chấm điểm.' }), { status: 409, headers: corsHeaders });
+                }
+                const frozenQuestions = JSON.parse(String(snapshotRow.question_snapshot || '[]'));
+                if (!Array.isArray(frozenQuestions) || frozenQuestions.length !== issuedIds.length) {
+                    return new Response(JSON.stringify({ error: 'Snapshot chấm điểm không đầy đủ.' }), { status: 409, headers: corsHeaders });
+                }
+                examConfig = JSON.parse(String(snapshotRow.exam_config || '{}')) || {};
+                for (const row of frozenQuestions) {
+                    let parsedOptions = row.options;
+                    if (typeof parsedOptions === 'string') {
+                        try { parsedOptions = JSON.parse(parsedOptions); } catch { parsedOptions = {}; }
+                    }
+                    trueQuestionsMap[row.id as any] = {
+                        ...row,
+                        type: normalizeType(row.type),
+                        options: parsedOptions || {}
+                    };
+                }
+                loadedFromSnapshot = true;
+            } catch (e: any) {
+                console.error('Error loading grading snapshot', e);
+                return new Response(JSON.stringify({ error: 'Không thể xác minh snapshot chấm điểm của phiên thi.' }), { status: 503, headers: corsHeaders });
             }
+        }
 
-            // Fallback nếu có ID câu hỏi chưa tìm thấy
-            const missingIds = questionIds.filter((qid: any) => !trueQuestionsMap[qid] && !trueQuestionsMap[String(qid)] && !trueQuestionsMap[Number(qid)]);
-            if (missingIds.length > 0 && teacherId) {
-                const { results: fallbackQs } = await db.prepare('SELECT * FROM questions WHERE creator_id = ?').bind(teacherId).all();
-                if (fallbackQs && fallbackQs.length > 0) {
-                    for (const row of fallbackQs) {
-                        let parsedOptions = row.options;
-                        if (typeof parsedOptions === 'string') {
-                            try { parsedOptions = JSON.parse(parsedOptions); } catch (e) { parsedOptions = {}; }
+        if (!loadedFromSnapshot) {
+            try {
+                if (questionIds && questionIds.length > 0) {
+                    const placeholders = questionIds.map(() => '?').join(',');
+                    const { results: qRows } = await db.prepare(`SELECT * FROM questions WHERE id IN (${placeholders})`).bind(...questionIds).all();
+                    if (qRows && qRows.length > 0) {
+                        for (const row of qRows) {
+                            let parsedOptions = row.options;
+                            if (typeof parsedOptions === 'string') {
+                                try { parsedOptions = JSON.parse(parsedOptions); } catch { parsedOptions = {}; }
+                            }
+                            trueQuestionsMap[row.id as any] = {
+                                ...row,
+                                type: normalizeType(row.type),
+                                options: parsedOptions || {}
+                            };
                         }
-                        trueQuestionsMap[row.id as any] = {
-                            ...row,
-                            type: normalizeType(row.type),
-                            options: parsedOptions || {}
-                        };
                     }
                 }
+            } catch (e) {
+                console.error('Error fetching legacy live questions from DB', e);
             }
-        } catch (e) {
-            console.error('Error fetching real questions from DB', e);
         }
 
         // Parse tf4 points configuration
