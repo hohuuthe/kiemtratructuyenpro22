@@ -641,10 +641,27 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         // Strip those fields from the readable JWT returned to the browser.
         const { aiPrompt: _aiPrompt, ai_prompt: _aiPromptSnake, ...tokenGradeSessionConfig } = gradeSessionConfig;
 
+        const issuedStudentName = String(
+            tokenUser?.full_name || tokenUser?.name || body.studentName || ''
+        ).trim();
+        const issuedStudentLop = String(
+            tokenUser?.lop || body.studentLop || body.userLop || ''
+        ).trim();
+        const issuedStudentDonvi = String(
+            tokenUser?.donvi || tokenUser?.address || body.studentDonvi || body.userDonvi || ''
+        ).trim();
+        const issuedStudentClass = String(
+            body.studentClass || issuedStudentLop || issuedStudentDonvi || ''
+        ).trim();
+
         const payload = {
             questionIds,
             gradingSessionId,
             studentUserId: tokenUser?.user_id || tokenUser?.id || null,
+            studentName: issuedStudentName,
+            studentLop: issuedStudentLop,
+            studentDonvi: issuedStudentDonvi,
+            studentClass: issuedStudentClass,
             examConfig: tokenGradeSessionConfig,
             maxCheatWarnings: maxCheatWarningsFromDB,
             timeLimitSeconds,
