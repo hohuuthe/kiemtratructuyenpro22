@@ -10996,9 +10996,13 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 // Bỏ qua việc xóa dữ liệu
             }
             
-            // Dừng bộ đếm giờ nếu đang chạy
+            // Dừng toàn bộ tác vụ phiên thi cũ trước khi reset để không còn callback
+            // timer/autosave chạy chồng sang phiên kế tiếp.
             if (currentExam && currentExam.timerInterval) {
                 clearInterval(currentExam.timerInterval);
+            }
+            if (currentExam && currentExam.autosaveTimer) {
+                clearTimeout(currentExam.autosaveTimer);
             }
 
             // QUAN TRỌNG: Xóa hoàn toàn trạng thái bài thi cũ, câu hỏi, câu trả lời, token để không bị nhận diện là "đang thi"
@@ -11024,7 +11028,17 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 lastViolationAt: 0,
                 lastViolationReason: '',
                 startTick: null,
-                violationEpisodeActive: false
+                violationEpisodeActive: false,
+                serverStartedAtMs: null,
+                deadlineAtMs: null,
+                serverNowAtActivationMs: null,
+                serverActivationTick: null,
+                autosaveRevision: 0,
+                autosaveTimer: null,
+                autosaveInFlight: false,
+                autosavePending: false,
+                deadlineLocked: false,
+                pendingViolationEvents: []
             };
 
             // Dọn sạch nội dung hiển thị kết quả bài làm cũ
