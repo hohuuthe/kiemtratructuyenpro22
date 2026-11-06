@@ -222,16 +222,50 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             return new Response(JSON.stringify({error:'Không có quyền sửa câu hỏi của tài khoản khác'}), {status:403,headers:corsHeaders});
           }
         }
-        const safeOptions = typeof q.options === 'object' ? JSON.stringify(q.options) : (q.options || '{}');
+        let optionObject: any = {};
+        if (q.options && typeof q.options === 'object' && !Array.isArray(q.options)) {
+          optionObject = q.options;
+        } else if (typeof q.options === 'string' && q.options.trim()) {
+          try { optionObject = JSON.parse(q.options); }
+          catch {
+            return new Response(JSON.stringify({error:'Tùy chọn câu hỏi không phải JSON hợp lệ'}), {status:400,headers:corsHeaders});
+          }
+        }
+        const normalizedType = normalizeQuestionType(q.type || 'trac_nghiem');
+        const answerVerdict = validateQuestionAnswer(normalizedType, q.answer, optionObject);
+        if (!answerVerdict.ok) {
+          return new Response(JSON.stringify({
+            error: `Câu hỏi ${qId}: ${answerVerdict.reason}`,
+            code: 'INVALID_QUESTION_ANSWER'
+          }), {status:400,headers:corsHeaders});
+        }
+        if (normalizedType === '4-1') {
+          for (const key of ['A','B','C','D']) {
+            const option: any = optionObject[key];
+            const text = option && typeof option === 'object'
+              ? String(option.text ?? option.content ?? option.value ?? '').trim()
+              : String(option ?? '').trim();
+            const image = option && typeof option === 'object'
+              ? String(option.image ?? option.img ?? option.src ?? option.url ?? '').trim()
+              : '';
+            if (!text && !image) {
+              return new Response(JSON.stringify({
+                error: `Câu hỏi ${qId}: câu trắc nghiệm phải có đủ phương án A, B, C, D (văn bản hoặc hình ảnh).`,
+                code: 'INVALID_QUESTION_OPTIONS'
+              }), {status:400,headers:corsHeaders});
+            }
+          }
+        }
+        const safeOptions = JSON.stringify(optionObject);
 
         await db.prepare(upsertSql).bind(
           qId,
-          q.type || 'trac_nghiem',
+          normalizedType,
           q.level || 'NB',
           q.lesson || '',
           q.content || '',
           safeOptions,
-          q.answer || '',
+          answerVerdict.value,
           q.image || null,
           creatorId
         ).run();

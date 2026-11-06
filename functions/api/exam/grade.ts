@@ -34,6 +34,19 @@ const normalizeType = (type: any): string => {
     return String(type || '4-1');
 };
 
+function sanitizeGradingDetailForClient(detail: any, showDetails: boolean): any {
+    if (showDetails) return detail;
+    const { correctAnswer, aiFeedback, isCorrect, correctStatements, ...safeD } = detail || {};
+    const question = safeD.question && typeof safeD.question === 'object' ? safeD.question : {};
+    const { answer, ...safeQuestion } = question;
+    if (safeQuestion.options && typeof safeQuestion.options === 'object') {
+        const { answerImage, correctAnswer: optionCorrectAnswer, ...safeOptions } = safeQuestion.options;
+        safeQuestion.options = safeOptions;
+    }
+    safeD.question = safeQuestion;
+    return safeD;
+}
+
 const getBase64Data = (dataUri: string) => {
     if (!dataUri || !dataUri.includes('base64,')) return null;
     try {
@@ -49,6 +62,10 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
   const db = getDatabase(context);
     const { request, env } = context;
     const SECRET = await getDynamicSecret(db, env.JWT_SECRET);
+    let tokenHash = '';
+    let tokenClaimed = false;
+    let resultPersisted = false;
+    let claimedResultId = '';
 
     try {
         const body: any = await request.json();
@@ -58,7 +75,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             return new Response(JSON.stringify({ error: 'Thiếu thông tin nộp bài thi bắt buộc.' }), { status: 400, headers: corsHeaders });
         }
 
-        let authenticatedUserId = studentInfo.userId || null;
+        let authenticatedUserId: any = null;
         let authenticatedStudentName = studentInfo.name || '';
         let authenticatedLop = studentInfo.lop || '';
         let authenticatedDonvi = studentInfo.donvi || studentInfo.unit || '';
@@ -87,27 +104,87 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             return new Response(JSON.stringify({ error: 'Mã phiên thi không hợp lệ hoặc đã hết hạn.' }), { status: 403, headers: corsHeaders });
         }
 
-        // BẢO MẬT: Chống nộp bài trùng lặp (Token Replay Prevention)
-        const tokenHash = await hashToken(token);
+        const { questionIds, teacherId, gradingSessionId, studentUserId: sessionStudentUserId } = decoded;
+        let examConfig: any = decoded.examConfig || {};
+
+        // Verify session ownership BEFORE any replay/result lookup.
+        const verifiedRequestUserId = authenticatedUserId ? String(authenticatedUserId) : '';
+        const signedStudentUserId = sessionStudentUserId ? String(sessionStudentUserId) : '';
+        if (signedStudentUserId) {
+            if (!verifiedRequestUserId || verifiedRequestUserId !== signedStudentUserId) {
+                return new Response(JSON.stringify({
+                    error: 'Tài khoản nộp bài không khớp tài khoản đã nhận phiên thi.'
+                }), { status: 403, headers: corsHeaders });
+            }
+            authenticatedUserId = signedStudentUserId;
+        } else if (!authHeader) {
+            authenticatedUserId = null;
+        }
+
+        // BẢO MẬT: claim token atomically BEFORE grading so two simultaneous
+        // submissions cannot both create result rows.
+        tokenHash = await hashToken(token);
+        claimedResultId = crypto.randomUUID();
         try {
             await db.prepare(
                 "CREATE TABLE IF NOT EXISTS _submitted_exam_tokens (token_hash TEXT PRIMARY KEY, exam_id TEXT, student_name TEXT, user_id TEXT, submitted_at TEXT)"
             ).run();
-            await db.prepare(
-                "ALTER TABLE _submitted_exam_tokens ADD COLUMN IF NOT EXISTS user_id TEXT"
-            ).run();
-            const existingSubmission = await db.prepare(
-                "SELECT token_hash FROM _submitted_exam_tokens WHERE token_hash = ?"
-            ).bind(tokenHash).first();
-            if (existingSubmission) {
-                return new Response(JSON.stringify({ error: 'Phiên thi này đã được nộp bài trước đó. Không thể nộp lại nhiều lần!' }), { status: 400, headers: corsHeaders });
+            for (const sql of [
+                "ALTER TABLE _submitted_exam_tokens ADD COLUMN IF NOT EXISTS user_id TEXT",
+                "ALTER TABLE _submitted_exam_tokens ADD COLUMN IF NOT EXISTS status TEXT",
+                "ALTER TABLE _submitted_exam_tokens ADD COLUMN IF NOT EXISTS result_id TEXT",
+                "ALTER TABLE _submitted_exam_tokens ADD COLUMN IF NOT EXISTS claimed_at TEXT"
+            ]) {
+                await db.prepare(sql).run();
             }
-        } catch (tokErr) {
-            console.error('Error checking submitted token:', tokErr);
-        }
 
-        const { questionIds, teacherId, gradingSessionId } = decoded;
-        let examConfig: any = decoded.examConfig || {};
+            const existing: any = await db.prepare(
+                "SELECT token_hash, status, result_id FROM _submitted_exam_tokens WHERE token_hash = ?"
+            ).bind(tokenHash).first();
+            if (existing) {
+                if (existing.result_id) {
+                    const stored: any = await db.prepare(
+                        "SELECT id, score, correct_count, total_questions, details, cheat_warning_count FROM results WHERE id = ?"
+                    ).bind(String(existing.result_id)).first();
+                    if (stored) {
+                        let storedDetails: any[] = [];
+                        try {
+                            storedDetails = Array.isArray(stored.details)
+                                ? stored.details
+                                : JSON.parse(String(stored.details || '[]'));
+                        } catch { storedDetails = []; }
+                        const replayShowDetails = examFlagEnabled(
+                            decoded?.examConfig?.showDetails ?? decoded?.examConfig?.show_details,
+                            false
+                        );
+                        const replayDetails = storedDetails.map((d: any) =>
+                            sanitizeGradingDetailForClient(d, replayShowDetails)
+                        );
+                        return new Response(JSON.stringify({
+                            resultId: stored.id,
+                            score: Number(stored.score) || 0,
+                            rawEarnedScore: Number(stored.score) || 0,
+                            correctCount: Number(stored.correct_count) || 0,
+                            totalQuestions: Number(stored.total_questions) || 0,
+                            cheatWarningCount: Number(stored.cheat_warning_count) || 0,
+                            detailedResults: replayDetails,
+                            alreadySubmitted: true
+                        }), { status: 200, headers: corsHeaders });
+                    }
+                }
+                return new Response(JSON.stringify({
+                    error: 'Phiên thi đang được xử lý hoặc đã được nộp trước đó. Hệ thống không tạo thêm bản ghi điểm.'
+                }), { status: 409, headers: corsHeaders });
+            }
+
+            // Do not claim yet. All validation/grading errors above result persistence
+            // must remain retryable. The atomic claim is taken immediately before INSERT results.
+        } catch (tokErr) {
+            console.error('Error claiming submission token:', tokErr);
+            return new Response(JSON.stringify({
+                error: 'Không thể khóa phiên nộp bài an toàn. Hệ thống chưa chấm và chưa lưu kết quả.'
+            }), { status: 503, headers: corsHeaders });
+        }
 
         if (!questionIds || clientQuestions.length !== questionIds.length) {
             return new Response(JSON.stringify({ error: 'Danh sách câu hỏi không khớp với đề thi đã phát.' }), { status: 400, headers: corsHeaders });
@@ -119,18 +196,15 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         const pSQ = getNum(examConfig.pointsSQ ?? examConfig.points_sq, 1);
         const pTL = getNum(examConfig.pointsTL ?? examConfig.points_tl, 1);
 
-        // Fetch Exam Config từ CSDL để lấy AI Grading Key nếu có
+        // AI key lookup is bound to the signed exam ID. Browser-supplied exam
+        // names/IDs are never used to select another exam's private grading key.
         let aiKey = '';
         try {
-            if (studentInfo.examId) {
-                const { results } = await db.prepare('SELECT ai_grading_key FROM exam_configs WHERE id = ?').bind(studentInfo.examId).all();
-                if (results && results.length > 0 && results[0].ai_grading_key) {
-                    aiKey = String(results[0].ai_grading_key);
-                }
-            }
-            if (!aiKey && (studentInfo.examName || examConfig.name)) {
-                const searchName = studentInfo.examName || examConfig.name;
-                const { results } = await db.prepare('SELECT ai_grading_key FROM exam_configs WHERE name = ?').bind(searchName).all();
+            const authoritativeExamId = String(examConfig.id || '').trim();
+            if (authoritativeExamId) {
+                const { results } = await db.prepare(
+                    'SELECT ai_grading_key FROM exam_configs WHERE id = ?'
+                ).bind(authoritativeExamId).all();
                 if (results && results.length > 0 && results[0].ai_grading_key) {
                     aiKey = String(results[0].ai_grading_key);
                 }
@@ -260,8 +334,6 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                 });
             } else if (trueQ.type === 'TL') {
                 isCorrect = false;
-            } else if (trueQ.type === 'TL') {
-                isCorrect = false; 
             }
 
             return { question: trueQ, userAnswer, isCorrect, correctAnswer, needsGrading: trueQ.type === 'TL', score: 0, aiFeedback: '' };
@@ -467,11 +539,75 @@ YÊU CẦU:
         const calculatedRaw = roundScore(rawEarnedScore, 2);
         const finalScore = calculatedRaw;
 
-        const cheatWarningCount = Number(body.cheatWarningCount ?? body.studentInfo?.cheatWarningCount ?? 0) || 0;
+        const cheatWarningCount = Math.max(0, Math.floor(Number(body.cheatWarningCount ?? body.studentInfo?.cheatWarningCount ?? 0) || 0));
         const correctCount = detailedResults.filter((d: any) => d.isCorrect && d.question.type !== 'TL').length;
 
+        // Ranking time is server-authoritative. A browser cannot improve its
+        // tie-break position by sending a fake timeTaken value.
+        const issuedAtMs = Number(decoded.timestamp);
+        const signedLimitSeconds = Math.max(1, Math.floor(Number(decoded.timeLimitSeconds) || 1));
+        const elapsedByServer = Number.isFinite(issuedAtMs) && issuedAtMs > 0
+            ? Math.max(0, Math.floor((Date.now() - issuedAtMs) / 1000))
+            : signedLimitSeconds;
+        const authoritativeTimeTaken = Math.min(signedLimitSeconds, elapsedByServer);
+
+        // Claim immediately before persistence. Two concurrent requests may both
+        // calculate, but only one can cross this unique database gate and create a row.
+        try {
+            const claim = await db.prepare(
+                "INSERT INTO _submitted_exam_tokens (token_hash, exam_id, student_name, user_id, submitted_at, status, result_id, claimed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (token_hash) DO NOTHING"
+            ).bind(
+                tokenHash,
+                String(examConfig.id || studentInfo.examId || ''),
+                authenticatedStudentName || studentInfo.name || '',
+                authenticatedUserId || null,
+                '',
+                'processing',
+                claimedResultId,
+                new Date().toISOString()
+            ).run();
+            if (Number(claim?.meta?.changes || 0) !== 1) {
+                const existing: any = await db.prepare(
+                    "SELECT result_id FROM _submitted_exam_tokens WHERE token_hash = ?"
+                ).bind(tokenHash).first();
+                if (existing?.result_id) {
+                    const stored: any = await db.prepare(
+                        "SELECT id, score, correct_count, total_questions, details, cheat_warning_count FROM results WHERE id = ?"
+                    ).bind(String(existing.result_id)).first();
+                    if (stored) {
+                        let details: any[] = [];
+                        try { details = Array.isArray(stored.details) ? stored.details : JSON.parse(String(stored.details || '[]')); } catch {}
+                        const showDetailsOnReplay = examFlagEnabled(
+                            examConfig.showDetails ?? examConfig.show_details,
+                            false
+                        );
+                        const safeDetails = details.map((d: any) =>
+                            sanitizeGradingDetailForClient(d, showDetailsOnReplay)
+                        );
+                        return new Response(JSON.stringify({
+                            resultId: stored.id,
+                            score: Number(stored.score) || 0,
+                            rawEarnedScore: Number(stored.score) || 0,
+                            correctCount: Number(stored.correct_count) || 0,
+                            totalQuestions: Number(stored.total_questions) || 0,
+                            cheatWarningCount: Number(stored.cheat_warning_count) || 0,
+                            detailedResults: safeDetails,
+                            alreadySubmitted: true
+                        }), { status: 200, headers: corsHeaders });
+                    }
+                }
+                return new Response(JSON.stringify({
+                    error: 'Phiên thi đang được xử lý. Hệ thống không tạo thêm bản ghi điểm.'
+                }), { status: 409, headers: corsHeaders });
+            }
+            tokenClaimed = true;
+        } catch (claimErr) {
+            console.error('Error atomically claiming submission before persistence:', claimErr);
+            throw new Error('Không thể khóa phiên nộp bài an toàn. Kết quả chưa được lưu; vui lòng gửi lại.');
+        }
+
         // Lưu kết quả bài thi vào cơ sở dữ liệu Cloudflare D1
-        const resultId = crypto.randomUUID();
+        const resultId = claimedResultId || crypto.randomUUID();
         try {
             await db.prepare(`
                 CREATE TABLE IF NOT EXISTS results (
@@ -509,15 +645,15 @@ YÊU CẦU:
                 `INSERT INTO results (id, user_id, student_name, student_class, lop, don_vi, exam_name, exam_id, score, time_taken, correct_count, total_questions, details, loai_thi_sinh, cheat_warning_count, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
             ).bind(
                 resultId,
-                authenticatedUserId || studentInfo.userId || null,
+                authenticatedUserId || null,
                 authenticatedStudentName || studentInfo.name || '',
-                studentInfo.unit || authenticatedDonvi || '',
+                authenticatedDonvi || studentInfo.unit || '',
                 authenticatedLop || studentInfo.lop || '',
                 authenticatedDonvi || studentInfo.donvi || studentInfo.unit || '',
-                studentInfo.examName || '',
-                String(examConfig.id || studentInfo.examId || studentInfo.examName || ''),
+                String(examConfig.name || studentInfo.examName || ''),
+                String(examConfig.id || studentInfo.examId || ''),
                 finalScore,
-                timeTaken || 0,
+                authoritativeTimeTaken,
                 correctCount,
                 clientQuestions.length,
                 JSON.stringify(detailedResults),
@@ -525,6 +661,7 @@ YÊU CẦU:
                 cheatWarningCount,
                 new Date().toISOString()
             ).run();
+            resultPersisted = true;
         } catch (dbErr) {
             console.error("Lỗi khi lưu kết quả bài thi vào CSDL:", dbErr);
             // Fail closed: never tell the student that submission succeeded if the
@@ -532,21 +669,22 @@ YÊU CẦU:
             throw new Error('Không thể lưu kết quả bài thi. Phiên thi chưa bị đánh dấu đã nộp; vui lòng gửi lại bài.');
         }
 
-        // BẢO MẬT: Đánh dấu token đã nộp bài thành công vào bảng kiểm soát để ngăn chặn nộp lại
+        // Finalize the atomic token claim. Even if this metadata update fails, the
+        // unique claim remains and still prevents a duplicate result row.
         try {
             await db.prepare(
-                "INSERT INTO _submitted_exam_tokens (token_hash, exam_id, student_name, user_id, submitted_at) VALUES (?, ?, ?, ?, ?)"
+                "UPDATE _submitted_exam_tokens SET exam_id = ?, student_name = ?, user_id = ?, submitted_at = ?, status = ?, result_id = ? WHERE token_hash = ?"
             ).bind(
-                tokenHash,
-                String(examConfig.id || studentInfo.examId || studentInfo.examName || ''),
-                studentInfo.name || '',
+                String(examConfig.id || studentInfo.examId || ''),
+                authenticatedStudentName || studentInfo.name || '',
                 authenticatedUserId || null,
-                new Date().toISOString()
+                new Date().toISOString(),
+                'completed',
+                resultId,
+                tokenHash
             ).run();
         } catch (markErr) {
-            console.error('Error marking token as submitted:', markErr);
-            // The result has already been persisted. Do not fail the student response,
-            // but retain the result ID so any replay can be audited and de-duplicated.
+            console.error('Error finalizing submitted token metadata:', markErr);
         }
 
         if (gradingSessionId) {
@@ -560,17 +698,9 @@ YÊU CẦU:
 
         // BẢO MẬT: Nếu cấu hình không cho xem chi tiết đáp án, loại bỏ hoàn toàn correctAnswer và ảnh đáp án trước khi trả về client
         const shouldShowDetails = examFlagEnabled(examConfig.showDetails ?? examConfig.show_details, false);
-        const clientDetailedResults = detailedResults.map((d: any) => {
-            if (!shouldShowDetails) {
-                const { correctAnswer, aiFeedback, ...safeD } = d;
-                if (safeD.question && safeD.question.options && safeD.question.options.answerImage) {
-                    const { answerImage, ...safeOptions } = safeD.question.options;
-                    safeD.question = { ...safeD.question, options: safeOptions };
-                }
-                return safeD;
-            }
-            return d;
-        });
+        const clientDetailedResults = detailedResults.map((d: any) =>
+            sanitizeGradingDetailForClient(d, shouldShowDetails)
+        );
 
         return new Response(JSON.stringify({
             resultId,
@@ -580,6 +710,7 @@ YÊU CẦU:
             scale10Score: calculatedScale10,
             correctCount,
             cheatWarningCount,
+            timeTaken: authoritativeTimeTaken,
             detailedResults: clientDetailedResults
         }), {
             status: 200,
@@ -587,6 +718,14 @@ YÊU CẦU:
         });
 
     } catch (err: any) {
+        if (tokenClaimed && !resultPersisted && tokenHash) {
+            try {
+                await db.prepare("DELETE FROM _submitted_exam_tokens WHERE token_hash = ? AND status = ?")
+                    .bind(tokenHash, 'processing').run();
+            } catch (releaseErr) {
+                console.error('Error releasing failed submission claim:', releaseErr);
+            }
+        }
         console.error("Lỗi POST /api/exam/grade:", err);
         return new Response(JSON.stringify({ error: err.message || 'Lỗi xử lý chấm điểm' }), { status: 500, headers: corsHeaders });
     }

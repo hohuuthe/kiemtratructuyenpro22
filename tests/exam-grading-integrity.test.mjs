@@ -99,3 +99,144 @@ test('browser uses shared grading core and no one-decimal manual score rounding'
   assert.match(main, /roundScore\(newTotalScore, 2\)/);
   assert.doesNotMatch(main, /newTotalScore\) \|\| 0\)\.toFixed\(1\)/);
 });
+
+
+test('TF4: all-false key NONE is valid and explicit false answers score correctly', () => {
+  const full = evaluateTF4('NONE', {A:false,B:false,C:false,D:false});
+  assert.equal(full.validKey, true);
+  assert.equal(full.correctCount, 4);
+  assert.equal(full.allCorrect, true);
+  const blank = evaluateTF4('NONE', {});
+  assert.equal(blank.correctCount, 0);
+  assert.equal(blank.answeredCount, 0);
+});
+
+test('TF4: duplicate true-option keys are rejected', () => {
+  assert.equal(evaluateTF4('A&A', {A:true,B:false,C:false,D:false}).validKey, false);
+});
+
+test('TF4 exhaustive: missing answers never score and every complete truth vector is exact', () => {
+  const letters = ['A','B','C','D'];
+  for (let mask = 0; mask < 16; mask++) {
+    const expected = {};
+    const trueLetters = [];
+    for (let i = 0; i < 4; i++) {
+      const value = Boolean(mask & (1 << i));
+      expected[letters[i]] = value;
+      if (value) trueLetters.push(letters[i]);
+    }
+    const key = trueLetters.length ? trueLetters.join('&') : 'NONE';
+
+    const blank = evaluateTF4(key, {});
+    assert.equal(blank.correctCount, 0, key + ' blank must score 0 statements');
+    assert.equal(blank.allCorrect, false, key + ' blank must not be fully correct');
+
+    const exact = evaluateTF4(key, expected);
+    assert.equal(exact.correctCount, 4, key + ' exact vector');
+    assert.equal(exact.allCorrect, true, key + ' exact vector');
+
+    for (const letter of letters) {
+      const partial = {...expected};
+      delete partial[letter];
+      const verdict = evaluateTF4(key, partial);
+      assert.equal(verdict.answeredCount, 3, key + ' partial answered count');
+      assert.equal(verdict.correctCount, 3, key + ' partial correct count');
+      assert.equal(verdict.allCorrect, false, key + ' partial must not be fully correct');
+    }
+  }
+});
+
+test('SQ: unicode math slash and strict punctuation semantics are deterministic', () => {
+  assert.equal(isShortAnswerCorrect('1⁄2', '1/2', {caseSensitive:false,punctuationSensitive:false}), true);
+  assert.equal(isShortAnswerCorrect('a;b', 'a;b', {caseSensitive:true,punctuationSensitive:true}), true);
+  assert.equal(isShortAnswerCorrect('a', 'a;b', {caseSensitive:true,punctuationSensitive:true}), false);
+});
+
+
+test('exam generation cannot be tricked into exposing answers or using another teacher bank', () => {
+  const generate = fs.readFileSync(new URL('../functions/api/exam/generate.ts', import.meta.url), 'utf8');
+  assert.doesNotMatch(generate, /examConfig && \(examConfig\.immediateFeedback/);
+  assert.match(generate, /immediate_feedback: mappedExam\.immediate_feedback \?\? 0/);
+  assert.match(generate, /examFlagEnabled\(\s*activeExamConfig\.immediateFeedback \?\? activeExamConfig\.immediate_feedback/);
+  assert.doesNotMatch(generate, /SELECT \* FROM questions'\)\.all\(\)/);
+  assert.match(generate, /studentUserId: tokenUser\?\.user_id \|\| tokenUser\?\.id \|\| null/);
+});
+
+test('logged-in exam access ignores spoofed client class and unit', () => {
+  const generate = fs.readFileSync(new URL('../functions/api/exam/generate.ts', import.meta.url), 'utf8');
+  const tokenUserBranch = generate.slice(
+    generate.indexOf('} else if (tokenUser) {'),
+    generate.indexOf('} else {', generate.indexOf('} else if (tokenUser) {'))
+  );
+  assert.doesNotMatch(tokenUserBranch, /candidateInputDonvi/);
+  const classMatch = generate.slice(generate.indexOf('const isLopMatched'), generate.indexOf('if \(!isLopMatched\)'));
+  assert.doesNotMatch(classMatch, /candidateClass/);
+});
+
+test('question save validates answer key before persistence', () => {
+  const questions = fs.readFileSync(new URL('../functions/api/questions.ts', import.meta.url), 'utf8');
+  assert.match(questions, /validateQuestionAnswer/);
+  assert.match(questions, /INVALID_QUESTION_ANSWER/);
+  assert.match(questions, /INVALID_QUESTION_OPTIONS/);
+});
+
+test('submission replay is atomically gated at result persistence boundary', () => {
+  const grade = fs.readFileSync(new URL('../functions/api/exam/grade.ts', import.meta.url), 'utf8');
+  const claimPos = grade.indexOf('ON CONFLICT (token_hash) DO NOTHING');
+  const scorePos = grade.indexOf('const finalScore');
+  const insertResultPos = grade.indexOf('INSERT INTO results');
+  assert.ok(claimPos > scorePos, 'claim must happen after validation/scoring');
+  assert.ok(claimPos < insertResultPos, 'claim must happen before result insert');
+  assert.match(grade, /DELETE FROM _submitted_exam_tokens WHERE token_hash = \? AND status = \?/);
+  assert.match(grade, /alreadySubmitted: true/);
+});
+
+test('browser user id cannot become authenticated result identity', () => {
+  const grade = fs.readFileSync(new URL('../functions/api/exam/grade.ts', import.meta.url), 'utf8');
+  assert.match(grade, /let authenticatedUserId: any = null/);
+  assert.doesNotMatch(grade, /let authenticatedUserId = studentInfo\.userId/);
+  assert.match(grade, /Tài khoản nộp bài không khớp tài khoản đã nhận phiên thi/);
+});
+
+
+test('hidden-detail responses strip nested question.answer and correctness hints', () => {
+  const grade = fs.readFileSync(new URL('../functions/api/exam/grade.ts', import.meta.url), 'utf8');
+  assert.match(grade, /sanitizeGradingDetailForClient/);
+  assert.match(grade, /const \{ answer, \.\.\.safeQuestion \} = question/);
+  assert.match(grade, /const \{ correctAnswer, aiFeedback, isCorrect, correctStatements, \.\.\.safeD \}/);
+});
+
+test('public shared result API is summary-only', () => {
+  const results = fs.readFileSync(new URL('../functions/api/results.ts', import.meta.url), 'utf8');
+  assert.match(results, /if \(idParam && !user\)/);
+  assert.match(results, /if \(examIdParam && !user && includeDetails\)/);
+});
+
+
+test('second audit: authoritative exam identity, time and AI key cannot come from browser', () => {
+  const grade = fs.readFileSync(new URL('../functions/api/exam/grade.ts', import.meta.url), 'utf8');
+  assert.match(grade, /authoritativeExamId/);
+  assert.doesNotMatch(grade, /studentInfo\.examId\).*ai_grading_key/);
+  assert.match(grade, /authoritativeTimeTaken/);
+  assert.match(grade, /decoded\.timestamp/);
+  assert.match(grade, /String\(examConfig\.name \|\| studentInfo\.examName \|\| ''\)/);
+});
+
+test('second audit: config and UI use one two-decimal score precision contract', () => {
+  const contract = fs.readFileSync(new URL('../src/exam-config-contract.ts', import.meta.url), 'utf8');
+  const editor = fs.readFileSync(new URL('../public/components/tab-exam-editor.html', import.meta.url), 'utf8');
+  const generate = fs.readFileSync(new URL('../functions/api/exam/generate.ts', import.meta.url), 'utf8');
+  assert.match(contract, /tối đa 2 chữ số thập phân/);
+  assert.doesNotMatch(editor, /step="0\.001"/);
+  assert.match(editor, /id="tf4-points-2" value="0\.50"/);
+  assert.match(editor, /id="tf4-points-3" value="0\.75"/);
+  assert.match(editor, /id="tf4-points-4" value="1\.00"/);
+  assert.match(generate, /hasTwoDecimalPrecision/);
+});
+
+test('second audit: image-only MC options remain valid through save and generation filters', () => {
+  const questions = fs.readFileSync(new URL('../functions/api/questions.ts', import.meta.url), 'utf8');
+  const generate = fs.readFileSync(new URL('../functions/api/exam/generate.ts', import.meta.url), 'utf8');
+  assert.match(questions, /!text && !image/);
+  assert.match(generate, /Boolean\(text \|\| image\)/);
+});

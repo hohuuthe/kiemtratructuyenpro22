@@ -178,6 +178,14 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     }
 
     // 1. Lấy chi tiết một bài nộp theo ID (cho modal xem chi tiết / chấm điểm)
+    // Detailed attempts are private: students use /api/results/me and teachers/admin
+    // use this endpoint with verified authorization. Public sharing is summary-only.
+    if (idParam && !user) {
+      return new Response(JSON.stringify({
+        data: null,
+        error: "Chi tiết bài làm không được công khai. Vui lòng đăng nhập bằng tài khoản có quyền."
+      }), { status: 403, headers: corsHeaders });
+    }
     if (idParam) {
       let results: any[] = [];
       try {
@@ -268,6 +276,12 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
       : "r.id, r.user_id, r.student_name, r.student_class, r.score, r.correct_count, r.total_questions, r.time_taken, r.exam_name, r.exam_id, r.created_at, r.loai_thi_sinh, r.cheat_warning_count, r.ai_grading_summary, COALESCE(u.lop, u2.lop, '') as lop, COALESCE(u.donvi, u.address, u2.donvi, u2.address, r.student_class, '') as don_vi";
 
     // 3. Tải danh sách kết quả theo mã chia sẻ đề thi (?examId=xxx)
+    if (examIdParam && !user && includeDetails) {
+      return new Response(JSON.stringify({
+        data: [],
+        error: "Kết quả chia sẻ công khai chỉ cung cấp thông tin tổng quan, không cung cấp chi tiết bài làm."
+      }), { status: 403, headers: corsHeaders });
+    }
     if (examIdParam) {
       if (isTeacher) {
         // A shared result code does not grant access to another teacher's

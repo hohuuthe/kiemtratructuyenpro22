@@ -37,6 +37,16 @@ export function parseTF4CorrectAnswer(correctAnswer) {
   const raw = String(correctAnswer ?? '').trim();
   if (!raw) return null;
   const keys = ['A', 'B', 'C', 'D'];
+  const compact = upper(raw).replace(/\s+/g, '');
+  if (['NONE', 'KHÔNGCÓÝĐÚNG', 'KHONGCOYDUNG', '----'].includes(compact)) {
+    return { A: false, B: false, C: false, D: false };
+  }
+  if (/^[ĐDSF]{4}$/.test(compact)) {
+    const parsed = [...compact].map(parseTruthToken);
+    if (parsed.every(v => v !== null)) {
+      return { A: parsed[0], B: parsed[1], C: parsed[2], D: parsed[3] };
+    }
+  }
 
   const explicit = {};
   let explicitCount = 0;
@@ -60,7 +70,9 @@ export function parseTF4CorrectAnswer(correctAnswer) {
 
   const parts = raw.split(/[&,;/\\s]+/).map(p => p.trim()).filter(Boolean);
   if (parts.length > 0 && parts.every(p => keys.includes(upper(p)))) {
-    const trueSet = new Set(parts.map(upper));
+    const normalized = parts.map(upper);
+    if (new Set(normalized).size !== normalized.length) return null;
+    const trueSet = new Set(normalized);
     return { A: trueSet.has('A'), B: trueSet.has('B'), C: trueSet.has('C'), D: trueSet.has('D') };
   }
 
@@ -119,7 +131,7 @@ function normalizeUnicodeMath(text) {
     .normalize('NFKC')
     .replace(/[−–—]/g, '-')
     .replace(/[×·]/g, '*')
-    .replace(/÷/g, '/')
+    .replace(/[÷⁄∕]/g, '/')
     .replace(/\u00A0/g, ' ');
 }
 
@@ -158,9 +170,11 @@ export function isShortAnswerCorrect(userAnswer, correctAnswer, options = {}) {
   const user = normalizeShortAnswer(userAnswer, options);
   if (!user) return false;
 
-  // Split alternatives BEFORE punctuation normalization so ";" remains a separator.
+  // In strict punctuation mode, semicolon is data, not a separator.
+  // "|" is always the canonical alternative-answer separator.
+  const alternativeSeparator = options.punctuationSensitive ? /\|+/ : /[|;]+/;
   const rawAlternatives = String(correctAnswer ?? '')
-    .split(/[|;]+/)
+    .split(alternativeSeparator)
     .map(s => s.trim())
     .filter(Boolean);
 
@@ -181,4 +195,49 @@ export function roundScore(value, digits = 2) {
   if (!Number.isFinite(number)) return 0;
   const factor = Math.pow(10, digits);
   return Math.round((number + Number.EPSILON) * factor) / factor;
+}
+
+
+export function normalizeQuestionType(type) {
+  const t = String(type ?? '').trim().toLowerCase();
+  if (['4-1','trac_nghiem','mcq'].includes(t)) return '4-1';
+  if (['tf4','dung_sai','true_false'].includes(t)) return 'TF4';
+  if (['sq','tra_loi_ngan','short_answer'].includes(t)) return 'SQ';
+  if (['tl','tu_luan','essay'].includes(t)) return 'TL';
+  return '';
+}
+
+/**
+ * Validate an answer key before it can enter the question bank.
+ * This prevents malformed keys from reaching exam generation/grading.
+ */
+export function validateQuestionAnswer(type, answer, options = {}) {
+  const normalizedType = normalizeQuestionType(type);
+  const raw = String(answer ?? '').trim();
+
+  if (!normalizedType) return { ok: false, reason: 'Loại câu hỏi không hợp lệ.' };
+
+  if (normalizedType === '4-1') {
+    const value = raw.toUpperCase();
+    return /^[ABCD]$/.test(value)
+      ? { ok: true, value }
+      : { ok: false, reason: 'Đáp án trắc nghiệm phải là đúng một ký tự A, B, C hoặc D.' };
+  }
+
+  if (normalizedType === 'TF4') {
+    return parseTF4CorrectAnswer(raw)
+      ? { ok: true, value: raw }
+      : { ok: false, reason: 'Đáp án Đúng/Sai phải xác định đầy đủ trạng thái A-D hoặc danh sách các ý đúng hợp lệ.' };
+  }
+
+  if (normalizedType === 'SQ') {
+    return raw
+      ? { ok: true, value: raw }
+      : { ok: false, reason: 'Câu trả lời ngắn bắt buộc phải có đáp án.' };
+  }
+
+  const answerImage = options && typeof options === 'object' ? String(options.answerImage ?? '').trim() : '';
+  return raw || answerImage
+    ? { ok: true, value: raw }
+    : { ok: false, reason: 'Câu tự luận phải có hướng dẫn chấm bằng văn bản hoặc hình ảnh đáp án.' };
 }
