@@ -8,21 +8,24 @@ function textOf(node) {
 }
 
 function findBulkAccountContainer() {
-  const candidates = [...document.querySelectorAll('[role="dialog"], form, [id*="modal" i], [class*="modal" i]')];
-  return candidates
-    .filter(node => {
-      const text = textOf(node);
-      return text.includes('tạo tài khoản đồng loạt') ||
-        text.includes('tao tai khoan dong loat') ||
-        text.includes('tạo tài khoản hàng loạt') ||
-        text.includes('tao tai khoan hang loat');
-    })
-    .sort((a, b) => a.querySelectorAll('*').length - b.querySelectorAll('*').length)[0] || null;
+  return document.getElementById('batch-create-accounts-modal');
 }
 
 function ensureBulkExpiryField() {
   const container = findBulkAccountContainer();
   if (!container) return;
+  const directInput = container.querySelector('#batch-acc-expiry');
+  if (directInput) {
+    bulkExpiryMounted = true;
+    if (!directInput.dataset.expiryBridgeBound) {
+      directInput.dataset.expiryBridgeBound = '1';
+      const sync = () => { bulkExpiryDate = directInput.value || ''; };
+      directInput.addEventListener('change', sync);
+      directInput.addEventListener('input', sync);
+    }
+    bulkExpiryDate = directInput.value || '';
+    return;
+  }
   if (container.querySelector('#' + BULK_EXPIRY_INPUT_ID)) {
     bulkExpiryMounted = true;
     return;
@@ -31,6 +34,8 @@ function ensureBulkExpiryField() {
   if (!seenBulkContainers.has(container)) {
     bulkExpiryDate = '';
     seenBulkContainers.add(container);
+    const direct = container.querySelector('#batch-acc-expiry');
+    if (direct) direct.value = '';
   }
 
   const wrap = document.createElement('div');
