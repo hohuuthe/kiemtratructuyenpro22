@@ -1,4 +1,5 @@
 import {canDeleteRankingResult} from './ranking-result-delete-policy.js';
+import { isShortAnswerCorrect, parseTF4CorrectAnswer, clampScore, roundScore } from './exam-grading-core.js';
 import { createExamSessionId, remainingExamSeconds, remainingExamSecondsMonotonic, canAutoSubmitExam, shouldCountExamViolation } from './student-exam-session-guard.js';
 import {questionAuthorDisplayName} from './question-creator-identity.js';
 import {examCreatorDisplayName} from './exam-creator-identity.js';
@@ -9482,23 +9483,12 @@ if (contentType && contentType.includes("application/json")) {
 
         function isSQCorrect(userAnswer, correctAnswer) {
             if (userAnswer === undefined || userAnswer === null) return false;
-            
-            let u = String(userAnswer).trim();
-            let c = String(correctAnswer || '').trim();
-            
             const isCaseSensitive = examConfig.sqCaseSensitive !== undefined ? examConfig.sqCaseSensitive : appSettings.sqCaseSensitive;
-            if (!isCaseSensitive) {
-                u = u.toLowerCase();
-                c = c.toLowerCase();
-            }
-            
             const isPunctuationSensitive = examConfig.sqPunctuationSensitive !== undefined ? examConfig.sqPunctuationSensitive : appSettings.sqPunctuationSensitive;
-            if (!isPunctuationSensitive) {
-                u = u.replace(/,/g, '.');
-                c = c.replace(/,/g, '.');
-            }
-            
-            return u === c;
+            return isShortAnswerCorrect(userAnswer, correctAnswer, {
+                caseSensitive: Boolean(isCaseSensitive),
+                punctuationSensitive: Boolean(isPunctuationSensitive)
+            });
         }
 
         window.checkSQAnswer = function checkSQAnswer(index) {
@@ -9588,9 +9578,8 @@ if (contentType && contentType.includes("application/json")) {
             const immediateFeedbackOn = examConfig.immediateFeedback !== undefined ? examConfig.immediateFeedback : appSettings.immediateFeedback;
             if (immediateFeedbackOn) {
                 const q = currentExam.questions[index];
-                const correctAnswers = (q && q.answer) ? q.answer.split('&') : [];
-                const isOptionTrue = correctAnswers.includes(option);
-                const isCorrect = (value === true && isOptionTrue) || (value === false && !isOptionTrue);
+                const correctStates = q && q.answer ? parseTF4CorrectAnswer(q.answer) : null;
+                const isCorrect = Boolean(correctStates && correctStates[option] === value);
                 
                 if (isCorrect) {
                     showToast('✅ Chính xác!', 'success', 'large');
@@ -15880,7 +15869,10 @@ if (contentType && contentType.includes("application/json")) {
                 if (d.question && d.question.type === 'TL') {
                     const input = document.getElementById(`grade-tl-${resultId}-${i}`);
                     if (input) {
-                        const newScore = parseFloat(input.value.replace(',', '.')) || 0;
+                        const requestedScore = parseFloat(input.value.replace(',', '.')) || 0;
+                        const maxScore = Number(d.maxScore ?? input.max ?? 0);
+                        const newScore = clampScore(requestedScore, maxScore);
+                        input.value = String(newScore);
                         
                         // So sánh số thực với sai số nhỏ
                         if (Math.abs(newScore - currentScore) > 0.0001) {
@@ -15908,7 +15900,7 @@ if (contentType && contentType.includes("application/json")) {
 
             try {
                 const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
-                const finalRoundedScore = parseFloat((Number(newTotalScore) || 0).toFixed(1));
+                const finalRoundedScore = roundScore(newTotalScore, 2);
                 const response = await fetch('/api/results', {
                     method: 'PUT',
                     headers: {
@@ -16228,8 +16220,10 @@ CẤU TRÚC JSON:
                 const responseText = response.text;
                 const data = JSON.parse(responseText);
 
+                const maxEssayScore = Number(d.maxScore ?? targetConfig.pointsTL ?? 1);
+                const safeAiScore = clampScore(data.score, maxEssayScore);
                 if (input) {
-                    input.value = data.score;
+                    input.value = String(safeAiScore);
                     input.classList.add('bg-purple-50', 'border-purple-500');
                     setTimeout(() => input.classList.remove('bg-purple-50'), 2000);
                 }
@@ -16240,11 +16234,11 @@ CẤU TRÚC JSON:
                 }
                 
                 d.aiFeedback = data.feedback;
-                d.score = data.score;
+                d.score = safeAiScore;
                 d.needsGrading = false;
                 
                 updateLiveTotalScore(resultId);
-                showToast(`AI đã chấm xong: ${data.score} điểm`, 'success');
+                showToast(`AI đã chấm xong: ${safeAiScore} điểm`, 'success');
             } catch (err) {
                 console.error('Lỗi AI chấm điểm (Manual):', err);
                 const errMsg = err.message || '';
@@ -17115,8 +17109,9 @@ CẤU TRÚC JSON:
                                 <label class="text-sm font-bold text-yellow-800 whitespace-nowrap">Chấm điểm:</label>
                                 <input type="number" 
                                     id="grade-tl-${resultId}-${i}" 
-                                    step="0.1" 
-                                    min="0" 
+                                    step="0.01" 
+                                    min="0"
+                                    max="${Number(d.maxScore ?? targetConfig.pointsTL ?? 1)}" 
                                     value="${d.score || 0}" 
                                     oninput="updateLiveTotalScore('${resultId}')"
                                     ${isExamCreator ? '' : 'disabled'}
