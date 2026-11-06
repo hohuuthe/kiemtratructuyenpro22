@@ -399,10 +399,8 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                 ).bind(String(effectiveTeacherId), String(effectiveTeacherId), String(effectiveTeacherId)).all();
                 allQuestions = results || [];
             }
-            if (!allQuestions || allQuestions.length === 0) {
-                const { results } = await db.prepare('SELECT * FROM questions').all();
-                allQuestions = results || [];
-            }
+            // Never fall back to another teacher's question bank. An empty scoped
+            // pool is a hard error and must be reported to the exam creator.
         } catch(err: any) {
             return new Response(JSON.stringify({ error: 'Lỗi truy vấn ngân hàng câu hỏi: ' + err.message }), { status: 500, headers: corsHeaders });
         }
