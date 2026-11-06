@@ -1437,6 +1437,7 @@ if (contentTypeConfig && contentTypeConfig.includes("application/json")) {
         let currentExam = {
             questions: [],
             answers: {},
+            feedback: {},
             currentIndex: 0,
             startTime: null,
             timerInterval: null,
@@ -8309,8 +8310,11 @@ if (contentType && contentType.includes("application/json")) {
                 window.initExamMonitoring();
             }
 
-            currentExam.startTime = Date.now();
-            currentExam.startTick = (typeof performance !== 'undefined' && Number.isFinite(performance.now())) ? performance.now() : null;
+            const serverElapsedSeconds = Math.max(0, Number(currentExam.serverElapsedSeconds) || 0);
+            currentExam.startTime = Date.now() - Math.round(serverElapsedSeconds * 1000);
+            currentExam.startTick = (typeof performance !== 'undefined' && Number.isFinite(performance.now()))
+                ? performance.now() - (serverElapsedSeconds * 1000)
+                : null;
             currentExam.violationEpisodeActive = false;
             if (!Number.isFinite(Number(currentExam.timeLimitSeconds)) || Number(currentExam.timeLimitSeconds) <= 0) {
                 currentExam.timeLimitSeconds = Math.max(1, Math.round((Number(currentExam.timeLimitMinutes) || Number(examConfig?.timeLimit) || 45) * 60));
@@ -8556,6 +8560,7 @@ if (contentType && contentType.includes("application/json")) {
                 currentExam = {
                     questions: examQuestions,
                     answers: {},
+                    feedback: {},
                     currentIndex: 0,
                     startTime: null,
                     timerInterval: null,
@@ -8569,6 +8574,14 @@ if (contentType && contentType.includes("application/json")) {
                     maxCheatWarnings: maxCheatAllowed,
                     timeLimitSeconds: Math.max(1, Number(result.timeLimitSeconds) || Math.round((Number(result.timeLimitMinutes) || Number(examConfig.timeLimit) || 45) * 60)),
                     timeLimitMinutes: Number(result.timeLimitMinutes) || Number(examConfig.timeLimit) || 45,
+                    serverStartedAt: null,
+                    serverElapsedSeconds: 0,
+                    lockedSubmissionAnswers: null,
+                    checkpointSeq: 0,
+                    checkpointDebounce: null,
+                    checkpointInterval: null,
+                    lastCheckpointSequence: 0,
+                    lastCheckpointAt: null,
                     lastViolationAt: 0,
                     lastViolationReason: '',
                     startTick: null,
@@ -8586,7 +8599,7 @@ if (contentType && contentType.includes("application/json")) {
                     return;
                 }
                 let readyAccepted = false;
-                readyButton.addEventListener('click', () => {
+                readyButton.addEventListener('click', async () => {
                     if (readyAccepted) return;
                     if (String(document.getElementById('student-exam-name-filter')?.value || '') !== String(selectedExamId)) {
                         closeModal();
@@ -8594,9 +8607,52 @@ if (contentType && contentType.includes("application/json")) {
                         return;
                     }
                     readyAccepted = true;
-                    closeModal();
-                    startExamUI();
-                    showToast('Bắt đầu làm bài! Chúc bạn thi tốt.', 'success');
+                    readyButton.disabled = true;
+                    readyButton.textContent = 'Đang vào phòng thi...';
+
+                    // Fullscreen must be requested directly from the user's click.
+                    // Temporarily reveal the exam root only so the browser can enter
+                    // fullscreen; the blocking ready modal remains on top and the timer
+                    // does NOT start until the server confirms started_at.
+                    const preStartExamInterface = document.getElementById('exam-interface');
+                    if (preStartExamInterface) preStartExamInterface.classList.remove('hidden');
+                    if (typeof window.enterExamFullscreen === 'function') {
+                        Promise.resolve(window.enterExamFullscreen()).catch(() => {});
+                    }
+
+                    try {
+                        const startAuthToken = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
+                        const startHeaders = { 'Content-Type': 'application/json' };
+                        if (startAuthToken) startHeaders['Authorization'] = 'Bearer ' + startAuthToken;
+                        const startResponse = await fetch('/api/exam/start', {
+                            method: 'POST',
+                            headers: startHeaders,
+                            cache: 'no-store',
+                            body: JSON.stringify({ token: window.currentExamToken })
+                        });
+                        const startResult = await startResponse.json().catch(() => ({}));
+                        if (!startResponse.ok || !startResult?.startedAt) {
+                            throw new Error(startResult?.error || 'Không thể xác nhận thời điểm bắt đầu bài thi.');
+                        }
+                        currentExam.serverStartedAt = startResult.startedAt;
+                        currentExam.serverElapsedSeconds = Math.max(0, Number(startResult.elapsedSeconds) || 0);
+                        closeModal();
+                        startExamUI();
+                        showToast('Bắt đầu làm bài! Chúc bạn thi tốt.', 'success');
+                    } catch (startErr) {
+                        readyAccepted = false;
+                        closeModal();
+                        if (preStartExamInterface) preStartExamInterface.classList.add('hidden');
+                        window.currentExamToken = null;
+                        window.intentionalFullscreenExit = true;
+                        try {
+                            if (document.fullscreenElement && document.exitFullscreen) {
+                                await document.exitFullscreen();
+                            }
+                        } catch (_) {}
+                        window.intentionalFullscreenExit = false;
+                        showToast(startErr?.message || 'Không thể bắt đầu bài thi. Vui lòng tải lại đề và thử lại.', 'error');
+                    }
                 }, { once: true });
                 document.getElementById('exam-start-ready-cancel')?.addEventListener('click', closeModal, { once: true });
                 readyButton.focus();
@@ -8937,21 +8993,8 @@ if (contentType && contentType.includes("application/json")) {
                 
                 let btnClass = 'bg-gray-100 text-gray-600 hover:bg-gray-200 border border-gray-200';
                 
-                if (immediateFeedbackOn && isAnswered) {
-                    let isAllCorrect = false;
-                    if (q.type === '4-1') {
-                        isAllCorrect = currentExam.answers[i] === q.answer;
-                    } else if (q.type === 'TF4') {
-                        const correctStates = parseTF4CorrectAnswer(q.answer || '');
-                        const ans = currentExam.answers[i] || {};
-                        isAllCorrect = Boolean(correctStates &&
-                            ['A', 'B', 'C', 'D'].every(k =>
-                                (ans[k] === true || ans[k] === false) && ans[k] === correctStates[k]
-                            ));
-                    } else if (q.type === 'SQ') {
-                        isAllCorrect = isSQCorrect(currentExam.answers[i], q.answer);
-                    }
-
+                if (immediateFeedbackOn && isAnswered && currentExam.feedback?.[i]?.checked === true) {
+                    const isAllCorrect = currentExam.feedback[i].allCorrect === true;
                     if (isCurrent) {
                         btnClass = isAllCorrect
                             ? 'current ring-2 ring-emerald-500 ring-offset-2 bg-emerald-600 text-white shadow-md transform scale-110'
@@ -9163,15 +9206,17 @@ if (contentType && contentType.includes("application/json")) {
                     const label = String.fromCharCode(65 + i);
                     const optionData = (q.options && q.options[opt]) ? q.options[opt] : { text: '', image: '' };
                     const isSelected = selectedAnswer === opt;
-                    const isCorrectAnswer = q.answer === opt;
+                    const feedback = currentExam.feedback?.[index];
+                    const hasCheckedFeedback = immediateFeedbackOn && feedback?.checked === true;
+                    const selectedIsCorrect = hasCheckedFeedback && feedback.allCorrect === true;
                     
                     let optionClass = '';
                     let labelClass = 'text-gray-700 group-hover:text-indigo-600';
                     let badgeHtml = '';
 
-                    if (immediateFeedbackOn && hasAnswered) {
+                    if (hasCheckedFeedback && hasAnswered) {
                         if (isSelected) {
-                            if (isCorrectAnswer) {
+                            if (selectedIsCorrect) {
                                 optionClass = 'selected border-emerald-500 bg-emerald-50 text-emerald-900 shadow-md ring-2 ring-emerald-400 font-bold';
                                 labelClass = 'text-emerald-700 font-black';
                                 badgeHtml = '<span class="ml-auto text-xs px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700 font-bold flex items-center gap-1 shrink-0">✅ Đúng</span>';
@@ -9180,9 +9225,6 @@ if (contentType && contentType.includes("application/json")) {
                                 labelClass = 'text-rose-700 font-black';
                                 badgeHtml = '<span class="ml-auto text-xs px-2.5 py-1 rounded-full bg-rose-100 text-rose-700 font-bold flex items-center gap-1 shrink-0">❌ Sai</span>';
                             }
-                        } else if (isCorrectAnswer) {
-                            optionClass = 'border-emerald-400 bg-emerald-50/50 text-emerald-800 border-dashed';
-                            badgeHtml = '<span class="ml-auto text-xs px-2.5 py-1 rounded-full bg-emerald-100/90 text-emerald-700 font-semibold flex items-center gap-1 shrink-0">Đáp án đúng</span>';
                         } else {
                             optionClass = 'border-gray-200 opacity-60 bg-white';
                         }
@@ -9210,7 +9252,7 @@ if (contentType && contentType.includes("application/json")) {
             const currentAnswers = currentExam.answers[index] || {};
             const options = q.shuffledOptions || ['A', 'B', 'C', 'D'];
             const immediateFeedbackOn = examConfig.immediateFeedback !== undefined ? examConfig.immediateFeedback : appSettings.immediateFeedback;
-            const correctStates = q && q.answer ? parseTF4CorrectAnswer(q.answer) : null;
+            const feedback = currentExam.feedback?.[index];
 
             return `<div class="space-y-1.5 w-full">
                 ${options.map((opt, i) => {
@@ -9218,13 +9260,15 @@ if (contentType && contentType.includes("application/json")) {
                     const optionData = (q.options && q.options[opt]) ? q.options[opt] : { text: '', image: '' };
                     const selected = currentAnswers[opt];
                     const isAnswered = selected === true || selected === false;
-                    const isCorrect = isAnswered && Boolean(correctStates) ? selected === correctStates[opt] : false;
+                    const hasStatementFeedback = immediateFeedbackOn && feedback?.checked === true &&
+                        Object.prototype.hasOwnProperty.call(feedback.statementResults || {}, opt);
+                    const isCorrect = hasStatementFeedback ? feedback.statementResults[opt] === true : false;
                     
                     let containerClass = 'border-gray-200 hover:border-indigo-300 hover:bg-indigo-50/30 bg-white';
                     let labelClass = 'text-gray-600 group-hover:text-indigo-600';
                     let badgeHtml = '';
 
-                    if (immediateFeedbackOn && isAnswered) {
+                    if (hasStatementFeedback && isAnswered) {
                         if (isCorrect) {
                             containerClass = 'border-emerald-500 bg-emerald-50/70 shadow-sm ring-1 ring-emerald-400';
                             labelClass = 'text-emerald-700 font-bold';
@@ -9232,7 +9276,7 @@ if (contentType && contentType.includes("application/json")) {
                         } else {
                             containerClass = 'border-rose-500 bg-rose-50/70 shadow-sm ring-1 ring-rose-400';
                             labelClass = 'text-rose-700 font-bold';
-                            badgeHtml = `<span class="text-xs px-2.5 py-1 rounded-full bg-rose-100 text-rose-700 font-bold flex items-center gap-1 shrink-0">❌ Sai (Đúng là: ${isOptionTrue ? 'Đúng' : 'Sai'})</span>`;
+                            badgeHtml = '<span class="text-xs px-2.5 py-1 rounded-full bg-rose-100 text-rose-700 font-bold flex items-center gap-1 shrink-0">❌ Sai</span>';
                         }
                     } else {
                         if (selected === true) {
@@ -9478,10 +9522,12 @@ if (contentType && contentType.includes("application/json")) {
             const currentAnswer = currentExam.answers[index] || '';
             const immediateFeedbackOn = examConfig.immediateFeedback !== undefined ? examConfig.immediateFeedback : appSettings.immediateFeedback;
             const hasAnswer = currentAnswer.trim().length > 0;
-            const isCorrect = (hasAnswer && q && q.answer) ? isSQCorrect(currentAnswer, q.answer) : false;
+            const feedback = currentExam.feedback?.[index];
+            const hasCheckedFeedback = immediateFeedbackOn && feedback?.checked === true;
+            const isCorrect = hasCheckedFeedback && feedback.allCorrect === true;
             
             let inputBorder = 'border-gray-300 bg-white';
-            if (immediateFeedbackOn && hasAnswer) {
+            if (hasCheckedFeedback && hasAnswer) {
                 inputBorder = isCorrect ? 'border-emerald-500 bg-emerald-50 text-emerald-900 ring-2 ring-emerald-300' : 'border-rose-400 bg-rose-50 text-rose-900 ring-2 ring-rose-300';
             }
 
@@ -9499,9 +9545,9 @@ if (contentType && contentType.includes("application/json")) {
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                         <p class="text-sm font-medium">Nhập đáp án, nhấn Enter hoặc nhấn vào đây để kiểm tra</p>
                     </div>
-                    ${hasAnswer ? (isCorrect 
+                    ${hasCheckedFeedback && hasAnswer ? (isCorrect 
                         ? '<div class="text-sm font-bold text-emerald-700 bg-emerald-100 px-4 py-1.5 rounded-full shadow-sm flex items-center gap-1.5">✅ Chính xác!</div>' 
-                        : `<div class="text-sm font-bold text-rose-700 bg-rose-100 px-4 py-1.5 rounded-full shadow-sm flex items-center gap-1.5">❌ Chưa chính xác (Đáp án đúng: <span class="underline">${escapeHTML(q && q.answer ? q.answer : '')}</span>)</div>`
+                        : '<div class="text-sm font-bold text-rose-700 bg-rose-100 px-4 py-1.5 rounded-full shadow-sm flex items-center gap-1.5">❌ Chưa chính xác</div>'
                     ) : ''}
                 </div>
                 ` : `
@@ -9515,6 +9561,7 @@ if (contentType && contentType.includes("application/json")) {
 
         window.handleSQSingleInput = function handleSQSingleInput(value, index) {
             currentExam.answers[index] = value;
+            if (currentExam.feedback) delete currentExam.feedback[index];
             currentExam.currentIndex = index;
             renderQuestionNav();
             updateProgress();
@@ -9531,22 +9578,18 @@ if (contentType && contentType.includes("application/json")) {
             });
         }
 
-        window.checkSQAnswer = function checkSQAnswer(index) {
+        window.checkSQAnswer = async function checkSQAnswer(index) {
             const immediateFeedbackOn = examConfig.immediateFeedback !== undefined ? examConfig.immediateFeedback : appSettings.immediateFeedback;
             if (!immediateFeedbackOn) return;
-            const value = currentExam.answers[index] || '';
             const q = currentExam.questions[index];
             if (!q) return;
-            const isCorrect = isSQCorrect(value, q.answer);
-            if (isCorrect) {
-                showToast('✅ Chính xác!', 'success', 'large');
-            } else {
-                showToast('❌ Sai rồi, hãy thử lại!', 'error', 'large');
-            }
+            const feedback = await window.requestImmediateExamFeedback(index);
+            if (!feedback?.checked) return;
+            const isCorrect = feedback.allCorrect === true;
+            showToast(isCorrect ? '✅ Chính xác!' : '❌ Sai rồi, hãy thử lại!', isCorrect ? 'success' : 'error', 'large');
             playFeedbackSound(isCorrect);
-            if (typeof updateQuestionOptions === 'function') {
-                updateQuestionOptions(index);
-            }
+            if (typeof updateQuestionOptions === 'function') updateQuestionOptions(index);
+            renderQuestionNav();
         }
 
         function updateQuestionOptions(index) {
@@ -9581,10 +9624,107 @@ if (contentType && contentType.includes("application/json")) {
             }
         }
 
-        window.backupExamState = function() {};
+        window.saveExamCheckpoint = async function saveExamCheckpoint(options = {}) {
+            const force = options?.force === true;
+            const examInterface = document.getElementById('exam-interface');
+            const examResults = document.getElementById('exam-results');
+            const isExamActive = examInterface && !examInterface.classList.contains('hidden') &&
+                examResults && examResults.classList.contains('hidden') &&
+                currentExam && currentExam.sessionId && currentExam.startTime &&
+                Array.isArray(currentExam.questions) && currentExam.questions.length > 0;
+            if (!isExamActive || !window.currentExamToken || (currentExam.submitting && !force)) return false;
 
-        window.selectAnswer = function selectAnswer(option, index = currentExam.currentIndex) {
+            const questionIds = currentExam.questions.map(q => String(q?.id ?? q?.questionId ?? '').trim());
+            if (questionIds.some(id => !id)) return false;
+
+            let answersSnapshot;
+            try {
+                answersSnapshot = structuredClone(currentExam.answers);
+            } catch (_) {
+                answersSnapshot = JSON.parse(JSON.stringify(currentExam.answers || {}));
+            }
+            const studentAnswers = currentExam.questions.map((q, i) => answersSnapshot?.[i]);
+            const sequence = Math.max(0, Number(currentExam.checkpointSeq) || 0) + 1;
+            currentExam.checkpointSeq = sequence;
+            const sessionId = currentExam.sessionId;
+
+            try {
+                const checkpointAuth = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
+                const headers = { 'Content-Type': 'application/json' };
+                if (checkpointAuth) headers['Authorization'] = 'Bearer ' + checkpointAuth;
+                const response = await fetch('/api/exam/checkpoint', {
+                    method: 'POST',
+                    headers,
+                    cache: 'no-store',
+                    body: JSON.stringify({
+                        token: window.currentExamToken,
+                        questionIds,
+                        studentAnswers,
+                        sequence
+                    })
+                });
+                if (!response.ok) return false;
+                const data = await response.json().catch(() => ({}));
+                if (isSameExamSession(sessionId) && data?.accepted !== false) {
+                    currentExam.lastCheckpointSequence = sequence;
+                    currentExam.lastCheckpointAt = data?.savedAt || new Date().toISOString();
+                }
+                return Boolean(data?.ok);
+            } catch (_) {
+                return false;
+            }
+        };
+
+        window.scheduleExamCheckpoint = function scheduleExamCheckpoint() {
+            if (!currentExam?.startTime || currentExam?.submitting) return;
+            if (currentExam.checkpointDebounce) clearTimeout(currentExam.checkpointDebounce);
+            currentExam.checkpointDebounce = setTimeout(() => {
+                currentExam.checkpointDebounce = null;
+                void window.saveExamCheckpoint();
+            }, 250);
+        };
+
+        window.backupExamState = function backupExamState() {
+            window.scheduleExamCheckpoint();
+        };
+
+        window.requestImmediateExamFeedback = async function requestImmediateExamFeedback(index, selectedOption = '') {
+            const immediateFeedbackOn = examConfig.immediateFeedback !== undefined ? examConfig.immediateFeedback : appSettings.immediateFeedback;
+            if (!immediateFeedbackOn || !window.currentExamToken || currentExam.submitting) return null;
+            const q = currentExam.questions?.[index];
+            const questionId = String(q?.id ?? q?.questionId ?? '').trim();
+            if (!q || !questionId) return null;
+            const sessionId = currentExam.sessionId;
+            try {
+                const authToken = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
+                const headers = { 'Content-Type': 'application/json' };
+                if (authToken) headers['Authorization'] = 'Bearer ' + authToken;
+                const response = await fetch('/api/exam/feedback', {
+                    method: 'POST',
+                    headers,
+                    cache: 'no-store',
+                    body: JSON.stringify({
+                        token: window.currentExamToken,
+                        index,
+                        questionId,
+                        userAnswer: currentExam.answers[index],
+                        selectedOption
+                    })
+                });
+                if (!response.ok) return null;
+                const data = await response.json().catch(() => ({}));
+                if (!isSameExamSession(sessionId) || data?.checked !== true) return null;
+                if (!currentExam.feedback) currentExam.feedback = {};
+                currentExam.feedback[index] = data;
+                return data;
+            } catch (_) {
+                return null;
+            }
+        };
+
+        window.selectAnswer = async function selectAnswer(option, index = currentExam.currentIndex) {
             currentExam.answers[index] = option;
+            if (currentExam.feedback) delete currentExam.feedback[index];
             currentExam.currentIndex = index;
             renderQuestionNav();
             updateQuestionOptions(index);
@@ -9593,22 +9733,21 @@ if (contentType && contentType.includes("application/json")) {
             
             const immediateFeedbackOn = examConfig.immediateFeedback !== undefined ? examConfig.immediateFeedback : appSettings.immediateFeedback;
             if (immediateFeedbackOn) {
-                const q = currentExam.questions[index];
-                const isCorrect = q && option === q.answer;
-                if (isCorrect) {
-                    showToast('✅ Chính xác!', 'success', 'large');
-                } else {
-                    showToast('❌ Sai rồi, hãy thử lại!', 'error', 'large');
+                const feedback = await window.requestImmediateExamFeedback(index);
+                if (feedback?.checked) {
+                    const isCorrect = feedback.allCorrect === true;
+                    showToast(isCorrect ? '✅ Chính xác!' : '❌ Sai rồi, hãy thử lại!', isCorrect ? 'success' : 'error', 'large');
+                    playFeedbackSound(isCorrect);
+                    renderQuestionNav();
+                    updateQuestionOptions(index);
                 }
-                playFeedbackSound(isCorrect);
             }
         }
 
-        window.selectTFAnswer = function selectTFAnswer(option, value, index = currentExam.currentIndex) {
-            if (!currentExam.answers[index]) {
-                currentExam.answers[index] = {};
-            }
+        window.selectTFAnswer = async function selectTFAnswer(option, value, index = currentExam.currentIndex) {
+            if (!currentExam.answers[index]) currentExam.answers[index] = {};
             currentExam.answers[index][option] = value;
+            if (currentExam.feedback) delete currentExam.feedback[index];
             currentExam.currentIndex = index;
             renderQuestionNav();
             updateQuestionOptions(index);
@@ -9617,16 +9756,14 @@ if (contentType && contentType.includes("application/json")) {
             
             const immediateFeedbackOn = examConfig.immediateFeedback !== undefined ? examConfig.immediateFeedback : appSettings.immediateFeedback;
             if (immediateFeedbackOn) {
-                const q = currentExam.questions[index];
-                const correctStates = q && q.answer ? parseTF4CorrectAnswer(q.answer) : null;
-                const isCorrect = Boolean(correctStates && correctStates[option] === value);
-                
-                if (isCorrect) {
-                    showToast('✅ Chính xác!', 'success', 'large');
-                } else {
-                    showToast('❌ Sai rồi, hãy thử lại!', 'error', 'large');
+                const feedback = await window.requestImmediateExamFeedback(index, option);
+                if (feedback?.checked) {
+                    const isCorrect = feedback.selectedCorrect === true;
+                    showToast(isCorrect ? '✅ Chính xác!' : '❌ Sai rồi, hãy thử lại!', isCorrect ? 'success' : 'error', 'large');
+                    playFeedbackSound(isCorrect);
+                    renderQuestionNav();
+                    updateQuestionOptions(index);
                 }
-                playFeedbackSound(isCorrect);
             }
         }
 
@@ -9959,6 +10096,12 @@ if (contentType && contentType.includes("application/json")) {
             if (supportsFullscreen && !document.fullscreenElement) return;
             currentExam.violationEpisodeActive = false;
             currentExam.lastViolationReason = '';
+            currentExam.checkpointSeq = 0;
+            currentExam.lastCheckpointSequence = 0;
+            if (currentExam.checkpointInterval) clearInterval(currentExam.checkpointInterval);
+            currentExam.checkpointInterval = setInterval(() => {
+                if (!currentExam.submitting) void window.saveExamCheckpoint();
+            }, 3000);
         }
 
         document.addEventListener('visibilitychange', () => {
@@ -10102,7 +10245,7 @@ if (contentType && contentType.includes("application/json")) {
                     });
                     return;
                 }
-                executeSubmit();
+                executeSubmit({ autoReason, sessionId });
                 return;
             }
             const incomplete = [];
@@ -10162,13 +10305,22 @@ if (contentType && contentType.includes("application/json")) {
             }
         }
 
-        async function executeSubmit() {
+        async function executeSubmit(submitContext = {}) {
             if (currentExam.submitting) return;
             currentExam.submitting = true;
+            const submissionSessionId = currentExam.sessionId;
             if (typeof window.releaseExamWakeLock === 'function') {
                 window.releaseExamWakeLock();
             }
             clearInterval(currentExam.timerInterval);
+            if (currentExam.checkpointDebounce) {
+                clearTimeout(currentExam.checkpointDebounce);
+                currentExam.checkpointDebounce = null;
+            }
+            if (currentExam.checkpointInterval) {
+                clearInterval(currentExam.checkpointInterval);
+                currentExam.checkpointInterval = null;
+            }
             const floatingTimerEl = document.getElementById('floating-exam-timer');
             if (floatingTimerEl) {
                 floatingTimerEl.classList.add('hidden');
@@ -10203,8 +10355,8 @@ if (contentType && contentType.includes("application/json")) {
                 } catch (e) {
                     console.log(e);
                 }
-                setTimeout(() => { window.intentionalFullscreenExit = false; }, 800);
             }
+            setTimeout(() => { window.intentionalFullscreenExit = false; }, 800);
 
             const examContainer = document.getElementById('exam-interface');
             if (!window.originalExamInterfaceHTML) {
@@ -10235,7 +10387,20 @@ if (contentType && contentType.includes("application/json")) {
             const examId = examSelectEl?.value || examConfig?.id || '';
             const examName = examSelectEl?.options[examSelectEl.selectedIndex]?.dataset?.name || examSelectEl?.options[examSelectEl.selectedIndex]?.textContent || examConfig?.name || '';
 
-            const studentAnswers = currentExam.questions.map((q, i) => currentExam.answers[i]);
+            const liveStudentAnswers = currentExam.questions.map((q, i) => currentExam.answers[i]);
+            const mustFreezeSubmission = submitContext?.autoReason === 'time_expired' ||
+                submitContext?.autoReason === 'cheat_limit' ||
+                (Number.isFinite(remainingAtSubmit) && remainingAtSubmit <= 0);
+            if (mustFreezeSubmission && !Array.isArray(currentExam.lockedSubmissionAnswers)) {
+                try {
+                    currentExam.lockedSubmissionAnswers = structuredClone(liveStudentAnswers);
+                } catch (_) {
+                    currentExam.lockedSubmissionAnswers = JSON.parse(JSON.stringify(liveStudentAnswers));
+                }
+            }
+            const studentAnswers = Array.isArray(currentExam.lockedSubmissionAnswers)
+                ? currentExam.lockedSubmissionAnswers
+                : liveStudentAnswers;
 
             try {
                 const gradeAuthToken = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
@@ -10361,6 +10526,8 @@ if (contentType && contentType.includes("application/json")) {
                     answeredStatementsCount: answeredStatementsCount,
                     statsByType: statsByType,
                     cheatWarningCount: currentExam.cheatWarningCount || 0,
+                    gradingPending: result.gradingPending === true,
+                    scoreFinalized: result.scoreFinalized !== false,
                     timestamp: new Date().toISOString()
                 };
 
@@ -10375,14 +10542,37 @@ if (contentType && contentType.includes("application/json")) {
 
             } catch (err) {
                 currentExam.submitting = false;
-                
+
 if (err && err.message && err.message.includes("is not valid JSON")) {
     // Ignore HTML proxy errors from console
 } else {
     console.error(err);
 }
-                showToast(err.message, 'error');
                 examContainer.innerHTML = window.originalExamInterfaceHTML;
+                window.intentionalFullscreenExit = false;
+
+                const remainingAfterFailure = getCurrentExamRemainingSeconds();
+                if (Number.isFinite(remainingAfterFailure) && remainingAfterFailure > 0 &&
+                    isSameExamSession(submissionSessionId)) {
+                    // Submission failed while time remains: resume the same monotonic timer.
+                    startTimer();
+                    if (currentExam.checkpointInterval) clearInterval(currentExam.checkpointInterval);
+                    currentExam.checkpointInterval = setInterval(() => {
+                        if (!currentExam.submitting) void window.saveExamCheckpoint();
+                    }, 3000);
+                    if (typeof window.enterExamFullscreen === 'function') {
+                        Promise.resolve(window.enterExamFullscreen()).catch(() => {});
+                    }
+                    if (typeof window.enforceFullscreenConstraint === 'function') {
+                        window.enforceFullscreenConstraint();
+                    }
+                    showToast((err?.message || 'Không thể nộp bài.') + ' Đồng hồ vẫn tiếp tục từ thời gian thực của phiên thi.', 'error');
+                } else {
+                    // Time/violation forced submission is immutable after the first submit attempt.
+                    const timerText = document.getElementById('exam-timer');
+                    if (timerText) timerText.textContent = '00:00';
+                    showToast((err?.message || 'Không thể gửi bài.') + ' Bài làm đã được khóa tại thời điểm kết thúc; hãy bấm Nộp bài để gửi lại khi kết nối ổn định.', 'error');
+                }
             }
         }
 
@@ -10590,14 +10780,10 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             `;
 
             let tlWarningHTML = '';
-            if (stats['TL'] && stats['TL'].total > 0) {
-                if (examConfig.autoGradeEssay === false) {
-                    tlWarningHTML = `<div class="mt-1.5 text-purple-600 font-bold text-[11px] md:text-sm border border-red-200 bg-purple-50 p-1.5 rounded-lg shadow-sm">Đây mới chỉ là điểm trắc nghiệm, điểm tự luận giáo viên sẽ chấm sau và cộng vào điểm bài làm.</div>`;
-                } else if (result.aiGradingError) {
-                    tlWarningHTML = `<div class="mt-1.5 text-purple-600 font-bold text-[11px] md:text-sm border-2 border-red-500 bg-purple-50 p-2 rounded-xl shadow-md animate-pulse">
-                        ⚠️ Quá trình chấm bài tự động cho câu tự luận không thành công, giáo viên sẽ chấm lại phần tự luận và cập nhật điểm cho bạn sau.
-                    </div>`;
-                }
+            if (stats['TL'] && stats['TL'].total > 0 && result.gradingPending) {
+                tlWarningHTML = `<div class="mt-1.5 text-amber-800 font-bold text-[11px] md:text-sm border border-amber-300 bg-amber-50 p-2 rounded-lg shadow-sm">
+                    ⏳ Điểm hiện tại là điểm tạm tính của phần đã được chấm chắc chắn. Phần tự luận còn chờ giáo viên xác nhận/chấm; điểm cuối cùng sẽ được cập nhật sau.
+                </div>`;
             }
 
             document.getElementById('results-content').innerHTML = `
@@ -10612,7 +10798,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 <div class="grid grid-cols-2 md:grid-cols-3 gap-2 md:gap-3 mb-4">
                     <div class="p-3 bg-blue-50 rounded-lg text-center shadow-sm relative border border-blue-100/50 flex flex-col justify-center">
                         <p class="text-3xl sm:text-4xl lg:text-5xl font-black text-blue-600 leading-tight">${showScore ? (Number(result.score) || 0).toFixed(2) : '***'}</p>
-                        <p class="text-xs md:text-sm text-blue-500 uppercase font-bold tracking-widest mt-0.5">Điểm số</p>
+                        <p class="text-xs md:text-sm text-blue-500 uppercase font-bold tracking-widest mt-0.5">${result.gradingPending ? 'Điểm tạm tính' : 'Điểm số'}</p>
                         <div class="mt-1 text-xs md:text-sm text-blue-700 bg-white/50 py-1 px-2.5 rounded-full inline-block border border-blue-200">
                             Đã làm: <b>${result.answeredQuestionsCount}</b>/${result.totalQuestions}
                         </div>
@@ -10753,6 +10939,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             currentExam = {
                 questions: [],
                 answers: {},
+                feedback: {},
                 currentIndex: 0,
                 startTime: null,
                 timerInterval: null,
@@ -17147,6 +17334,7 @@ CẤU TRÚC JSON:
                             ${(d.question.options && d.question.options.answerImage) ? `<img src="${d.question.options.answerImage}" class="mt-2 max-w-[200px] h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage(this.src)">` : ''}
                         </div>
                         ${d.aiFeedback ? `<div class="mt-2 text-base text-purple-700 bg-purple-50 p-2 rounded border border-purple-100 break-words">🤖 Nhận xét: ${formatContent(d.aiFeedback)}</div>` : ''}
+                        ${Number.isFinite(Number(d.aiSuggestedScore)) ? `<div class="mt-2 text-sm font-bold text-amber-800 bg-amber-50 p-2 rounded border border-amber-200">AI đề xuất: ${Number(d.aiSuggestedScore)} điểm — giáo viên cần xác nhận trước khi điểm được chốt.</div>` : ''}
                         <div class="mt-3 flex flex-wrap items-center gap-3 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
                             <div class="flex items-center gap-2">
                                 <label class="text-sm font-bold text-yellow-800 whitespace-nowrap">Chấm điểm:</label>
@@ -17155,7 +17343,7 @@ CẤU TRÚC JSON:
                                     step="0.01" 
                                     min="0"
                                     max="${Number(d.maxScore ?? targetConfig.pointsTL ?? 1)}" 
-                                    value="${d.score || 0}" 
+                                    value="${d.aiSuggestedScore ?? d.score ?? 0}" 
                                     oninput="updateLiveTotalScore('${resultId}')"
                                     ${isExamCreator ? '' : 'disabled'}
                                     class="w-20 px-2 py-1 border-2 ${isExamCreator ? 'border-yellow-300 focus:border-yellow-500' : 'border-gray-200 bg-gray-100 cursor-not-allowed'} rounded focus:outline-none font-bold text-center"

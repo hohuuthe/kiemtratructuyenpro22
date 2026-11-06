@@ -36,7 +36,7 @@ const normalizeType = (type: any): string => {
 
 function sanitizeGradingDetailForClient(detail: any, showDetails: boolean): any {
     if (showDetails) return detail;
-    const { correctAnswer, aiFeedback, isCorrect, correctStatements, ...safeD } = detail || {};
+    const { correctAnswer, aiFeedback, aiSuggestedScore, isCorrect, correctStatements, ...safeD } = detail || {};
     const question = safeD.question && typeof safeD.question === 'object' ? safeD.question : {};
     const { answer, ...safeQuestion } = question;
     if (safeQuestion.options && typeof safeQuestion.options === 'object') {
@@ -68,6 +68,7 @@ const getBase64Data = (dataUri: string) => {
 };
 
 export const onRequestPost: PagesFunction<Env> = async (context) => {
+  const requestReceivedAtMs = Date.now();
   const db = getDatabase(context);
     const { request, env } = context;
     const SECRET = await getDynamicSecret(db, env.JWT_SECRET);
@@ -113,7 +114,14 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             return new Response(JSON.stringify({ error: 'Mã phiên thi không hợp lệ hoặc đã hết hạn.' }), { status: 403, headers: corsHeaders });
         }
 
-        const { questionIds, teacherId, gradingSessionId, studentUserId: sessionStudentUserId } = decoded;
+        const {
+            questionIds, teacherId, gradingSessionId,
+            studentUserId: sessionStudentUserId,
+            studentName: sessionStudentName,
+            studentLop: sessionStudentLop,
+            studentDonvi: sessionStudentDonvi,
+            studentClass: sessionStudentClass
+        } = decoded;
         let examConfig: any = decoded.examConfig || {};
 
         // Verify session ownership BEFORE any replay/result lookup.
@@ -128,6 +136,14 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             authenticatedUserId = signedStudentUserId;
         } else if (!authHeader) {
             authenticatedUserId = null;
+        }
+
+        // Guest identity is frozen into the signed exam token at issue time.
+        // Never let the browser rename/reclassify the candidate at submission.
+        if (!signedStudentUserId) {
+            if (sessionStudentName !== undefined && sessionStudentName !== null) authenticatedStudentName = String(sessionStudentName);
+            if (sessionStudentLop !== undefined && sessionStudentLop !== null) authenticatedLop = String(sessionStudentLop);
+            if (sessionStudentDonvi !== undefined && sessionStudentDonvi !== null) authenticatedDonvi = String(sessionStudentDonvi);
         }
 
         // BẢO MẬT: claim token atomically BEFORE grading so two simultaneous
@@ -147,8 +163,8 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                 await db.prepare(sql).run();
             }
 
-            const existing: any = await db.prepare(
-                "SELECT token_hash, status, result_id FROM _submitted_exam_tokens WHERE token_hash = ?"
+            let existing: any = await db.prepare(
+                "SELECT token_hash, status, result_id, claimed_at FROM _submitted_exam_tokens WHERE token_hash = ?"
             ).bind(tokenHash).first();
             if (existing) {
                 if (existing.result_id) {
@@ -183,9 +199,27 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                         }), { status: 200, headers: corsHeaders });
                     }
                 }
-                return new Response(JSON.stringify({
-                    error: 'Phiên thi đang được xử lý hoặc đã được nộp trước đó. Hệ thống không tạo thêm bản ghi điểm.'
-                }), { status: 409, headers: corsHeaders });
+
+                // The atomic claim is taken only after all grading has completed, so a
+                // processing claim without a result for >120s is a crash residue, not
+                // legitimate long-running AI grading. Reclaim it with a compare-and-delete.
+                const claimedAtMs = Date.parse(String(existing.claimed_at || ''));
+                const staleProcessingClaim = existing.status === 'processing' &&
+                    Number.isFinite(claimedAtMs) && Date.now() - claimedAtMs > 120000;
+                if (staleProcessingClaim) {
+                    const released = await db.prepare(
+                        "DELETE FROM _submitted_exam_tokens WHERE token_hash = ? AND status = ? AND claimed_at = ? AND NOT EXISTS (SELECT 1 FROM results WHERE id = ?)"
+                    ).bind(tokenHash, 'processing', String(existing.claimed_at), String(existing.result_id || '')).run();
+                    if (Number(released?.meta?.changes || 0) === 1) {
+                        existing = null;
+                    }
+                }
+
+                if (existing) {
+                    return new Response(JSON.stringify({
+                        error: 'Phiên thi đang được xử lý hoặc đã được nộp trước đó. Hệ thống không tạo thêm bản ghi điểm.'
+                    }), { status: 409, headers: corsHeaders });
+                }
             }
 
             // Do not claim yet. All validation/grading errors above result persistence
@@ -200,6 +234,12 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         if (!Array.isArray(questionIds) || !Array.isArray(clientQuestions) || clientQuestions.length !== questionIds.length) {
             return new Response(JSON.stringify({ error: 'Danh sách câu hỏi không khớp với đề thi đã phát.' }), { status: 400, headers: corsHeaders });
         }
+        if (!Array.isArray(studentAnswers) || studentAnswers.length !== questionIds.length) {
+            return new Response(JSON.stringify({
+                error: 'Số lượng đáp án nộp lên không khớp chính xác số câu hỏi đã phát; hệ thống chưa chấm và chưa lưu kết quả.'
+            }), { status: 409, headers: corsHeaders });
+        }
+        let gradingAnswers: any[] = studentAnswers;
 
         // Khóa tuyệt đối quan hệ vị trí câu hỏi -> đáp án. Chỉ kiểm tra đủ số lượng là chưa đủ:
         // nếu client vô tình/ác ý đảo thứ tự câu hỏi thì đáp án có thể bị chấm sang câu khác.
@@ -239,21 +279,34 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             console.error('Error fetching aiKey', e);
         }
 
-        // 2. Grade against the immutable server-side snapshot issued with this session.
-        // Legacy sessions created before this release fall back to the live DB, but all new
-        // sessions must have a valid snapshot and fail closed if it is unavailable.
+        // 2. Grade only against the immutable server-side snapshot issued with this session.
+        // There is deliberately NO live-question-bank fallback: if the snapshot is unavailable
+        // or inconsistent, grading fails closed and no result is stored.
+        if (!gradingSessionId) {
+            return new Response(JSON.stringify({
+                error: 'Phiên thi không có snapshot chấm điểm bất biến; hệ thống từ chối chấm để không dùng đáp án có thể đã thay đổi.'
+            }), { status: 409, headers: corsHeaders });
+        }
+
         let trueQuestionsMap: Record<string | number, any> = {};
         let loadedFromSnapshot = false;
+        let serverStartedAtMs = 0;
         if (gradingSessionId) {
             try {
                 const snapshotRow: any = await db.prepare(
-                    'SELECT question_ids, question_snapshot, exam_config, expires_at FROM _exam_grade_sessions WHERE session_id = ?'
+                    'SELECT question_ids, question_snapshot, exam_config, started_at, expires_at FROM _exam_grade_sessions WHERE session_id = ?'
                 ).bind(String(gradingSessionId)).first();
                 if (!snapshotRow) {
                     return new Response(JSON.stringify({ error: 'Phiên chấm điểm không tồn tại hoặc đã được thu hồi.' }), { status: 409, headers: corsHeaders });
                 }
                 if (snapshotRow.expires_at && new Date(String(snapshotRow.expires_at)).getTime() < Date.now()) {
                     return new Response(JSON.stringify({ error: 'Phiên chấm điểm đã hết hạn.' }), { status: 409, headers: corsHeaders });
+                }
+                serverStartedAtMs = snapshotRow.started_at ? new Date(String(snapshotRow.started_at)).getTime() : 0;
+                if (!Number.isFinite(serverStartedAtMs) || serverStartedAtMs <= 0) {
+                    return new Response(JSON.stringify({
+                        error: 'Phiên thi chưa có mốc bắt đầu do máy chủ xác nhận; hệ thống chưa chấm và chưa lưu kết quả.'
+                    }), { status: 409, headers: corsHeaders });
                 }
                 const frozenIds = JSON.parse(String(snapshotRow.question_ids || '[]')).map((id: any) => String(id));
                 const issuedIds = (questionIds || []).map((id: any) => String(id));
@@ -292,27 +345,55 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         }
 
         if (!loadedFromSnapshot) {
+            return new Response(JSON.stringify({
+                error: 'Không thể xác minh snapshot chấm điểm bất biến; hệ thống chưa chấm và chưa lưu kết quả.'
+            }), { status: 409, headers: corsHeaders });
+        }
+
+        const signedLimitSeconds = Math.max(1, Math.floor(Number(decoded.timeLimitSeconds) || 1));
+        const elapsedByServer = Math.max(0, Math.floor((requestReceivedAtMs - serverStartedAtMs) / 1000));
+        let recoveredFromCheckpoint = false;
+
+        // If the final request reaches the server too late, never trust answers
+        // carried by that late request. Grade only the latest checkpoint that the
+        // server itself accepted before the deadline.
+        if (elapsedByServer > signedLimitSeconds) {
+            let checkpoint: any = null;
             try {
-                if (questionIds && questionIds.length > 0) {
-                    const placeholders = questionIds.map(() => '?').join(',');
-                    const { results: qRows } = await db.prepare(`SELECT * FROM questions WHERE id IN (${placeholders})`).bind(...questionIds).all();
-                    if (qRows && qRows.length > 0) {
-                        for (const row of qRows) {
-                            let parsedOptions = row.options;
-                            if (typeof parsedOptions === 'string') {
-                                try { parsedOptions = JSON.parse(parsedOptions); } catch { parsedOptions = {}; }
-                            }
-                            trueQuestionsMap[row.id as any] = {
-                                ...row,
-                                type: normalizeType(row.type),
-                                options: parsedOptions || {}
-                            };
-                        }
-                    }
-                }
-            } catch (e) {
-                console.error('Error fetching legacy live questions from DB', e);
+                checkpoint = await db.prepare(
+                    'SELECT question_ids, answers, saved_at FROM _exam_answer_checkpoints WHERE session_id = ?'
+                ).bind(String(gradingSessionId)).first();
+            } catch (_) {
+                checkpoint = null;
             }
+
+            if (!checkpoint) {
+                return new Response(JSON.stringify({
+                    code: 'SUBMISSION_AFTER_DEADLINE_NO_CHECKPOINT',
+                    error: 'Bài nộp đến máy chủ sau thời hạn và không có checkpoint hợp lệ trước giờ hết hạn; hệ thống chưa lưu điểm.'
+                }), { status: 409, headers: corsHeaders });
+            }
+
+            let checkpointIds: string[] = [];
+            let checkpointAnswers: any[] = [];
+            try {
+                checkpointIds = JSON.parse(String(checkpoint.question_ids || '[]')).map((id: any) => String(id));
+                checkpointAnswers = JSON.parse(String(checkpoint.answers || '[]'));
+            } catch (_) {
+                checkpointIds = [];
+                checkpointAnswers = [];
+            }
+            const checkpointSavedAtMs = Date.parse(String(checkpoint.saved_at || ''));
+            const deadlineMs = serverStartedAtMs + signedLimitSeconds * 1000;
+            if (!Number.isFinite(checkpointSavedAtMs) || checkpointSavedAtMs > deadlineMs ||
+                JSON.stringify(checkpointIds) !== JSON.stringify(issuedQuestionIds) ||
+                !Array.isArray(checkpointAnswers) || checkpointAnswers.length !== issuedQuestionIds.length) {
+                return new Response(JSON.stringify({
+                    error: 'Checkpoint trước hạn không hợp lệ hoặc không khớp đề đã phát; hệ thống chưa lưu điểm.'
+                }), { status: 409, headers: corsHeaders });
+            }
+            gradingAnswers = checkpointAnswers;
+            recoveredFromCheckpoint = true;
         }
 
         // Mọi câu phải tồn tại và có khóa đáp án hợp lệ trước khi tính bất kỳ điểm nào.
@@ -396,10 +477,10 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             const trueQ = trueQuestionsMap[trueQId] || trueQuestionsMap[String(trueQId)] || trueQuestionsMap[Number(trueQId)];
             
             if (!trueQ) {
-                return { question: q, userAnswer: studentAnswers[i], isCorrect: false, correctAnswer: '', needsGrading: false, score: 0, aiFeedback: 'Không tìm thấy dữ liệu gốc của câu hỏi.' };
+                return { question: q, userAnswer: gradingAnswers[i], isCorrect: false, correctAnswer: '', needsGrading: false, score: 0, aiFeedback: 'Không tìm thấy dữ liệu gốc của câu hỏi.' };
             }
 
-            const userAnswer = studentAnswers[i];
+            const userAnswer = gradingAnswers[i];
             const correctAnswer = trueQ.answer;
 
             let isCorrect = false;
@@ -578,11 +659,13 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
                                         continue;
                                     }
                                     const essayScore = roundScore(numericEssayScore, 2);
-                                    d.score = essayScore;
+                                    // AI semantic grading is advisory only. For an
+                                    // auditable final score, a teacher must confirm it.
+                                    d.aiSuggestedScore = essayScore;
+                                    d.score = 0;
                                     d.aiFeedback = typeof parsed?.feedback === 'string' ? parsed.feedback : '';
-                                    d.gradingStatus = 'completed';
-                                    d.needsGrading = false;
-                                    rawEarnedScore += essayScore;
+                                    d.gradingStatus = 'pending_manual_ai_suggested';
+                                    d.needsGrading = true;
                                     gradedSuccessfully = true;
                                     break;
                                 }
@@ -670,12 +753,8 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
         const correctCount = detailedResults.filter((d: any) => d.isCorrect && d.question.type !== 'TL').length;
 
         // Ranking time is server-authoritative. A browser cannot improve its
-        // tie-break position by sending a fake timeTaken value.
-        const issuedAtMs = Number(decoded.timestamp);
-        const signedLimitSeconds = Math.max(1, Math.floor(Number(decoded.timeLimitSeconds) || 1));
-        const elapsedByServer = Number.isFinite(issuedAtMs) && issuedAtMs > 0
-            ? Math.max(0, Math.floor((Date.now() - issuedAtMs) / 1000))
-            : signedLimitSeconds;
+        // tie-break position by sending a fake timeTaken value. Late recovery, when
+        // used, is always scored from the last on-time server checkpoint.
         const authoritativeTimeTaken = Math.min(signedLimitSeconds, elapsedByServer);
 
         // Claim immediately before persistence. Two concurrent requests may both
@@ -718,8 +797,8 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
                             correctCount: Number(stored.correct_count) || 0,
                             totalQuestions: Number(stored.total_questions) || 0,
                             cheatWarningCount: Number(stored.cheat_warning_count) || 0,
-                            gradingPending: hasPendingEssayGrading(storedDetails),
-                            scoreFinalized: !hasPendingEssayGrading(storedDetails),
+                            gradingPending: hasPendingEssayGrading(details),
+                            scoreFinalized: !hasPendingEssayGrading(details),
                             detailedResults: safeDetails,
                             alreadySubmitted: true
                         }), { status: 200, headers: corsHeaders });
@@ -776,9 +855,9 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
                 resultId,
                 authenticatedUserId || null,
                 authenticatedStudentName || studentInfo.name || '',
-                authenticatedDonvi || studentInfo.unit || '',
-                authenticatedLop || studentInfo.lop || '',
-                authenticatedDonvi || studentInfo.donvi || studentInfo.unit || '',
+                authenticatedLop || sessionStudentClass || studentInfo.studentClass || studentInfo.lop || '',
+                authenticatedLop || sessionStudentLop || studentInfo.lop || '',
+                authenticatedDonvi || sessionStudentDonvi || studentInfo.donvi || studentInfo.unit || '',
                 String(examConfig.name || studentInfo.examName || ''),
                 String(examConfig.id || studentInfo.examId || ''),
                 finalScore,
@@ -791,6 +870,16 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
                 new Date().toISOString()
             ).run();
             resultPersisted = true;
+
+            if (gradingSessionId) {
+                try {
+                    await db.prepare(
+                        "UPDATE _exam_attempt_slots SET completed_at = ?, result_id = ? WHERE session_id = ?"
+                    ).bind(new Date().toISOString(), resultId, String(gradingSessionId)).run();
+                } catch (slotErr) {
+                    console.warn('Could not finalize exam attempt slot metadata:', slotErr);
+                }
+            }
         } catch (dbErr) {
             console.error("Lỗi khi lưu kết quả bài thi vào CSDL:", dbErr);
             // Fail closed: never tell the student that submission succeeded if the
@@ -818,6 +907,12 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
 
         if (gradingSessionId) {
             try {
+                await db.prepare('DELETE FROM _exam_answer_checkpoints WHERE session_id = ?')
+                    .bind(String(gradingSessionId)).run();
+            } catch (checkpointCleanupErr) {
+                console.warn('Could not clean exam answer checkpoint:', checkpointCleanupErr);
+            }
+            try {
                 await db.prepare('DELETE FROM _exam_grade_sessions WHERE session_id = ?')
                     .bind(String(gradingSessionId)).run();
             } catch (cleanupErr) {
@@ -842,6 +937,7 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
             timeTaken: authoritativeTimeTaken,
             gradingPending: hasPendingEssayGrades,
             scoreFinalized: !hasPendingEssayGrades,
+            recoveredFromCheckpoint,
             detailedResults: clientDetailedResults
         }), {
             status: 200,

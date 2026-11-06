@@ -456,6 +456,9 @@ export const onRequestPut: PagesFunction<Env> = async (context) => {
       }
     }
 
+    const originalDetailsRaw = typeof stored.details === 'string'
+      ? stored.details
+      : JSON.stringify(stored.details || []);
     let storedDetails: any[] = [];
     try {
       storedDetails = Array.isArray(stored.details) ? stored.details : JSON.parse(String(stored.details || '[]'));
@@ -516,9 +519,23 @@ export const onRequestPut: PagesFunction<Env> = async (context) => {
       String(d?.question?.type || '').toUpperCase() !== 'TL' && d?.isCorrect === true
     ).length;
 
-    await db.prepare(
-      "UPDATE results SET score = ?, correct_count = ?, details = ? WHERE id = ?"
-    ).bind(canonicalScore, canonicalCorrectCount, JSON.stringify(updatedDetails), id).run();
+    const updateResult = await db.prepare(
+      "UPDATE results SET score = ?, correct_count = ?, details = ? WHERE id = ? AND details = ?"
+    ).bind(
+      canonicalScore,
+      canonicalCorrectCount,
+      JSON.stringify(updatedDetails),
+      id,
+      originalDetailsRaw
+    ).run();
+
+    if (Number(updateResult?.meta?.changes || 0) !== 1) {
+      return new Response(JSON.stringify({
+        error: "Bài thi vừa được chấm/sửa ở một phiên khác. Hệ thống không ghi đè; vui lòng tải lại dữ liệu mới nhất.",
+        code: "RESULT_GRADING_CONFLICT",
+        success: false
+      }), { status: 409, headers: corsHeaders });
+    }
 
     return new Response(JSON.stringify({
       success: true,

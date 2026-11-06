@@ -7,7 +7,12 @@ on:
       - 'src/student-exam-session-guard.js'
       - 'src/student-exam-background.js'
       - 'functions/api/exam/generate.ts'
+      - 'functions/api/exam/start.ts'
+      - 'functions/api/exam/checkpoint.ts'
+      - 'functions/api/exam/feedback.ts'
+      - 'functions/api/exam/grade.ts'
       - 'tests/student-exam-auto-submit-guard.test.mjs'
+      - 'tests/exam-grading-integrity.test.mjs'
       - '.github/workflows/student-exam-auto-submit-guard.yml'
   push:
     paths:
@@ -15,7 +20,12 @@ on:
       - 'src/student-exam-session-guard.js'
       - 'src/student-exam-background.js'
       - 'functions/api/exam/generate.ts'
+      - 'functions/api/exam/start.ts'
+      - 'functions/api/exam/checkpoint.ts'
+      - 'functions/api/exam/feedback.ts'
+      - 'functions/api/exam/grade.ts'
       - 'tests/student-exam-auto-submit-guard.test.mjs'
+      - 'tests/exam-grading-integrity.test.mjs'
       - '.github/workflows/student-exam-auto-submit-guard.yml'
 
 jobs:
@@ -29,5 +39,6 @@ jobs:
           cache: npm
       - run: npm ci
       - run: node --check src/main.js
-      - run: node --test tests/student-exam-auto-submit-guard.test.mjs
+      - run: node --test tests/student-exam-auto-submit-guard.test.mjs tests/exam-grading-integrity.test.mjs
+      - run: npm run lint
       - run: npm run build

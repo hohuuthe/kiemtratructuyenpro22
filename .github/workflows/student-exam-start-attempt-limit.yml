@@ -7,6 +7,7 @@ on:
       - 'src/student-exam-start-guard.js'
       - 'src/main.js'
       - 'functions/api/exam/generate.ts'
+      - 'functions/api/exam/start.ts'
       - 'server.ts'
       - 'tests/student-exam-start-attempt-limit.test.mjs'
       - '.github/workflows/student-exam-start-attempt-limit.yml'

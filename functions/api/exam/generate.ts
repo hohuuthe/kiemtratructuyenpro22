@@ -306,42 +306,35 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             : Number(activeExamConfig.max_attempts || activeExamConfig.maxAttempts || 0);
 
         if (maxAttemptsVal > 0 && !isAdmin && !isTeacher) {
-            const studentNameVal = (body.studentName || '').trim();
+            const studentNameVal = String(tokenUser?.full_name || tokenUser?.name || body.studentName || '').trim();
+            const studentLopVal = String(tokenUser?.lop || body.studentLop || body.userLop || '').trim();
+            const studentDonviVal = String(tokenUser?.donvi || tokenUser?.address || body.studentDonvi || body.userDonvi || '').trim();
             const studentUserIdVal = tokenUser?.user_id || tokenUser?.id || null;
             const targetExamIdStr = String(activeExamConfig.id || examId || '').trim();
-            const targetExamNameStr = String(activeExamConfig.name || examName || '').trim();
 
             let attemptCount = 0;
             try {
                 if (studentUserIdVal) {
-                    const { results: attempts } = await db.prepare(
-                        `SELECT COUNT(*) as count FROM results 
-                         WHERE (
-                             (exam_id IS NOT NULL AND (exam_id = ? OR CAST(exam_id AS TEXT) = ? OR LOWER(TRIM(exam_id)) = LOWER(TRIM(?))))
-                             OR 
-                             (exam_name IS NOT NULL AND (exam_name = ? OR LOWER(TRIM(exam_name)) = LOWER(TRIM(?))))
-                         ) AND (
-                             (user_id IS NOT NULL AND (user_id = ? OR user_id = ?))
-                             OR
-                             (student_name IS NOT NULL AND LOWER(TRIM(student_name)) = LOWER(TRIM(?)))
-                         )`
-                    ).bind(targetExamIdStr, targetExamIdStr, targetExamIdStr, targetExamNameStr, targetExamNameStr, String(studentUserIdVal), String(studentUserIdVal), studentNameVal).all();
-                    attemptCount = Number((attempts?.[0] as any)?.count || (attempts?.[0] as any)?.['COUNT(*)'] || 0);
+                    const row: any = await db.prepare(
+                        'SELECT COUNT(*) AS count FROM results WHERE exam_id = ? AND user_id = ?'
+                    ).bind(targetExamIdStr, String(studentUserIdVal)).first();
+                    attemptCount = Math.max(0, Number(row?.count || 0));
                 } else {
-                    const { results: attempts } = await db.prepare(
-                        `SELECT COUNT(*) as count FROM results 
-                         WHERE (
-                             (exam_id IS NOT NULL AND (exam_id = ? OR CAST(exam_id AS TEXT) = ? OR LOWER(TRIM(exam_id)) = LOWER(TRIM(?))))
-                             OR 
-                             (exam_name IS NOT NULL AND (exam_name = ? OR LOWER(TRIM(exam_name)) = LOWER(TRIM(?))))
-                         ) AND (
-                             student_name IS NOT NULL AND LOWER(TRIM(student_name)) = LOWER(TRIM(?))
-                         )`
-                    ).bind(targetExamIdStr, targetExamIdStr, targetExamIdStr, targetExamNameStr, targetExamNameStr, studentNameVal).all();
-                    attemptCount = Number((attempts?.[0] as any)?.count || (attempts?.[0] as any)?.['COUNT(*)'] || 0);
+                    const row: any = await db.prepare(
+                        `SELECT COUNT(*) AS count
+                           FROM results
+                          WHERE exam_id = ?
+                            AND LOWER(TRIM(student_name)) = LOWER(TRIM(?))
+                            AND LOWER(TRIM(COALESCE(lop, ''))) = LOWER(TRIM(?))
+                            AND LOWER(TRIM(COALESCE(don_vi, ''))) = LOWER(TRIM(?))`
+                    ).bind(targetExamIdStr, studentNameVal, studentLopVal, studentDonviVal).first();
+                    attemptCount = Math.max(0, Number(row?.count || 0));
                 }
             } catch(err) {
                 console.error("Lỗi kiểm tra số lần làm bài:", err);
+                return new Response(JSON.stringify({
+                    error: 'Không thể xác minh chính xác số lượt làm bài đã sử dụng; hệ thống chưa phát đề để tránh tính sai quyền lợi học sinh.'
+                }), { status: 503, headers: corsHeaders });
             }
 
             if (attemptCount >= maxAttemptsVal) {
@@ -571,13 +564,25 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         const questionIds: any[] = [];
         const clientQuestions = selectedQuestions.map((q) => {
             questionIds.push(q.id);
-            if (isImmediateFeedback) {
-                // Giữ nguyên đáp án để thí sinh biết đúng/sai ngay lập tức khi làm bài
-                return { ...q };
-            }
-            const { answer, ...qWithoutAnswer } = q;
-            if (qWithoutAnswer.options && qWithoutAnswer.options.answerImage) {
-                const { answerImage, ...opts } = qWithoutAnswer.options;
+            // Tuyệt đối không gửi khóa đáp án xuống trình duyệt, kể cả khi bật
+            // phản hồi tức thời. Phản hồi đúng/sai được xác minh từ snapshot ở server.
+            const {
+                answer,
+                correctAnswer: questionCorrectAnswer,
+                answerKey,
+                correct_option: questionCorrectOption,
+                ...qWithoutAnswer
+            } = q;
+            if (qWithoutAnswer.options && typeof qWithoutAnswer.options === 'object') {
+                const {
+                    answerImage,
+                    correctAnswer: optionCorrectAnswer,
+                    answer: optionAnswer,
+                    answerKey: optionAnswerKey,
+                    correctOption: optionCorrectOption,
+                    correct_option: optionCorrectOptionSnake,
+                    ...opts
+                } = qWithoutAnswer.options;
                 qWithoutAnswer.options = opts;
             }
             return qWithoutAnswer;
@@ -606,9 +611,15 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                     question_snapshot TEXT NOT NULL,
                     exam_config TEXT NOT NULL,
                     created_at TEXT NOT NULL,
+                    started_at TEXT,
                     expires_at TEXT NOT NULL
                 )
             `).run();
+            try {
+                await db.prepare('ALTER TABLE _exam_grade_sessions ADD COLUMN IF NOT EXISTS started_at TEXT').run();
+            } catch (schemaErr) {
+                console.warn('Could not ensure grading session started_at column:', schemaErr);
+            }
             // Best-effort cleanup keeps the ephemeral snapshot table bounded.
             try {
                 await db.prepare('DELETE FROM _exam_grade_sessions WHERE expires_at < ?')
@@ -641,12 +652,30 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         // Strip those fields from the readable JWT returned to the browser.
         const { aiPrompt: _aiPrompt, ai_prompt: _aiPromptSnake, ...tokenGradeSessionConfig } = gradeSessionConfig;
 
+        const issuedStudentName = String(
+            tokenUser?.full_name || tokenUser?.name || body.studentName || ''
+        ).trim();
+        const issuedStudentLop = String(
+            tokenUser?.lop || body.studentLop || body.userLop || ''
+        ).trim();
+        const issuedStudentDonvi = String(
+            tokenUser?.donvi || tokenUser?.address || body.studentDonvi || body.userDonvi || ''
+        ).trim();
+        const issuedStudentClass = String(
+            body.studentClass || issuedStudentLop || issuedStudentDonvi || ''
+        ).trim();
+
         const payload = {
             questionIds,
             gradingSessionId,
             studentUserId: tokenUser?.user_id || tokenUser?.id || null,
+            studentName: issuedStudentName,
+            studentLop: issuedStudentLop,
+            studentDonvi: issuedStudentDonvi,
+            studentClass: issuedStudentClass,
             examConfig: tokenGradeSessionConfig,
             maxCheatWarnings: maxCheatWarningsFromDB,
+            maxAttempts: Number.isFinite(maxAttemptsVal) && maxAttemptsVal > 0 ? Math.floor(maxAttemptsVal) : 0,
             timeLimitSeconds,
             teacherId: effectiveTeacherId,
             timestamp: Date.now(),

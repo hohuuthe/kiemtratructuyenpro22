@@ -74,7 +74,11 @@ test('server freezes authoritative exam duration into the generated session', ()
 test('main exam flow binds timer and delayed anti-cheat submit to the current session', () => {
   const main = readFileSync('src/main.js', 'utf8');
   assert.match(main, /startTime:\s*null,[\s\S]{0,500}sessionId:\s*createExamSessionId\(\)/);
-  assert.match(main, /currentExam\.startTime\s*=\s*Date\.now\(\);[\s\S]{0,700}timeLimitSeconds[\s\S]{0,700}startTimer\(\)/);
+  assert.match(main, /const serverElapsedSeconds = Math\.max\(0, Number\(currentExam\.serverElapsedSeconds\) \|\| 0\)/);
+  assert.match(main, /currentExam\.startTime = Date\.now\(\) - Math\.round\(serverElapsedSeconds \* 1000\)/);
+  assert.match(main, /currentExam\.startTick = [\s\S]{0,220}performance\.now\(\) - \(serverElapsedSeconds \* 1000\)/);
+  assert.match(main, /currentExam\.serverStartedAt = startResult\.startedAt/);
+  assert.match(main, /startExamUI\(\)[\s\S]{0,2200}startTimer\(\)/);
   assert.match(main, /const frozenSeconds = Number\(currentExam\?\.timeLimitSeconds\)/);
   assert.match(main, /remainingExamSecondsMonotonic/);
   assert.match(main, /currentExam\.startTick/);
