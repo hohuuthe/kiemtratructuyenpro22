@@ -45,48 +45,6 @@ const getBase64Data = (dataUri: string) => {
     } catch (e) { return null; }
 };
 
-function getTF4Expected(corrAns: string, opt: string): boolean {
-    const raw = String(corrAns || '').trim();
-    if (!raw) return false;
-    
-    // Format "A:Đ&B:S..." or "A=1, B=0..." or "A: True..."
-    const match = raw.match(new RegExp(`${opt}[:=]\\s*([A-Za-zĐđ0-9]+)`, 'i'));
-    if (match) {
-        const val = match[1].toUpperCase();
-        return val === 'D' || val === 'Đ' || val === 'ĐÚNG' || val === 'DUNG' || val === 'T' || val === 'TRUE' || val === '1';
-    }
-
-    // Split by & or , or ;
-    const parts = raw.split(/[&,;\/]+/).map(p => p.trim()).filter(Boolean);
-    
-    // If format is list of True options: ["A", "B"]
-    if (parts.length > 0 && parts.every(p => ['A', 'B', 'C', 'D'].includes(p.toUpperCase()))) {
-        return parts.map(p => p.toUpperCase()).includes(opt.toUpperCase());
-    }
-
-    // If format is exactly 4 values in order [A, B, C, D]: ["Đ", "S", "Đ", "S"]
-    if (parts.length === 4) {
-        const idx = ['A', 'B', 'C', 'D'].indexOf(opt.toUpperCase());
-        if (idx >= 0) {
-            const val = parts[idx].toUpperCase();
-            return val === 'D' || val === 'Đ' || val === 'ĐÚNG' || val === 'DUNG' || val === 'T' || val === 'TRUE' || val === '1';
-        }
-    }
-
-    return parts.map(p => p.toUpperCase()).includes(opt.toUpperCase());
-}
-
-function isTF4UserOptTrue(uAns: any, opt: string): boolean {
-    if (!uAns || typeof uAns !== 'object') return false;
-    const val = uAns[opt] ?? uAns[opt.toUpperCase()] ?? uAns[opt.toLowerCase()];
-    if (val === true || val === 1 || val === '1') return true;
-    if (typeof val === 'string') {
-        const u = val.trim().toUpperCase();
-        return u === 'D' || u === 'Đ' || u === 'ĐÚNG' || u === 'DUNG' || u === 'T' || u === 'TRUE' || u === '1';
-    }
-    return false;
-}
-
 export const onRequestPost: PagesFunction<Env> = async (context) => {
   const db = getDatabase(context);
     const { request, env } = context;
