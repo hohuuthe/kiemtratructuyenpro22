@@ -265,3 +265,39 @@ test('third audit: grading validates signed point precision and custom TF4 map',
   assert.match(grade, /const customTf4Mode = examFlagEnabled/);
   assert.match(grade, /Bảng điểm Đúng\/Sai tùy chỉnh không hợp lệ; hệ thống chưa lưu kết quả/);
 });
+
+
+test('final hardening: SQ recognizes only safe numeric equivalence', () => {
+  const opts = {caseSensitive:false, punctuationSensitive:false};
+  assert.equal(isShortAnswerCorrect('1.50', '1.5', opts), true);
+  assert.equal(isShortAnswerCorrect('+2', '2', opts), true);
+  assert.equal(isShortAnswerCorrect('1/2', '0.5', opts), true);
+  assert.equal(isShortAnswerCorrect('1e-3', '0.001', opts), true);
+  assert.equal(isShortAnswerCorrect('2/0', '0', opts), false);
+  assert.equal(isShortAnswerCorrect('1+1', '2', opts), false);
+  assert.equal(isShortAnswerCorrect('Math.random()', '0.5', opts), false);
+  assert.equal(isShortAnswerCorrect('1,5', '1.5', {caseSensitive:false,punctuationSensitive:true}), false);
+});
+
+test('final hardening: custom essay prompt is frozen and AI invalid scores never become completed zero', () => {
+  const security = fs.readFileSync(new URL('../functions/api/exam/security.ts', import.meta.url), 'utf8');
+  const grade = fs.readFileSync(new URL('../functions/api/exam/grade.ts', import.meta.url), 'utf8');
+  assert.match(security, /'aiPrompt','ai_prompt'/);
+  assert.match(grade, /const teacherPrompt = String/);
+  assert.match(grade, /examConfig\.aiPrompt \?\? examConfig\.ai_prompt/);
+  assert.match(grade, /Number\.isFinite\(numericEssayScore\)/);
+  assert.match(grade, /numericEssayScore < 0 \|\| numericEssayScore > pTL/);
+  assert.match(grade, /gradingStatus = 'pending_manual'/);
+  assert.match(grade, /scoreFinalized: !hasPendingEssayGrades/);
+  assert.doesNotMatch(grade, /const essayScore = clampScore\(parsed\.score, pTL\)/);
+});
+
+test('final hardening: manual essay updates bind exact question IDs and reject invalid scores', () => {
+  const results = fs.readFileSync(new URL('../functions/api/results.ts', import.meta.url), 'utf8');
+  assert.match(results, /storedQuestionId/);
+  assert.match(results, /incomingQuestionId/);
+  assert.match(results, /storedQuestionId !== incomingQuestionId/);
+  assert.match(results, /!Number\.isFinite\(requestedScore\)/);
+  assert.match(results, /requestedScore < 0 \|\| requestedScore > maxScore/);
+  assert.match(results, /gradingStatus: 'completed_manual'/);
+});
