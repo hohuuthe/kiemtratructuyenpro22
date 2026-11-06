@@ -832,6 +832,16 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
                 new Date().toISOString()
             ).run();
             resultPersisted = true;
+
+            if (gradingSessionId) {
+                try {
+                    await db.prepare(
+                        "UPDATE _exam_attempt_slots SET completed_at = ?, result_id = ? WHERE session_id = ?"
+                    ).bind(new Date().toISOString(), resultId, String(gradingSessionId)).run();
+                } catch (slotErr) {
+                    console.warn('Could not finalize exam attempt slot metadata:', slotErr);
+                }
+            }
         } catch (dbErr) {
             console.error("Lỗi khi lưu kết quả bài thi vào CSDL:", dbErr);
             // Fail closed: never tell the student that submission succeeded if the
