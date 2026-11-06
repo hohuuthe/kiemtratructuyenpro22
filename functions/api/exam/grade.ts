@@ -352,13 +352,12 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
         const signedLimitSeconds = Math.max(1, Math.floor(Number(decoded.timeLimitSeconds) || 1));
         const elapsedByServer = Math.max(0, Math.floor((requestReceivedAtMs - serverStartedAtMs) / 1000));
-        const submissionTransportGraceSeconds = 15;
         let recoveredFromCheckpoint = false;
 
         // If the final request reaches the server too late, never trust answers
         // carried by that late request. Grade only the latest checkpoint that the
         // server itself accepted before the deadline.
-        if (elapsedByServer > signedLimitSeconds + submissionTransportGraceSeconds) {
+        if (elapsedByServer > signedLimitSeconds) {
             let checkpoint: any = null;
             try {
                 checkpoint = await db.prepare(
