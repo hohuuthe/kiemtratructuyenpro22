@@ -166,6 +166,160 @@ export function normalizeShortAnswer(value, options = {}) {
   return text;
 }
 
+function parseFiniteNumericShortAnswer(value) {
+  let text = normalizeUnicodeMath(String(value ?? '').trim())
+    .replace(/\s+/g, '')
+    .replace(/(\d),(\d)/g, '$1.$2');
+  if (!text) return null;
+
+  const numeric = '[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?';
+  const fractionMatch = text.match(new RegExp('^(' + numeric + ')\\/(' + numeric + ')
+export function clampScore(value, maxScore) {
+  const score = Number(value);
+  const max = Number(maxScore);
+  const safeScore = Number.isFinite(score) ? score : 0;
+  const safeMax = Number.isFinite(max) && max >= 0 ? max : 0;
+  return Math.max(0, Math.min(safeMax, safeScore));
+}
+
+export function roundScore(value, digits = 2) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 0;
+  const factor = Math.pow(10, digits);
+  return Math.round((number + Number.EPSILON) * factor) / factor;
+}
+
+
+export function normalizeQuestionType(type) {
+  const t = String(type ?? '').trim().toLowerCase();
+  if (['4-1','trac_nghiem','mcq'].includes(t)) return '4-1';
+  if (['tf4','dung_sai','true_false'].includes(t)) return 'TF4';
+  if (['sq','tra_loi_ngan','short_answer'].includes(t)) return 'SQ';
+  if (['tl','tu_luan','essay'].includes(t)) return 'TL';
+  return '';
+}
+
+/**
+ * Validate an answer key before it can enter the question bank.
+ * This prevents malformed keys from reaching exam generation/grading.
+ */
+export function validateQuestionAnswer(type, answer, options = {}) {
+  const normalizedType = normalizeQuestionType(type);
+  const raw = String(answer ?? '').trim();
+
+  if (!normalizedType) return { ok: false, reason: 'Loại câu hỏi không hợp lệ.' };
+
+  if (normalizedType === '4-1') {
+    const value = raw.toUpperCase();
+    return /^[ABCD]$/.test(value)
+      ? { ok: true, value }
+      : { ok: false, reason: 'Đáp án trắc nghiệm phải là đúng một ký tự A, B, C hoặc D.' };
+  }
+
+  if (normalizedType === 'TF4') {
+    return parseTF4CorrectAnswer(raw)
+      ? { ok: true, value: raw }
+      : { ok: false, reason: 'Đáp án Đúng/Sai phải xác định đầy đủ trạng thái A-D hoặc danh sách các ý đúng hợp lệ.' };
+  }
+
+  if (normalizedType === 'SQ') {
+    return raw
+      ? { ok: true, value: raw }
+      : { ok: false, reason: 'Câu trả lời ngắn bắt buộc phải có đáp án.' };
+  }
+
+  const answerImage = options && typeof options === 'object' ? String(options.answerImage ?? '').trim() : '';
+  return raw || answerImage
+    ? { ok: true, value: raw }
+    : { ok: false, reason: 'Câu tự luận phải có hướng dẫn chấm bằng văn bản hoặc hình ảnh đáp án.' };
+}
+));
+  if (fractionMatch) {
+    const numerator = Number(fractionMatch[1]);
+    const denominator = Number(fractionMatch[2]);
+    if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator === 0) return null;
+    const result = numerator / denominator;
+    return Number.isFinite(result) ? result : null;
+  }
+
+  if (!new RegExp('^' + numeric + '
+export function clampScore(value, maxScore) {
+  const score = Number(value);
+  const max = Number(maxScore);
+  const safeScore = Number.isFinite(score) ? score : 0;
+  const safeMax = Number.isFinite(max) && max >= 0 ? max : 0;
+  return Math.max(0, Math.min(safeMax, safeScore));
+}
+
+export function roundScore(value, digits = 2) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 0;
+  const factor = Math.pow(10, digits);
+  return Math.round((number + Number.EPSILON) * factor) / factor;
+}
+
+
+export function normalizeQuestionType(type) {
+  const t = String(type ?? '').trim().toLowerCase();
+  if (['4-1','trac_nghiem','mcq'].includes(t)) return '4-1';
+  if (['tf4','dung_sai','true_false'].includes(t)) return 'TF4';
+  if (['sq','tra_loi_ngan','short_answer'].includes(t)) return 'SQ';
+  if (['tl','tu_luan','essay'].includes(t)) return 'TL';
+  return '';
+}
+
+/**
+ * Validate an answer key before it can enter the question bank.
+ * This prevents malformed keys from reaching exam generation/grading.
+ */
+export function validateQuestionAnswer(type, answer, options = {}) {
+  const normalizedType = normalizeQuestionType(type);
+  const raw = String(answer ?? '').trim();
+
+  if (!normalizedType) return { ok: false, reason: 'Loại câu hỏi không hợp lệ.' };
+
+  if (normalizedType === '4-1') {
+    const value = raw.toUpperCase();
+    return /^[ABCD]$/.test(value)
+      ? { ok: true, value }
+      : { ok: false, reason: 'Đáp án trắc nghiệm phải là đúng một ký tự A, B, C hoặc D.' };
+  }
+
+  if (normalizedType === 'TF4') {
+    return parseTF4CorrectAnswer(raw)
+      ? { ok: true, value: raw }
+      : { ok: false, reason: 'Đáp án Đúng/Sai phải xác định đầy đủ trạng thái A-D hoặc danh sách các ý đúng hợp lệ.' };
+  }
+
+  if (normalizedType === 'SQ') {
+    return raw
+      ? { ok: true, value: raw }
+      : { ok: false, reason: 'Câu trả lời ngắn bắt buộc phải có đáp án.' };
+  }
+
+  const answerImage = options && typeof options === 'object' ? String(options.answerImage ?? '').trim() : '';
+  return raw || answerImage
+    ? { ok: true, value: raw }
+    : { ok: false, reason: 'Câu tự luận phải có hướng dẫn chấm bằng văn bản hoặc hình ảnh đáp án.' };
+}
+).test(text)) return null;
+  const number = Number(text);
+  return Number.isFinite(number) ? number : null;
+}
+
+function numericShortAnswersEqual(left, right, tolerance = 0) {
+  const a = parseFiniteNumericShortAnswer(left);
+  const b = parseFiniteNumericShortAnswer(right);
+  if (a === null || b === null) return false;
+
+  const configuredTolerance = Number(tolerance);
+  const safeTolerance = Number.isFinite(configuredTolerance) && configuredTolerance >= 0
+    ? configuredTolerance
+    : 0;
+  const machineTolerance = Number.EPSILON * 16 * Math.max(1, Math.abs(a), Math.abs(b));
+  return Math.abs(a - b) <= Math.max(safeTolerance, machineTolerance);
+}
+
 export function isShortAnswerCorrect(userAnswer, correctAnswer, options = {}) {
   const user = normalizeShortAnswer(userAnswer, options);
   if (!user) return false;
@@ -179,7 +333,15 @@ export function isShortAnswerCorrect(userAnswer, correctAnswer, options = {}) {
     .filter(Boolean);
 
   if (rawAlternatives.length === 0) return false;
-  return rawAlternatives.some(answer => normalizeShortAnswer(answer, options) === user);
+  return rawAlternatives.some(answer => {
+    if (normalizeShortAnswer(answer, options) === user) return true;
+
+    // Numeric equivalence is intentionally conservative: only finite decimal/scientific
+    // literals and one simple fraction are accepted. No eval, no arbitrary expressions.
+    // Punctuation-sensitive mode remains exact by design.
+    if (options.punctuationSensitive || options.numericEquivalent === false) return false;
+    return numericShortAnswersEqual(userAnswer, answer, options.numericTolerance ?? 0);
+  });
 }
 
 export function clampScore(value, maxScore) {
