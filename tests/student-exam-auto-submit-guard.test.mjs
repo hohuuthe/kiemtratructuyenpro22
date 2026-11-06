@@ -152,6 +152,11 @@ test('new sessions cannot be graded before activation and late grading uses serv
   assert.match(generate, /evaluateExamAccessWindow/);
   assert.match(start, /EXAM_SESSION_PURPOSE_ACTIVE/);
   assert.match(start, /SET started_at = \?, deadline_at = \?, expires_at = \?/);
+  assert.match(start, /const proposedStartedAtMs = Date\.now\(\)/);
+  assert.ok(
+    start.indexOf('CREATE TABLE IF NOT EXISTS _exam_answer_drafts') < start.indexOf('const proposedStartedAtMs = Date.now()'),
+    'baseline draft must be prepared before student clock starts'
+  );
   assert.match(start, /WHERE session_id = \? AND started_at IS NULL/);
   assert.match(start, /deadline_at IS NULL/);
   assert.match(start, /activeExpiresAtMs = deadlineAtMs \+ 60 \* 60 \* 1000/);
