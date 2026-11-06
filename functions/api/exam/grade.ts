@@ -1,4 +1,5 @@
 import { verifyAuthSession, verifyJWT, getDynamicSecret, hashToken, getDatabase } from './utils';
+import { evaluateTF4, isShortAnswerCorrect, examFlagEnabled, clampScore, roundScore } from '../../../src/exam-grading-core.js';
 
 interface Env {
   NEON_DATABASE_URL?: string;
@@ -43,48 +44,6 @@ const getBase64Data = (dataUri: string) => {
         };
     } catch (e) { return null; }
 };
-
-function getTF4Expected(corrAns: string, opt: string): boolean {
-    const raw = String(corrAns || '').trim();
-    if (!raw) return false;
-    
-    // Format "A:Đ&B:S..." or "A=1, B=0..." or "A: True..."
-    const match = raw.match(new RegExp(`${opt}[:=]\\s*([A-Za-zĐđ0-9]+)`, 'i'));
-    if (match) {
-        const val = match[1].toUpperCase();
-        return val === 'D' || val === 'Đ' || val === 'ĐÚNG' || val === 'DUNG' || val === 'T' || val === 'TRUE' || val === '1';
-    }
-
-    // Split by & or , or ;
-    const parts = raw.split(/[&,;\/]+/).map(p => p.trim()).filter(Boolean);
-    
-    // If format is list of True options: ["A", "B"]
-    if (parts.length > 0 && parts.every(p => ['A', 'B', 'C', 'D'].includes(p.toUpperCase()))) {
-        return parts.map(p => p.toUpperCase()).includes(opt.toUpperCase());
-    }
-
-    // If format is exactly 4 values in order [A, B, C, D]: ["Đ", "S", "Đ", "S"]
-    if (parts.length === 4) {
-        const idx = ['A', 'B', 'C', 'D'].indexOf(opt.toUpperCase());
-        if (idx >= 0) {
-            const val = parts[idx].toUpperCase();
-            return val === 'D' || val === 'Đ' || val === 'ĐÚNG' || val === 'DUNG' || val === 'T' || val === 'TRUE' || val === '1';
-        }
-    }
-
-    return parts.map(p => p.toUpperCase()).includes(opt.toUpperCase());
-}
-
-function isTF4UserOptTrue(uAns: any, opt: string): boolean {
-    if (!uAns || typeof uAns !== 'object') return false;
-    const val = uAns[opt] ?? uAns[opt.toUpperCase()] ?? uAns[opt.toLowerCase()];
-    if (val === true || val === 1 || val === '1') return true;
-    if (typeof val === 'string') {
-        const u = val.trim().toUpperCase();
-        return u === 'D' || u === 'Đ' || u === 'ĐÚNG' || u === 'DUNG' || u === 'T' || u === 'TRUE' || u === '1';
-    }
-    return false;
-}
 
 export const onRequestPost: PagesFunction<Env> = async (context) => {
   const db = getDatabase(context);
@@ -147,7 +106,8 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             console.error('Error checking submitted token:', tokErr);
         }
 
-        const { questionIds, examConfig = {}, teacherId } = decoded;
+        const { questionIds, teacherId, gradingSessionId } = decoded;
+        let examConfig: any = decoded.examConfig || {};
 
         if (!questionIds || clientQuestions.length !== questionIds.length) {
             return new Response(JSON.stringify({ error: 'Danh sách câu hỏi không khớp với đề thi đã phát.' }), { status: 400, headers: corsHeaders });
@@ -185,47 +145,72 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             console.error('Error fetching aiKey', e);
         }
 
-        // 2. Truy xuất câu hỏi gốc từ DB chính xác 100% bằng questionIds
+        // 2. Grade against the immutable server-side snapshot issued with this session.
+        // Legacy sessions created before this release fall back to the live DB, but all new
+        // sessions must have a valid snapshot and fail closed if it is unavailable.
         let trueQuestionsMap: Record<string | number, any> = {};
-        try {
-            if (questionIds && questionIds.length > 0) {
-                const placeholders = questionIds.map(() => '?').join(',');
-                const { results: qRows } = await db.prepare(`SELECT * FROM questions WHERE id IN (${placeholders})`).bind(...questionIds).all();
-                if (qRows && qRows.length > 0) {
-                    for (const row of qRows) {
-                        let parsedOptions = row.options;
-                        if (typeof parsedOptions === 'string') {
-                            try { parsedOptions = JSON.parse(parsedOptions); } catch (e) { parsedOptions = {}; }
-                        }
-                        trueQuestionsMap[row.id as any] = {
-                            ...row,
-                            type: normalizeType(row.type),
-                            options: parsedOptions || {}
-                        };
-                    }
+        let loadedFromSnapshot = false;
+        if (gradingSessionId) {
+            try {
+                const snapshotRow: any = await db.prepare(
+                    'SELECT question_ids, question_snapshot, exam_config, expires_at FROM _exam_grade_sessions WHERE session_id = ?'
+                ).bind(String(gradingSessionId)).first();
+                if (!snapshotRow) {
+                    return new Response(JSON.stringify({ error: 'Phiên chấm điểm không tồn tại hoặc đã được thu hồi.' }), { status: 409, headers: corsHeaders });
                 }
+                if (snapshotRow.expires_at && new Date(String(snapshotRow.expires_at)).getTime() < Date.now()) {
+                    return new Response(JSON.stringify({ error: 'Phiên chấm điểm đã hết hạn.' }), { status: 409, headers: corsHeaders });
+                }
+                const frozenIds = JSON.parse(String(snapshotRow.question_ids || '[]')).map((id: any) => String(id));
+                const issuedIds = (questionIds || []).map((id: any) => String(id));
+                if (JSON.stringify(frozenIds) !== JSON.stringify(issuedIds)) {
+                    return new Response(JSON.stringify({ error: 'Danh sách câu hỏi của phiên thi không khớp snapshot chấm điểm.' }), { status: 409, headers: corsHeaders });
+                }
+                const frozenQuestions = JSON.parse(String(snapshotRow.question_snapshot || '[]'));
+                if (!Array.isArray(frozenQuestions) || frozenQuestions.length !== issuedIds.length) {
+                    return new Response(JSON.stringify({ error: 'Snapshot chấm điểm không đầy đủ.' }), { status: 409, headers: corsHeaders });
+                }
+                examConfig = JSON.parse(String(snapshotRow.exam_config || '{}')) || {};
+                for (const row of frozenQuestions) {
+                    let parsedOptions = row.options;
+                    if (typeof parsedOptions === 'string') {
+                        try { parsedOptions = JSON.parse(parsedOptions); } catch { parsedOptions = {}; }
+                    }
+                    trueQuestionsMap[row.id as any] = {
+                        ...row,
+                        type: normalizeType(row.type),
+                        options: parsedOptions || {}
+                    };
+                }
+                loadedFromSnapshot = true;
+            } catch (e: any) {
+                console.error('Error loading grading snapshot', e);
+                return new Response(JSON.stringify({ error: 'Không thể xác minh snapshot chấm điểm của phiên thi.' }), { status: 503, headers: corsHeaders });
             }
+        }
 
-            // Fallback nếu có ID câu hỏi chưa tìm thấy
-            const missingIds = questionIds.filter((qid: any) => !trueQuestionsMap[qid] && !trueQuestionsMap[String(qid)] && !trueQuestionsMap[Number(qid)]);
-            if (missingIds.length > 0 && teacherId) {
-                const { results: fallbackQs } = await db.prepare('SELECT * FROM questions WHERE creator_id = ?').bind(teacherId).all();
-                if (fallbackQs && fallbackQs.length > 0) {
-                    for (const row of fallbackQs) {
-                        let parsedOptions = row.options;
-                        if (typeof parsedOptions === 'string') {
-                            try { parsedOptions = JSON.parse(parsedOptions); } catch (e) { parsedOptions = {}; }
+        if (!loadedFromSnapshot) {
+            try {
+                if (questionIds && questionIds.length > 0) {
+                    const placeholders = questionIds.map(() => '?').join(',');
+                    const { results: qRows } = await db.prepare(`SELECT * FROM questions WHERE id IN (${placeholders})`).bind(...questionIds).all();
+                    if (qRows && qRows.length > 0) {
+                        for (const row of qRows) {
+                            let parsedOptions = row.options;
+                            if (typeof parsedOptions === 'string') {
+                                try { parsedOptions = JSON.parse(parsedOptions); } catch { parsedOptions = {}; }
+                            }
+                            trueQuestionsMap[row.id as any] = {
+                                ...row,
+                                type: normalizeType(row.type),
+                                options: parsedOptions || {}
+                            };
                         }
-                        trueQuestionsMap[row.id as any] = {
-                            ...row,
-                            type: normalizeType(row.type),
-                            options: parsedOptions || {}
-                        };
                     }
                 }
+            } catch (e) {
+                console.error('Error fetching legacy live questions from DB', e);
             }
-        } catch (e) {
-            console.error('Error fetching real questions from DB', e);
         }
 
         // Parse tf4 points configuration
@@ -263,35 +248,18 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                 const c = String(correctAnswer || '').trim().toUpperCase();
                 isCorrect = (u !== '' && u === c);
             } else if (trueQ.type === 'TF4') {
-                let tf4CorrectCount = 0;
-                ['A', 'B', 'C', 'D'].forEach(opt => {
-                    if (getTF4Expected(correctAnswer, opt) === isTF4UserOptTrue(userAnswer, opt)) {
-                        tf4CorrectCount++;
-                    }
-                });
-                isCorrect = (tf4CorrectCount === 4);
+                const tf4 = evaluateTF4(correctAnswer, userAnswer);
+                if (!tf4.validKey) {
+                    throw new Error(`Đáp án Đúng/Sai của câu hỏi ${trueQ.id} không hợp lệ.`);
+                }
+                isCorrect = tf4.allCorrect;
             } else if (trueQ.type === 'SQ') {
-                let u = String(userAnswer || '').trim();
-                let c = String(correctAnswer || '').trim();
-                
-                const isCaseSensitive = examConfig.sqCaseSensitive ?? examConfig.sq_case_sensitive ?? false;
-                const isPunctuationSensitive = examConfig.sqPunctuationSensitive ?? examConfig.sq_punctuation_sensitive ?? false;
-
-                if (!isCaseSensitive) {
-                    u = u.toLowerCase();
-                    c = c.toLowerCase();
-                }
-                if (!isPunctuationSensitive) {
-                    u = u.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g, "").replace(/\s+/g, " ").trim();
-                    c = c.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g, "").replace(/\s+/g, " ").trim();
-                }
-
-                const acceptableAnswers = c.split(/[|;]+/).map(a => a.trim()).filter(Boolean);
-                if (acceptableAnswers.length > 1) {
-                    isCorrect = (u !== '' && acceptableAnswers.includes(u));
-                } else {
-                    isCorrect = (u !== '' && u === c);
-                }
+                isCorrect = isShortAnswerCorrect(userAnswer, correctAnswer, {
+                    caseSensitive: examFlagEnabled(examConfig.sqCaseSensitive ?? examConfig.sq_case_sensitive, false),
+                    punctuationSensitive: examFlagEnabled(examConfig.sqPunctuationSensitive ?? examConfig.sq_punctuation_sensitive, false)
+                });
+            } else if (trueQ.type === 'TL') {
+                isCorrect = false;
             } else if (trueQ.type === 'TL') {
                 isCorrect = false; 
             }
@@ -306,29 +274,31 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         detailedResults.forEach((d: any) => {
             let questionScore = 0;
             if (d.question.type === '4-1') {
+                d.maxScore = p41;
                 if (d.isCorrect) questionScore = p41;
             } else if (d.question.type === 'TF4') {
-                const userAnswers = d.userAnswer || {};
-                let correctStatementCount = 0;
+                const tf4 = evaluateTF4(d.correctAnswer, d.userAnswer);
+                if (!tf4.validKey) {
+                    throw new Error(`Đáp án Đúng/Sai của câu hỏi ${d.question.id} không hợp lệ.`);
+                }
+                d.answeredStatements = tf4.answeredCount;
+                d.correctStatements = tf4.correctCount;
 
-                ['A', 'B', 'C', 'D'].forEach(opt => {
-                    if (getTF4Expected(d.correctAnswer, opt) === isTF4UserOptTrue(userAnswers, opt)) {
-                        correctStatementCount++;
-                    }
-                });
-
-                d.correctStatements = correctStatementCount;
-
-                const isTf4CustomMode = Boolean(examConfig.tf4ScoringMode || examConfig.tf4_scoring_mode);
-                if (isTf4CustomMode && tf4PointsMap && tf4PointsMap[correctStatementCount] !== undefined) {
-                    questionScore = Number(tf4PointsMap[correctStatementCount]) || 0;
+                const isTf4CustomMode = examFlagEnabled(examConfig.tf4ScoringMode ?? examConfig.tf4_scoring_mode, false);
+                d.maxScore = isTf4CustomMode && tf4PointsMap && tf4PointsMap[4] !== undefined
+                    ? Number(tf4PointsMap[4]) || 0
+                    : pTF4;
+                if (isTf4CustomMode && tf4PointsMap && tf4PointsMap[tf4.correctCount] !== undefined) {
+                    questionScore = clampScore(tf4PointsMap[tf4.correctCount], d.maxScore);
                 } else {
                     const ratioMap: Record<number, number> = { 0: 0, 1: 0.25, 2: 0.5, 3: 0.75, 4: 1.0 };
-                    questionScore = pTF4 * (ratioMap[correctStatementCount] || 0);
+                    questionScore = pTF4 * (ratioMap[tf4.correctCount] || 0);
                 }
             } else if (d.question.type === 'SQ') {
+                d.maxScore = pSQ;
                 if (d.isCorrect) questionScore = pSQ;
             } else if (d.question.type === 'TL') {
+                d.maxScore = pTL;
                 tlQuestionsToGrade.push(d);
             }
 
@@ -337,7 +307,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         });
 
         // AI Grading for TL (Tự luận) - Hỗ trợ danh sách nhiều key cách nhau bằng dấu cách, tự động chuyển key khi hết hạn mức
-        const isAutoGradeEssay = examConfig.autoGradeEssay !== false && examConfig.auto_grade_essay !== false;
+        const isAutoGradeEssay = examFlagEnabled(examConfig.autoGradeEssay ?? examConfig.auto_grade_essay, false);
         const rawAiKeys = (aiKey || '').trim().split(/\s+/).filter((k: string) => k.length > 5 && !k.includes("••••••••") && !k.includes("YOUR_"));
 
         if (isAutoGradeEssay && rawAiKeys.length > 0 && tlQuestionsToGrade.length > 0) {
@@ -412,7 +382,7 @@ YÊU CẦU:
                                 const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
                                 if (text) {
                                     const parsed = JSON.parse(text);
-                                    const essayScore = Math.max(0, Math.min(pTL, Number(parsed.score) || 0));
+                                    const essayScore = clampScore(parsed.score, pTL);
                                     d.score = essayScore;
                                     d.aiFeedback = parsed.feedback || '';
                                     d.gradingStatus = 'completed';
@@ -464,14 +434,20 @@ YÊU CẦU:
         let totalMaxScore = 0;
         detailedResults.forEach((d: any) => {
             if (d.question.type === '4-1') totalMaxScore += p41;
-            else if (d.question.type === 'TF4') totalMaxScore += pTF4;
+            else if (d.question.type === 'TF4') {
+                const isTf4CustomMode = examFlagEnabled(examConfig.tf4ScoringMode ?? examConfig.tf4_scoring_mode, false);
+                const maxTf4 = isTf4CustomMode && tf4PointsMap && tf4PointsMap[4] !== undefined
+                    ? Number(tf4PointsMap[4]) || 0
+                    : pTF4;
+                totalMaxScore += maxTf4;
+            }
             else if (d.question.type === 'SQ') totalMaxScore += pSQ;
             else if (d.question.type === 'TL') totalMaxScore += pTL;
             else totalMaxScore += 1;
         });
 
-        if (totalMaxScore <= 0) {
-            totalMaxScore = clientQuestions.length || 1;
+        if (!Number.isFinite(totalMaxScore) || totalMaxScore < 0) {
+            totalMaxScore = 0;
         }
 
         // Kiểm tra xem đề thi có cấu hình giữ nguyên điểm thô (không tự động quy đổi về thang 10) hay không
@@ -487,8 +463,8 @@ YÊU CẦU:
         scale10Score = Math.max(0, Math.min(10, scale10Score));
         
         // Theo yêu cầu tuyệt đối: Hệ thống giữ nguyên điểm thô, lưu nguyên xi điểm thô vào kết quả, không phiên sang thang điểm 10.
-        const calculatedScale10 = Number(scale10Score.toFixed(2));
-        const calculatedRaw = Number(rawEarnedScore.toFixed(2));
+        const calculatedScale10 = roundScore(scale10Score, 2);
+        const calculatedRaw = roundScore(rawEarnedScore, 2);
         const finalScore = calculatedRaw;
 
         const cheatWarningCount = Number(body.cheatWarningCount ?? body.studentInfo?.cheatWarningCount ?? 0) || 0;
@@ -550,7 +526,10 @@ YÊU CẦU:
                 new Date().toISOString()
             ).run();
         } catch (dbErr) {
-            console.error("Lỗi khi lưu kết quả bài thi vào CSDL D1:", dbErr);
+            console.error("Lỗi khi lưu kết quả bài thi vào CSDL:", dbErr);
+            // Fail closed: never tell the student that submission succeeded if the
+            // authoritative result row was not durably persisted.
+            throw new Error('Không thể lưu kết quả bài thi. Phiên thi chưa bị đánh dấu đã nộp; vui lòng gửi lại bài.');
         }
 
         // BẢO MẬT: Đánh dấu token đã nộp bài thành công vào bảng kiểm soát để ngăn chặn nộp lại
@@ -566,10 +545,21 @@ YÊU CẦU:
             ).run();
         } catch (markErr) {
             console.error('Error marking token as submitted:', markErr);
+            // The result has already been persisted. Do not fail the student response,
+            // but retain the result ID so any replay can be audited and de-duplicated.
+        }
+
+        if (gradingSessionId) {
+            try {
+                await db.prepare('DELETE FROM _exam_grade_sessions WHERE session_id = ?')
+                    .bind(String(gradingSessionId)).run();
+            } catch (cleanupErr) {
+                console.warn('Could not delete consumed grading snapshot:', cleanupErr);
+            }
         }
 
         // BẢO MẬT: Nếu cấu hình không cho xem chi tiết đáp án, loại bỏ hoàn toàn correctAnswer và ảnh đáp án trước khi trả về client
-        const shouldShowDetails = examConfig.showDetails !== false && examConfig.show_details !== false;
+        const shouldShowDetails = examFlagEnabled(examConfig.showDetails ?? examConfig.show_details, false);
         const clientDetailedResults = detailedResults.map((d: any) => {
             if (!shouldShowDetails) {
                 const { correctAnswer, aiFeedback, ...safeD } = d;

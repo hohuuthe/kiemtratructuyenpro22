@@ -87,6 +87,9 @@ function tf4Points(value: any): string {
   const defaults: Row = {'1':0.25,'2':0.5,'3':0.75,'4':1};
   const result: Row = {};
   for (const key of ['1','2','3','4']) result[key] = decimal(raw[key] ?? defaults[key],'Điểm đúng ' + key + ' ý');
+  if (!(result['1'] <= result['2'] && result['2'] <= result['3'] && result['3'] <= result['4'])) {
+    throw new ExamConfigInputError('Điểm Đúng/Sai tùy chỉnh phải tăng dần theo số ý trả lời đúng.');
+  }
   return JSON.stringify(result);
 }
 function acl(value: any): string {

@@ -1,4 +1,5 @@
 import {canDeleteRankingResult} from './ranking-result-delete-policy.js';
+import { isShortAnswerCorrect, parseTF4CorrectAnswer, examFlagEnabled, clampScore, roundScore } from './exam-grading-core.js';
 import { createExamSessionId, remainingExamSeconds, remainingExamSecondsMonotonic, canAutoSubmitExam, shouldCountExamViolation } from './student-exam-session-guard.js';
 import {questionAuthorDisplayName} from './question-creator-identity.js';
 import {examCreatorDisplayName} from './exam-creator-identity.js';
@@ -1474,7 +1475,7 @@ Câu hỏi: \${d.question.content}
 
 Bài làm của học sinh: \${d.userAnswer || '(Trống)'}
 
-Thang điểm tối đa: \${examConfig.pointsTL || 1} điểm.
+Thang điểm tối đa: \${examConfig.pointsTL ?? 1} điểm.
 
 Quy trình chấm điểm (Tiêu chuẩn Sư phạm)
 Bước 1 - Phân tích Đáp án: Xác định các ý chính (keyword) và trọng số điểm tương ứng trong hướng dẫn chấm.
@@ -5719,7 +5720,7 @@ if (contentType && contentType.includes("application/json")) {
                 }
             }
             
-            const avgScore = filteredResults.length > 0 ? (filteredResults.reduce((sum, r) => sum + r.score, 0) / filteredResults.length).toFixed(1) : '0.0';
+            const avgScore = filteredResults.length > 0 ? (filteredResults.reduce((sum, r) => sum + r.score, 0) / filteredResults.length).toFixed(2) : '0.0';
             if (elAvg) elAvg.textContent = avgScore;
         }
 
@@ -7492,7 +7493,7 @@ if (contentType && contentType.includes("application/json")) {
             if (document.getElementById('exam-points-41')) document.getElementById('exam-points-41').value = examConfig.points41;
             if (document.getElementById('exam-points-tf4')) document.getElementById('exam-points-tf4').value = examConfig.pointsTF4;
             if (document.getElementById('exam-points-sq')) document.getElementById('exam-points-sq').value = examConfig.pointsSQ;
-            if (document.getElementById('exam-points-tl')) document.getElementById('exam-points-tl').value = examConfig.pointsTL || 1;
+            if (document.getElementById('exam-points-tl')) document.getElementById('exam-points-tl').value = examConfig.pointsTL ?? 1;
             
             const elAIPrompt = document.getElementById('exam-config-ai-prompt');
             if (elAIPrompt) elAIPrompt.value = examConfig.aiPrompt || '';
@@ -8902,10 +8903,12 @@ if (contentType && contentType.includes("application/json")) {
                     if (q.type === '4-1') {
                         isAllCorrect = currentExam.answers[i] === q.answer;
                     } else if (q.type === 'TF4') {
-                        const correctAnswers = (q.answer || '').split('&');
+                        const correctStates = parseTF4CorrectAnswer(q.answer || '');
                         const ans = currentExam.answers[i] || {};
-                        const keys = Object.keys(ans);
-                        isAllCorrect = keys.length > 0 && keys.every(k => (ans[k] === true && correctAnswers.includes(k)) || (ans[k] === false && !correctAnswers.includes(k)));
+                        isAllCorrect = Boolean(correctStates &&
+                            ['A', 'B', 'C', 'D'].every(k =>
+                                (ans[k] === true || ans[k] === false) && ans[k] === correctStates[k]
+                            ));
                     } else if (q.type === 'SQ') {
                         isAllCorrect = isSQCorrect(currentExam.answers[i], q.answer);
                     }
@@ -9168,16 +9171,15 @@ if (contentType && contentType.includes("application/json")) {
             const currentAnswers = currentExam.answers[index] || {};
             const options = q.shuffledOptions || ['A', 'B', 'C', 'D'];
             const immediateFeedbackOn = examConfig.immediateFeedback !== undefined ? examConfig.immediateFeedback : appSettings.immediateFeedback;
-            const correctAnswers = (q && q.answer) ? q.answer.split('&') : [];
+            const correctStates = q && q.answer ? parseTF4CorrectAnswer(q.answer) : null;
 
             return `<div class="space-y-1.5 w-full">
                 ${options.map((opt, i) => {
                     const label = String.fromCharCode(65 + i);
                     const optionData = (q.options && q.options[opt]) ? q.options[opt] : { text: '', image: '' };
                     const selected = currentAnswers[opt];
-                    const isAnswered = selected !== undefined;
-                    const isOptionTrue = correctAnswers.includes(opt);
-                    const isCorrect = isAnswered ? ((selected === true && isOptionTrue) || (selected === false && !isOptionTrue)) : false;
+                    const isAnswered = selected === true || selected === false;
+                    const isCorrect = isAnswered && Boolean(correctStates) ? selected === correctStates[opt] : false;
                     
                     let containerClass = 'border-gray-200 hover:border-indigo-300 hover:bg-indigo-50/30 bg-white';
                     let labelClass = 'text-gray-600 group-hover:text-indigo-600';
@@ -9482,23 +9484,12 @@ if (contentType && contentType.includes("application/json")) {
 
         function isSQCorrect(userAnswer, correctAnswer) {
             if (userAnswer === undefined || userAnswer === null) return false;
-            
-            let u = String(userAnswer).trim();
-            let c = String(correctAnswer || '').trim();
-            
             const isCaseSensitive = examConfig.sqCaseSensitive !== undefined ? examConfig.sqCaseSensitive : appSettings.sqCaseSensitive;
-            if (!isCaseSensitive) {
-                u = u.toLowerCase();
-                c = c.toLowerCase();
-            }
-            
             const isPunctuationSensitive = examConfig.sqPunctuationSensitive !== undefined ? examConfig.sqPunctuationSensitive : appSettings.sqPunctuationSensitive;
-            if (!isPunctuationSensitive) {
-                u = u.replace(/,/g, '.');
-                c = c.replace(/,/g, '.');
-            }
-            
-            return u === c;
+            return isShortAnswerCorrect(userAnswer, correctAnswer, {
+                caseSensitive: Boolean(isCaseSensitive),
+                punctuationSensitive: Boolean(isPunctuationSensitive)
+            });
         }
 
         window.checkSQAnswer = function checkSQAnswer(index) {
@@ -9588,9 +9579,8 @@ if (contentType && contentType.includes("application/json")) {
             const immediateFeedbackOn = examConfig.immediateFeedback !== undefined ? examConfig.immediateFeedback : appSettings.immediateFeedback;
             if (immediateFeedbackOn) {
                 const q = currentExam.questions[index];
-                const correctAnswers = (q && q.answer) ? q.answer.split('&') : [];
-                const isOptionTrue = correctAnswers.includes(option);
-                const isCorrect = (value === true && isOptionTrue) || (value === false && !isOptionTrue);
+                const correctStates = q && q.answer ? parseTF4CorrectAnswer(q.answer) : null;
+                const isCorrect = Boolean(correctStates && correctStates[option] === value);
                 
                 if (isCorrect) {
                     showToast('✅ Chính xác!', 'success', 'large');
@@ -10477,14 +10467,13 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                         ${scoreDisplay}
                     `;
                 } else if (d.question.type === 'TF4') {
-                    const correctAnswers = (d.correctAnswer || d.question?.answer || '').split('&');
+                    const correctStates = parseTF4CorrectAnswer(d.correctAnswer || d.question?.answer || '');
                     const userAnswers = d.userAnswer || {};
                     let userAnsHtml = [];
                     ['A', 'B', 'C', 'D'].forEach(opt => {
-                        if (userAnswers[opt] !== undefined) {
-                            const isCorrectStatement = correctAnswers.includes(opt);
+                        if (userAnswers[opt] === true || userAnswers[opt] === false) {
                             const userResponse = userAnswers[opt];
-                            const isMatch = isCorrectStatement === userResponse;
+                            const isMatch = Boolean(correctStates) && correctStates[opt] === userResponse;
                             const colorClass = !showDetails ? 'text-gray-800' : (isMatch ? 'text-green-600' : 'text-purple-600');
                             userAnsHtml.push(`<span class="${colorClass}">${opt}: ${userResponse ? 'Đ' : 'S'}</span></u>`);
                         } else {
@@ -10582,7 +10571,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 </div>
                 <div class="grid grid-cols-2 md:grid-cols-3 gap-2 md:gap-3 mb-4">
                     <div class="p-3 bg-blue-50 rounded-lg text-center shadow-sm relative border border-blue-100/50 flex flex-col justify-center">
-                        <p class="text-3xl sm:text-4xl lg:text-5xl font-black text-blue-600 leading-tight">${showScore ? (Number(result.score) || 0).toFixed(1) : '***'}</p>
+                        <p class="text-3xl sm:text-4xl lg:text-5xl font-black text-blue-600 leading-tight">${showScore ? (Number(result.score) || 0).toFixed(2) : '***'}</p>
                         <p class="text-xs md:text-sm text-blue-500 uppercase font-bold tracking-widest mt-0.5">Điểm số</p>
                         <div class="mt-1 text-xs md:text-sm text-blue-700 bg-white/50 py-1 px-2.5 rounded-full inline-block border border-blue-200">
                             Đã làm: <b>${result.answeredQuestionsCount}</b>/${result.totalQuestions}
@@ -14911,18 +14900,18 @@ D. Phát biểu SAI</pre>
             // Trigger update to calculate totals
             updateExamCounts();
 
-            if (document.getElementById('exam-points-41')) document.getElementById('exam-points-41').value = examConfig.points41 || 1;
-            if (document.getElementById('exam-points-tf4')) document.getElementById('exam-points-tf4').value = examConfig.pointsTF4 || 1;
-            if (document.getElementById('exam-points-sq')) document.getElementById('exam-points-sq').value = examConfig.pointsSQ || 1;
-            if (document.getElementById('exam-points-tl')) document.getElementById('exam-points-tl').value = examConfig.pointsTL || 1;
+            if (document.getElementById('exam-points-41')) document.getElementById('exam-points-41').value = examConfig.points41 ?? 1;
+            if (document.getElementById('exam-points-tf4')) document.getElementById('exam-points-tf4').value = examConfig.pointsTF4 ?? 1;
+            if (document.getElementById('exam-points-sq')) document.getElementById('exam-points-sq').value = examConfig.pointsSQ ?? 1;
+            if (document.getElementById('exam-points-tl')) document.getElementById('exam-points-tl').value = examConfig.pointsTL ?? 1;
             
             // Restore TF4 advanced scoring if it was enabled
             if (examConfig.tf4ScoringMode) {
                 document.getElementById('tf4-advanced-scoring')?.classList.remove('hidden');
-                if (document.getElementById('tf4-points-1')) document.getElementById('tf4-points-1').value = examConfig.tf4Points?.[1] || 0.25;
-                if (document.getElementById('tf4-points-2')) document.getElementById('tf4-points-2').value = examConfig.tf4Points?.[2] || 0.50;
-                if (document.getElementById('tf4-points-3')) document.getElementById('tf4-points-3').value = examConfig.tf4Points?.[3] || 0.75;
-                if (document.getElementById('tf4-points-4')) document.getElementById('tf4-points-4').value = examConfig.tf4Points?.[4] || 1.0;
+                if (document.getElementById('tf4-points-1')) document.getElementById('tf4-points-1').value = examConfig.tf4Points?.[1] ?? 0.25;
+                if (document.getElementById('tf4-points-2')) document.getElementById('tf4-points-2').value = examConfig.tf4Points?.[2] ?? 0.50;
+                if (document.getElementById('tf4-points-3')) document.getElementById('tf4-points-3').value = examConfig.tf4Points?.[3] ?? 0.75;
+                if (document.getElementById('tf4-points-4')) document.getElementById('tf4-points-4').value = examConfig.tf4Points?.[4] ?? 1.0;
             } else {
                 document.getElementById('tf4-advanced-scoring')?.classList.add('hidden');
             }
@@ -15429,10 +15418,10 @@ D. Phát biểu SAI</pre>
                     };
                 }
                 // Load values into input fields
-                if (document.getElementById('tf4-points-1')) document.getElementById('tf4-points-1').value = examConfig.tf4Points[1] || 0.25;
-                if (document.getElementById('tf4-points-2')) document.getElementById('tf4-points-2').value = examConfig.tf4Points[2] || 0.50;
-                if (document.getElementById('tf4-points-3')) document.getElementById('tf4-points-3').value = examConfig.tf4Points[3] || 0.75;
-                if (document.getElementById('tf4-points-4')) document.getElementById('tf4-points-4').value = examConfig.tf4Points[4] || 1.0;
+                if (document.getElementById('tf4-points-1')) document.getElementById('tf4-points-1').value = examConfig.tf4Points[1] ?? 0.25;
+                if (document.getElementById('tf4-points-2')) document.getElementById('tf4-points-2').value = examConfig.tf4Points[2] ?? 0.50;
+                if (document.getElementById('tf4-points-3')) document.getElementById('tf4-points-3').value = examConfig.tf4Points[3] ?? 0.75;
+                if (document.getElementById('tf4-points-4')) document.getElementById('tf4-points-4').value = examConfig.tf4Points[4] ?? 1.0;
             } else {
                 advancedDiv.classList.add('hidden');
             }
@@ -15880,7 +15869,10 @@ if (contentType && contentType.includes("application/json")) {
                 if (d.question && d.question.type === 'TL') {
                     const input = document.getElementById(`grade-tl-${resultId}-${i}`);
                     if (input) {
-                        const newScore = parseFloat(input.value.replace(',', '.')) || 0;
+                        const requestedScore = parseFloat(input.value.replace(',', '.')) || 0;
+                        const maxScore = Number(d.maxScore ?? input.max ?? 0);
+                        const newScore = clampScore(requestedScore, maxScore);
+                        input.value = String(newScore);
                         
                         // So sánh số thực với sai số nhỏ
                         if (Math.abs(newScore - currentScore) > 0.0001) {
@@ -15893,7 +15885,7 @@ if (contentType && contentType.includes("application/json")) {
                 
                 // Tính toán lại tổng điểm dựa trên details (có thể đã được cập nhật)
                 newTotalScore += parseFloat(d.score) || 0;
-                if (d.isCorrect) newCorrectCount++;
+                if (d.question && d.question.type !== 'TL' && d.isCorrect) newCorrectCount++;
             });
 
             // Nếu không có thay đổi ở từng câu, hãy kiểm tra xem tổng điểm có khác với điểm cũ không
@@ -15908,7 +15900,7 @@ if (contentType && contentType.includes("application/json")) {
 
             try {
                 const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
-                const finalRoundedScore = parseFloat((Number(newTotalScore) || 0).toFixed(1));
+                const finalRoundedScore = roundScore(newTotalScore, 2);
                 const response = await fetch('/api/results', {
                     method: 'PUT',
                     headers: {
@@ -15927,10 +15919,13 @@ if (contentType && contentType.includes("application/json")) {
                     throw new Error(resJson.error || 'Lỗi khi cập nhật điểm');
                 }
 
-                // Cập nhật state toàn cục sau khi lưu thành công
-                results[resultIndex].score = finalRoundedScore;
-                results[resultIndex].correctCount = newCorrectCount;
-                results[resultIndex].details = updatedDetails;
+                // Cập nhật state bằng dữ liệu canonical do server tính lại.
+                // Không tin tổng điểm do trình duyệt tự cộng.
+                const canonicalScore = Number(resJson.score);
+                const canonicalCorrectCount = Number(resJson.correct_count);
+                results[resultIndex].score = Number.isFinite(canonicalScore) ? canonicalScore : finalRoundedScore;
+                results[resultIndex].correctCount = Number.isFinite(canonicalCorrectCount) ? canonicalCorrectCount : newCorrectCount;
+                results[resultIndex].details = Array.isArray(resJson.details) ? resJson.details : updatedDetails;
 
                 showToast('Đã lưu điểm thành công!', 'success');
                 renderRanking(); // Cập nhật lại giao diện
@@ -15978,8 +15973,8 @@ if (contentType && contentType.includes("application/json")) {
                             name: fullData.name,
                             aiGradingKey: fullData.ai_grading_key || fullData.aiGradingKey || '',
                             aiPrompt: fullData.ai_prompt || fullData.aiPrompt || '',
-                            pointsTL: fullData.points_tl || fullData.pointsTL || 1,
-                            autoGradeEssay: fullData.auto_grade_essay !== false && fullData.autoGradeEssay !== false
+                            pointsTL: fullData.points_tl ?? fullData.pointsTL ?? 1,
+                            autoGradeEssay: examFlagEnabled(fullData.autoGradeEssay ?? fullData.auto_grade_essay, false)
                         };
                         examConfigsCache[name] = cfg;
                         return cfg;
@@ -16016,7 +16011,7 @@ if (contentType && contentType.includes("application/json")) {
             });
             
             const elTotal = document.getElementById(`total-score-val-${resultId}`);
-            if (elTotal) elTotal.textContent = (Number(newTotalScore) || 0).toFixed(1);
+            if (elTotal) elTotal.textContent = (Number(newTotalScore) || 0).toFixed(2);
             
             const elCorrect = document.getElementById(`total-correct-val-${resultId}`);
             if (elCorrect) elCorrect.textContent = `${newCorrectCount}/${result.totalQuestions}`;
@@ -16183,7 +16178,7 @@ Bạn là một giám khảo chấm thi tự luận chuyên nghiệp. Hãy chấ
 THÔNG TIN ĐỀ BÀI:
 - Câu hỏi (vấn bản): ${d.question.content || ''}
 - Đáp án / Hướng dẫn chấm: ${d.correctAnswer || ''}
-- Thang điểm tối đa: ${targetConfig.pointsTL || 1} điểm.
+- Thang điểm tối đa: ${targetConfig.pointsTL ?? 1} điểm.
 
 BÀI LÀM CỦA HỌC SINH:
 - Văn bản bài làm: ${studentAnsText || (studentAnsImage ? '(Học sinh chỉ cung cấp hình ảnh bài làm bên dưới)' : '(Trống)')}
@@ -16228,8 +16223,10 @@ CẤU TRÚC JSON:
                 const responseText = response.text;
                 const data = JSON.parse(responseText);
 
+                const maxEssayScore = Number(d.maxScore ?? targetConfig.pointsTL ?? 1);
+                const safeAiScore = clampScore(data.score, maxEssayScore);
                 if (input) {
-                    input.value = data.score;
+                    input.value = String(safeAiScore);
                     input.classList.add('bg-purple-50', 'border-purple-500');
                     setTimeout(() => input.classList.remove('bg-purple-50'), 2000);
                 }
@@ -16240,11 +16237,11 @@ CẤU TRÚC JSON:
                 }
                 
                 d.aiFeedback = data.feedback;
-                d.score = data.score;
+                d.score = safeAiScore;
                 d.needsGrading = false;
                 
                 updateLiveTotalScore(resultId);
-                showToast(`AI đã chấm xong: ${data.score} điểm`, 'success');
+                showToast(`AI đã chấm xong: ${safeAiScore} điểm`, 'success');
             } catch (err) {
                 console.error('Lỗi AI chấm điểm (Manual):', err);
                 const errMsg = err.message || '';
@@ -16771,7 +16768,7 @@ CẤU TRÚC JSON:
                             ${escapeHTML(r.donvi || r.studentClass || '-')}
                         </td>
                         <td class="px-2 py-1.5 text-center whitespace-nowrap">
-                            <span class="px-2 py-0.5 rounded-full font-bold ${r.score >= 8 ? 'bg-green-100 text-green-700' : r.score >= 5 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-purple-700'}">${(Number(r.score) || 0).toFixed(1)}</span>
+                            <span class="px-2 py-0.5 rounded-full font-bold ${r.score >= 8 ? 'bg-green-100 text-green-700' : r.score >= 5 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-purple-700'}">${(Number(r.score) || 0).toFixed(2)}</span>
                         </td>
                         <td class="px-2 py-1.5 text-center text-gray-600 whitespace-nowrap">${r.correctCount}/${r.totalQuestions}</td>
                         <td class="px-2 py-1.5 text-center text-gray-600 whitespace-nowrap">${formatTime(r.timeTaken)}</td>
@@ -16850,7 +16847,7 @@ CẤU TRÚC JSON:
                             <div>
                                 <p class="text-[10px] text-gray-500 uppercase font-bold mb-0.5">Điểm số</p>
                                 <span class="text-xl font-black ${r.score >= 8 ? 'text-green-600' : r.score >= 5 ? 'text-yellow-600' : 'text-purple-600'}">
-                                    ${(Number(r.score) || 0).toFixed(1)}
+                                    ${(Number(r.score) || 0).toFixed(2)}
                                 </span>
                             </div>
                             <div>
@@ -17115,15 +17112,16 @@ CẤU TRÚC JSON:
                                 <label class="text-sm font-bold text-yellow-800 whitespace-nowrap">Chấm điểm:</label>
                                 <input type="number" 
                                     id="grade-tl-${resultId}-${i}" 
-                                    step="0.1" 
-                                    min="0" 
+                                    step="0.01" 
+                                    min="0"
+                                    max="${Number(d.maxScore ?? targetConfig.pointsTL ?? 1)}" 
                                     value="${d.score || 0}" 
                                     oninput="updateLiveTotalScore('${resultId}')"
                                     ${isExamCreator ? '' : 'disabled'}
                                     class="w-20 px-2 py-1 border-2 ${isExamCreator ? 'border-yellow-300 focus:border-yellow-500' : 'border-gray-200 bg-gray-100 cursor-not-allowed'} rounded focus:outline-none font-bold text-center"
                                 >
                             </div>
-                            <span class="text-[10px] text-yellow-600 font-medium italic">(Tối đa: ${targetConfig.pointsTL || 1})</span>
+                            <span class="text-[10px] text-yellow-600 font-medium italic">(Tối đa: ${targetConfig.pointsTL ?? 1})</span>
                             ${isExamCreator ? `
                             <button 
                                 id="ai-grade-btn-${resultId}-${i}"
@@ -17177,7 +17175,7 @@ CẤU TRÚC JSON:
                     
                     <div class="grid grid-cols-3 gap-2 mb-3 text-center">
                         <div class="p-2 bg-blue-50 rounded-lg shadow-sm border border-blue-100/50">
-                            <p id="total-score-val-${resultId}" class="text-xl sm:text-2xl font-black text-blue-600">${(Number(result.score) || 0).toFixed(1)}</p>
+                            <p id="total-score-val-${resultId}" class="text-xl sm:text-2xl font-black text-blue-600">${(Number(result.score) || 0).toFixed(2)}</p>
                             <p class="text-[10px] text-gray-500 uppercase font-bold tracking-wider mt-1">Điểm</p>
                             <p class="text-[10px] text-blue-700 mt-1 font-bold">Làm: ${result.answeredQuestionsCount || 0}/${result.totalQuestions}</p>
                         </div>
@@ -17478,7 +17476,7 @@ CẤU TRÚC JSON:
 
             const studentName = result.studentName || 'thí sinh';
             const examName = result.examName || 'bài thi';
-            const scoreText = (Number(result.score) || 0).toFixed(1);
+            const scoreText = (Number(result.score) || 0).toFixed(2);
 
             showConfirmModal(
                 `<div class="space-y-2.5">
@@ -17731,7 +17729,7 @@ CẤU TRÚC JSON:
                     const creatorId = examToCreatorMap[r.examName];
                     const teacherName = examCreatorDisplayName(r,accountsMap,currentUser);
                     const row = worksheet.addRow([
-                        i + 1, r.loaiThiSinh || 'Tự do', r.studentName, r.lop || '-', r.donvi || r.studentClass || '-', parseFloat((Number(r.score) || 0).toFixed(1)),
+                        i + 1, r.loaiThiSinh || 'Tự do', r.studentName, r.lop || '-', r.donvi || r.studentClass || '-', parseFloat((Number(r.score) || 0).toFixed(2)),
                         r.correctCount, r.totalQuestions, r.timeTaken, Number(r.cheatWarningCount) || 0, r.aiGradingSummary || '-', r.examName, teacherName,
                         window.formatVNTime(r.timestamp)
                     ]);
@@ -17770,7 +17768,7 @@ CẤU TRÚC JSON:
                 showToast('Lỗi khi xuất file Excel cao cấp! Đang thử lại chế độ cơ bản...', 'error');
                 
                 const data = [['Hạng', 'Loại Thí sinh', 'Họ tên', 'Lớp', 'Đơn vị / Trường', 'Điểm', 'Đúng', 'Tổng', 'Vi phạm (lần)', 'Đề thi']];
-                sortedResults.forEach((r, i) => data.push([i+1, r.loaiThiSinh || 'Tự do', r.studentName, r.lop || '-', r.donvi || r.studentClass || '-', parseFloat((Number(r.score) || 0).toFixed(1)), r.correctCount, r.totalQuestions, Number(r.cheatWarningCount) || 0, r.examName]));
+                sortedResults.forEach((r, i) => data.push([i+1, r.loaiThiSinh || 'Tự do', r.studentName, r.lop || '-', r.donvi || r.studentClass || '-', parseFloat((Number(r.score) || 0).toFixed(2)), r.correctCount, r.totalQuestions, Number(r.cheatWarningCount) || 0, r.examName]));
                 const ws = XLSX.utils.aoa_to_sheet(data);
                 const wb = XLSX.utils.book_new();
                 XLSX.utils.book_append_sheet(wb, ws, 'XepHang');
@@ -17886,7 +17884,7 @@ CẤU TRÚC JSON:
                                         children: [
                                             new TableCell({ children: [new Paragraph({ text: r.studentName })] }),
                                             new TableCell({ children: [new Paragraph({ text: r.studentClass })] }),
-                                            new TableCell({ children: [new Paragraph({ text: (Number(r.score) || 0).toFixed(1) })] }),
+                                            new TableCell({ children: [new Paragraph({ text: (Number(r.score) || 0).toFixed(2) })] }),
                                             new TableCell({ children: [new Paragraph({ text: r.timeTaken + "s" })] }),
                                         ],
                                     }))
@@ -25310,7 +25308,7 @@ CẤU TRÚC JSON:
                                 }
                             </td>
                             <td class="px-2 py-1 text-center font-bold text-slate-700">${attemptsCount}</td>
-                            <td class="px-2 py-1 text-center font-bold ${isDone ? 'text-amber-600' : 'text-slate-400'}">${isDone ? (Number(maxScore) || 0).toFixed(1) : '-'}</td>
+                            <td class="px-2 py-1 text-center font-bold ${isDone ? 'text-amber-600' : 'text-slate-400'}">${isDone ? (Number(maxScore) || 0).toFixed(2) : '-'}</td>
                             <td class="px-2 py-1 text-center text-slate-600 font-medium hidden sm:table-cell">${isDone ? formatReportTime(timeTaken) : '-'}</td>
                             <td class="px-2 py-1 text-center text-slate-500 font-medium hidden md:table-cell whitespace-nowrap">${isDone ? formattedDoneAt : '-'}</td>
                             <td class="px-2 py-1 text-center">
@@ -25554,7 +25552,7 @@ CẤU TRÚC JSON:
                                 student.donvi || '-',
                                 isDone ? 'Đã làm' : 'Chưa',
                                 attemptsCount,
-                                isDone ? Number((Number(maxScore) || 0).toFixed(1)) : '-',
+                                isDone ? Number((Number(maxScore) || 0).toFixed(2)) : '-',
                                 isDone ? formatReportTime(timeTaken) : '-',
                                 isDone ? formattedDoneAt : '-'
                             ]);

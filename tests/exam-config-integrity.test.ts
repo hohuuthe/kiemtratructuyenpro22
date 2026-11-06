@@ -37,6 +37,7 @@ test('Fail closed on invalid counts, dates, intervals, flags, passwords and less
  {...base,count_41:-1},
  {...base,count_41:1.5},
  {...base,points_sq:-0.5},
+ {...base,tf4_points:{1:0.75,2:0.5,3:0.9,4:1}},
  {...base,max_cheat_warnings:0},
  {...base,max_attempts:-1},
  {...base,time_limit:0},
