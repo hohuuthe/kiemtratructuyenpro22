@@ -1,6 +1,7 @@
-import { verifyAuthSession, verifyJWT, getDynamicSecret, getDatabase, hashToken } from './utils';
+import { verifyAuthSession, verifyJWT, signJWT, getDynamicSecret, getDatabase, hashToken } from './utils';
 import {
   EXAM_SESSION_PURPOSE_ACTIVE,
+  EXAM_SESSION_PURPOSE_PRESTART,
   resolveAuthoritativeExamTiming,
   remainingExamSecondsFromDeadline
 } from '../../../src/exam-time-authority.js';
@@ -35,8 +36,8 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     }
 
     const decoded: any = await verifyJWT(token, SECRET);
-    if (!decoded || decoded.purpose !== EXAM_SESSION_PURPOSE_ACTIVE) {
-      return new Response(JSON.stringify({ code: 'EXAM_RESUME_INVALID', error: 'Không có phiên thi đang hoạt động hợp lệ để khôi phục.' }), { status: 403, headers: corsHeaders });
+    if (!decoded || ![EXAM_SESSION_PURPOSE_ACTIVE, EXAM_SESSION_PURPOSE_PRESTART].includes(decoded.purpose)) {
+      return new Response(JSON.stringify({ code: 'EXAM_RESUME_INVALID', error: 'Không có phiên thi hợp lệ để khôi phục.' }), { status: 403, headers: corsHeaders });
     }
 
     const authHeader = request.headers.get('authorization') || '';
@@ -86,6 +87,17 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     }
 
     const nowMs = Date.now();
+
+    // Token PRESTART chỉ được nâng cấp để resume khi DB chứng minh /exam/start đã
+    // thật sự claim started_at/deadline_at. Refresh ở màn hình READY không tự bắt đầu thi.
+    if (decoded.purpose === EXAM_SESSION_PURPOSE_PRESTART &&
+        (!session.started_at || !session.deadline_at)) {
+      return new Response(JSON.stringify({
+        code: 'EXAM_RESUME_NOT_STARTED',
+        error: 'Phiên chuẩn bị chưa bắt đầu; không tự khởi động bài thi sau khi tải lại trang.'
+      }), { status: 409, headers: corsHeaders });
+    }
+
     const timing = resolveAuthoritativeExamTiming(decoded, session, nowMs);
     if (!timing.valid) {
       return new Response(JSON.stringify({ error: 'Mốc thời gian phiên thi không hợp lệ; không thể khôi phục.' }), { status: 409, headers: corsHeaders });
@@ -142,11 +154,28 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       cheatWarningCount = Math.max(0, Number(row?.count) || 0);
     } catch {}
 
+    let resumeToken = token;
+    if (decoded.purpose === EXAM_SESSION_PURPOSE_PRESTART) {
+      const sessionExpMs = new Date(String(session.expires_at || '')).getTime();
+      const expSeconds = Number.isFinite(sessionExpMs)
+        ? Math.floor(sessionExpMs / 1000)
+        : Math.floor((timing.deadlineAtMs + 60 * 60 * 1000) / 1000);
+      resumeToken = await signJWT({
+        ...decoded,
+        purpose: EXAM_SESSION_PURPOSE_ACTIVE,
+        startedAtMs: timing.startedAtMs,
+        deadlineAtMs: timing.deadlineAtMs,
+        timestamp: timing.startedAtMs,
+        timeLimitSeconds: timing.limitSeconds,
+        exp: expSeconds
+      }, SECRET);
+    }
+
     const responseNowMs = Date.now();
     return new Response(JSON.stringify({
       resumed: true,
       expired: timing.expired,
-      token,
+      token: resumeToken,
       questions,
       answers,
       autosaveRevision: revision,
