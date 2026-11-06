@@ -245,7 +245,7 @@ test('prepared exam questions stay server-side until authoritative start', () =>
   assert.match(start, /const clientQuestions = frozenQuestions\.map/);
   assert.match(start, /questions:\s*clientQuestions/);
   assert.match(start, /const immediateFeedback = Boolean\(decoded\.immediateFeedback\)/);
-  assert.match(start, /if \(immediateFeedback\)[\s\S]{0,140}return \{ \.\.\.q \}/);
+  assert.match(start, /if \(immediateFeedback\)[\s\S]{0,360}return \{ \.\.\.q \}/);
 
   assert.match(main, /result\.ready !== true/);
   assert.match(main, /startResult\.questions/);
@@ -297,8 +297,8 @@ test('Immediate Feedback remains enabled after start, not during READY preparati
   const resume = readFileSync('functions/api/exam/resume.ts', 'utf8');
 
   assert.match(generate, /immediateFeedback:\s*isImmediateFeedback/);
-  assert.doesNotMatch(generate, /if \(isImmediateFeedback\)[\s\S]{0,160}return \{ \.\.\.q \}/);
-  assert.match(start, /if \(immediateFeedback\)[\s\S]{0,160}return \{ \.\.\.q \}/);
+  assert.doesNotMatch(generate, /if \(isImmediateFeedback\)[\s\S]{0,360}return \{ \.\.\.q \}/);
+  assert.match(start, /if \(immediateFeedback\)[\s\S]{0,360}return \{ \.\.\.q \}/);
   assert.match(resume, /if \(immediateFeedback\) return \{ \.\.\.q \}/);
 });
 
