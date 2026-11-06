@@ -279,9 +279,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             console.error('Error fetching aiKey', e);
         }
 
-        // 2. Grade against the immutable server-side snapshot issued with this session.
-        // Legacy sessions created before this release fall back to the live DB, but all new
-        // sessions must have a valid snapshot and fail closed if it is unavailable.
+        // 2. Grade only against the immutable server-side snapshot issued with this session.
+        // There is deliberately NO live-question-bank fallback: if the snapshot is unavailable
+        // or inconsistent, grading fails closed and no result is stored.
         if (!gradingSessionId) {
             return new Response(JSON.stringify({
                 error: 'Phiên thi không có snapshot chấm điểm bất biến; hệ thống từ chối chấm để không dùng đáp án có thể đã thay đổi.'
