@@ -248,35 +248,18 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                 const c = String(correctAnswer || '').trim().toUpperCase();
                 isCorrect = (u !== '' && u === c);
             } else if (trueQ.type === 'TF4') {
-                let tf4CorrectCount = 0;
-                ['A', 'B', 'C', 'D'].forEach(opt => {
-                    if (getTF4Expected(correctAnswer, opt) === isTF4UserOptTrue(userAnswer, opt)) {
-                        tf4CorrectCount++;
-                    }
-                });
-                isCorrect = (tf4CorrectCount === 4);
+                const tf4 = evaluateTF4(correctAnswer, userAnswer);
+                if (!tf4.validKey) {
+                    throw new Error(`Đáp án Đúng/Sai của câu hỏi ${trueQ.id} không hợp lệ.`);
+                }
+                isCorrect = tf4.allCorrect;
             } else if (trueQ.type === 'SQ') {
-                let u = String(userAnswer || '').trim();
-                let c = String(correctAnswer || '').trim();
-                
-                const isCaseSensitive = examConfig.sqCaseSensitive ?? examConfig.sq_case_sensitive ?? false;
-                const isPunctuationSensitive = examConfig.sqPunctuationSensitive ?? examConfig.sq_punctuation_sensitive ?? false;
-
-                if (!isCaseSensitive) {
-                    u = u.toLowerCase();
-                    c = c.toLowerCase();
-                }
-                if (!isPunctuationSensitive) {
-                    u = u.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g, "").replace(/\s+/g, " ").trim();
-                    c = c.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g, "").replace(/\s+/g, " ").trim();
-                }
-
-                const acceptableAnswers = c.split(/[|;]+/).map(a => a.trim()).filter(Boolean);
-                if (acceptableAnswers.length > 1) {
-                    isCorrect = (u !== '' && acceptableAnswers.includes(u));
-                } else {
-                    isCorrect = (u !== '' && u === c);
-                }
+                isCorrect = isShortAnswerCorrect(userAnswer, correctAnswer, {
+                    caseSensitive: examFlagEnabled(examConfig.sqCaseSensitive ?? examConfig.sq_case_sensitive, false),
+                    punctuationSensitive: examFlagEnabled(examConfig.sqPunctuationSensitive ?? examConfig.sq_punctuation_sensitive, false)
+                });
+            } else if (trueQ.type === 'TL') {
+                isCorrect = false;
             } else if (trueQ.type === 'TL') {
                 isCorrect = false; 
             }
