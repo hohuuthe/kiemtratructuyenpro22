@@ -2491,6 +2491,75 @@ html.kttt-modal-open, body.kttt-modal-open { overflow: hidden !important; oversc
     box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.08);
 }
 
+
+.student-exam-background-menu{
+    position:fixed;
+    inset:0;
+    z-index:1000001;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:16px;
+    background:rgba(15,23,42,.58);
+    backdrop-filter:blur(6px);
+}
+.student-exam-background-menu.hidden{display:none!important}
+.student-exam-background-card{
+    width:min(430px,calc(100vw - 24px));
+    border-radius:20px;
+    background:#fff;
+    border:1px solid rgba(226,232,240,.95);
+    box-shadow:0 28px 80px rgba(15,23,42,.34);
+    padding:16px;
+}
+.student-exam-background-head{
+    display:grid;
+    grid-template-columns:auto minmax(0,1fr) auto;
+    align-items:start;
+    gap:10px;
+    padding-bottom:13px;
+    border-bottom:1px solid #eef2f7;
+}
+.student-exam-background-head-icon{
+    width:40px;height:40px;border-radius:12px;display:grid;place-items:center;
+    background:#fdf4ff;color:#a21caf;font-size:21px
+}
+.student-exam-background-head h3{font-size:16px;line-height:1.2;font-weight:900;color:#0f172a;margin:1px 0 4px}
+.student-exam-background-head p{font-size:11px;line-height:1.45;color:#64748b}
+.student-exam-background-close{
+    width:32px;height:32px;border-radius:10px;display:grid;place-items:center;
+    font-size:22px;line-height:1;color:#64748b;background:#f8fafc;border:1px solid #e2e8f0
+}
+.student-exam-background-close:hover{background:#f1f5f9;color:#0f172a}
+.student-exam-background-actions{display:grid;gap:9px;padding-top:13px}
+.student-exam-background-action{
+    width:100%;display:grid;grid-template-columns:42px minmax(0,1fr);align-items:center;gap:10px;
+    text-align:left;padding:12px 13px;border-radius:14px;border:1px solid #e2e8f0;background:#fff;
+    transition:transform .12s ease,box-shadow .12s ease,background-color .12s ease,border-color .12s ease
+}
+.student-exam-background-action:hover:not(:disabled),
+.student-exam-background-action:focus-visible:not(:disabled){
+    transform:translateY(-1px);box-shadow:0 8px 22px rgba(15,23,42,.09);outline:none
+}
+.student-exam-background-action.is-primary:hover:not(:disabled){background:#fdf4ff;border-color:#f0abfc}
+.student-exam-background-action.is-danger:hover:not(:disabled){background:#fff1f2;border-color:#fecdd3}
+.student-exam-background-action:disabled{opacity:.42;cursor:not-allowed}
+.student-exam-background-action-icon{
+    width:38px;height:38px;border-radius:11px;display:grid;place-items:center;font-size:20px;font-weight:900
+}
+.student-exam-background-action.is-primary .student-exam-background-action-icon{background:#fae8ff;color:#a21caf}
+.student-exam-background-action.is-danger .student-exam-background-action-icon{background:#ffe4e6;color:#be123c}
+.student-exam-background-action strong{display:block;font-size:13px;font-weight:900;color:#0f172a}
+.student-exam-background-action small{display:block;margin-top:2px;font-size:10px;color:#64748b;line-height:1.35}
+#exam-interface:fullscreen .student-exam-background-menu,
+#exam-interface:-webkit-full-screen .student-exam-background-menu{
+    position:fixed;inset:0;z-index:1000001
+}
+@media(max-width:640px){
+    .student-exam-background-card{padding:13px;border-radius:17px}
+    .student-exam-background-action{padding:11px}
+}
+
 /*
  * Do not assign positioning to every direct child of the exam interface.
  * Fullscreen dialogs, confirmation modals, toasts and the fullscreen enforcer
