@@ -444,7 +444,9 @@ test('seventh audit: immediate feedback never exposes answer keys to the browser
   const main = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
 
   assert.doesNotMatch(generate, /if \(isImmediateFeedback\)[\s\S]{0,200}return \{ \.\.\.q \}/);
-  assert.match(generate, /const \{ answer, \.\.\.qWithoutAnswer \} = q/);
+  assert.match(generate, /answer,[\s\S]{0,220}correctAnswer: questionCorrectAnswer[\s\S]{0,220}\.\.\.qWithoutAnswer/);
+  assert.match(generate, /correctAnswer: optionCorrectAnswer/);
+  assert.match(generate, /answerKey: optionAnswerKey/);
   assert.match(feedback, /SELECT question_ids, question_snapshot, exam_config, started_at FROM _exam_grade_sessions/);
   assert.match(feedback, /allCorrect:/);
   assert.doesNotMatch(feedback, /correctAnswer\s*:/);
