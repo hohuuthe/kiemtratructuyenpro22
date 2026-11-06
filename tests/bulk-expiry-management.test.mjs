@@ -53,3 +53,21 @@ test('UI sends exactly the selected ids to the matching endpoint', () => {
   assert.match(ui, /\/api\/accounts\/bulk-expiry/);
   assert.match(ui, /\/api\/users\/bulk-expiry/);
 });
+
+
+test('bulk expiry controls live inside native management action bars, not detached top panels', () => {
+  assert.match(ui, /management-native-actions/);
+  assert.match(ui, /actionBarForScope/);
+  assert.match(ui, /mountExpiryButton\('accounts'/);
+  assert.match(ui, /mountExpiryButton\('users'/);
+  assert.doesNotMatch(ui, /className = 'bulk-expiry-tools'/);
+});
+
+test('successful expiry update reloads server-backed lists before showing success', () => {
+  assert.match(ui, /window\.refreshAccountsData/);
+  assert.match(ui, /await window\.refreshAccountsData\(\)/);
+  assert.match(ui, /window\.refreshUsersData/);
+  assert.match(ui, /await window\.refreshUsersData\(\)/);
+  assert.match(ui, /window\.selectedAccountIds\.clear\(\)/);
+  assert.match(ui, /window\.selectedUserIds\.clear\(\)/);
+});
