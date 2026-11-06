@@ -203,9 +203,15 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       startedAt = String(refreshed?.started_at || candidate);
     }
 
+    const startedAtMs = Date.parse(startedAt);
+    const elapsedSeconds = Number.isFinite(startedAtMs)
+      ? Math.max(0, (Date.now() - startedAtMs) / 1000)
+      : 0;
+
     return new Response(JSON.stringify({
       ok: true,
       startedAt,
+      elapsedSeconds,
       attemptNumber,
       maxAttempts,
       timeLimitSeconds: Math.max(1, Math.floor(Number(decoded.timeLimitSeconds) || 1))
