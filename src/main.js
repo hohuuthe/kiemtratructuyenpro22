@@ -9669,7 +9669,7 @@ if (contentType && contentType.includes("application/json")) {
             
             if (countWrapper) {
                 countWrapper.classList.remove('hidden');
-                if (count >= maxWarnings) {
+                if (count > maxWarnings) {
                     countWrapper.className = 'text-center bg-purple-50 border border-red-300 px-2.5 py-1.5 rounded-xl shadow-2xs';
                 } else if (count > 0) {
                     countWrapper.className = 'text-center bg-amber-50 border border-amber-300 px-2.5 py-1.5 rounded-xl shadow-2xs';
@@ -9679,7 +9679,7 @@ if (contentType && contentType.includes("application/json")) {
             }
             if (countEl) {
                 countEl.textContent = `${count}/${maxWarnings} lần`;
-                if (count >= maxWarnings) {
+                if (count > maxWarnings) {
                     countEl.className = 'text-xs md:text-sm font-black text-purple-600 leading-tight';
                 } else if (count > 0) {
                     countEl.className = 'text-xs md:text-sm font-black text-amber-700 leading-tight';
@@ -9756,7 +9756,7 @@ if (contentType && contentType.includes("application/json")) {
                         <p>Bạn vừa chuyển tab hoặc thu nhỏ cửa sổ làm bài. Quy chế thi không cho phép rời màn hình bài thi.</p>
                         <div class="mt-2.5 p-2 bg-white/80 rounded-lg border border-amber-200 font-medium">
                             Đã vi phạm: <b class="text-purple-600">${currentCount}/${maxWarnings} lần</b>.
-                            ${remaining > 0 ? `Còn lại: <b class="text-amber-800">${remaining} lần</b> trước khi hệ thống tự động khóa và thu bài.` : ''}
+                            ${remaining > 0 ? `Còn lại: <b class="text-amber-800">${remaining} lần</b> trước khi chạm mức tối đa.` : `<b class="text-amber-800">Bạn đã chạm mức tối đa ${maxWarnings}/${maxWarnings}; vẫn được tiếp tục làm bài. Chỉ lần vi phạm tiếp theo mới tự động nộp.</b>`}
                         </div>
                     </div>
                 `;
