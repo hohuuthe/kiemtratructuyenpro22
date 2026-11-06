@@ -308,13 +308,18 @@ test('Immediate Feedback remains enabled after start, not during READY preparati
 });
 
 
-test('local Node server routes all exam session lifecycle endpoints through Cloudflare handlers', () => {
+test('local Node server routes exam READY and session lifecycle through Cloudflare handlers', () => {
   const server = readFileSync('server.ts', 'utf8');
-  for (const name of ['Start','Save','Violation','Resume']) {
+  for (const name of ['Generate','Start','Save','Violation','Resume']) {
     assert.match(server, new RegExp('hardenedExam' + name + 'Handler'));
   }
-  for (const route of ['start','save','violation','resume']) {
+  for (const route of ['generate','start','save','violation','resume']) {
     assert.match(server, new RegExp('app\\.post\\("\\/api\\/exam\\/' + route + '"'));
   }
+  const generateStart = server.indexOf('app.post("/api/exam/generate"');
+  const generateEnd = server.indexOf('app.all("/api/exam/export-docx"', generateStart);
+  const generateRoute = server.slice(generateStart, generateEnd);
+  assert.match(generateRoute, /hardenedExamGenerateHandler/);
+  assert.doesNotMatch(generateRoute, /questions:\s*clientQuestions/);
   assert.match(server, /invokeExamPagesPostHandler/);
 });
