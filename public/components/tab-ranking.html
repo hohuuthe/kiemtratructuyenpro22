@@ -5,7 +5,7 @@
           <span class="student-results-heading-icon" aria-hidden="true">📊</span>
           <div>
             <h2>Kết quả bài thi của tôi</h2>
-            <p>Danh sách những bài thi bạn đã tham gia, chỉ hiển thị dữ liệu của tài khoản hiện tại.</p>
+            <p>Mỗi đề thi chỉ hiển thị một lần. Bấm “Xem các lần làm” để xem toàn bộ lịch sử làm bài của đề đó.</p>
           </div>
         </div>
         <button type="button" onclick="loadMyStudentResults(0)" class="student-results-refresh" title="Tải lại kết quả mới nhất">
@@ -16,12 +16,12 @@
       <div class="student-results-metrics" aria-label="Thống kê kết quả">
         <div class="student-results-metric"><span>Tổng lượt làm bài</span><strong id="ranking-student-total">—</strong></div>
         <div class="student-results-metric"><span>Điểm cao nhất <small>(trang này)</small></span><strong id="ranking-student-best">—</strong></div>
-        <div class="student-results-metric"><span>Đề thi <small>(trang này)</small></span><strong id="ranking-student-exams">—</strong></div>
+        <div class="student-results-metric"><span>Tổng số đề thi</span><strong id="ranking-student-exams">—</strong></div>
       </div>
 
       <div class="student-results-toolbar">
         <div class="student-results-toolbar-heading">
-          <h3>Danh sách bài làm</h3>
+          <h3>Danh sách đề thi</h3>
           <p id="ranking-student-summary" aria-live="polite">Đang chuẩn bị dữ liệu...</p>
         </div>
         <div class="student-results-controls">
