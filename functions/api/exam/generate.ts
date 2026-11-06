@@ -471,10 +471,16 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                 const verdict = validateQuestionAnswer(q.type, q.answer, q.options);
                 if (!verdict.ok) return false;
                 if (q.type === '4-1') {
-                    return ['A','B','C','D'].every(key =>
-                        q.options && q.options[key] &&
-                        String(q.options[key]?.text ?? q.options[key] ?? '').trim()
-                    );
+                    return ['A','B','C','D'].every(key => {
+                        const option: any = q.options && q.options[key];
+                        const text = option && typeof option === 'object'
+                            ? String(option.text ?? option.content ?? option.value ?? '').trim()
+                            : String(option ?? '').trim();
+                        const image = option && typeof option === 'object'
+                            ? String(option.image ?? option.img ?? option.src ?? option.url ?? '').trim()
+                            : '';
+                        return Boolean(text || image);
+                    });
                 }
                 return true;
             });
