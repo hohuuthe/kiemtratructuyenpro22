@@ -1,5 +1,5 @@
 import {canDeleteRankingResult} from './ranking-result-delete-policy.js';
-import { createExamSessionId, remainingExamSeconds, canAutoSubmitExam } from './student-exam-session-guard.js';
+import { createExamSessionId, remainingExamSeconds, canAutoSubmitExam, shouldCountExamViolation } from './student-exam-session-guard.js';
 import {questionAuthorDisplayName} from './question-creator-identity.js';
 import {examCreatorDisplayName} from './exam-creator-identity.js';
 import {connectDocumentLinks,initDocumentLinks,resetDocumentLinks} from './document-links-ui.js';
@@ -8306,6 +8306,9 @@ if (contentType && contentType.includes("application/json")) {
             }
 
             currentExam.startTime = Date.now();
+            if (!Number.isFinite(Number(currentExam.timeLimitSeconds)) || Number(currentExam.timeLimitSeconds) <= 0) {
+                currentExam.timeLimitSeconds = Math.max(1, Math.round((Number(currentExam.timeLimitMinutes) || Number(examConfig?.timeLimit) || 45) * 60));
+            }
             if (!currentExam.sessionId) currentExam.sessionId = createExamSessionId();
             currentExam.submitting = false;
             startTimer();
@@ -8557,7 +8560,11 @@ if (contentType && contentType.includes("application/json")) {
                     studentDonvi: inputDonvi,
                     studentClass: studentClass,
                     cheatWarningCount: 0,
-                    maxCheatWarnings: maxCheatAllowed
+                    maxCheatWarnings: maxCheatAllowed,
+                    timeLimitSeconds: Math.max(1, Number(result.timeLimitSeconds) || Math.round((Number(result.timeLimitMinutes) || Number(examConfig.timeLimit) || 45) * 60)),
+                    timeLimitMinutes: Number(result.timeLimitMinutes) || Number(examConfig.timeLimit) || 45,
+                    lastViolationAt: 0,
+                    lastViolationReason: ''
                 };
 
                 // Việc mở toàn màn hình cần một thao tác click trực tiếp, không thể gọi
@@ -8760,7 +8767,8 @@ if (contentType && contentType.includes("application/json")) {
         }
 
         function getCurrentExamRemainingSeconds(now = Date.now()) {
-            const totalSeconds = Number(examConfig?.timeLimit) * 60;
+            const frozenSeconds = Number(currentExam?.timeLimitSeconds);
+            const totalSeconds = Number.isFinite(frozenSeconds) && frozenSeconds > 0 ? frozenSeconds : Number(examConfig?.timeLimit) * 60;
             return remainingExamSeconds(currentExam?.startTime, totalSeconds, now);
         }
 
@@ -8774,8 +8782,8 @@ if (contentType && contentType.includes("application/json")) {
                 floatingTimerEl.classList.add('flex');
             }
 
-            const totalSeconds = examConfig.timeLimit * 60;
-            if (totalSeconds <= 0) return;
+            const totalSeconds = Number(currentExam?.timeLimitSeconds) > 0 ? Number(currentExam.timeLimitSeconds) : Number(examConfig.timeLimit) * 60;
+            if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) return;
 
             // Khởi tạo và mở khóa âm thanh ngay khi bắt đầu tính giờ
             try { getExamAudioContext(); } catch(e) {}
@@ -9693,6 +9701,14 @@ if (contentType && contentType.includes("application/json")) {
             const sessionId = currentExam.sessionId;
             if (!sessionId) return;
 
+            const violationNow = Date.now();
+            const shouldCount = shouldCountExamViolation({ reason, lastReason: currentExam.lastViolationReason || '', now: violationNow, lastAt: currentExam.lastViolationAt || 0, duplicateWindowMs: 1500 });
+            if (!shouldCount) {
+                console.warn('[ExamViolationGuard] Bỏ qua tín hiệu vi phạm trùng từ trình duyệt.', { reason, lastReason: currentExam.lastViolationReason, deltaMs: violationNow - (currentExam.lastViolationAt || 0) });
+                return;
+            }
+            currentExam.lastViolationAt = violationNow;
+            currentExam.lastViolationReason = reason;
             currentExam.cheatWarningCount = (currentExam.cheatWarningCount || 0) + 1;
             const currentCount = currentExam.cheatWarningCount;
             const maxWarnings = window.getMaxCheatWarnings();
@@ -9700,7 +9716,7 @@ if (contentType && contentType.includes("application/json")) {
             window.updateCheatWarningUI();
             if (window.backupExamState) window.backupExamState();
 
-            if (currentCount >= maxWarnings) {
+            if (currentCount > maxWarnings) {
                 const autoSubmitMsg = `
                     <div class="my-2 p-3 bg-purple-50 border border-red-200 rounded-xl text-red-900 text-xs sm:text-sm">
                         <div class="font-bold text-purple-700 text-sm sm:text-base flex items-center gap-1.5 mb-1">
@@ -9730,7 +9746,7 @@ if (contentType && contentType.includes("application/json")) {
                     }
                 }, 3500);
             } else {
-                const remaining = maxWarnings - currentCount;
+                const remaining = Math.max(0, maxWarnings - currentCount);
                 const warningMsg = `
                     <div class="my-2 p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-xs sm:text-sm">
                         <div class="font-bold text-amber-800 text-sm sm:text-base flex items-center gap-1.5 mb-1">
@@ -10681,7 +10697,11 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 submitting: false,
                 studentName: '',
                 studentClass: '',
-                cheatWarningCount: 0
+                cheatWarningCount: 0,
+                timeLimitSeconds: null,
+                timeLimitMinutes: null,
+                lastViolationAt: 0,
+                lastViolationReason: ''
             };
 
             // Dọn sạch nội dung hiển thị kết quả bài làm cũ
