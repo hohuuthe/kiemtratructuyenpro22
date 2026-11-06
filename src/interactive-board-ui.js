@@ -148,7 +148,7 @@ function addBoardNoteAt(point){
  const text=noteText();
  if(!text){
   selectBoardTool('note');
-  const input=(getComputedStyle($('board-note-text-mobile')||document.body).display!=='none'?$ ('board-note-text-mobile'):$('board-note-text'));
+  const input=(getComputedStyle($('board-note-text-mobile')||document.body).display!=='none'?$('board-note-text-mobile'):$('board-note-text'));
   input?.focus?.();
   window.showToast?.('Nhập nội dung ghi chú, sau đó chạm lên bảng để đặt ghi chú.','info');
   return;
@@ -177,7 +177,8 @@ function ensureBoardWorkspaceContextMenu(){
     lock:'board-lock-selected','layer-up':'board-image-layer-up','layer-down':'board-image-layer-down',
     zoomin:'board-zoom-in',zoomout:'board-zoom-out',zoomreset:'board-zoom-label',
     image:'board-insert-image',background:'board-background-image',page:'board-add-page',
-    export:'board-export-image',fullscreen:'board-fullscreen',clear:'board-clear'
+    export:'board-export-image',pdf:'board-export-pdf',fullscreen:'board-fullscreen',clear:'board-clear',
+    ai:'board-ai',template:'board-template',timer:'board-timer',bringhere:'board-bring-here',lockhs:'board-lock',follow:'board-follow-teacher'
    };
    if(action.startsWith('tool:'))selectBoardTool(action.slice(5));
    else if(action==='note-here')addBoardNoteAt(boardWorkspaceContextPoint);
@@ -202,7 +203,7 @@ function openBoardWorkspaceContextMenu(event){
  const point=logicalPoint(event),target=hitObject(point),manager=!!room?.board?.can_manage;
  boardWorkspaceContextPoint=point;
  if(target){selectedObjectId=target.id;syncSelectionButtons();scheduleRender();}
- const selected=target||selectedObject(),own=!!selected&&(manager||String(selected.creatorId||'')===myId());
+ const selected=target||null,own=!!selected&&(manager||String(selected.creatorId||'')===myId());
  const editable=!!selected&&own&&canEdit()&&!selected.locked,isImage=selected?.type==='image'&&manager;
  const menu=ensureBoardWorkspaceContextMenu();
  const objectItems=selected?[
@@ -217,6 +218,11 @@ function openBoardWorkspaceContextMenu(event){
   boardContextMenuItem({action:'tool:select',label:'Chọn / di chuyển đối tượng',icon:'☝',disabled:!boardToolAllowed('select')}),
   boardContextMenuItem({action:'tool:pen',label:'Bút vẽ',icon:'✏',disabled:!boardToolAllowed('pen')}),
   boardContextMenuItem({action:'tool:eraser',label:'Tẩy',icon:'🧽',disabled:!boardToolAllowed('eraser')}),
+  boardContextMenuItem({action:'tool:line',label:'Đường thẳng',icon:'／',disabled:!boardToolAllowed('line')}),
+  boardContextMenuItem({action:'tool:arrow',label:'Mũi tên',icon:'➜',disabled:!boardToolAllowed('arrow')}),
+  boardContextMenuItem({action:'tool:rect',label:'Hình chữ nhật',icon:'▭',disabled:!boardToolAllowed('rect')}),
+  boardContextMenuItem({action:'tool:ellipse',label:'Hình elip',icon:'◯',disabled:!boardToolAllowed('ellipse')}),
+  boardContextMenuItem({action:'tool:vote',label:'Bình chọn ghi chú',icon:'👍',disabled:!boardToolAllowed('vote')}),
   boardContextMenuItem({action:'tool:pan',label:'Di chuyển khung nhìn',icon:'✋',disabled:!boardToolAllowed('pan')}),
   boardContextMenuItem({action:'note-here',label:noteText()?'Đặt ghi chú tại đây':'Soạn ghi chú',icon:'📝',disabled:!boardToolAllowed('note')})
  ];
@@ -232,9 +238,16 @@ function openBoardWorkspaceContextMenu(event){
   boardContextMenuItem({action:'image',label:'Chèn ảnh',icon:'🖼'}),
   boardContextMenuItem({action:'background',label:'Đặt ảnh nền',icon:'🌄'}),
   boardContextMenuItem({action:'page',label:'Thêm trang mới',icon:'＋'}),
+  boardContextMenuItem({action:'ai',label:'Trợ lý AI',icon:'✨',disabled:!boardContextActionButton('board-ai')}),
+  boardContextMenuItem({action:'template',label:'Mẫu hoạt động lớp học',icon:'▦',disabled:!boardContextActionButton('board-template')}),
+  boardContextMenuItem({action:'timer',label:'Hẹn giờ hoạt động',icon:'⏱',disabled:!boardContextActionButton('board-timer')}),
+  boardContextMenuItem({action:'bringhere',label:'Đưa cả lớp tới trang này',icon:'📍',disabled:!boardContextActionButton('board-bring-here')}),
+  boardContextMenuItem({action:'lockhs',label:locked?'Mở tương tác cho học sinh':'Khóa tương tác học sinh',icon:locked?'🔓':'🔒',disabled:!boardContextActionButton('board-lock')}),
   boardContextMenuItem({action:'export',label:'Xuất trang thành ảnh',icon:'⇩'}),
+  boardContextMenuItem({action:'pdf',label:'Xuất toàn bộ bảng PDF',icon:'📄',disabled:!boardContextActionButton('board-export-pdf')}),
   boardContextMenuItem({action:'clear',label:'Xóa toàn bộ nội dung trang',icon:'🗑',danger:true})
  ]:[
+  boardContextMenuItem({action:'follow',label:followTeacher?'Tắt theo trang giáo viên':'Theo trang giáo viên',icon:'📍',disabled:!boardContextActionButton('board-follow-teacher')}),
   boardContextMenuItem({action:'export',label:'Xuất trang thành ảnh',icon:'⇩'})
  ];
  menu.innerHTML='<div class="board-workspace-context-head"><div><strong>'+(selected?esc(objectTypeLabel(selected)):'Bảng tương tác')+'</strong><span>'+(selected?'Thao tác theo đối tượng':'Thao tác nhanh tại vị trí này')+'</span></div><span class="board-workspace-context-badge">'+Math.round(zoomLevel*100)+'%</span></div>'+
