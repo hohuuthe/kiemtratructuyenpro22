@@ -289,7 +289,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                     ? Number(tf4PointsMap[4]) || 0
                     : pTF4;
                 if (isTf4CustomMode && tf4PointsMap && tf4PointsMap[tf4.correctCount] !== undefined) {
-                    questionScore = Number(tf4PointsMap[tf4.correctCount]) || 0;
+                    questionScore = clampScore(tf4PointsMap[tf4.correctCount], d.maxScore);
                 } else {
                     const ratioMap: Record<number, number> = { 0: 0, 1: 0.25, 2: 0.5, 3: 0.75, 4: 1.0 };
                     questionScore = pTF4 * (ratioMap[tf4.correctCount] || 0);
@@ -446,8 +446,8 @@ YÊU CẦU:
             else totalMaxScore += 1;
         });
 
-        if (totalMaxScore <= 0) {
-            totalMaxScore = clientQuestions.length || 1;
+        if (!Number.isFinite(totalMaxScore) || totalMaxScore < 0) {
+            totalMaxScore = 0;
         }
 
         // Kiểm tra xem đề thi có cấu hình giữ nguyên điểm thô (không tự động quy đổi về thang 10) hay không
