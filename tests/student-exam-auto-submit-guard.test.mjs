@@ -169,3 +169,19 @@ test('submit failure restores the live timer when time remains and locks answers
   assert.match(main, /currentExam\.deadlineLocked = true/);
   assert.match(main, /Gửi lại bài đã khóa/);
 });
+
+
+test('violation count for active sessions is persisted and read from server', () => {
+  const violation = readFileSync('functions/api/exam/violation.ts', 'utf8');
+  const grade = readFileSync('functions/api/exam/grade.ts', 'utf8');
+  const main = readFileSync('src/main.js', 'utf8');
+  const route = readFileSync('functions/[slug]/api/[[path]].ts', 'utf8');
+
+  assert.match(violation, /_exam_violation_events/);
+  assert.match(violation, /ON CONFLICT \(event_key\) DO NOTHING/);
+  assert.match(grade, /SELECT COUNT\(\*\) AS count FROM _exam_violation_events/);
+  assert.match(grade, /decoded\.purpose === EXAM_SESSION_PURPOSE_ACTIVE/);
+  assert.match(main, /queueExamViolation\(reason\)/);
+  assert.match(main, /flushExamViolationEvents/);
+  assert.match(route, /'exam\/violation': examViolation/);
+});
