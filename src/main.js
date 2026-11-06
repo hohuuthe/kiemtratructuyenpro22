@@ -9910,10 +9910,12 @@ if (contentType && contentType.includes("application/json")) {
 
         window.isAllowedExamFilePickerActive = function isAllowedExamFilePickerActive() {
             const essayGraceUntil = Number(window.studentAnswerFilePickerGraceUntil) || 0;
+            const backgroundGraceUntil = Number(window.studentBackgroundPickerGraceUntil) || 0;
             return Boolean(
                 window.studentBackgroundPickerActive ||
                 window.studentAnswerFilePickerActive ||
-                Date.now() < essayGraceUntil
+                Date.now() < essayGraceUntil ||
+                Date.now() < backgroundGraceUntil
             );
         };
 
