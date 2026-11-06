@@ -184,10 +184,13 @@ test('violation count for active sessions is persisted and read from server', ()
 
   assert.match(violation, /_exam_violation_events/);
   assert.match(violation, /ON CONFLICT \(event_key\) DO NOTHING/);
+  assert.match(grade, /pendingViolationEvents/);
+  assert.match(grade, /ON CONFLICT \(event_key\) DO NOTHING/);
   assert.match(grade, /SELECT COUNT\(\*\) AS count FROM _exam_violation_events/);
   assert.match(grade, /decoded\.purpose === EXAM_SESSION_PURPOSE_ACTIVE/);
   assert.match(main, /queueExamViolation\(reason\)/);
   assert.match(main, /flushExamViolationEvents/);
+  assert.match(main, /pendingViolationEvents:\s*Array\.isArray\(currentExam\.pendingViolationEvents\)/);
   assert.match(route, /'exam\/violation': examViolation/);
 });
 
