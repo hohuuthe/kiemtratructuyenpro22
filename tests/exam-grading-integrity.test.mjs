@@ -153,13 +153,19 @@ test('SQ: unicode math slash and strict punctuation semantics are deterministic'
 });
 
 
-test('exam generation cannot be tricked into exposing answers or using another teacher bank', () => {
+test('exam READY preparation cannot expose questions or use another teacher bank', () => {
   const generate = fs.readFileSync(new URL('../functions/api/exam/generate.ts', import.meta.url), 'utf8');
+  const start = fs.readFileSync(new URL('../functions/api/exam/start.ts', import.meta.url), 'utf8');
   assert.doesNotMatch(generate, /examConfig && \(examConfig\.immediateFeedback/);
   assert.match(generate, /immediate_feedback: mappedExam\.immediate_feedback \?\? 0/);
   assert.match(generate, /examFlagEnabled\(\s*activeExamConfig\.immediateFeedback \?\? activeExamConfig\.immediate_feedback/);
   assert.doesNotMatch(generate, /SELECT \* FROM questions'\)\.all\(\)/);
   assert.match(generate, /studentUserId: tokenUser\?\.user_id \|\| tokenUser\?\.id \|\| null/);
+  assert.match(generate, /ready:\s*true/);
+  assert.doesNotMatch(generate, /questions:\s*clientQuestions/);
+  assert.doesNotMatch(generate, /return \{ \.\.\.q \}/);
+  assert.match(start, /questions:\s*clientQuestions/);
+  assert.match(start, /Immediate Feedback/);
 });
 
 test('logged-in exam access ignores spoofed client class and unit', () => {

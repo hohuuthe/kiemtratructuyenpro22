@@ -84,7 +84,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     }
 
     const snapshot: any = await db.prepare(
-      'SELECT session_id, exam_id, question_ids, expires_at, started_at, deadline_at FROM _exam_grade_sessions WHERE session_id = ?'
+      'SELECT session_id, exam_id, question_ids, question_snapshot, exam_config, expires_at, started_at, deadline_at FROM _exam_grade_sessions WHERE session_id = ?'
     ).bind(gradingSessionId).first();
     if (!snapshot) {
       return new Response(JSON.stringify({ error: 'Phiên thi không tồn tại hoặc đã được thu hồi.' }), { status: 409, headers: corsHeaders });
@@ -122,8 +122,66 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       }
     }
 
+    let frozenQuestions: any[] = [];
+    try { frozenQuestions = JSON.parse(String(snapshot.question_snapshot || '[]')); } catch {}
+    if (!Array.isArray(frozenQuestions) || frozenQuestions.length !== frozenIds.length) {
+      return new Response(JSON.stringify({ error: 'Snapshot câu hỏi không hợp lệ; bài thi chưa được mở.' }), { status: 409, headers: corsHeaders });
+    }
+    for (let i = 0; i < frozenQuestions.length; i++) {
+      const frozenId = String(frozenQuestions[i]?.id ?? frozenQuestions[i]?.questionId ?? '');
+      if (!frozenId || frozenId !== frozenIds[i]) {
+        return new Response(JSON.stringify({ error: 'Snapshot câu hỏi không khớp phiên đã chuẩn bị.' }), { status: 409, headers: corsHeaders });
+      }
+    }
+
+    const immediateFeedback = Boolean(decoded.immediateFeedback);
+    const clientQuestions = frozenQuestions.map((q: any) => {
+      if (immediateFeedback) {
+        // Giữ nguyên chức năng Immediate Feedback theo yêu cầu: sau khi thời gian
+        // đã bắt đầu, client nhận đáp án để phản hồi tức thời như logic hiện tại.
+        return { ...q };
+      }
+      const { answer, ...withoutAnswer } = q || {};
+      if (withoutAnswer?.options && typeof withoutAnswer.options === 'object') {
+        const { answerImage, ...safeOptions } = withoutAnswer.options;
+        withoutAnswer.options = safeOptions;
+      }
+      return withoutAnswer;
+    });
+
+    // Chuẩn bị baseline draft TRƯỚC khi khóa giờ. Nếu DB lỗi, học sinh chưa mất
+    // bất kỳ giây làm bài nào. Draft này chỉ là mảng rỗng và chưa thể bị sửa
+    // vì /exam/save chỉ chấp nhận token ACTIVE.
+    try {
+      await db.prepare(`
+        CREATE TABLE IF NOT EXISTS _exam_answer_drafts (
+          session_id TEXT PRIMARY KEY,
+          answers_json TEXT NOT NULL,
+          revision INTEGER NOT NULL DEFAULT 0,
+          saved_at TEXT NOT NULL
+        )
+      `).run();
+      await db.prepare(`
+        INSERT INTO _exam_answer_drafts (session_id, answers_json, revision, saved_at)
+        VALUES (?, ?, 0, ?)
+        ON CONFLICT (session_id) DO NOTHING
+      `).bind(
+        gradingSessionId,
+        JSON.stringify(new Array(frozenIds.length).fill(null)),
+        new Date().toISOString()
+      ).run();
+    } catch (draftError) {
+      console.error('Cannot create initial exam draft:', draftError);
+      return new Response(JSON.stringify({
+        error: 'Không thể tạo bản lưu an toàn ban đầu; bài thi chưa được mở.'
+      }), { status: 503, headers: corsHeaders });
+    }
+
+
     const timeLimitSeconds = normalizeExamTimeLimitSeconds(decoded.timeLimitSeconds);
-    const proposedStartedAtMs = nowMs;
+    // Lấy thời điểm bắt đầu sát lệnh claim nhất, sau khi toàn bộ snapshot/draft
+    // đã sẵn sàng, để không trừ thời gian của học sinh cho công việc chuẩn bị server.
+    const proposedStartedAtMs = Date.now();
     const proposedDeadlineAtMs = proposedStartedAtMs + timeLimitSeconds * 1000;
     const proposedStartedAt = new Date(proposedStartedAtMs).toISOString();
     const proposedDeadlineAt = new Date(proposedDeadlineAtMs).toISOString();
@@ -158,22 +216,21 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       return new Response(JSON.stringify({ error: 'Không thể thiết lập mốc thời gian thi an toàn.' }), { status: 503, headers: corsHeaders });
     }
 
-    // TTL kỹ thuật của phiên hoạt động phải độc lập với thời gian học sinh đã chờ
-    // ở hộp sẵn sàng. Luôn giữ snapshot/token sống đến ít nhất 1 giờ sau deadline
-    // để cho phép retry nộp bản đã khóa, nhưng deadline làm bài vẫn không thay đổi.
+    // TTL kỹ thuật độc lập với deadline. Fresh claim đã ghi expires_at nguyên tử;
+    // retry chỉ cần bảo đảm giá trị cũ không ngắn hơn deadline + 1 giờ.
     const activeExpiresAtMs = deadlineAtMs + 60 * 60 * 1000;
     const activeExpiresAt = new Date(activeExpiresAtMs).toISOString();
-    // Với phiên chuyển tiếp/claim cạnh tranh, bảo đảm expires_at không ngắn hơn
-    // deadline + 1 giờ. Phiên mới đã có giá trị này ngay trong atomic claim trên.
-    try {
-      await db.prepare(
-        'UPDATE _exam_grade_sessions SET expires_at = ? WHERE session_id = ? AND expires_at < ?'
-      ).bind(activeExpiresAt, gradingSessionId, activeExpiresAt).run();
-    } catch (expiryUpdateError) {
-      console.error('Cannot verify technical active-session TTL:', expiryUpdateError);
-      return new Response(JSON.stringify({
-        error: 'Không thể xác minh thời hạn kỹ thuật của phiên thi; bài thi chưa được mở.'
-      }), { status: 503, headers: corsHeaders });
+    if (snapshot.started_at) {
+      try {
+        await db.prepare(
+          'UPDATE _exam_grade_sessions SET expires_at = ? WHERE session_id = ? AND expires_at < ?'
+        ).bind(activeExpiresAt, gradingSessionId, activeExpiresAt).run();
+      } catch (expiryUpdateError) {
+        console.error('Cannot verify technical active-session TTL:', expiryUpdateError);
+        return new Response(JSON.stringify({
+          error: 'Không thể xác minh thời hạn kỹ thuật của phiên thi; bài thi chưa được mở.'
+        }), { status: 503, headers: corsHeaders });
+      }
     }
 
     const activePayload = {
@@ -194,7 +251,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       deadlineAtMs,
       serverNowMs: responseNowMs,
       timeLimitSeconds,
-      remainingSeconds: remainingExamSecondsFromDeadline(deadlineAtMs, responseNowMs)
+      remainingSeconds: remainingExamSecondsFromDeadline(deadlineAtMs, responseNowMs),
+      questions: clientQuestions,
+      immediateFeedback
     }), { status: 200, headers: corsHeaders });
   } catch (error: any) {
     console.error('POST /api/exam/start error:', error);

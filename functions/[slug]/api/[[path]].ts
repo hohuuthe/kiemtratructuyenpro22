@@ -18,6 +18,7 @@ import * as r13 from '../../api/exam/generate';
 import * as r14 from '../../api/exam/grade';
 import * as examStart from '../../api/exam/start';
 import * as examSave from '../../api/exam/save';
+import * as examResume from '../../api/exam/resume';
 import * as examViolation from '../../api/exam/violation';
 import * as r15 from '../../api/exams';
 import * as r16 from '../../api/health';
@@ -62,6 +63,7 @@ const handlers: Record<string, any> = {
   'exam/grade': r14,
   'exam/start': examStart,
   'exam/save': examSave,
+  'exam/resume': examResume,
   'exam/violation': examViolation,
   'exams': r15,
   'health': r16,
