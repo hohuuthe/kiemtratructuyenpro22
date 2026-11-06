@@ -8598,7 +8598,11 @@ if (contentType && contentType.includes("application/json")) {
                     readyButton.textContent = 'Đang vào phòng thi...';
 
                     // Fullscreen must be requested directly from the user's click.
-                    // The exam timer still does NOT start until the server confirms started_at below.
+                    // Temporarily reveal the exam root only so the browser can enter
+                    // fullscreen; the blocking ready modal remains on top and the timer
+                    // does NOT start until the server confirms started_at.
+                    const preStartExamInterface = document.getElementById('exam-interface');
+                    if (preStartExamInterface) preStartExamInterface.classList.remove('hidden');
                     if (typeof window.enterExamFullscreen === 'function') {
                         Promise.resolve(window.enterExamFullscreen()).catch(() => {});
                     }
@@ -8623,9 +8627,17 @@ if (contentType && contentType.includes("application/json")) {
                         showToast('Bắt đầu làm bài! Chúc bạn thi tốt.', 'success');
                     } catch (startErr) {
                         readyAccepted = false;
-                        readyButton.disabled = false;
-                        readyButton.textContent = 'Vào phòng thi';
-                        showToast(startErr?.message || 'Không thể bắt đầu bài thi. Vui lòng thử lại.', 'error');
+                        closeModal();
+                        if (preStartExamInterface) preStartExamInterface.classList.add('hidden');
+                        window.currentExamToken = null;
+                        window.intentionalFullscreenExit = true;
+                        try {
+                            if (document.fullscreenElement && document.exitFullscreen) {
+                                await document.exitFullscreen();
+                            }
+                        } catch (_) {}
+                        window.intentionalFullscreenExit = false;
+                        showToast(startErr?.message || 'Không thể bắt đầu bài thi. Vui lòng tải lại đề và thử lại.', 'error');
                     }
                 }, { once: true });
                 document.getElementById('exam-start-ready-cancel')?.addEventListener('click', closeModal, { once: true });
