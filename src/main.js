@@ -1450,7 +1450,8 @@ if (contentTypeConfig && contentTypeConfig.includes("application/json")) {
             autosaveTimer: null,
             autosaveInFlight: false,
             autosavePending: false,
-            deadlineLocked: false
+            deadlineLocked: false,
+            pendingViolationEvents: []
         };
         let questionTypeFilter = '4-1';
         let selectedQuestionIds = new Set();
@@ -8592,7 +8593,8 @@ if (contentType && contentType.includes("application/json")) {
                     autosaveTimer: null,
                     autosaveInFlight: false,
                     autosavePending: false,
-                    deadlineLocked: false
+                    deadlineLocked: false,
+                    pendingViolationEvents: []
                 };
 
                 // Việc mở toàn màn hình cần một thao tác click trực tiếp, không thể gọi
@@ -9669,6 +9671,71 @@ if (contentType && contentType.includes("application/json")) {
             }
         }
 
+        function createExamViolationEventId() {
+            if (globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function') {
+                return globalThis.crypto.randomUUID();
+            }
+            return String(Date.now()) + '-' + Math.random().toString(36).slice(2);
+        }
+
+        async function flushExamViolationEvents() {
+            if (!Array.isArray(currentExam?.pendingViolationEvents) || currentExam.pendingViolationEvents.length === 0 ||
+                !window.currentExamToken || !currentExam.deadlineAtMs) return true;
+            if (currentExam.violationFlushInFlight) return false;
+            currentExam.violationFlushInFlight = true;
+            try {
+                const authToken = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
+                const headers = { 'Content-Type': 'application/json' };
+                if (authToken) headers['Authorization'] = 'Bearer ' + authToken;
+
+                while (currentExam.pendingViolationEvents.length > 0) {
+                    const event = currentExam.pendingViolationEvents[0];
+                    let response;
+                    try {
+                        response = await fetch('/api/exam/violation', {
+                            method: 'POST',
+                            headers,
+                            body: JSON.stringify({
+                                token: window.currentExamToken,
+                                eventId: event.eventId,
+                                reason: event.reason
+                            })
+                        });
+                    } catch (networkError) {
+                        return false;
+                    }
+                    const result = await response.json().catch(() => ({}));
+                    if (!response.ok) {
+                        if (result?.code === 'EXAM_DEADLINE_REACHED') {
+                            currentExam.pendingViolationEvents.shift();
+                            continue;
+                        }
+                        return false;
+                    }
+                    currentExam.pendingViolationEvents.shift();
+                    if (Number.isFinite(Number(result.cheatWarningCount))) {
+                        currentExam.serverCheatWarningCount = Number(result.cheatWarningCount);
+                    }
+                }
+                return true;
+            } finally {
+                currentExam.violationFlushInFlight = false;
+            }
+        }
+
+        function queueExamViolation(reason) {
+            if (!currentExam?.deadlineAtMs || currentExam.deadlineLocked) return;
+            currentExam.pendingViolationEvents = Array.isArray(currentExam.pendingViolationEvents)
+                ? currentExam.pendingViolationEvents
+                : [];
+            currentExam.pendingViolationEvents.push({
+                eventId: createExamViolationEventId(),
+                reason: String(reason || 'violation').slice(0, 120)
+            });
+            flushExamViolationEvents();
+        }
+        window.flushExamViolationEvents = flushExamViolationEvents;
+
         async function saveExamDraftNow(force = false) {
             if (!currentExam?.questions?.length || !window.currentExamToken || !currentExam.deadlineAtMs) return false;
             if (currentExam.deadlineLocked && !force) return false;
@@ -9718,6 +9785,7 @@ if (contentType && contentType.includes("application/json")) {
 
         window.backupExamState = function backupExamState() {
             if (!currentExam?.deadlineAtMs || currentExam.deadlineLocked) return;
+            flushExamViolationEvents();
             if (currentExam.autosaveTimer) clearTimeout(currentExam.autosaveTimer);
             currentExam.autosaveTimer = setTimeout(() => {
                 currentExam.autosaveTimer = null;
@@ -9895,6 +9963,7 @@ if (contentType && contentType.includes("application/json")) {
             currentExam.lastViolationAt = violationNow;
             currentExam.lastViolationReason = reason;
             currentExam.cheatWarningCount = (currentExam.cheatWarningCount || 0) + 1;
+            queueExamViolation(reason);
             const currentCount = currentExam.cheatWarningCount;
             const maxWarnings = window.getMaxCheatWarnings();
 
@@ -10314,7 +10383,10 @@ if (contentType && contentType.includes("application/json")) {
             try {
                 if (typeof window.flushExamAutosave === 'function' && getCurrentExamRemainingSeconds() > 0) {
                     await Promise.race([
-                        window.flushExamAutosave(),
+                        Promise.all([
+                            window.flushExamAutosave(),
+                            typeof window.flushExamViolationEvents === 'function' ? window.flushExamViolationEvents() : true
+                        ]),
                         new Promise(resolve => setTimeout(resolve, 700))
                     ]);
                 }
