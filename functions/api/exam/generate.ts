@@ -571,13 +571,11 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         const questionIds: any[] = [];
         const clientQuestions = selectedQuestions.map((q) => {
             questionIds.push(q.id);
-            if (isImmediateFeedback) {
-                // Giữ nguyên đáp án để thí sinh biết đúng/sai ngay lập tức khi làm bài
-                return { ...q };
-            }
+            // Tuyệt đối không gửi khóa đáp án xuống trình duyệt, kể cả khi bật
+            // phản hồi tức thời. Phản hồi đúng/sai được xác minh từ snapshot ở server.
             const { answer, ...qWithoutAnswer } = q;
-            if (qWithoutAnswer.options && qWithoutAnswer.options.answerImage) {
-                const { answerImage, ...opts } = qWithoutAnswer.options;
+            if (qWithoutAnswer.options && typeof qWithoutAnswer.options === 'object' && qWithoutAnswer.options.answerImage) {
+                const { answerImage, correctAnswer, ...opts } = qWithoutAnswer.options;
                 qWithoutAnswer.options = opts;
             }
             return qWithoutAnswer;
