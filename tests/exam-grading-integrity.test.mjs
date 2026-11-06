@@ -99,3 +99,55 @@ test('browser uses shared grading core and no one-decimal manual score rounding'
   assert.match(main, /roundScore\(newTotalScore, 2\)/);
   assert.doesNotMatch(main, /newTotalScore\) \|\| 0\)\.toFixed\(1\)/);
 });
+
+
+test('TF4: all-false key NONE is valid and explicit false answers score correctly', () => {
+  const full = evaluateTF4('NONE', {A:false,B:false,C:false,D:false});
+  assert.equal(full.validKey, true);
+  assert.equal(full.correctCount, 4);
+  assert.equal(full.allCorrect, true);
+  const blank = evaluateTF4('NONE', {});
+  assert.equal(blank.correctCount, 0);
+  assert.equal(blank.answeredCount, 0);
+});
+
+test('TF4: duplicate true-option keys are rejected', () => {
+  assert.equal(evaluateTF4('A&A', {A:true,B:false,C:false,D:false}).validKey, false);
+});
+
+test('TF4 exhaustive: missing answers never score and every complete truth vector is exact', () => {
+  const letters = ['A','B','C','D'];
+  for (let mask = 0; mask < 16; mask++) {
+    const expected = {};
+    const trueLetters = [];
+    for (let i = 0; i < 4; i++) {
+      const value = Boolean(mask & (1 << i));
+      expected[letters[i]] = value;
+      if (value) trueLetters.push(letters[i]);
+    }
+    const key = trueLetters.length ? trueLetters.join('&') : 'NONE';
+
+    const blank = evaluateTF4(key, {});
+    assert.equal(blank.correctCount, 0, key + ' blank must score 0 statements');
+    assert.equal(blank.allCorrect, false, key + ' blank must not be fully correct');
+
+    const exact = evaluateTF4(key, expected);
+    assert.equal(exact.correctCount, 4, key + ' exact vector');
+    assert.equal(exact.allCorrect, true, key + ' exact vector');
+
+    for (const letter of letters) {
+      const partial = {...expected};
+      delete partial[letter];
+      const verdict = evaluateTF4(key, partial);
+      assert.equal(verdict.answeredCount, 3, key + ' partial answered count');
+      assert.equal(verdict.correctCount, 3, key + ' partial correct count');
+      assert.equal(verdict.allCorrect, false, key + ' partial must not be fully correct');
+    }
+  }
+});
+
+test('SQ: unicode math slash and strict punctuation semantics are deterministic', () => {
+  assert.equal(isShortAnswerCorrect('1⁄2', '1/2', {caseSensitive:false,punctuationSensitive:false}), true);
+  assert.equal(isShortAnswerCorrect('a;b', 'a;b', {caseSensitive:true,punctuationSensitive:true}), true);
+  assert.equal(isShortAnswerCorrect('a', 'a;b', {caseSensitive:true,punctuationSensitive:true}), false);
+});
