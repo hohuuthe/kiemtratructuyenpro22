@@ -108,6 +108,8 @@ export function renderStudentResultCards(container, rows, { onOpen, onOpenAttemp
         const total = Math.max(0, Number(result.total_questions) || 0);
         const correct = canScore ? Math.max(0, Number(result.correct_count) || 0) : null;
         const progress = percentCorrect(result);
+        const isGrouped = result.is_grouped === true;
+        const attemptCount = Math.max(1, Math.floor(Number(result.attempt_count) || 1));
         const card = document.createElement('article');
         card.className = 'student-result-card';
         card.innerHTML =
@@ -118,8 +120,9 @@ export function renderStudentResultCards(container, rows, { onOpen, onOpenAttemp
                 '</div>' +
             '</div>' +
             '<h3 class="student-result-card-title">' + escapeStudentText(result.exam_name || 'Bài thi chưa có tên') + '</h3>' +
+            (isGrouped ? '<div class="student-result-group-summary"><strong>' + attemptCount + '</strong><span>lượt đã làm · đang hiển thị điểm cao nhất</span></div>' : '') +
             '<div class="student-result-card-meta"><span>' + calendarIcon + escapeStudentText(date) + '</span>' +
-                '<span>' + clockIcon + escapeStudentText(time) + '</span></div>' +
+                (isGrouped ? '<span>Lần làm gần nhất</span>' : '<span>' + clockIcon + escapeStudentText(time) + '</span>') + '</div>' +
             '<div class="student-result-violation ' + ((Number(result.cheat_warning_count) || 0) > 0 ? 'has-violation' : 'no-violation') + '">' +
                 '<span>' + ((Number(result.cheat_warning_count) || 0) > 0 ? '⚠️' : '✓') + ' Vi phạm</span>' +
                 '<strong>' + escapeStudentText(Math.max(0, Math.floor(Number(result.cheat_warning_count) || 0))) + ' lần</strong></div>' +
@@ -132,9 +135,9 @@ export function renderStudentResultCards(container, rows, { onOpen, onOpenAttemp
             '<div class="student-result-actions">' +
                 (result.exam_id ? '<button type="button" class="student-result-attempts" aria-label="Xem các lần làm của ' +
                     escapeStudentText(result.exam_name || 'Bài thi') + '"><span>Xem các lần làm</span></button>' : '') +
-                (canDetail ? '<button type="button" class="student-result-open" aria-label="Xem chi tiết bài làm ' +
+                (!isGrouped && canDetail ? '<button type="button" class="student-result-open" aria-label="Xem chi tiết bài làm ' +
                     escapeStudentText(result.exam_name || 'Bài thi') + '"><span>Xem chi tiết</span>' + arrowIcon + '</button>' :
-                    '<div class="student-result-access-note">Giáo viên chưa cho phép xem chi tiết bài làm.</div>') +
+                    (!isGrouped && !canDetail ? '<div class="student-result-access-note">Giáo viên chưa cho phép xem chi tiết bài làm.</div>' : '')) +
             '</div>';
         const attemptsButton = card.querySelector('.student-result-attempts');
         if (attemptsButton) attemptsButton.addEventListener('click', async () => {
