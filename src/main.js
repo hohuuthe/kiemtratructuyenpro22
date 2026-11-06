@@ -1,5 +1,5 @@
 import {canDeleteRankingResult} from './ranking-result-delete-policy.js';
-import { createExamSessionId, remainingExamSeconds, canAutoSubmitExam, shouldCountExamViolation } from './student-exam-session-guard.js';
+import { createExamSessionId, remainingExamSeconds, remainingExamSecondsMonotonic, canAutoSubmitExam, shouldCountExamViolation } from './student-exam-session-guard.js';
 import {questionAuthorDisplayName} from './question-creator-identity.js';
 import {examCreatorDisplayName} from './exam-creator-identity.js';
 import {connectDocumentLinks,initDocumentLinks,resetDocumentLinks} from './document-links-ui.js';
@@ -8306,6 +8306,8 @@ if (contentType && contentType.includes("application/json")) {
             }
 
             currentExam.startTime = Date.now();
+            currentExam.startTick = (typeof performance !== 'undefined' && Number.isFinite(performance.now())) ? performance.now() : null;
+            currentExam.violationEpisodeActive = false;
             if (!Number.isFinite(Number(currentExam.timeLimitSeconds)) || Number(currentExam.timeLimitSeconds) <= 0) {
                 currentExam.timeLimitSeconds = Math.max(1, Math.round((Number(currentExam.timeLimitMinutes) || Number(examConfig?.timeLimit) || 45) * 60));
             }
@@ -8564,7 +8566,9 @@ if (contentType && contentType.includes("application/json")) {
                     timeLimitSeconds: Math.max(1, Number(result.timeLimitSeconds) || Math.round((Number(result.timeLimitMinutes) || Number(examConfig.timeLimit) || 45) * 60)),
                     timeLimitMinutes: Number(result.timeLimitMinutes) || Number(examConfig.timeLimit) || 45,
                     lastViolationAt: 0,
-                    lastViolationReason: ''
+                    lastViolationReason: '',
+                    startTick: null,
+                    violationEpisodeActive: false
                 };
 
                 // Việc mở toàn màn hình cần một thao tác click trực tiếp, không thể gọi
@@ -8769,6 +8773,10 @@ if (contentType && contentType.includes("application/json")) {
         function getCurrentExamRemainingSeconds(now = Date.now()) {
             const frozenSeconds = Number(currentExam?.timeLimitSeconds);
             const totalSeconds = Number.isFinite(frozenSeconds) && frozenSeconds > 0 ? frozenSeconds : Number(examConfig?.timeLimit) * 60;
+            const startTick = Number(currentExam?.startTick);
+            if (Number.isFinite(startTick) && startTick >= 0 && typeof performance !== 'undefined' && Number.isFinite(performance.now())) {
+                return remainingExamSecondsMonotonic(startTick, totalSeconds, performance.now());
+            }
             return remainingExamSeconds(currentExam?.startTime, totalSeconds, now);
         }
 
@@ -9702,11 +9710,16 @@ if (contentType && contentType.includes("application/json")) {
             if (!sessionId) return;
 
             const violationNow = Date.now();
+            if (currentExam.violationEpisodeActive) {
+                console.warn('[ExamViolationGuard] Bỏ qua tín hiệu cùng một episode rời màn hình.', { reason, lastReason: currentExam.lastViolationReason });
+                return;
+            }
             const shouldCount = shouldCountExamViolation({ reason, lastReason: currentExam.lastViolationReason || '', now: violationNow, lastAt: currentExam.lastViolationAt || 0, duplicateWindowMs: 1500 });
             if (!shouldCount) {
                 console.warn('[ExamViolationGuard] Bỏ qua tín hiệu vi phạm trùng từ trình duyệt.', { reason, lastReason: currentExam.lastViolationReason, deltaMs: violationNow - (currentExam.lastViolationAt || 0) });
                 return;
             }
+            currentExam.violationEpisodeActive = true;
             currentExam.lastViolationAt = violationNow;
             currentExam.lastViolationReason = reason;
             currentExam.cheatWarningCount = (currentExam.cheatWarningCount || 0) + 1;
@@ -9904,9 +9917,24 @@ if (contentType && contentType.includes("application/json")) {
             );
         };
 
+        function resetViolationEpisodeIfRecovered() {
+            if (!currentExam || !currentExam.violationEpisodeActive) return;
+            const examInterface = document.getElementById('exam-interface');
+            const examResults = document.getElementById('exam-results');
+            const isExamActive = examInterface && !examInterface.classList.contains('hidden') &&
+                examResults && examResults.classList.contains('hidden');
+            if (!isExamActive || document.hidden || window.isAllowedExamFilePickerActive()) return;
+            const supportsFullscreen = Boolean(document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen || document.documentElement.msRequestFullscreen);
+            if (supportsFullscreen && !document.fullscreenElement) return;
+            currentExam.violationEpisodeActive = false;
+            currentExam.lastViolationReason = '';
+        }
+
         document.addEventListener('visibilitychange', () => {
             if (document.hidden && !window.isAllowedExamFilePickerActive()) {
                 window.handleCheatDetection('tab_switch');
+            } else {
+                resetViolationEpisodeIfRecovered();
             }
         });
 
@@ -9934,6 +9962,7 @@ if (contentType && contentType.includes("application/json")) {
             }
             
             if (document.fullscreenElement) {
+                resetViolationEpisodeIfRecovered();
                 window.hideFullscreenEnforcer();
                 if (btn) {
                     btn.className = "group relative w-9 h-8 md:w-10 md:h-9 bg-emerald-50 text-emerald-700 rounded-lg border border-emerald-300 shadow-sm flex items-center justify-center cursor-pointer";
@@ -10161,7 +10190,10 @@ if (contentType && contentType.includes("application/json")) {
                 </div>
             `;
 
-            const timeTaken = Math.floor((Date.now() - currentExam.startTime) / 1000);
+            const remainingAtSubmit = getCurrentExamRemainingSeconds();
+            const timeTaken = Number.isFinite(remainingAtSubmit) && Number(currentExam.timeLimitSeconds) > 0
+                ? Math.max(0, Math.min(Number(currentExam.timeLimitSeconds), Number(currentExam.timeLimitSeconds) - remainingAtSubmit))
+                : Math.max(0, Math.floor((Date.now() - currentExam.startTime) / 1000));
             
             const name = document.getElementById('guest_data_1')?.value?.trim() || currentExam.studentName || '';
             const inputLop = (document.getElementById('guest_data_lop') || document.getElementById('guest_data_2'))?.value?.trim() || currentExam.studentLop || '';
@@ -10701,7 +10733,9 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 timeLimitSeconds: null,
                 timeLimitMinutes: null,
                 lastViolationAt: 0,
-                lastViolationReason: ''
+                lastViolationReason: '',
+                startTick: null,
+                violationEpisodeActive: false
             };
 
             // Dọn sạch nội dung hiển thị kết quả bài làm cũ
