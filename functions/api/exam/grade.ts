@@ -559,7 +559,7 @@ YÊU CẦU:
         }
 
         // BẢO MẬT: Nếu cấu hình không cho xem chi tiết đáp án, loại bỏ hoàn toàn correctAnswer và ảnh đáp án trước khi trả về client
-        const shouldShowDetails = examConfig.showDetails !== false && examConfig.show_details !== false;
+        const shouldShowDetails = examFlagEnabled(examConfig.showDetails ?? examConfig.show_details, false);
         const clientDetailedResults = detailedResults.map((d: any) => {
             if (!shouldShowDetails) {
                 const { correctAnswer, aiFeedback, ...safeD } = d;
