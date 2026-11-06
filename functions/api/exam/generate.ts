@@ -547,14 +547,63 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         const timeLimitMinutes = Number.isFinite(rawTimeLimit) && rawTimeLimit > 0 ? rawTimeLimit : 45;
         const timeLimitSeconds = Math.max(1, Math.round(timeLimitMinutes * 60));
 
+        // Freeze the exact grading key server-side at issue time. Never put answers in
+        // the JWT because a signed JWT is readable by the browser.
+        const gradeSessionConfig = makeGradeSessionConfig(activeExamConfig);
+        const gradingSessionId = crypto.randomUUID();
+        const expiresAtEpoch = Math.floor(Date.now() / 1000) + Math.max(3600, Math.min(8 * 3600, timeLimitSeconds + 3600));
+        const expiresAt = new Date(expiresAtEpoch * 1000).toISOString();
+
+        try {
+            await db.prepare(`
+                CREATE TABLE IF NOT EXISTS _exam_grade_sessions (
+                    session_id TEXT PRIMARY KEY,
+                    exam_id TEXT,
+                    teacher_id TEXT,
+                    question_ids TEXT NOT NULL,
+                    question_snapshot TEXT NOT NULL,
+                    exam_config TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    expires_at TEXT NOT NULL
+                )
+            `).run();
+            // Best-effort cleanup keeps the ephemeral snapshot table bounded.
+            try {
+                await db.prepare('DELETE FROM _exam_grade_sessions WHERE expires_at < ?')
+                    .bind(new Date().toISOString()).run();
+            } catch (cleanupErr) {
+                console.warn('Could not clean expired grading sessions:', cleanupErr);
+            }
+            await db.prepare(`
+                INSERT INTO _exam_grade_sessions
+                    (session_id, exam_id, teacher_id, question_ids, question_snapshot, exam_config, created_at, expires_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            `).bind(
+                gradingSessionId,
+                String(activeExamConfig.id || examId || ''),
+                String(effectiveTeacherId || ''),
+                JSON.stringify(questionIds.map((id: any) => String(id))),
+                JSON.stringify(selectedQuestions),
+                JSON.stringify(gradeSessionConfig),
+                new Date().toISOString(),
+                expiresAt
+            ).run();
+        } catch (snapshotErr: any) {
+            console.error('Unable to freeze grading snapshot:', snapshotErr);
+            return new Response(JSON.stringify({
+                error: 'Không thể khóa đáp án chấm điểm cho phiên thi. Bài thi chưa được phát để bảo đảm quyền lợi học sinh.'
+            }), { status: 503, headers: corsHeaders });
+        }
+
         const payload = {
             questionIds,
-            examConfig: makeGradeSessionConfig(activeExamConfig),
+            gradingSessionId,
+            examConfig: gradeSessionConfig,
             maxCheatWarnings: maxCheatWarningsFromDB,
             timeLimitSeconds,
             teacherId: effectiveTeacherId,
             timestamp: Date.now(),
-            exp: Math.floor(Date.now() / 1000) + Math.max(3600, Math.min(8 * 3600, timeLimitSeconds + 3600))
+            exp: expiresAtEpoch
         };
 
         const token = await signJWT(payload, SECRET);
