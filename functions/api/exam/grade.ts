@@ -34,6 +34,19 @@ const normalizeType = (type: any): string => {
     return String(type || '4-1');
 };
 
+function sanitizeGradingDetailForClient(detail: any, showDetails: boolean): any {
+    if (showDetails) return detail;
+    const { correctAnswer, aiFeedback, isCorrect, correctStatements, ...safeD } = detail || {};
+    const question = safeD.question && typeof safeD.question === 'object' ? safeD.question : {};
+    const { answer, ...safeQuestion } = question;
+    if (safeQuestion.options && typeof safeQuestion.options === 'object') {
+        const { answerImage, correctAnswer: optionCorrectAnswer, ...safeOptions } = safeQuestion.options;
+        safeQuestion.options = safeOptions;
+    }
+    safeD.question = safeQuestion;
+    return safeD;
+}
+
 const getBase64Data = (dataUri: string) => {
     if (!dataUri || !dataUri.includes('base64,')) return null;
     try {
@@ -127,15 +140,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                             decoded?.examConfig?.showDetails ?? decoded?.examConfig?.show_details,
                             false
                         );
-                        const replayDetails = storedDetails.map((d: any) => {
-                            if (replayShowDetails) return d;
-                            const { correctAnswer, aiFeedback, ...safeD } = d || {};
-                            if (safeD.question?.options?.answerImage) {
-                                const { answerImage, ...safeOptions } = safeD.question.options;
-                                safeD.question = { ...safeD.question, options: safeOptions };
-                            }
-                            return safeD;
-                        });
+                        const replayDetails = storedDetails.map((d: any) =>
+                            sanitizeGradingDetailForClient(d, replayShowDetails)
+                        );
                         return new Response(JSON.stringify({
                             resultId: stored.id,
                             score: Number(stored.score) || 0,
@@ -567,15 +574,9 @@ YÊU CẦU:
                             examConfig.showDetails ?? examConfig.show_details,
                             false
                         );
-                        const safeDetails = details.map((d: any) => {
-                            if (showDetailsOnReplay) return d;
-                            const { correctAnswer, aiFeedback, ...safeD } = d || {};
-                            if (safeD.question?.options?.answerImage) {
-                                const { answerImage, ...safeOptions } = safeD.question.options;
-                                safeD.question = { ...safeD.question, options: safeOptions };
-                            }
-                            return safeD;
-                        });
+                        const safeDetails = details.map((d: any) =>
+                            sanitizeGradingDetailForClient(d, showDetailsOnReplay)
+                        );
                         return new Response(JSON.stringify({
                             resultId: stored.id,
                             score: Number(stored.score) || 0,
@@ -690,17 +691,9 @@ YÊU CẦU:
 
         // BẢO MẬT: Nếu cấu hình không cho xem chi tiết đáp án, loại bỏ hoàn toàn correctAnswer và ảnh đáp án trước khi trả về client
         const shouldShowDetails = examFlagEnabled(examConfig.showDetails ?? examConfig.show_details, false);
-        const clientDetailedResults = detailedResults.map((d: any) => {
-            if (!shouldShowDetails) {
-                const { correctAnswer, aiFeedback, ...safeD } = d;
-                if (safeD.question && safeD.question.options && safeD.question.options.answerImage) {
-                    const { answerImage, ...safeOptions } = safeD.question.options;
-                    safeD.question = { ...safeD.question, options: safeOptions };
-                }
-                return safeD;
-            }
-            return d;
-        });
+        const clientDetailedResults = detailedResults.map((d: any) =>
+            sanitizeGradingDetailForClient(d, shouldShowDetails)
+        );
 
         return new Response(JSON.stringify({
             resultId,
