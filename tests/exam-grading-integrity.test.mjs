@@ -211,3 +211,32 @@ test('public shared result API is summary-only', () => {
   assert.match(results, /if \(idParam && !user\)/);
   assert.match(results, /if \(examIdParam && !user && includeDetails\)/);
 });
+
+
+test('second audit: authoritative exam identity, time and AI key cannot come from browser', () => {
+  const grade = fs.readFileSync(new URL('../functions/api/exam/grade.ts', import.meta.url), 'utf8');
+  assert.match(grade, /authoritativeExamId/);
+  assert.doesNotMatch(grade, /studentInfo\.examId\).*ai_grading_key/);
+  assert.match(grade, /authoritativeTimeTaken/);
+  assert.match(grade, /decoded\.timestamp/);
+  assert.match(grade, /String\(examConfig\.name \|\| studentInfo\.examName \|\| ''\)/);
+});
+
+test('second audit: config and UI use one two-decimal score precision contract', () => {
+  const contract = fs.readFileSync(new URL('../src/exam-config-contract.ts', import.meta.url), 'utf8');
+  const editor = fs.readFileSync(new URL('../public/components/tab-exam-editor.html', import.meta.url), 'utf8');
+  const generate = fs.readFileSync(new URL('../functions/api/exam/generate.ts', import.meta.url), 'utf8');
+  assert.match(contract, /tối đa 2 chữ số thập phân/);
+  assert.doesNotMatch(editor, /step="0\.001"/);
+  assert.match(editor, /id="tf4-points-2" value="0\.50"/);
+  assert.match(editor, /id="tf4-points-3" value="0\.75"/);
+  assert.match(editor, /id="tf4-points-4" value="1\.00"/);
+  assert.match(generate, /hasTwoDecimalPrecision/);
+});
+
+test('second audit: image-only MC options remain valid through save and generation filters', () => {
+  const questions = fs.readFileSync(new URL('../functions/api/questions.ts', import.meta.url), 'utf8');
+  const generate = fs.readFileSync(new URL('../functions/api/exam/generate.ts', import.meta.url), 'utf8');
+  assert.match(questions, /!text && !image/);
+  assert.match(generate, /Boolean\(text \|\| image\)/);
+});
