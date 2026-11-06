@@ -3,6 +3,7 @@ import { verifyAuthSession, getDynamicSecret, getDatabase } from './exam/utils';
 import { processExamResultsDeletion } from '../../src/exam-results-delete-service';
 import { listExamResultsDeletionTargets } from '../../src/exam-results-targets-service';
 import { ExamResultsDeletionError } from '../../src/exam-results-delete-policy';
+import { clampScore, roundScore } from '../../src/exam-grading-core.js';
 
 interface Env {
   NEON_DATABASE_URL?: string;
@@ -396,7 +397,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
   }
 };
 
-// PUT /api/results - Cập nhật điểm, chi tiết chấm thi của bài nộp
+// PUT /api/results - Cập nhật điểm tự luận; server giữ toàn quyền tính tổng điểm
 export const onRequestPut: PagesFunction<Env> = async (context) => {
   const db = getDatabase(context);
   const { request, env } = context;
@@ -404,8 +405,7 @@ export const onRequestPut: PagesFunction<Env> = async (context) => {
   const authHeader = request.headers.get('Authorization');
   let user: any = null;
   if (authHeader && authHeader.startsWith('Bearer ')) {
-    const token = authHeader.substring(7);
-    user = await verifyAuthSession(token, SECRET, db);
+    user = await verifyAuthSession(authHeader.substring(7), SECRET, db);
   }
 
   const roleLower = String(user?.role || '').toLowerCase();
@@ -419,29 +419,86 @@ export const onRequestPut: PagesFunction<Env> = async (context) => {
 
   try {
     const body: any = await request.json();
-    const { id, score, correct_count, details } = body;
-
+    const id = String(body?.id || '').trim();
     if (!id) {
       return new Response(JSON.stringify({ error: "Thiếu ID bài thi cần cập nhật" }), { status: 400, headers: corsHeaders });
     }
 
-    // Kiểm tra quyền sở hữu bài thi nếu là giáo viên
-    if (isTeacher && !isAdmin) {
-      const { results: checkRows } = await db.prepare(
-        "SELECT r.id FROM results r JOIN exam_configs e ON r.exam_id = e.id WHERE r.id = ? AND e.creator_id = ?"
-      ).bind(id, user.id).all();
+    const stored: any = await db.prepare(`
+      SELECT r.id, r.details, r.exam_id, e.creator_id, e.points_tl
+      FROM results r
+      LEFT JOIN exam_configs e ON r.exam_id = e.id
+      WHERE r.id = ?
+      LIMIT 1
+    `).bind(id).first();
+    if (!stored) {
+      return new Response(JSON.stringify({ error: "Không tìm thấy bài thi cần cập nhật" }), { status: 404, headers: corsHeaders });
+    }
 
-      if (!checkRows || checkRows.length === 0) {
+    if (isTeacher && !isAdmin) {
+      const identities = new Set([String(user.id || ''), String(user.user_id || '')].filter(Boolean));
+      if (!identities.has(String(stored.creator_id || ''))) {
         return new Response(JSON.stringify({ error: "Bạn không có quyền cập nhật điểm cho bài thi này" }), { status: 403, headers: corsHeaders });
       }
     }
 
-    const safeDetails = typeof details === 'object' ? JSON.stringify(details) : (details || '[]');
+    let storedDetails: any[] = [];
+    try {
+      storedDetails = Array.isArray(stored.details) ? stored.details : JSON.parse(String(stored.details || '[]'));
+    } catch {
+      return new Response(JSON.stringify({ error: "Chi tiết bài thi trong CSDL bị lỗi cấu trúc; không được phép ghi đè." }), { status: 409, headers: corsHeaders });
+    }
+    if (!Array.isArray(storedDetails) || storedDetails.length === 0) {
+      return new Response(JSON.stringify({ error: "Bài thi không có chi tiết chấm điểm hợp lệ." }), { status: 409, headers: corsHeaders });
+    }
+
+    const incomingDetails = Array.isArray(body?.details) ? body.details : [];
+    if (incomingDetails.length !== storedDetails.length) {
+      return new Response(JSON.stringify({ error: "Số lượng chi tiết câu hỏi không khớp bài làm gốc." }), { status: 400, headers: corsHeaders });
+    }
+
+    const updatedDetails = storedDetails.map((storedDetail: any, index: number) => {
+      const type = String(storedDetail?.question?.type || '').toUpperCase();
+      if (type !== 'TL') return storedDetail; // Objective scores are immutable here.
+
+      const incoming = incomingDetails[index] || {};
+      const maxScore = Number(storedDetail.maxScore ?? stored.points_tl ?? 0);
+      if (!Number.isFinite(maxScore) || maxScore < 0) {
+        throw new Error('Không xác định được điểm tối đa của câu tự luận.');
+      }
+      const score = roundScore(clampScore(incoming.score, maxScore), 2);
+      const next = {
+        ...storedDetail,
+        score,
+        maxScore,
+        isCorrect: maxScore > 0 && score >= maxScore - 0.000001,
+        needsGrading: false
+      };
+      if (typeof incoming.aiFeedback === 'string') next.aiFeedback = incoming.aiFeedback.slice(0, 20000);
+      if (typeof incoming.gradingStatus === 'string') next.gradingStatus = incoming.gradingStatus.slice(0, 50);
+      return next;
+    });
+
+    const canonicalScore = roundScore(
+      updatedDetails.reduce((sum: number, d: any) => sum + (Number(d.score) || 0), 0),
+      2
+    );
+    const canonicalCorrectCount = updatedDetails.filter((d: any) =>
+      String(d?.question?.type || '').toUpperCase() !== 'TL' && d?.isCorrect === true
+    ).length;
+
     await db.prepare(
       "UPDATE results SET score = ?, correct_count = ?, details = ? WHERE id = ?"
-    ).bind(Number(score) || 0, Number(correct_count) || 0, safeDetails, id).run();
+    ).bind(canonicalScore, canonicalCorrectCount, JSON.stringify(updatedDetails), id).run();
 
-    return new Response(JSON.stringify({ success: true, message: "Đã cập nhật điểm thành công", error: null }), { status: 200, headers: corsHeaders });
+    return new Response(JSON.stringify({
+      success: true,
+      score: canonicalScore,
+      correct_count: canonicalCorrectCount,
+      details: updatedDetails,
+      message: "Đã cập nhật điểm thành công",
+      error: null
+    }), { status: 200, headers: corsHeaders });
   } catch (e: any) {
     console.error("PUT /api/results error:", e);
     return new Response(JSON.stringify({ error: e.message || 'Lỗi server', success: false }), { status: 500, headers: corsHeaders });
