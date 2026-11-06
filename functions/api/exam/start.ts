@@ -118,11 +118,29 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
           attempt_no INTEGER NOT NULL,
           session_id TEXT NOT NULL UNIQUE,
           started_at TEXT NOT NULL,
+          expires_at TEXT,
           completed_at TEXT,
           result_id TEXT,
           PRIMARY KEY (exam_id, candidate_key, attempt_no)
         )
       `).run();
+      try {
+        await db.prepare('ALTER TABLE _exam_attempt_slots ADD COLUMN IF NOT EXISTS expires_at TEXT').run();
+        await db.prepare(
+          'CREATE UNIQUE INDEX IF NOT EXISTS idx_exam_attempt_slots_one_active ON _exam_attempt_slots(exam_id, candidate_key) WHERE completed_at IS NULL'
+        ).run();
+      } catch (slotSchemaErr) {
+        console.error('Could not enforce single active exam attempt:', slotSchemaErr);
+        return new Response(JSON.stringify({
+          error: 'Không thể khóa an toàn lượt làm bài đang hoạt động.'
+        }), { status: 503, headers: corsHeaders });
+      }
+
+      // An expired session still consumes its attempt slot, but it must no longer
+      // block the candidate from starting the next allowed attempt.
+      await db.prepare(
+        "UPDATE _exam_attempt_slots SET completed_at = COALESCE(completed_at, expires_at) WHERE completed_at IS NULL AND expires_at IS NOT NULL AND expires_at < ?"
+      ).bind(new Date().toISOString()).run();
 
       const existingSlot: any = await db.prepare(
         'SELECT attempt_no FROM _exam_attempt_slots WHERE session_id = ?'
@@ -131,6 +149,16 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       if (existingSlot?.attempt_no) {
         attemptNumber = Number(existingSlot.attempt_no);
       } else {
+        const activeOther: any = await db.prepare(
+          'SELECT session_id, attempt_no FROM _exam_attempt_slots WHERE exam_id = ? AND candidate_key = ? AND completed_at IS NULL LIMIT 1'
+        ).bind(examId, candidateKey).first();
+        if (activeOther) {
+          return new Response(JSON.stringify({
+            code: 'EXAM_ATTEMPT_ALREADY_ACTIVE',
+            error: 'Bạn đang có một lượt làm bài khác chưa kết thúc. Không thể mở đồng thời nhiều lượt.'
+          }), { status: 409, headers: corsHeaders });
+        }
+
         let completedCount = 0;
         if (signedStudentUserId) {
           const row: any = await db.prepare(
@@ -161,9 +189,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
           const insert = await db.prepare(
             `INSERT INTO _exam_attempt_slots
               (exam_id, candidate_key, attempt_no, session_id, started_at)
-             VALUES (?, ?, ?, ?, ?)
+             VALUES (?, ?, ?, ?, ?, ?)
              ON CONFLICT DO NOTHING`
-          ).bind(examId, candidateKey, slot, sessionId, slotStartedAt).run();
+          ).bind(examId, candidateKey, slot, sessionId, slotStartedAt, String(session.expires_at || '')).run();
 
           if (Number(insert?.meta?.changes || 0) === 1) {
             attemptNumber = slot;
@@ -178,6 +206,15 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
           if (sameSession?.attempt_no) {
             attemptNumber = Number(sameSession.attempt_no);
             break;
+          }
+          const concurrentActive: any = await db.prepare(
+            'SELECT session_id FROM _exam_attempt_slots WHERE exam_id = ? AND candidate_key = ? AND completed_at IS NULL LIMIT 1'
+          ).bind(examId, candidateKey).first();
+          if (concurrentActive) {
+            return new Response(JSON.stringify({
+              code: 'EXAM_ATTEMPT_ALREADY_ACTIVE',
+              error: 'Một lượt làm bài khác vừa được bắt đầu. Hệ thống không cho phép hai lượt chạy đồng thời.'
+            }), { status: 409, headers: corsHeaders });
           }
         }
 
