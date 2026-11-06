@@ -298,3 +298,15 @@ test('Immediate Feedback remains enabled after start, not during READY preparati
   assert.match(start, /if \(immediateFeedback\)[\s\S]{0,160}return \{ \.\.\.q \}/);
   assert.match(resume, /if \(immediateFeedback\) return \{ \.\.\.q \}/);
 });
+
+
+test('local Node server routes all exam session lifecycle endpoints through Cloudflare handlers', () => {
+  const server = readFileSync('server.ts', 'utf8');
+  for (const name of ['Start','Save','Violation','Resume']) {
+    assert.match(server, new RegExp('hardenedExam' + name + 'Handler'));
+  }
+  for (const route of ['start','save','violation','resume']) {
+    assert.match(server, new RegExp('app\\.post\\("\\/api\\/exam\\/' + route + '"'));
+  }
+  assert.match(server, /invokeExamPagesPostHandler/);
+});
