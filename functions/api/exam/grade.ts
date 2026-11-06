@@ -174,11 +174,12 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                             score: Number(stored.score) || 0,
                             rawEarnedScore: Number(stored.score) || 0,
                             correctCount: Number(stored.correct_count) || 0,
-                            totalQuestions: Number(stored.total_questions) || 0,cheatWarningCount: Number(stored.cheat_warning_count) || 0,
-gradingPending: hasPendingEssayGrading(storedDetails),
-scoreFinalized: !hasPendingEssayGrading(storedDetails),
-detailedResults: replayDetails,
-alreadySubmitted: true
+                            totalQuestions: Number(stored.total_questions) || 0,
+                            cheatWarningCount: Number(stored.cheat_warning_count) || 0,
+                            gradingPending: hasPendingEssayGrading(storedDetails),
+                            scoreFinalized: !hasPendingEssayGrading(storedDetails),
+                            detailedResults: replayDetails,
+                            alreadySubmitted: true
                         }), { status: 200, headers: corsHeaders });
                     }
                 }
@@ -507,12 +508,24 @@ YÊU CẦU:
   "score": (số điểm),
   "feedback": "Nhận xét"
 }`;
-                const prompt = teacherPrompt
+                const resolvedTeacherPrompt = teacherPrompt
                     ? teacherPrompt
                         .replaceAll('${d.question.content}', String(d.question.content || ''))
                         .replaceAll('${d.correctAnswer}', String(d.correctAnswer || ''))
                         .replaceAll('${d.userAnswer || \'(Trống)\'}', studentAnsText || '(Trống)')
                         .replaceAll('${examConfig.pointsTL ?? 1}', String(pTL))
+                    : '';
+                const prompt = resolvedTeacherPrompt
+                    ? resolvedTeacherPrompt + `
+
+DỮ LIỆU CHẤM BẮT BUỘC:
+- Câu hỏi: ${d.question.content || ''}
+- Đáp án/Hướng dẫn: ${d.correctAnswer || ''}
+- Bài làm học sinh: ${studentAnsText || '(Trống)'}
+- Điểm tối đa: ${pTL}
+
+RÀNG BUỘC ĐẦU RA BẮT BUỘC:
+Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận xét"}. score phải từ 0 đến ${pTL} và tối đa 2 chữ số thập phân.`
                     : defaultPrompt;
                 
                 let parts: any[] = [{ text: prompt }];
@@ -703,11 +716,12 @@ YÊU CẦU:
                             score: Number(stored.score) || 0,
                             rawEarnedScore: Number(stored.score) || 0,
                             correctCount: Number(stored.correct_count) || 0,
-                            totalQuestions: Number(stored.total_questions) || 0,cheatWarningCount: Number(stored.cheat_warning_count) || 0,
-gradingPending: hasPendingEssayGrading(storedDetails),
-scoreFinalized: !hasPendingEssayGrading(storedDetails),
-detailedResults: safeDetails,
-alreadySubmitted: true
+                            totalQuestions: Number(stored.total_questions) || 0,
+                            cheatWarningCount: Number(stored.cheat_warning_count) || 0,
+                            gradingPending: hasPendingEssayGrading(storedDetails),
+                            scoreFinalized: !hasPendingEssayGrading(storedDetails),
+                            detailedResults: safeDetails,
+                            alreadySubmitted: true
                         }), { status: 200, headers: corsHeaders });
                     }
                 }
