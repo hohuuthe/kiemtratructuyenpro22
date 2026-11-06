@@ -541,13 +541,20 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             return qWithoutAnswer;
         });
 
+        // Thời lượng phiên thi phải lấy từ cấu hình CSDL đã xác thực và được đóng băng
+        // ngay khi phát đề. Client không được tiếp tục phụ thuộc vào examConfig có thể thay đổi.
+        const rawTimeLimit = Number(activeExamConfig.time_limit ?? activeExamConfig.timeLimit ?? 45);
+        const timeLimitMinutes = Number.isFinite(rawTimeLimit) && rawTimeLimit > 0 ? rawTimeLimit : 45;
+        const timeLimitSeconds = Math.max(1, Math.round(timeLimitMinutes * 60));
+
         const payload = {
             questionIds,
             examConfig: makeGradeSessionConfig(activeExamConfig),
             maxCheatWarnings: maxCheatWarningsFromDB,
+            timeLimitSeconds,
             teacherId: effectiveTeacherId,
             timestamp: Date.now(),
-            exp: Math.floor(Date.now() / 1000) + Math.max(3600, Math.min(8 * 3600, (Number(activeExamConfig.time_limit || 45) + 60) * 60))
+            exp: Math.floor(Date.now() / 1000) + Math.max(3600, Math.min(8 * 3600, timeLimitSeconds + 3600))
         };
 
         const token = await signJWT(payload, SECRET);
@@ -557,6 +564,8 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             token,
             examName: activeExamConfig.name || dbExam?.name || examName || '',
             maxCheatWarnings: maxCheatWarningsFromDB,
+            timeLimitMinutes,
+            timeLimitSeconds,
             immediateFeedback: isImmediateFeedback
         }), {
             status: 200,
