@@ -3650,6 +3650,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
         let myStudentResults = [];
         let myStudentPage = 0;
         let myStudentTotal = 0;
+        let myStudentAttemptTotal = 0;
         let myStudentRequestSeq = 0;
         const myStudentPageSize = 30;
         function formatMyStudentResultTime(value) {
@@ -3663,6 +3664,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             myStudentResults = [];
             myStudentPage = 0;
             myStudentTotal = 0;
+            myStudentAttemptTotal = 0;
             const list = document.getElementById('ranking-student-list');
             if (list) { list.replaceChildren(); list.setAttribute('aria-busy', 'false'); }
             for (const id of ['ranking-student-summary','ranking-student-total','ranking-student-best','ranking-student-exams','ranking-student-page-info']) {
@@ -3685,11 +3687,11 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             const filtered = filterStudentResultPage(myStudentResults, { query, scoreBand, sort });
             const stats = studentResultPageStats(myStudentResults, myStudentTotal);
             const text = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = String(value); };
-            text('ranking-student-total', stats.total.toLocaleString('vi-VN'));
+            text('ranking-student-total', myStudentAttemptTotal.toLocaleString('vi-VN'));
             text('ranking-student-best', stats.best === null ? '—' : stats.best.toLocaleString('vi-VN', { maximumFractionDigits: 1 }));
-            text('ranking-student-exams', stats.distinctExams);
-            text('ranking-student-summary', 'Hiển thị ' + filtered.length + '/' + myStudentResults.length + ' lượt làm bài trong trang này.');
-            text('ranking-student-page-info', myStudentTotal ? 'Đang xem lượt ' + (myStudentPage * myStudentPageSize + 1) + '–' + Math.min(myStudentTotal, (myStudentPage + 1) * myStudentPageSize) + ' trên tổng ' + myStudentTotal + ' lượt.' : 'Chưa có kết quả bài thi.');
+            text('ranking-student-exams', myStudentTotal.toLocaleString('vi-VN'));
+            text('ranking-student-summary', 'Hiển thị ' + filtered.length + '/' + myStudentResults.length + ' đề thi trong trang này. Mỗi đề chỉ hiển thị một lần.');
+            text('ranking-student-page-info', myStudentTotal ? 'Đang xem đề ' + (myStudentPage * myStudentPageSize + 1) + '–' + Math.min(myStudentTotal, (myStudentPage + 1) * myStudentPageSize) + ' trên tổng ' + myStudentTotal + ' đề.' : 'Chưa có kết quả bài thi.');
             text('ranking-student-page-number', 'Trang ' + (myStudentPage + 1));
             renderStudentResultCards(list, filtered, {
                 onOpen: id => window.showMyStudentResultDetail(id),
@@ -3713,7 +3715,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
                 if (!token) throw new Error('Phiên đăng nhập không hợp lệ');
                 const offset = Math.max(0, Number(page) || 0) * myStudentPageSize;
-                const response = await fetch('/api/results/me?limit=30&offset=' + offset, {
+                const response = await fetch('/api/results/me?grouped=1&limit=30&offset=' + offset, {
                     headers: { Authorization: 'Bearer ' + token },
                     cache: 'no-store'
                 });
@@ -3723,7 +3725,8 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                     String(currentUser.id || '') !== expectedAccount || isTeacherLoggedIn || isAdminLoggedIn) return;
                 if (!Array.isArray(payload.data)) throw new Error('Phản hồi dữ liệu không hợp lệ');
                 myStudentResults = payload.data;
-                myStudentTotal = Number(payload.total) || 0;
+                myStudentTotal = Number(payload.total_exams ?? payload.total) || 0;
+                myStudentAttemptTotal = Number(payload.total_attempts) || 0;
                 myStudentPage = Number(page) || 0;
                 window.renderMyStudentResultsPage();
             } catch (error) {
