@@ -8586,7 +8586,7 @@ if (contentType && contentType.includes("application/json")) {
                     return;
                 }
                 let readyAccepted = false;
-                readyButton.addEventListener('click', () => {
+                readyButton.addEventListener('click', async () => {
                     if (readyAccepted) return;
                     if (String(document.getElementById('student-exam-name-filter')?.value || '') !== String(selectedExamId)) {
                         closeModal();
@@ -8594,9 +8594,39 @@ if (contentType && contentType.includes("application/json")) {
                         return;
                     }
                     readyAccepted = true;
-                    closeModal();
-                    startExamUI();
-                    showToast('Bắt đầu làm bài! Chúc bạn thi tốt.', 'success');
+                    readyButton.disabled = true;
+                    readyButton.textContent = 'Đang vào phòng thi...';
+
+                    // Fullscreen must be requested directly from the user's click.
+                    // The exam timer still does NOT start until the server confirms started_at below.
+                    if (typeof window.enterExamFullscreen === 'function') {
+                        Promise.resolve(window.enterExamFullscreen()).catch(() => {});
+                    }
+
+                    try {
+                        const startAuthToken = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
+                        const startHeaders = { 'Content-Type': 'application/json' };
+                        if (startAuthToken) startHeaders['Authorization'] = 'Bearer ' + startAuthToken;
+                        const startResponse = await fetch('/api/exam/start', {
+                            method: 'POST',
+                            headers: startHeaders,
+                            cache: 'no-store',
+                            body: JSON.stringify({ token: window.currentExamToken })
+                        });
+                        const startResult = await startResponse.json().catch(() => ({}));
+                        if (!startResponse.ok || !startResult?.startedAt) {
+                            throw new Error(startResult?.error || 'Không thể xác nhận thời điểm bắt đầu bài thi.');
+                        }
+                        currentExam.serverStartedAt = startResult.startedAt;
+                        closeModal();
+                        startExamUI();
+                        showToast('Bắt đầu làm bài! Chúc bạn thi tốt.', 'success');
+                    } catch (startErr) {
+                        readyAccepted = false;
+                        readyButton.disabled = false;
+                        readyButton.textContent = 'Vào phòng thi';
+                        showToast(startErr?.message || 'Không thể bắt đầu bài thi. Vui lòng thử lại.', 'error');
+                    }
                 }, { once: true });
                 document.getElementById('exam-start-ready-cancel')?.addEventListener('click', closeModal, { once: true });
                 readyButton.focus();
@@ -10102,7 +10132,7 @@ if (contentType && contentType.includes("application/json")) {
                     });
                     return;
                 }
-                executeSubmit();
+                executeSubmit({ autoReason, sessionId });
                 return;
             }
             const incomplete = [];
@@ -10162,9 +10192,10 @@ if (contentType && contentType.includes("application/json")) {
             }
         }
 
-        async function executeSubmit() {
+        async function executeSubmit(submitContext = {}) {
             if (currentExam.submitting) return;
             currentExam.submitting = true;
+            const submissionSessionId = currentExam.sessionId;
             if (typeof window.releaseExamWakeLock === 'function') {
                 window.releaseExamWakeLock();
             }
@@ -10203,8 +10234,8 @@ if (contentType && contentType.includes("application/json")) {
                 } catch (e) {
                     console.log(e);
                 }
-                setTimeout(() => { window.intentionalFullscreenExit = false; }, 800);
             }
+            setTimeout(() => { window.intentionalFullscreenExit = false; }, 800);
 
             const examContainer = document.getElementById('exam-interface');
             if (!window.originalExamInterfaceHTML) {
@@ -10235,7 +10266,20 @@ if (contentType && contentType.includes("application/json")) {
             const examId = examSelectEl?.value || examConfig?.id || '';
             const examName = examSelectEl?.options[examSelectEl.selectedIndex]?.dataset?.name || examSelectEl?.options[examSelectEl.selectedIndex]?.textContent || examConfig?.name || '';
 
-            const studentAnswers = currentExam.questions.map((q, i) => currentExam.answers[i]);
+            const liveStudentAnswers = currentExam.questions.map((q, i) => currentExam.answers[i]);
+            const mustFreezeSubmission = submitContext?.autoReason === 'time_expired' ||
+                submitContext?.autoReason === 'cheat_limit' ||
+                (Number.isFinite(remainingAtSubmit) && remainingAtSubmit <= 0);
+            if (mustFreezeSubmission && !Array.isArray(currentExam.lockedSubmissionAnswers)) {
+                try {
+                    currentExam.lockedSubmissionAnswers = structuredClone(liveStudentAnswers);
+                } catch (_) {
+                    currentExam.lockedSubmissionAnswers = JSON.parse(JSON.stringify(liveStudentAnswers));
+                }
+            }
+            const studentAnswers = Array.isArray(currentExam.lockedSubmissionAnswers)
+                ? currentExam.lockedSubmissionAnswers
+                : liveStudentAnswers;
 
             try {
                 const gradeAuthToken = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
@@ -10375,14 +10419,33 @@ if (contentType && contentType.includes("application/json")) {
 
             } catch (err) {
                 currentExam.submitting = false;
-                
+
 if (err && err.message && err.message.includes("is not valid JSON")) {
     // Ignore HTML proxy errors from console
 } else {
     console.error(err);
 }
-                showToast(err.message, 'error');
                 examContainer.innerHTML = window.originalExamInterfaceHTML;
+                window.intentionalFullscreenExit = false;
+
+                const remainingAfterFailure = getCurrentExamRemainingSeconds();
+                if (Number.isFinite(remainingAfterFailure) && remainingAfterFailure > 0 &&
+                    isSameExamSession(submissionSessionId)) {
+                    // Submission failed while time remains: resume the same monotonic timer.
+                    startTimer();
+                    if (typeof window.enterExamFullscreen === 'function') {
+                        Promise.resolve(window.enterExamFullscreen()).catch(() => {});
+                    }
+                    if (typeof window.enforceFullscreenConstraint === 'function') {
+                        window.enforceFullscreenConstraint();
+                    }
+                    showToast((err?.message || 'Không thể nộp bài.') + ' Đồng hồ vẫn tiếp tục từ thời gian thực của phiên thi.', 'error');
+                } else {
+                    // Time/violation forced submission is immutable after the first submit attempt.
+                    const timerText = document.getElementById('exam-timer');
+                    if (timerText) timerText.textContent = '00:00';
+                    showToast((err?.message || 'Không thể gửi bài.') + ' Bài làm đã được khóa tại thời điểm kết thúc; hãy bấm Nộp bài để gửi lại khi kết nối ổn định.', 'error');
+                }
             }
         }
 
