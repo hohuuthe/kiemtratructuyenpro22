@@ -68,6 +68,7 @@ const getBase64Data = (dataUri: string) => {
 };
 
 export const onRequestPost: PagesFunction<Env> = async (context) => {
+  const requestReceivedAtMs = Date.now();
   const db = getDatabase(context);
     const { request, env } = context;
     const SECRET = await getDynamicSecret(db, env.JWT_SECRET);
@@ -707,7 +708,7 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
         // Ranking time is server-authoritative. A browser cannot improve its
         // tie-break position by sending a fake timeTaken value.
         const signedLimitSeconds = Math.max(1, Math.floor(Number(decoded.timeLimitSeconds) || 1));
-        const elapsedByServer = Math.max(0, Math.floor((Date.now() - serverStartedAtMs) / 1000));
+        const elapsedByServer = Math.max(0, Math.floor((requestReceivedAtMs - serverStartedAtMs) / 1000));
         // Allow only a small transport/processing margin after the timer reaches zero.
         // This prevents late submissions while not penalizing a request already in flight.
         const submissionTransportGraceSeconds = 15;
