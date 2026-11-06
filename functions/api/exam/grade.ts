@@ -255,6 +255,14 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         let loadedFromSnapshot = false;
         if (gradingSessionId) {
             try {
+                // Migration tương thích nóng: phiên cũ đang làm không bị lỗi chỉ vì
+                // bảng snapshot được tạo trước khi có started_at/deadline_at.
+                for (const sql of [
+                    'ALTER TABLE _exam_grade_sessions ADD COLUMN IF NOT EXISTS started_at TEXT',
+                    'ALTER TABLE _exam_grade_sessions ADD COLUMN IF NOT EXISTS deadline_at TEXT'
+                ]) {
+                    try { await db.prepare(sql).run(); } catch {}
+                }
                 const snapshotRow: any = await db.prepare(
                     'SELECT question_ids, question_snapshot, exam_config, expires_at, started_at, deadline_at FROM _exam_grade_sessions WHERE session_id = ?'
                 ).bind(String(gradingSessionId)).first();
