@@ -1,4 +1,5 @@
 import { verifyPasswordPBKDF2, hashPasswordPBKDF2, getDatabase } from '../exam/utils';
+import { consumeRateLimit, hashRateLimitKey, clientIp } from '../rate-limit';
 
 export async function onRequestPost(context: any) {
     const { request, env } = context;
@@ -13,6 +14,15 @@ export async function onRequestPost(context: any) {
     try {
         const body = await request.json();
         const { username, oldPassword, newPassword } = body;
+
+        const limiterKey = await hashRateLimitKey(['change-password', clientIp(request), username || '']);
+        const limiter = await consumeRateLimit(db, limiterKey, 8, 300);
+        if (!limiter.allowed) {
+            return new Response(JSON.stringify({
+                error: "Có quá nhiều lần thử đổi mật khẩu. Vui lòng thử lại sau.",
+                code: "AUTH_RATE_LIMITED"
+            }), { status: 429, headers: { ...corsHeaders, 'Retry-After': String(limiter.retryAfter) } });
+        }
         
         if (!username || !oldPassword || !newPassword) {
             return new Response(JSON.stringify({ error: "Vui lòng cung cấp đầy đủ thông tin!" }), { status: 400, headers: corsHeaders });
