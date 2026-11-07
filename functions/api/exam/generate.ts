@@ -393,11 +393,14 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                         String(value || '')
                             .normalize('NFKC')
                             .toLocaleLowerCase('vi-VN')
+                            .normalize('NFD')
+                            .replace(/[\u0300-\u036f]/g, '')
+                            .replace(/đ/g, 'd')
                             .trim()
-                            .replace(/^trường\s+/u, '')
-                            .replace(/^trung\s+học\s+phổ\s+thông\s+/u, '')
+                            .replace(/^truong\s+/u, '')
+                            .replace(/^trung\s+hoc\s+pho\s+thong\s+/u, '')
                             .replace(/^thpt\s+/u, '')
-                            .replace(/^trường\s+thpt\s+/u, '')
+                            .replace(/^truong\s+thpt\s+/u, '')
                             .replace(/\s+/g, ' ');
                     const canonicalProfileUnit = normalizeLegacyUnit(profileUnit);
 
