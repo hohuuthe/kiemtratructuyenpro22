@@ -41,6 +41,7 @@ import { onRequestPost as hardenedExamSaveHandler } from './functions/api/exam/s
 import { onRequestPost as hardenedExamViolationHandler } from './functions/api/exam/violation';
 import { onRequestPost as hardenedExamResumeHandler } from './functions/api/exam/resume';
 import { onRequestPost as hardenedUploadImageHandler } from './functions/api/upload-image';
+import { signAuthSession as signCloudflareAuthSession } from './functions/api/exam/utils';
 
 dotenv.config({ override: true });
 
@@ -211,7 +212,7 @@ async function startServer() {
   // Requests without a bearer are handled by individual route access checks.
   app.use('/api', async (req, res, next) => {
     if (!req.headers.authorization) return next();
-    if (req.path === '/auth/login' || req.path === '/auth/change-password' || req.path === '/auth/register' || req.path === '/exam/grade') return next();
+    if (req.path === '/auth/login' || req.path === '/auth/change-password' || req.path === '/auth/register' || req.path === '/exam/grade' || req.path === '/upload-image') return next();
     const header = req.headers.authorization;
     if (!header.startsWith('Bearer ')) return res.status(401).json({ error: 'Phiên đăng nhập không hợp lệ' });
     try {
@@ -4218,6 +4219,35 @@ async function startServer() {
         if(value===undefined)continue;
         if(Array.isArray(value)){for(const item of value)webHeaders.append(name,String(item));}
         else webHeaders.set(name,String(value));
+      }
+
+      const rawBearer=String(req.headers.authorization||'');
+      if(rawBearer.startsWith('Bearer ')){
+        const rawToken=rawBearer.slice(7);
+        const secret=await getServerSecret();
+        const decoded:any=verifyJWTSync(rawToken,secret);
+        if(decoded?.auth_state && decoded?.id){
+          const row=(await executeSqlQuery(`
+            SELECT a.id,a.user_id,a.username,a.password,a.role,a.is_active,a.expiry_date,
+                   u.full_name,u.target_audience,u.donvi,u.lop,u.is_vip AS profile_vip,
+                   u.is_active AS profile_active,u.expiry_date AS profile_expiry_date
+            FROM accounts a LEFT JOIN users u ON u.id=COALESCE(a.user_id,a.id)
+            WHERE a.id=? LIMIT 1
+          `,[decoded.id])).results?.[0];
+          if(!row||!getAccountAccessStatus(row).allowed){
+            return res.status(401).json({error:'Phiên đăng nhập không còn hiệu lực.'});
+          }
+          const expected=crypto.createHash('sha256').update(accountSessionMaterial(row)).digest('hex');
+          if(expected!==decoded.auth_state){
+            return res.status(401).json({error:'Phiên đăng nhập đã thay đổi. Vui lòng đăng nhập lại.'});
+          }
+          const tenantKey=tenantStorage.getStore()?.databaseUrl||'';
+          const bridged=await signCloudflareAuthSession(row,{
+            id:row.id,user_id:row.user_id||row.id,username:row.username,
+            role:row.role,target_audience:row.target_audience||''
+          },secret,tenantKey);
+          webHeaders.set('authorization','Bearer '+bridged);
+        }
       }
       webHeaders.set('content-type','application/json');
       const webRequest=new Request(`${protocol}://${host}${req.originalUrl||req.url||'/api/upload-image'}`,{
