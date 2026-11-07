@@ -647,6 +647,23 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                     continue;
                 }
 
+                // Gemini request below can only embed inline Base64 images. After exam
+                // uploads were hardened to R2, an HTTPS image may be present here. Never
+                // auto-grade while silently omitting any question/rubric/student image:
+                // that can under-grade a valid answer. Route the item to manual review.
+                const requiredAiImages = [
+                    d.question?.image,
+                    d.question?.options?.answerImage,
+                    studentAnsImage
+                ].filter((value: any) => String(value || '').trim());
+                const hasUnembeddableAiImage = requiredAiImages.some((value: any) => !getBase64Data(String(value)));
+                if (hasUnembeddableAiImage) {
+                    d.gradingStatus = 'pending_manual';
+                    d.needsGrading = true;
+                    d.aiFeedback = 'Câu tự luận có ảnh không thể chuyển đầy đủ vào bộ chấm AI. Hệ thống không tự cho điểm khi thiếu dữ liệu ảnh; giáo viên cần chấm thủ công.';
+                    continue;
+                }
+
                 if (looksLikeAiGraderInjection(studentAnsText)) {
                     d.gradingStatus = 'pending_manual';
                     d.needsGrading = true;
