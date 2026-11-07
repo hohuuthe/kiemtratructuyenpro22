@@ -115,3 +115,27 @@ test('Node fallback runtime mirrors critical image, health and unit protections'
   assert.doesNotMatch(server, /user_count: userCount/);
   assert.match(server, /jsonb_to_recordset/);
 });
+
+
+test('verified exam owner keeps the same access-window bypass at start as generate', () => {
+  const start = read('functions/api/exam/start.ts');
+  assert.match(start, /canBypassAccessWindow/);
+  assert.match(start, /verifiedActorRole === 'admin'/);
+  assert.match(start, /verifiedActorIds\.has\(creatorId\)/);
+  assert.match(start, /verifiedActorAudience === 'giáo viên'/);
+  assert.match(start, /if \(!canBypassAccessWindow\) \{/);
+});
+
+test('autosave validates submission images and bounds revision before persisting', () => {
+  assert.match(save, /function normalizeDraftImage/);
+  assert.match(save, /function sanitizeDraftAnswers/);
+  assert.match(save, /EXAM_DRAFT_IMAGE_INVALID/);
+  assert.match(save, /parsedRevision > 10_000_000/);
+  assert.match(save, /const answersJson = JSON\.stringify\(safeAnswers\)/);
+});
+
+test('deadline grading revalidates autosaved answers before using the draft', () => {
+  assert.match(grade, /draftAnswers = sanitizeSubmissionAnswers\(draftAnswers\)/);
+  assert.match(grade, /Deadline-safe draft validation failed/);
+  assert.match(grade, /Bản lưu đáp án trước hạn chứa dữ liệu không hợp lệ/);
+});
