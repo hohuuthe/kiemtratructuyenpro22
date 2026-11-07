@@ -3,6 +3,7 @@ import { verifyAuthSession, getDynamicSecret, checkIsAdmin, checkIsTeacherOrAdmi
 import { isExamOwner, redactExamForPublic, examAccessChallenge, isProtectedExamForUser, protectedExamPreview } from './exam/security';
 import { canManageExamConfig, examConfigGuardedDeleteStatement } from '../../src/exam-config-deletion-policy';
 import { normalizeExamConfigInput, ExamConfigInputError } from '../../src/exam-config-contract';
+import { validateStoredExamQuestionPool } from '../../src/exam-question-pool-validity';
 
 interface Env {
   NEON_DATABASE_URL?: string;
@@ -101,13 +102,29 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
       if (challenge) return new Response(JSON.stringify({data:null,...challenge}), {
         status:challenge.status,headers:corsHeaders
       });
+      const ownsExam = isExamOwner(user, row);
       const mapped = {
-        ...(isExamOwner(user, row) ? mapRowRead(row) : redactExamForPublic(mapRowRead(row))),
+        ...(ownsExam ? mapRowRead(row) : redactExamForPublic(mapRowRead(row))),
         target_lop: row.target_lop || row.lop || '',
         lop: row.target_lop || row.lop || '',
         is_shared_results: row.is_shared_results === 1 || row.is_shared_results === true || row.is_shared_results === 'true'
       };
-      return new Response(JSON.stringify({ data: mapped, error: null }), { status: 200, headers: corsHeaders });
+      let questionPoolValidity: any = null;
+      if (ownsExam && checkIsTeacherOrAdmin(user)) {
+        try {
+          questionPoolValidity = await validateStoredExamQuestionPool(db, mapRowRead(row), row.creator_id);
+        } catch (validationError: any) {
+          console.error('Cannot validate exam question pool:', validationError?.message || validationError);
+          questionPoolValidity = {
+            valid: false,
+            code: 'EXAM_QUESTION_POOL_CHECK_UNAVAILABLE',
+            examName: String(row.name || '').trim(),
+            shortages: [],
+            message: 'Không thể xác minh ngân hàng câu hỏi trực tiếp trên cơ sở dữ liệu. Đề chưa được coi là hợp lệ; vui lòng thử lại trước khi sử dụng.'
+          };
+        }
+      }
+      return new Response(JSON.stringify({ data: mapped, question_pool_validity: questionPoolValidity, error: null }), { status: 200, headers: corsHeaders });
     }
 
     // 2. Tra cứu đề thi chia sẻ kết quả theo Code (Dành cho Học sinh / Khách tra cứu bảng điểm)
@@ -306,6 +323,28 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       (isAdmin && (body.creator_id||body.creatorId) ? String(body.creator_id||body.creatorId):String(user.id));
     if (!owner) return respond({error:'Không xác định được người tạo đề'},403);
     const fields=normalizeExamConfigInput(body,existing);
+
+    // Fail-closed: mọi cấu hình mới/sửa phải đủ câu hỏi trên DB tại đúng thời điểm lưu.
+    // Nhờ vậy một đề đang thiếu câu vẫn có thể được mở để sửa, nhưng chỉ được lưu
+    // khi giáo viên đã giảm/thay đổi cơ cấu về mức ngân hàng hiện tại đáp ứng được.
+    let proposedPoolValidity: any;
+    try {
+      proposedPoolValidity = await validateStoredExamQuestionPool(db, {...fields, name: fields.name}, owner);
+    } catch (validationError: any) {
+      console.error('Cannot validate proposed exam question pool:', validationError?.message || validationError);
+      return respond({
+        error:'Không thể xác minh ngân hàng câu hỏi trên cơ sở dữ liệu. Hệ thống chưa lưu đề để tránh tạo cấu hình không hợp lệ.',
+        code:'EXAM_QUESTION_POOL_CHECK_UNAVAILABLE'
+      },503);
+    }
+    if (!proposedPoolValidity.valid) {
+      return respond({
+        error: proposedPoolValidity.message,
+        code: proposedPoolValidity.code || 'EXAM_QUESTION_POOL_INVALID',
+        question_pool_validity: proposedPoolValidity
+      },409);
+    }
+
     if (!isAdmin && (fields.chedodethi==='Đề cho đơn vị'||fields.chedodethi==='Đề thi cho đơn vị')) {
       const identity:any=await db.prepare(
         'SELECT donvi FROM users WHERE id = ? OR id = ? LIMIT 1'
