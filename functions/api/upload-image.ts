@@ -49,6 +49,22 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         const expires = Date.parse(String(row?.expires_at||''));
         if (row && row.started_at && Number.isFinite(deadline) && now <= deadline &&
             (!Number.isFinite(expires) || now <= expires)) {
+          const signedStudentId = String(decoded.studentUserId || '').trim();
+          if (signedStudentId) {
+            const accountHeader = request.headers.get('X-Account-Authorization') || '';
+            if (!accountHeader.startsWith('Bearer ')) {
+              return new Response(JSON.stringify({
+                error: 'Thiếu xác thực tài khoản học sinh cho phiên tải ảnh.'
+              }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+            }
+            const account = await verifyAuthSession(accountHeader.slice(7), secret, db);
+            const verifiedStudentId = String(account?.user_id || account?.id || '').trim();
+            if (!verifiedStudentId || verifiedStudentId !== signedStudentId) {
+              return new Response(JSON.stringify({
+                error: 'Tài khoản học sinh không khớp phiên thi.'
+              }), { status: 403, headers: { 'Content-Type': 'application/json' } });
+            }
+          }
           examSession = decoded;
         }
       }
