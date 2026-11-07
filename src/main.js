@@ -5852,72 +5852,6 @@ if (contentType && contentType.includes("application/json")) {
             })();
         }
 
-        function showExamConfigLoadProgress(examLabel = '') {
-            const safeLabel = escapeHTML(String(examLabel || '').trim());
-            const progressModalHtml = `
-                <div class="p-6 sm:p-8 text-center max-w-md mx-auto">
-                    <div class="mb-5 flex justify-center">
-                        <div class="relative w-14 h-14">
-                            <div class="absolute inset-0 border-4 border-indigo-100 rounded-full"></div>
-                            <div id="exam-load-spinner" class="absolute inset-0 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
-                        </div>
-                    </div>
-                    <h3 class="text-xl font-black text-gray-800 mb-1">Đang nạp đề thi</h3>
-                    <p class="text-xs text-gray-500 mb-4">${safeLabel || 'Hệ thống đang chuẩn bị dữ liệu chính xác trước khi mở trình sửa đề.'}</p>
-                    <div class="w-full bg-gray-100 rounded-full h-3 overflow-hidden">
-                        <div id="exam-load-progress-fill" class="bg-indigo-600 h-full transition-all duration-200" style="width: 3%"></div>
-                    </div>
-                    <div class="flex items-center justify-between mt-2 mb-4">
-                        <span id="exam-load-progress-step" class="text-xs font-semibold text-gray-500">Khởi tạo...</span>
-                        <span id="exam-load-progress-percent" class="text-sm font-black text-indigo-700">3%</span>
-                    </div>
-                    <div id="exam-load-progress-detail" class="text-left text-sm rounded-xl border border-indigo-100 bg-indigo-50/70 px-3 py-2.5 text-indigo-900 min-h-[44px]">
-                        Đang kiểm tra cấu hình đề thi...
-                    </div>
-                    <div id="exam-load-progress-actions" class="hidden mt-4"></div>
-                </div>
-            `;
-            showModal(progressModalHtml, 'md');
-            const modalEl = document.getElementById('modal-content');
-            modalEl?.querySelector('button[title="Đóng"]')?.classList.add('hidden');
-
-            const update = (percent, step, detail) => {
-                const safePercent = Math.max(3, Math.min(100, Math.round(Number(percent) || 3)));
-                const fill = document.getElementById('exam-load-progress-fill');
-                const percentEl = document.getElementById('exam-load-progress-percent');
-                const stepEl = document.getElementById('exam-load-progress-step');
-                const detailEl = document.getElementById('exam-load-progress-detail');
-                if (fill) fill.style.width = safePercent + '%';
-                if (percentEl) percentEl.textContent = safePercent + '%';
-                if (stepEl && step) stepEl.textContent = step;
-                if (detailEl && detail) detailEl.textContent = detail;
-            };
-
-            const fail = (message) => {
-                const spinner = document.getElementById('exam-load-spinner');
-                spinner?.classList.remove('animate-spin', 'border-indigo-600', 'border-t-transparent');
-                spinner?.classList.add('border-red-500');
-                const fill = document.getElementById('exam-load-progress-fill');
-                fill?.classList.remove('bg-indigo-600');
-                fill?.classList.add('bg-red-500');
-                const percentEl = document.getElementById('exam-load-progress-percent');
-                percentEl?.classList.remove('text-indigo-700');
-                percentEl?.classList.add('text-red-600');
-                const detailEl = document.getElementById('exam-load-progress-detail');
-                detailEl?.classList.remove('border-indigo-100', 'bg-indigo-50/70', 'text-indigo-900');
-                detailEl?.classList.add('border-red-200', 'bg-red-50', 'text-red-800');
-                update(100, 'Nạp đề chưa hoàn tất', message || 'Không thể nạp đủ dữ liệu câu hỏi.');
-                const actions = document.getElementById('exam-load-progress-actions');
-                if (actions) {
-                    actions.classList.remove('hidden');
-                    actions.innerHTML = '<button type="button" onclick="closeModal()" class="w-full px-4 py-2.5 rounded-xl bg-gray-800 hover:bg-gray-900 text-white font-bold">Đóng</button>';
-                }
-            };
-
-            return { update, fail, close: closeModal };
-        }
-        window.showExamConfigLoadProgress = showExamConfigLoadProgress;
-
         // ==================== STATISTICS ====================
         function updateStats() {
             const elQuestions = document.getElementById('stat-questions');
@@ -6502,7 +6436,14 @@ if (contentType && contentType.includes("application/json")) {
                 const verification = verifyExamConfigQuestionPool(draft, questions);
                 if (!verification.ok) throw new Error(examQuestionPoolFailureMessage(verification));
 
-                reportProgress(98, `Đã sẵn sàng ${questions.length.toLocaleString('vi-VN')} câu hỏi. Đang hoàn tất...`);
+                reportProgress(96, `Đã tải đủ ${questions.length.toLocaleString('vi-VN')} câu hỏi. Đang chuẩn bị trình sửa đề...`);
+                const componentReady = await Promise.race([
+                    ensureTabComponent('exam-editor'),
+                    new Promise(resolve => setTimeout(() => resolve(false), 12000))
+                ]);
+                if (!componentReady) throw new Error('Không thể tải giao diện Tạo, sửa đề thi. Vui lòng thử lại.');
+
+                reportProgress(99, 'Ngân hàng câu hỏi và trình sửa đề đã sẵn sàng.');
                 return { resJson, draft, verification, ownerTeacherId };
             });
 
@@ -6516,10 +6457,7 @@ if (contentType && contentType.includes("application/json")) {
                 userLoadIntent !== examUserLoadIntentSeq || !(isAdminLoggedIn || isTeacherLoggedIn)) return;
 
             try {
-                // Tải HTML trình sửa sau khi ngân hàng câu hỏi đã hoàn tất.
-                const componentReady = await ensureTabComponent('exam-editor');
-                if (!componentReady) throw new Error('Không thể tải giao diện Tạo, sửa đề thi.');
-
+                // Component và toàn bộ ngân hàng câu hỏi đã sẵn sàng từ cùng một tiến trình.
                 // Khởi tạo và áp cấu hình khi tab còn ẩn để switchTab không phải chờ request phụ.
                 const editorReady = initializeExamEditorFromVerifiedPool();
                 if (!editorReady) throw new Error('Không thể khởi tạo giao diện sửa đề từ ngân hàng câu hỏi đã tải.');
