@@ -234,7 +234,9 @@ test('second audit: config and UI use one four-decimal score precision contract'
   const editor = fs.readFileSync(new URL('../public/components/tab-exam-editor.html', import.meta.url), 'utf8');
   const generate = fs.readFileSync(new URL('../functions/api/exam/generate.ts', import.meta.url), 'utf8');
   assert.match(contract, /tối đa 4 chữ số thập phân/);
-  assert.doesNotMatch(editor, /step="0\.000001"/);
+  assert.match(contract, /Tổng điểm tối đa của đề thi phải nằm trong khoảng 0 đến 1000 điểm/);
+  assert.match(editor, /id="exam-points-41"[^>]*step="0\.0001"/);
+  assert.match(editor, /id="tf4-points-1"[^>]*step="0\.0001"/);
   assert.match(editor, /id="tf4-points-2" value="0\.50"/);
   assert.match(editor, /id="tf4-points-3" value="0\.75"/);
   assert.match(editor, /id="tf4-points-4" value="1\.00"/);
@@ -272,6 +274,7 @@ test('third audit: grading tolerates REAL round-trip while custom TF4 stays four
   assert.match(grade, /Math\.abs\(value \* 10000 - Math\.round\(value \* 10000\)\) > 1e-7/);
   assert.match(grade, /const customTf4Mode = examFlagEnabled/);
   assert.match(grade, /Bảng điểm Đúng\/Sai tùy chỉnh không hợp lệ; hệ thống chưa lưu kết quả/);
+  assert.match(grade, /Tổng điểm tối đa của đề thi vượt giới hạn 1000 điểm/);
 });
 
 
