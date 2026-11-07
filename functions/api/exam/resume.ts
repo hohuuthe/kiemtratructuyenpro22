@@ -83,11 +83,16 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         const claimedAtMs = new Date(String(submitted.claimed_at || '')).getTime();
         const stale = Number.isFinite(claimedAtMs) &&
           claimedAtMs < Date.now() - 5 * 60 * 1000;
-        if (stale && !submitted?.result_id) {
-          const released: any = await db.prepare(
-            "DELETE FROM _submitted_exam_tokens WHERE token_hash = ? AND status = ? AND claimed_at = ?"
-          ).bind(tokenHash, 'processing', submitted.claimed_at).run();
-          if (Number(released?.meta?.changes || 0) === 1) submitted = null;
+        if (stale) {
+          const staleResult: any = submitted?.result_id
+            ? await db.prepare('SELECT id FROM results WHERE id = ?').bind(String(submitted.result_id)).first()
+            : null;
+          if (!staleResult) {
+            const released: any = await db.prepare(
+              "DELETE FROM _submitted_exam_tokens WHERE token_hash = ? AND status = ? AND claimed_at = ?"
+            ).bind(tokenHash, 'processing', submitted.claimed_at).run();
+            if (Number(released?.meta?.changes || 0) === 1) submitted = null;
+          }
         }
         if (submitted) {
           return new Response(JSON.stringify({
