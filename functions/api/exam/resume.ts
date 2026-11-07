@@ -224,7 +224,13 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         'SELECT COUNT(*) AS count FROM _exam_violation_events WHERE session_id = ?'
       ).bind(gradingSessionId).first();
       cheatWarningCount = Math.max(0, Number(row?.count) || 0);
-    } catch {}
+    } catch (violationCountError) {
+      console.error('Cannot restore authoritative violation count:', violationCountError);
+      return new Response(JSON.stringify({
+        code: 'EXAM_VIOLATION_COUNT_UNAVAILABLE',
+        error: 'Không thể xác minh số lần vi phạm của phiên thi; hệ thống chưa khôi phục bài để tránh đặt lại sai bộ đếm.'
+      }), { status: 503, headers: corsHeaders });
+    }
 
     let resumeToken = token;
     if (decoded.purpose === EXAM_SESSION_PURPOSE_PRESTART) {
