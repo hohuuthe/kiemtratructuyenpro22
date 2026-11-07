@@ -334,3 +334,55 @@ test('autosave response reports the revision that actually remains persisted', (
   assert.match(save, /revision: persistedRevision/);
   assert.match(save, /savedAt: persistedSavedAt/);
 });
+
+
+test('stale processing submission claims can recover without duplicating a stored result', () => {
+  const grade = fs.readFileSync(new URL('../functions/api/exam/grade.ts', import.meta.url), 'utf8');
+  const resume = fs.readFileSync(new URL('../functions/api/exam/resume.ts', import.meta.url), 'utf8');
+  assert.match(grade, /claimedAtMs < Date\.now\(\) - 5 \* 60 \* 1000/);
+  assert.match(grade, /DELETE FROM _submitted_exam_tokens WHERE token_hash = \? AND status = \? AND claimed_at = \?/);
+  assert.match(resume, /claimedAtMs < Date\.now\(\) - 5 \* 60 \* 1000/);
+  assert.match(resume, /SELECT id FROM results WHERE id = \?/);
+});
+
+test('autosave equal-revision races are accepted only when this exact payload was persisted', () => {
+  const save = fs.readFileSync(new URL('../functions/api/exam/save.ts', import.meta.url), 'utf8');
+  assert.match(save, /SELECT answers_json, revision, saved_at FROM _exam_answer_drafts/);
+  assert.match(save, /persistedAnswersJson === answersJson/);
+  assert.match(save, /persistedSavedAt === savedAt/);
+});
+
+test('resume fails closed when authoritative violation count cannot be restored', () => {
+  const resume = fs.readFileSync(new URL('../functions/api/exam/resume.ts', import.meta.url), 'utf8');
+  assert.match(resume, /EXAM_VIOLATION_COUNT_UNAVAILABLE/);
+  assert.match(resume, /Không thể xác minh số lần vi phạm/);
+});
+
+test('server decides violation auto-submit threshold and browser persists unsent violation events', () => {
+  const violation = fs.readFileSync(new URL('../functions/api/exam/violation.ts', import.meta.url), 'utf8');
+  const main = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+  assert.match(violation, /shouldAutoSubmit: cheatWarningCount > maxCheatWarnings/);
+  assert.match(main, /result\.shouldAutoSubmit === true/);
+  assert.match(main, /serverViolationAutoSubmitTriggered/);
+  assert.match(main, /pending_exam_violation_events/);
+  assert.match(main, /loadPendingExamViolationEvents/);
+  assert.match(main, /saveResult\?\.accepted !== true/);
+});
+
+test('result persistence stores class and unit in their proper columns', () => {
+  const grade = fs.readFileSync(new URL('../functions/api/exam/grade.ts', import.meta.url), 'utf8');
+  const insert = grade.slice(grade.indexOf('INSERT INTO results'), grade.indexOf(').run();', grade.indexOf('INSERT INTO results')));
+  assert.match(insert, /authenticatedLop \|\| studentInfo\.lop \|\| studentInfo\.studentClass/);
+  assert.match(insert, /authenticatedDonvi \|\| studentInfo\.donvi \|\| studentInfo\.unit/);
+});
+
+test('client unit and class gating uses exact normalized authenticated identity', () => {
+  const main = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+  assert.match(main, /normalizedAllowedUnits\.has\(userDonvi\)/);
+  assert.match(main, /allowedLops\.includes\(userLop\)/);
+  const startRegion = main.slice(
+    main.indexOf('// Kiểm tra phân quyền cho chế độ Đề cho đơn vị'),
+    main.indexOf('// Kiểm tra thời gian cho phép làm bài', main.indexOf('// Kiểm tra phân quyền cho chế độ Đề cho đơn vị'))
+  );
+  assert.doesNotMatch(startRegion, /userDonvi\.includes|teacherDonvi\.includes|endsWith\(/);
+});
