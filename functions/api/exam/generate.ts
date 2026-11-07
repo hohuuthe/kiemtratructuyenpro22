@@ -600,7 +600,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         const shuffle = (arr: any[]) => [...arr].sort(() => Math.random() - 0.5);
         let selectedQuestions: any[] = [];
 
-        // THUẬT TOÁN BỐC CÂU HỎI ĐÚNG CẤU HÌNH VÀ TUYỆT ĐỐI KHÔNG BỐC NGOÀI BÀI HỌC
+        // THUẬT TOÁN BỐC CÂU HỎI ĐÚNG TUYỆT ĐỐI CẢ DẠNG VÀ MỨC ĐỘ.
+        // Khi cấu hình có NB/TH/VD, thiếu bất kỳ mức nào đều dừng phát đề.
+        // Tuyệt đối không lấy câu mức độ khác để bù.
         const pickCategory = (type: string, typeLabel: string, targetCount: number, nbTarget: number, thTarget: number, vdTarget: number) => {
             if (targetCount <= 0) return;
 
@@ -609,34 +611,40 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                 throw new Error(`Ngân hàng đề không đủ câu hỏi [${typeLabel}] trong các bài học đã chọn! Yêu cầu: ${targetCount} câu, nhưng chỉ có sẵn ${pool.length} câu.`);
             }
 
-            const sumSub = (nbTarget || 0) + (thTarget || 0) + (vdTarget || 0);
+            const requiredNB = Math.max(0, Number(nbTarget) || 0);
+            const requiredTH = Math.max(0, Number(thTarget) || 0);
+            const requiredVD = Math.max(0, Number(vdTarget) || 0);
+            const sumSub = requiredNB + requiredTH + requiredVD;
+
             if (sumSub > 0) {
+                if (sumSub !== targetCount) {
+                    throw new Error(`Cấu hình mức độ [${typeLabel}] không hợp lệ: NB + TH + VD = ${sumSub} câu nhưng tổng cấu hình là ${targetCount} câu. Đề chưa được phát.`);
+                }
+
                 const nbPool = shuffle(pool.filter(q => q.level === 'NB'));
                 const thPool = shuffle(pool.filter(q => q.level === 'TH'));
                 const vdPool = shuffle(pool.filter(q => q.level === 'VD'));
 
-                const pickedNB = nbPool.slice(0, nbTarget || 0);
-                const pickedTH = thPool.slice(0, thTarget || 0);
-                const pickedVD = vdPool.slice(0, vdTarget || 0);
+                const shortages = [
+                    { level: 'Nhận biết (NB)', required: requiredNB, available: nbPool.length },
+                    { level: 'Thông hiểu (TH)', required: requiredTH, available: thPool.length },
+                    { level: 'Vận dụng (VD)', required: requiredVD, available: vdPool.length }
+                ].filter(item => item.available < item.required);
 
-                const pickedSoFar = [...pickedNB, ...pickedTH, ...pickedVD];
-                const pickedIds = new Set(pickedSoFar.map(q => q.id));
-
-                // Nếu số câu theo mức độ NB/TH/VD chưa đủ targetCount (do kho thiếu mức độ chi tiết đó):
-                // Tự động bù từ các câu hỏi CÒN LẠI CỦA CÙNG DẠNG BÀI ĐÓ VÀ CÙNG BÀI HỌC ĐÃ CHỌN
-                if (pickedSoFar.length < targetCount) {
-                    const remaining = shuffle(pool.filter(q => !pickedIds.has(q.id)));
-                    const needed = targetCount - pickedSoFar.length;
-                    pickedSoFar.push(...remaining.slice(0, needed));
+                if (shortages.length > 0) {
+                    const detail = shortages
+                        .map(item => `${item.level}: cần ${item.required}, hiện có ${item.available}, thiếu ${item.required - item.available}`)
+                        .join('; ');
+                    throw new Error(`Đề thi không còn hợp lệ vì ngân hàng câu hỏi không đủ đúng mức độ đã cấu hình cho [${typeLabel}]. ${detail}. Hệ thống không lấy câu ở mức độ khác để bù.`);
                 }
 
-                if (pickedSoFar.length < targetCount) {
-                    throw new Error(`Không đủ câu hỏi [${typeLabel}] để đáp ứng cấu hình đề! Cần ${targetCount} câu, chỉ bốc được ${pickedSoFar.length} câu.`);
-                }
-
-                selectedQuestions.push(...pickedSoFar);
+                selectedQuestions.push(
+                    ...nbPool.slice(0, requiredNB),
+                    ...thPool.slice(0, requiredTH),
+                    ...vdPool.slice(0, requiredVD)
+                );
             } else {
-                // Bốc theo số lượng tổng của dạng bài đó trong các bài học đã chọn
+                // Cấu hình cũ không khai báo cơ cấu mức độ: chỉ áp dụng tổng số câu.
                 selectedQuestions.push(...shuffle(pool).slice(0, targetCount));
             }
         };
