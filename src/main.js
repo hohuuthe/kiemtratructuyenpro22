@@ -6482,14 +6482,18 @@ if (contentType && contentType.includes("application/json")) {
 
                 progress.update(92, 'Bước 4/5',
                     `Đã xác minh đủ ${verification.requiredTotal.toLocaleString('vi-VN')} câu theo đúng cấu hình đề thi.`);
-                // Chỉ tới đây mới được phép mở tab sửa đề.
-                const opened = await openExamEditorTab({newExam:false});
-                if (!opened) throw new Error('Không thể khởi tạo giao diện sửa đề sau khi đã tải ngân hàng câu hỏi.');
+
+                // FAST PATH: dữ liệu câu hỏi và component đã sẵn sàng. Không chờ thêm identity,
+                // danh sách đề hay request phụ nào ở đây, tránh đứng 92% dù ngân hàng đã đủ.
+                progress.update(95, 'Bước 5/5', 'Đang mở trình sửa đề từ dữ liệu đã xác minh...');
+                switchTab('exam-editor');
+                const editorReady = initializeExamEditorFromVerifiedPool();
+                if (!editorReady) throw new Error('Không thể khởi tạo giao diện sửa đề từ dữ liệu đã xác minh.');
                 if (generation !== authDataGeneration || requestSeq !== examConfigLoadSeq ||
                     userLoadIntent !== examUserLoadIntentSeq || !(isAdminLoggedIn || isTeacherLoggedIn)) return;
                 if (String(resJson.data.id) !== String(selectedId)) throw new Error('Đề thi đã thay đổi trong lúc nạp. Vui lòng nạp lại.');
 
-                progress.update(97, 'Bước 5/5', 'Đang áp dụng chính xác cấu hình đề thi vào giao diện...');
+                progress.update(98, 'Bước 5/5', 'Đang áp dụng chính xác cấu hình đề thi vào giao diện...');
                 applyExamConfig(resJson.data);
                 if (selectEl) selectEl.value = String(resJson.data.id || selectedId);
                 const btnExport = document.getElementById('btn-export-exam-docx');
@@ -15275,6 +15279,7 @@ D. Phát biểu SAI</pre>
         // ==================== EXAMS MANAGEMENT ====================
         let examEditorInitialized = false;
         let examEditorInitializing = null;
+        let examEditorInitSeq = 0;
         let examNamesRequestSeq = 0;
         let examConfigLoadSeq = 0;
         let examUserLoadIntentSeq = 0;
@@ -15289,6 +15294,7 @@ D. Phát biểu SAI</pre>
             clearRecentQuestionFocus();
             examEditorInitialized = false;
             examEditorInitializing = null;
+            examEditorInitSeq += 1;
             examNamesRequestSeq += 1;
             examConfigLoadSeq += 1;
             examUserLoadIntentSeq += 1;
@@ -15366,19 +15372,24 @@ D. Phát biểu SAI</pre>
                 return;
             }
             if (examEditorInitializing) return examEditorInitializing;
-            const request = initializeExamEditorOnce();
+            const initSeq = ++examEditorInitSeq;
+            const request = initializeExamEditorOnce(initSeq);
             examEditorInitializing = request;
             try { await request; }
             finally { if (examEditorInitializing === request) examEditorInitializing = null; }
         }
-        async function initializeExamEditorOnce() {
+
+        async function initializeExamEditorOnce(initSeq) {
             const generation = authDataGeneration;
-            // Guard: If exam-lesson-selection is not in DOM, skip without error (tab not loaded/active)
-            if (!document.getElementById('exam-lesson-selection')) {
-                return;
-            }
-            // Không tải lại /api/accounts ở đây. Core identity preload đã nạp đúng phạm vi
-            // theo vai trò; gọi lại API cũ có thể tải dư và ghi đè snapshot đã kiểm soát.
+            const isCurrentInit = () => initSeq === examEditorInitSeq &&
+                generation === authDataGeneration &&
+                (isAdminLoggedIn || isTeacherLoggedIn);
+
+            // Guard: If exam-lesson-selection is not in DOM, skip without error.
+            if (!document.getElementById('exam-lesson-selection')) return;
+            if (!isCurrentInit()) return;
+
+            // Chỉ luồng mở tab thông thường mới cần đồng bộ identity nền.
             if (!window.__coreIdentitySnapshot?.complete && currentUser) {
                 try {
                     await preloadRoleScopedIdentityOnLogin();
@@ -15386,37 +15397,49 @@ D. Phát biểu SAI</pre>
                     console.error('Failed to refresh role-scoped identity during exam panel init:', e);
                 }
             }
-            if (generation !== authDataGeneration) return;
-            
-            // 0. Cập nhật bộ lọc giáo viên
-            updateExamTeacherFilter();
+            if (!isCurrentInit()) return;
 
-            // 0.1 Cập nhật danh sách giáo viên chia sẻ
-            renderSharedTeachersSelect();
-            
-            // Phải có ngân hàng câu hỏi trước khi khởi tạo danh sách bài học.
-            if (!questionsLoaded && !(await loadQuestions())) return;
-            if (generation !== authDataGeneration) return;
             updateExamTeacherFilter();
-            // 1. Render danh sách bài học
+            renderSharedTeachersSelect();
+
+            if (!questionsLoaded && !(await loadQuestions())) return;
+            if (!isCurrentInit()) return;
+
+            updateExamTeacherFilter();
             renderLessonCheckboxes();
-            
-            // 2. Cập nhật số lượng câu có sẵn
             updateAvailableCounts();
-            
-            // 4. Luôn tải danh sách đề thi và để ô chọn mặc định là "Chọn đề thi có sẵn" (rỗng), tuyệt đối không tự chọn đề bất kỳ
+
+            // Đây là dữ liệu phụ cho dropdown; không được phép ghi đè một fast-path init mới hơn.
             if (currentUser && !isAdminLoggedIn) {
                 await updateExamNamesList(false);
             }
-            if (generation !== authDataGeneration) return;
+            if (!isCurrentInit()) return;
+
             resetExamPanelToDefault();
             examEditorInitialized = true;
-            
-            // 5. Cập nhật thông tin đề thi
             updateCurrentExamInfo();
-            
             console.log('✅ EXAM PANEL INITIALIZED');
         }
+
+        function initializeExamEditorFromVerifiedPool() {
+            if (!(isAdminLoggedIn || isTeacherLoggedIn) || !questionsLoaded) return false;
+            if (!document.getElementById('exam-lesson-selection')) return false;
+
+            // Hủy quyền ghi trạng thái của mọi init async cũ đang chờ request phụ.
+            examEditorInitSeq += 1;
+            examEditorInitializing = null;
+
+            // Fast path chỉ dùng dữ liệu đã có trong RAM; tuyệt đối không gọi API.
+            updateExamTeacherFilter();
+            renderSharedTeachersSelect();
+            renderLessonCheckboxes();
+            updateAvailableCounts();
+            resetExamPanelToDefault();
+            examEditorInitialized = true;
+            updateCurrentExamInfo();
+            return true;
+        }
+        window.initializeExamEditorFromVerifiedPool = initializeExamEditorFromVerifiedPool;
 
         function updateExamGlobalStats() {
             // Calculate global stats
