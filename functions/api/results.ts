@@ -486,10 +486,12 @@ export const onRequestPut: PagesFunction<Env> = async (context) => {
         throw new Error(`Câu tự luận tại vị trí ${index + 1} không khớp ID bài làm gốc; từ chối cập nhật điểm.`);
       }
 
-      const maxScore = Number(storedDetail.maxScore ?? stored.points_tl ?? 0);
-      if (!Number.isFinite(maxScore) || maxScore < 0) {
+      const rawMaxScore = Number(storedDetail.maxScore ?? stored.points_tl ?? 0);
+      if (!Number.isFinite(rawMaxScore) || rawMaxScore < 0) {
         throw new Error('Không xác định được điểm tối đa của câu tự luận.');
       }
+      // Normalize REAL-backed maximum score before validating an exact 4-decimal teacher score.
+      const maxScore = roundScore(rawMaxScore, 4);
       const requestedScore = Number(incoming.score);
       if (!Number.isFinite(requestedScore) || requestedScore < 0 || requestedScore > maxScore ||
           Math.abs(requestedScore * 10000 - Math.round(requestedScore * 10000)) > 1e-7) {
