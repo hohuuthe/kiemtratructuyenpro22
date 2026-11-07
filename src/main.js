@@ -1385,7 +1385,6 @@ if (contentTypeConfig && contentTypeConfig.includes("application/json")) {
         try { localStorage.removeItem(window.tenantStorageKey('remember_password')); } catch {}
 
         // ==================== CONFIGURATION ====================
-        const ADMIN_PASSWORD = ''; // Legacy client-side gate disabled; server auth is authoritative.
         const doi_tuong = 0; // 0: Mặc định, 1: Dành cho học sinh (ẩn đăng nhập, đổi tiêu đề)
         const thong_tin_khach_hang = "Xin chào thầy cô, chúc thầy cô một ngày vui vẻ."; // Thông tin khách hàng
         const ho_ten_khach_hang = "Giáo viên"; // Họ tên khách hàng (Người tạo đề thi)
@@ -11374,8 +11373,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
 
         // ==================== QUESTIONS MANAGEMENT ====================
         function loginQuestions() {
-            const password = document.getElementById('questions-password')?.value || '';
-            if (password === ADMIN_PASSWORD) {
+            if (currentUser && (isAdminLoggedIn || isTeacherLoggedIn)) {
                 document.getElementById('questions-login')?.classList.add('hidden');
                 document.getElementById('questions-panel')?.classList.remove('hidden');
                 updateQuestionTeacherFilter();
@@ -11383,19 +11381,18 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 updateQuestionStats();
                 renderQuestionsList();
             } else {
-                showToast('Mật khẩu không đúng!', 'error');
+                showToast('Vui lòng đăng nhập tài khoản Giáo viên hoặc Quản trị viên.', 'error');
             }
         }
 
         async function loginExams() {
-            const password = document.getElementById('exams-password')?.value || '';
-            if (password === ADMIN_PASSWORD) {
+            if (currentUser && (isAdminLoggedIn || isTeacherLoggedIn)) {
                 document.getElementById('exams-login')?.classList.add('hidden');
                 document.getElementById('exams-panel')?.classList.remove('hidden');
                 await initExamPanel();
                 checkExamConfigSufficiency();
             } else {
-                showToast('Mật khẩu không đúng!', 'error');
+                showToast('Vui lòng đăng nhập tài khoản Giáo viên hoặc Quản trị viên.', 'error');
             }
         }
 
