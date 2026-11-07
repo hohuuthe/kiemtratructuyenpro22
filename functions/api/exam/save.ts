@@ -106,11 +106,17 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     `).bind(gradingSessionId, answersJson, revision, savedAt).run();
 
     const persistedDraft: any = await db.prepare(
-      'SELECT revision, saved_at FROM _exam_answer_drafts WHERE session_id = ?'
+      'SELECT answers_json, revision, saved_at FROM _exam_answer_drafts WHERE session_id = ?'
     ).bind(gradingSessionId).first();
     const persistedRevision = Math.max(0, Number(persistedDraft?.revision) || 0);
     const persistedSavedAt = persistedDraft?.saved_at || null;
-    const accepted = persistedRevision === revision;
+    const persistedAnswersJson = String(persistedDraft?.answers_json || '');
+    // Cùng revision nhưng payload khác có thể xảy ra khi hai tab cùng gửi revision N.
+    // Chỉ xác nhận "accepted" khi CHÍNH request này là bản đã persist (revision +
+    // payload + saved_at đều trùng), tuyệt đối không báo lưu thành công nhầm tab.
+    const accepted = persistedRevision === revision &&
+      persistedAnswersJson === answersJson &&
+      persistedSavedAt === savedAt;
 
     return new Response(JSON.stringify({
       saved: accepted,

@@ -293,8 +293,14 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                 }
 
                 const verifiedUserDonvi = normalizeScopeValue(tokenUser.donvi || '');
+                const configuredUnits = [
+                    activeExamConfig.target_donvi,
+                    activeExamConfig.targetDonvi,
+                    activeExamConfig.donvi
+                ].map((u: any) => normalizeScopeValue(u)).filter(Boolean);
                 const allowedUnitSet = new Set<string>([
                     ...(teacherDonvi ? [teacherDonvi] : []),
+                    ...configuredUnits,
                     ...allowedUnits
                 ]);
 
@@ -365,12 +371,42 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
             let attemptCount = 0;
             try {
+                const canonicalUserId = String(studentUserIdVal);
                 const attemptRow: any = await db.prepare(
                     `SELECT COUNT(*) AS count
                      FROM results
                      WHERE exam_id = ? AND user_id = ?`
-                ).bind(targetExamIdStr, String(studentUserIdVal)).first();
+                ).bind(targetExamIdStr, canonicalUserId).first();
                 attemptCount = Math.max(0, Number(attemptRow?.count) || 0);
+
+                // Tương thích dữ liệu lịch sử chưa có user_id nhưng chỉ khi hồ sơ
+                // họ tên + lớp + đơn vị xác định DUY NHẤT một học sinh. Không bao giờ
+                // fallback chỉ theo tên vì có thể khóa nhầm học sinh trùng tên.
+                const profile: any = await db.prepare(
+                    'SELECT full_name, lop, donvi FROM users WHERE id = ? LIMIT 1'
+                ).bind(canonicalUserId).first();
+                const profileName = String(profile?.full_name || tokenUser?.full_name || '').trim();
+                const profileClass = String(profile?.lop || tokenUser?.lop || '').trim();
+                const profileUnit = String(profile?.donvi || tokenUser?.donvi || '').trim();
+                if (profileName && profileClass && profileUnit) {
+                    const uniqueProfile: any = await db.prepare(
+                        `SELECT COUNT(*) AS count FROM users
+                         WHERE LOWER(TRIM(full_name)) = LOWER(TRIM(?))
+                           AND LOWER(TRIM(COALESCE(lop,''))) = LOWER(TRIM(?))
+                           AND LOWER(TRIM(COALESCE(donvi,''))) = LOWER(TRIM(?))`
+                    ).bind(profileName, profileClass, profileUnit).first();
+                    if (Number(uniqueProfile?.count) === 1) {
+                        const legacyRow: any = await db.prepare(
+                            `SELECT COUNT(*) AS count FROM results
+                             WHERE exam_id = ?
+                               AND (user_id IS NULL OR TRIM(user_id) = '')
+                               AND LOWER(TRIM(student_name)) = LOWER(TRIM(?))
+                               AND LOWER(TRIM(COALESCE(lop,''))) = LOWER(TRIM(?))
+                               AND LOWER(TRIM(COALESCE(don_vi,''))) = LOWER(TRIM(?))`
+                        ).bind(targetExamIdStr, profileName, profileClass, profileUnit).first();
+                        attemptCount += Math.max(0, Number(legacyRow?.count) || 0);
+                    }
+                }
             } catch(err) {
                 console.error("Lỗi kiểm tra số lần làm bài:", err);
                 return new Response(JSON.stringify({

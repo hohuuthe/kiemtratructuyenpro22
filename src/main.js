@@ -7761,33 +7761,17 @@ if (contentType && contentType.includes("application/json")) {
                                 }
                             }
 
-                            // Xác định xem thí sinh có thuộc đơn vị của đề thi này hay không
-                            let isSameDonVi = false;
-                            const inputLopVal = String(document.getElementById('guest_data_lop')?.value || document.getElementById('guest_data_2')?.value || '').trim();
-                            const inputDonvi = String(document.getElementById('guest_data_donvi')?.value || inputLopVal).trim().toLowerCase();
-
-                            if (!teacherDonvi && allowedUnits.length === 0) {
-                                // Giáo viên chưa thiết lập đơn vị -> Mở cho tất cả học sinh
-                                isSameDonVi = true;
-                            } else if (currentUser) {
-                                const userDonvi = String(currentUser.donvi || currentUser.address || '').trim().toLowerCase();
-                                if (teacherDonvi && userDonvi && (userDonvi === teacherDonvi || userDonvi.includes(teacherDonvi) || teacherDonvi.includes(userDonvi))) {
-                                    isSameDonVi = true;
-                                } else if (allowedUnits.some(u => u && (u === userDonvi || userDonvi.includes(u) || u.includes(userDonvi)))) {
-                                    isSameDonVi = true;
-                                } else if (teacherDonvi && inputDonvi && (inputDonvi === teacherDonvi || inputDonvi.includes(teacherDonvi) || teacherDonvi.includes(inputDonvi))) {
-                                    isSameDonVi = true;
-                                } else if (allowedUnits.some(u => u && (u === inputDonvi || inputDonvi.includes(u) || u.includes(inputDonvi)))) {
-                                    isSameDonVi = true;
-                                }
-                            } else {
-                                // Thí sinh vãng lai chưa đăng nhập
-                                if (teacherDonvi && inputDonvi && (inputDonvi === teacherDonvi || inputDonvi.includes(teacherDonvi) || teacherDonvi.includes(inputDonvi))) {
-                                    isSameDonVi = true;
-                                } else if (allowedUnits.some(u => u && (u === inputDonvi || inputDonvi.includes(u) || u.includes(inputDonvi)))) {
-                                    isSameDonVi = true;
-                                }
-                            }
+                            // Chỉ dùng danh tính tài khoản đã đăng nhập và so khớp chính xác
+                            // sau chuẩn hóa; giao diện phải cùng quy tắc với backend.
+                            const normalizeUnit = (value) => String(value || '')
+                                .normalize('NFKC').trim().toLocaleLowerCase('vi-VN').replace(/\s+/g, ' ');
+                            const normalizedAllowedUnits = new Set(
+                                [teacherDonvi, ...allowedUnits].map(normalizeUnit).filter(Boolean)
+                            );
+                            const userDonvi = currentUser
+                                ? normalizeUnit(currentUser.donvi || currentUser.address || '')
+                                : '';
+                            const isSameDonVi = Boolean(currentUser && userDonvi && normalizedAllowedUnits.has(userDonvi));
 
                             // Nếu không thuộc đơn vị đó -> Không hiển thị đề
                             if (!isSameDonVi) {
@@ -7804,10 +7788,12 @@ if (contentType && contentType.includes("application/json")) {
                             if (!currentUser) {
                                 return false; // Chưa đăng nhập sẽ không thấy đề cấu hình riêng theo lớp
                             }
-                            const normalizeLop = (s) => String(s || '').trim().toLowerCase().replace(/\s+/g, '');
+                            const normalizeLop = (s) => String(s || '')
+                                .normalize('NFKC').trim().toLocaleLowerCase('vi-VN')
+                                .replace(/^lớp\s*/u, '').replace(/\s+/g, '');
                             const userLop = normalizeLop(currentUser.lop || '');
-                            const allowedLops = targetLop.split(',').map(s => normalizeLop(s)).filter(Boolean);
-                            return allowedLops.includes(userLop);
+                            const allowedLops = targetLop.split(/[,;\n]+/).map(s => normalizeLop(s)).filter(Boolean);
+                            return Boolean(userLop) && allowedLops.includes(userLop);
                         }
 
                         return false;
@@ -8381,6 +8367,7 @@ if (contentType && contentType.includes("application/json")) {
                 localStorage.removeItem('currentExamToken');
                 localStorage.removeItem(window.tenantStorageKey('currentExamToken'));
                 localStorage.removeItem(window.tenantStorageKey('active_exam_resume_meta'));
+                localStorage.removeItem(window.tenantStorageKey('pending_exam_violation_events'));
             } catch(e) {}
         }
 
@@ -8478,6 +8465,7 @@ if (contentType && contentType.includes("application/json")) {
                 studentDonvi: String(meta.studentDonvi || currentUser?.donvi || currentUser?.address || ''),
                 studentClass: String(meta.studentClass || meta.studentLop || currentUser?.lop || ''),
                 cheatWarningCount: Math.max(0, Number(data.cheatWarningCount) || 0),
+                serverCheatWarningCount: Math.max(0, Number(data.cheatWarningCount) || 0),
                 maxCheatWarnings: Math.max(1, Number(data.maxCheatWarnings) || 5),
                 timeLimitSeconds: Math.max(1, Number(data.timeLimitSeconds) || 1),
                 timeLimitMinutes: Math.max(1 / 60, Number(data.timeLimitSeconds || 1) / 60),
@@ -8494,8 +8482,12 @@ if (contentType && contentType.includes("application/json")) {
                 autosaveInFlight: false,
                 autosavePending: false,
                 deadlineLocked: Boolean(data.expired),
-                pendingViolationEvents: []
+                pendingViolationEvents: loadPendingExamViolationEvents()
             };
+
+            if (currentExam.pendingViolationEvents.length > 0) {
+                setTimeout(() => { flushExamViolationEvents(); }, 0);
+            }
 
             try { switchTab('exam'); } catch(e) {}
             const nameInput = document.getElementById('guest_data_1');
@@ -8638,29 +8630,15 @@ if (contentType && contentType.includes("application/json")) {
                         allowedUnits.push(...extraUnits);
                     }
 
-                    let isSameDonVi = false;
-                    const candidateDonvi = String(inputDonvi || (currentUser?.donvi || currentUser?.address) || inputLop).trim().toLowerCase();
-
-                    if (!teacherDonvi && allowedUnits.length === 0) {
-                        isSameDonVi = true;
-                    } else if (currentUser) {
-                        const userDonvi = String(currentUser.donvi || currentUser.address || '').trim().toLowerCase();
-                        if (teacherDonvi && userDonvi && (userDonvi === teacherDonvi || userDonvi.includes(teacherDonvi) || teacherDonvi.includes(userDonvi))) {
-                            isSameDonVi = true;
-                        } else if (allowedUnits.some(u => u && (u === userDonvi || userDonvi.includes(u) || u.includes(userDonvi)))) {
-                            isSameDonVi = true;
-                        } else if (teacherDonvi && candidateDonvi && (candidateDonvi === teacherDonvi || candidateDonvi.includes(teacherDonvi) || teacherDonvi.includes(candidateDonvi))) {
-                            isSameDonVi = true;
-                        } else if (allowedUnits.some(u => u && (u === candidateDonvi || candidateDonvi.includes(u) || u.includes(candidateDonvi)))) {
-                            isSameDonVi = true;
-                        }
-                    } else {
-                        if (teacherDonvi && candidateDonvi && (candidateDonvi === teacherDonvi || candidateDonvi.includes(teacherDonvi) || teacherDonvi.includes(candidateDonvi))) {
-                            isSameDonVi = true;
-                        } else if (allowedUnits.some(u => u && (u === candidateDonvi || candidateDonvi.includes(u) || u.includes(candidateDonvi)))) {
-                            isSameDonVi = true;
-                        }
-                    }
+                    const normalizeUnit = (value) => String(value || '')
+                        .normalize('NFKC').trim().toLocaleLowerCase('vi-VN').replace(/\s+/g, ' ');
+                    const normalizedAllowedUnits = new Set(
+                        [teacherDonvi, ...allowedUnits].map(normalizeUnit).filter(Boolean)
+                    );
+                    const userDonvi = currentUser
+                        ? normalizeUnit(currentUser.donvi || currentUser.address || '')
+                        : '';
+                    const isSameDonVi = Boolean(currentUser && userDonvi && normalizedAllowedUnits.has(userDonvi));
 
                     if (!isSameDonVi) {
                         showToast(`🛑 Bạn không có quyền làm đề thi này do Đơn vị/Trường không phù hợp! (Đề thi chỉ dành cho học sinh thuộc đơn vị "${teacherAccount?.donvi || 'được chỉ định'}").`, 'error');
@@ -8675,14 +8653,12 @@ if (contentType && contentType.includes("application/json")) {
                             if (startBtn) { startBtn.disabled = false; startBtn.innerHTML = originalBtnText; }
                             return;
                         }
-                        const normalizeLop = (s) => String(s || '').trim().toLowerCase().replace(/\s+/g, '');
-                        const userLop = normalizeLop(currentUser.lop || inputLop || '');
-                        const candidateLop = normalizeLop(inputLop);
+                        const normalizeLop = (s) => String(s || '')
+                            .normalize('NFKC').trim().toLocaleLowerCase('vi-VN')
+                            .replace(/^lớp\s*/u, '').replace(/\s+/g, '');
+                        const userLop = normalizeLop(currentUser.lop || '');
                         const allowedLops = targetLop.split(/[,;\n]+/).map(s => normalizeLop(s)).filter(Boolean);
-                        const isLopMatched = allowedLops.some(al => 
-                            (userLop && (al === userLop || userLop === 'lớp' + al || al === 'lớp' + userLop || userLop.endsWith(al) || al.endsWith(userLop))) ||
-                            (candidateLop && (al === candidateLop || candidateLop === 'lớp' + al || al === 'lớp' + candidateLop || candidateLop.endsWith(al) || al.endsWith(candidateLop)))
-                        );
+                        const isLopMatched = Boolean(userLop) && allowedLops.includes(userLop);
                         if (!isLopMatched) {
                             showToast(`🛑 Bạn không có quyền làm đề thi này do Lớp không phù hợp! (Đề thi chỉ dành riêng cho học sinh Lớp ${targetLop}. Tài khoản của bạn hiện thuộc Lớp ${currentUser.lop || inputLop || 'khác'}).`, 'error');
                             if (startBtn) { startBtn.disabled = false; startBtn.innerHTML = originalBtnText; }
@@ -8876,6 +8852,7 @@ if (contentType && contentType.includes("application/json")) {
                         try {
                             localStorage.setItem('currentExamToken', startResult.token);
                             localStorage.setItem(window.tenantStorageKey('currentExamToken'), startResult.token);
+                            localStorage.removeItem(window.tenantStorageKey('pending_exam_violation_events'));
                             localStorage.setItem(window.tenantStorageKey('active_exam_resume_meta'), JSON.stringify({
                                 phase: 'active',
                                 studentName: name,
@@ -9931,6 +9908,39 @@ if (contentType && contentType.includes("application/json")) {
             return String(Date.now()) + '-' + Math.random().toString(36).slice(2);
         }
 
+        function persistPendingExamViolationEvents() {
+            try {
+                const events = Array.isArray(currentExam?.pendingViolationEvents)
+                    ? currentExam.pendingViolationEvents.slice(0, 200)
+                    : [];
+                if (events.length > 0) {
+                    localStorage.setItem(
+                        window.tenantStorageKey('pending_exam_violation_events'),
+                        JSON.stringify(events)
+                    );
+                } else {
+                    localStorage.removeItem(window.tenantStorageKey('pending_exam_violation_events'));
+                }
+            } catch(e) {}
+        }
+
+        function loadPendingExamViolationEvents() {
+            try {
+                const raw = localStorage.getItem(window.tenantStorageKey('pending_exam_violation_events')) || '';
+                const parsed = raw ? JSON.parse(raw) : [];
+                if (!Array.isArray(parsed)) return [];
+                return parsed.slice(0, 200).filter(event => {
+                    const eventId = String(event?.eventId || '').trim();
+                    return eventId && eventId.length <= 120 && /^[A-Za-z0-9._:-]+$/.test(eventId);
+                }).map(event => ({
+                    eventId: String(event.eventId),
+                    reason: String(event?.reason || 'violation').slice(0, 120)
+                }));
+            } catch(e) {
+                return [];
+            }
+        }
+
         async function flushExamViolationEvents() {
             if (!Array.isArray(currentExam?.pendingViolationEvents) || currentExam.pendingViolationEvents.length === 0 ||
                 !window.currentExamToken || !currentExam.deadlineAtMs) return true;
@@ -9960,14 +9970,36 @@ if (contentType && contentType.includes("application/json")) {
                     const result = await response.json().catch(() => ({}));
                     if (!response.ok) {
                         if (result?.code === 'EXAM_DEADLINE_REACHED') {
-                            currentExam.pendingViolationEvents.shift();
-                            continue;
+                            // Giữ nguyên event chưa gửi để request /grade cuối cùng
+                            // có thể ghi nhận idempotent; không làm mất vi phạm xảy ra
+                            // trước deadline chỉ vì mạng chậm đúng lúc hết giờ.
+                            persistPendingExamViolationEvents();
+                            return false;
                         }
                         return false;
                     }
                     currentExam.pendingViolationEvents.shift();
+                    persistPendingExamViolationEvents();
                     if (Number.isFinite(Number(result.cheatWarningCount))) {
                         currentExam.serverCheatWarningCount = Number(result.cheatWarningCount);
+                        // Server là nguồn quyết định duy nhất cho ngưỡng tự nộp.
+                        // Bộ đếm local chỉ phục vụ phản hồi tức thời, không được tự
+                        // nộp bài nếu server chưa xác nhận đủ số event hợp lệ.
+                        if (result.shouldAutoSubmit === true &&
+                            !currentExam.serverViolationAutoSubmitTriggered) {
+                            currentExam.serverViolationAutoSubmitTriggered = true;
+                            currentExam.cheatWarningCount = Number(result.cheatWarningCount);
+                            if (Number.isFinite(Number(result.maxCheatWarnings))) {
+                                currentExam.maxCheatWarnings = Math.max(1, Number(result.maxCheatWarnings));
+                            }
+                            window.updateCheatWarningUI?.();
+                            const lockedSessionId = currentExam.sessionId;
+                            setTimeout(() => {
+                                if (isSameExamSession(lockedSessionId) && !currentExam.submitting) {
+                                    window.submitExam(true, 'cheat_limit', lockedSessionId);
+                                }
+                            }, 0);
+                        }
                     }
                 }
                 return true;
@@ -9985,6 +10017,7 @@ if (contentType && contentType.includes("application/json")) {
                 eventId: createExamViolationEventId(),
                 reason: String(reason || 'violation').slice(0, 120)
             });
+            persistPendingExamViolationEvents();
             flushExamViolationEvents();
         }
         window.flushExamViolationEvents = flushExamViolationEvents;
@@ -10015,11 +10048,21 @@ if (contentType && contentType.includes("application/json")) {
                         revision
                     })
                 });
+                const saveResult = await response.json().catch(() => ({}));
                 if (!response.ok) {
-                    const errorBody = await response.json().catch(() => ({}));
-                    if (errorBody?.code !== 'EXAM_DEADLINE_REACHED') {
-                        console.warn('[ExamAutosave] Không thể lưu tạm:', errorBody?.error || response.status);
+                    if (saveResult?.code !== 'EXAM_DEADLINE_REACHED') {
+                        console.warn('[ExamAutosave] Không thể lưu tạm:', saveResult?.error || response.status);
                     }
+                    return false;
+                }
+                if (saveResult?.accepted !== true) {
+                    if (Number.isFinite(Number(saveResult?.revision))) {
+                        currentExam.autosaveRevision = Math.max(
+                            Number(currentExam.autosaveRevision) || 0,
+                            Number(saveResult.revision) || 0
+                        );
+                    }
+                    console.warn('[ExamAutosave] Revision này không được máy chủ nhận vì đã có bản mới hơn hoặc cùng revision từ phiên khác.');
                     return false;
                 }
                 currentExam.lastAutosaveAt = Date.now();
@@ -10223,7 +10266,7 @@ if (contentType && contentType.includes("application/json")) {
             window.updateCheatWarningUI();
             if (window.backupExamState) window.backupExamState();
 
-            if (currentCount > maxWarnings) {
+            if (currentCount > maxWarnings && Number(currentExam.serverCheatWarningCount || 0) > maxWarnings) {
                 const autoSubmitMsg = `
                     <div class="my-2 p-3 bg-purple-50 border border-red-200 rounded-xl text-red-900 text-xs sm:text-sm">
                         <div class="font-bold text-purple-700 text-sm sm:text-base flex items-center gap-1.5 mb-1">
@@ -10848,7 +10891,9 @@ if (contentType && contentType.includes("application/json")) {
                     answeredQuestionsCount: answeredQuestionsCount,
                     answeredStatementsCount: answeredStatementsCount,
                     statsByType: statsByType,
-                    cheatWarningCount: currentExam.cheatWarningCount || 0,
+                    cheatWarningCount: Number.isFinite(Number(result.cheatWarningCount))
+                        ? Number(result.cheatWarningCount)
+                        : (currentExam.serverCheatWarningCount || currentExam.cheatWarningCount || 0),
                     timestamp: new Date().toISOString()
                 };
 

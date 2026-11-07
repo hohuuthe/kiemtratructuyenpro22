@@ -124,6 +124,13 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
         const { questionIds, teacherId, gradingSessionId, studentUserId: sessionStudentUserId } = decoded;
         let examConfig: any = decoded.examConfig || {};
+        const releaseActiveAttemptLock = async () => {
+            if (!gradingSessionId) return;
+            try {
+                await db.prepare('DELETE FROM _exam_active_attempts WHERE session_id = ?')
+                    .bind(String(gradingSessionId)).run();
+            } catch {}
+        };
 
         // Verify session ownership BEFORE any replay/result lookup.
         const verifiedRequestUserId = authenticatedUserId ? String(authenticatedUserId) : '';
@@ -156,8 +163,8 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                 await db.prepare(sql).run();
             }
 
-            const existing: any = await db.prepare(
-                "SELECT token_hash, status, result_id FROM _submitted_exam_tokens WHERE token_hash = ?"
+            let existing: any = await db.prepare(
+                "SELECT token_hash, status, result_id, claimed_at FROM _submitted_exam_tokens WHERE token_hash = ?"
             ).bind(tokenHash).first();
             if (existing) {
                 if (existing.result_id) {
@@ -178,6 +185,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                         const replayDetails = storedDetails.map((d: any) =>
                             sanitizeGradingDetailForClient(d, replayShowDetails)
                         );
+                        await releaseActiveAttemptLock();
                         return new Response(JSON.stringify({
                             resultId: stored.id,
                             score: Number(stored.score) || 0,
@@ -192,9 +200,32 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                         }), { status: 200, headers: corsHeaders });
                     }
                 }
-                return new Response(JSON.stringify({
-                    error: 'Phiên thi đang được xử lý hoặc đã được nộp trước đó. Hệ thống không tạo thêm bản ghi điểm.'
-                }), { status: 409, headers: corsHeaders });
+                // Claim "processing" chỉ tồn tại trong đoạn cực ngắn ngay trước INSERT
+                // kết quả. Nếu Worker chết đúng khoảng này, cho phép thu hồi claim sau
+                // 5 phút nhưng chỉ khi result_id chưa tồn tại trong bảng results.
+                const claimedAtMs = new Date(String(existing.claimed_at || '')).getTime();
+                const staleProcessing = existing.status === 'processing' &&
+                    Number.isFinite(claimedAtMs) &&
+                    claimedAtMs < Date.now() - 5 * 60 * 1000;
+                if (staleProcessing) {
+                    const staleResult: any = existing.result_id
+                        ? await db.prepare('SELECT id FROM results WHERE id = ?').bind(String(existing.result_id)).first()
+                        : null;
+                    if (!staleResult) {
+                        const released: any = await db.prepare(
+                            "DELETE FROM _submitted_exam_tokens WHERE token_hash = ? AND status = ? AND claimed_at = ?"
+                        ).bind(tokenHash, 'processing', existing.claimed_at).run();
+                        if (Number(released?.meta?.changes || 0) === 1) {
+                            existing = null;
+                        }
+                    }
+                }
+                if (existing) {
+                    return new Response(JSON.stringify({
+                        code: 'EXAM_SUBMISSION_PROCESSING',
+                        error: 'Phiên thi đang được xử lý hoặc đã được nộp trước đó. Hệ thống không tạo thêm bản ghi điểm.'
+                    }), { status: 409, headers: corsHeaders });
+                }
             }
 
             // Do not claim yet. All validation/grading errors above result persistence
@@ -821,6 +852,7 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
                             sanitizeGradingDetailForClient(d, showDetailsOnReplay)
                         );
                         const replayGradingPending = hasPendingEssayGrading(storedDetails);
+                        await releaseActiveAttemptLock();
                         return new Response(JSON.stringify({
                             resultId: stored.id,
                             score: Number(stored.score) || 0,
@@ -886,7 +918,7 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
                 resultId,
                 authenticatedUserId || null,
                 authenticatedStudentName || studentInfo.name || '',
-                authenticatedDonvi || studentInfo.unit || '',
+                authenticatedLop || studentInfo.lop || studentInfo.studentClass || '',
                 authenticatedLop || studentInfo.lop || '',
                 authenticatedDonvi || studentInfo.donvi || studentInfo.unit || '',
                 String(examConfig.name || studentInfo.examName || ''),
@@ -933,6 +965,7 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
             for (const [sql, label] of [
                 ['DELETE FROM _exam_answer_drafts WHERE session_id = ?', 'answer draft'],
                 ['DELETE FROM _exam_violation_events WHERE session_id = ?', 'violation events'],
+                ['DELETE FROM _exam_active_attempts WHERE session_id = ?', 'active attempt lock'],
                 ['DELETE FROM _exam_grade_sessions WHERE session_id = ?', 'grading snapshot']
             ]) {
                 try {

@@ -65,20 +65,41 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
     const tokenHash = await hashToken(token);
     try {
-      const submitted: any = await db.prepare(
-        'SELECT status, result_id FROM _submitted_exam_tokens WHERE token_hash = ?'
+      let submitted: any = await db.prepare(
+        'SELECT status, result_id, claimed_at FROM _submitted_exam_tokens WHERE token_hash = ?'
       ).bind(tokenHash).first();
       if (submitted?.result_id) {
-        return new Response(JSON.stringify({
-          alreadySubmitted: true,
-          resultId: String(submitted.result_id)
-        }), { status: 200, headers: corsHeaders });
+        const storedResult: any = await db.prepare(
+          'SELECT id FROM results WHERE id = ?'
+        ).bind(String(submitted.result_id)).first();
+        if (storedResult) {
+          return new Response(JSON.stringify({
+            alreadySubmitted: true,
+            resultId: String(storedResult.id)
+          }), { status: 200, headers: corsHeaders });
+        }
       }
       if (submitted?.status === 'processing') {
-        return new Response(JSON.stringify({
-          code: 'EXAM_SUBMISSION_PROCESSING',
-          error: 'Bài thi đang được máy chủ xử lý nộp bài. Vui lòng không tạo phiên mới.'
-        }), { status: 409, headers: corsHeaders });
+        const claimedAtMs = new Date(String(submitted.claimed_at || '')).getTime();
+        const stale = Number.isFinite(claimedAtMs) &&
+          claimedAtMs < Date.now() - 5 * 60 * 1000;
+        if (stale) {
+          const staleResult: any = submitted?.result_id
+            ? await db.prepare('SELECT id FROM results WHERE id = ?').bind(String(submitted.result_id)).first()
+            : null;
+          if (!staleResult) {
+            const released: any = await db.prepare(
+              "DELETE FROM _submitted_exam_tokens WHERE token_hash = ? AND status = ? AND claimed_at = ?"
+            ).bind(tokenHash, 'processing', submitted.claimed_at).run();
+            if (Number(released?.meta?.changes || 0) === 1) submitted = null;
+          }
+        }
+        if (submitted) {
+          return new Response(JSON.stringify({
+            code: 'EXAM_SUBMISSION_PROCESSING',
+            error: 'Bài thi đang được máy chủ xử lý nộp bài. Vui lòng không tạo phiên mới.'
+          }), { status: 409, headers: corsHeaders });
+        }
       }
     } catch {
       // Bảng claim có thể chưa tồn tại ở hệ thống mới; tiếp tục kiểm tra session.
@@ -224,7 +245,13 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         'SELECT COUNT(*) AS count FROM _exam_violation_events WHERE session_id = ?'
       ).bind(gradingSessionId).first();
       cheatWarningCount = Math.max(0, Number(row?.count) || 0);
-    } catch {}
+    } catch (violationCountError) {
+      console.error('Cannot restore authoritative violation count:', violationCountError);
+      return new Response(JSON.stringify({
+        code: 'EXAM_VIOLATION_COUNT_UNAVAILABLE',
+        error: 'Không thể xác minh số lần vi phạm của phiên thi; hệ thống chưa khôi phục bài để tránh đặt lại sai bộ đếm.'
+      }), { status: 503, headers: corsHeaders });
+    }
 
     let resumeToken = token;
     if (decoded.purpose === EXAM_SESSION_PURPOSE_PRESTART) {

@@ -102,10 +102,18 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     }
 
     const examId = String(snapshot.exam_id || decoded?.examConfig?.id || '').trim();
+    let authoritativeExamRow: any = null;
     if (examId) {
       try {
-        const examRow: any = await db.prepare('SELECT * FROM exam_configs WHERE id = ? LIMIT 1').bind(examId).first();
-        if (examRow) {
+        authoritativeExamRow = await db.prepare('SELECT * FROM exam_configs WHERE id = ? LIMIT 1').bind(examId).first();
+        if (!authoritativeExamRow) {
+          return new Response(JSON.stringify({
+            code: 'EXAM_REVOKED_BEFORE_START',
+            error: 'Đề thi đã bị thu hồi hoặc không còn tồn tại. Phiên READY này không được phép bắt đầu.'
+          }), { status: 409, headers: corsHeaders });
+        }
+        {
+          const examRow: any = authoritativeExamRow;
           const access = evaluateExamAccessWindow(examRow, nowMs);
           if (!access.allowed) {
             const message = access.code === 'EXAM_NOT_STARTED'
@@ -179,6 +187,63 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
 
     const timeLimitSeconds = normalizeExamTimeLimitSeconds(decoded.timeLimitSeconds);
+
+    // Chốt quyền lượt làm LẦN CUỐI ngay trước khi bắt đầu đồng hồ. Generate chỉ là
+    // bước READY; nhiều READY token song song không được phép tiêu thụ nhiều lượt.
+    if (signedStudentUserId && examId) {
+      const maxAttempts = Math.max(0, Number(authoritativeExamRow?.max_attempts) || 0);
+      if (maxAttempts > 0) {
+        try {
+          let completedAttempts = 0;
+          const completedRow: any = await db.prepare(
+            'SELECT COUNT(*) AS count FROM results WHERE exam_id = ? AND user_id = ?'
+          ).bind(examId, signedStudentUserId).first();
+          completedAttempts = Math.max(0, Number(completedRow?.count) || 0);
+
+          const profile: any = await db.prepare(
+            'SELECT full_name, lop, donvi FROM users WHERE id = ? LIMIT 1'
+          ).bind(signedStudentUserId).first();
+          const profileName = String(profile?.full_name || '').trim();
+          const profileClass = String(profile?.lop || '').trim();
+          const profileUnit = String(profile?.donvi || '').trim();
+          if (profileName && profileClass && profileUnit) {
+            const uniqueProfile: any = await db.prepare(
+              `SELECT COUNT(*) AS count FROM users
+               WHERE LOWER(TRIM(full_name)) = LOWER(TRIM(?))
+                 AND LOWER(TRIM(COALESCE(lop,''))) = LOWER(TRIM(?))
+                 AND LOWER(TRIM(COALESCE(donvi,''))) = LOWER(TRIM(?))`
+            ).bind(profileName, profileClass, profileUnit).first();
+            if (Number(uniqueProfile?.count) === 1) {
+              const legacyRow: any = await db.prepare(
+                `SELECT COUNT(*) AS count FROM results
+                 WHERE exam_id = ?
+                   AND (user_id IS NULL OR TRIM(user_id) = '')
+                   AND LOWER(TRIM(student_name)) = LOWER(TRIM(?))
+                   AND LOWER(TRIM(COALESCE(lop,''))) = LOWER(TRIM(?))
+                   AND LOWER(TRIM(COALESCE(don_vi,''))) = LOWER(TRIM(?))`
+              ).bind(examId, profileName, profileClass, profileUnit).first();
+              completedAttempts += Math.max(0, Number(legacyRow?.count) || 0);
+            }
+          }
+
+          if (completedAttempts >= maxAttempts) {
+            return new Response(JSON.stringify({
+              code: 'EXAM_ATTEMPT_LIMIT_REACHED',
+              attemptCount: completedAttempts,
+              maxAttempts,
+              error: `Bạn đã đạt giới hạn số lần làm bài thi này! (Đã hoàn thành ${completedAttempts}/${maxAttempts} lần).`
+            }), { status: 403, headers: corsHeaders });
+          }
+        } catch (attemptError) {
+          console.error('Cannot revalidate attempt limit at start:', attemptError);
+          return new Response(JSON.stringify({
+            code: 'EXAM_ATTEMPT_COUNT_UNAVAILABLE',
+            error: 'Không thể xác minh số lần làm ngay trước khi bắt đầu. Hệ thống chưa chạy đồng hồ để bảo vệ quyền lợi học sinh.'
+          }), { status: 503, headers: corsHeaders });
+        }
+      }
+    }
+
     // Lấy thời điểm bắt đầu sát lệnh claim nhất, sau khi toàn bộ snapshot/draft
     // đã sẵn sàng, để không trừ thời gian của học sinh cho công việc chuẩn bị server.
     const proposedStartedAtMs = Date.now();
@@ -188,11 +253,82 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     const proposedActiveExpiresAtMs = proposedDeadlineAtMs + 60 * 60 * 1000;
     const proposedActiveExpiresAt = new Date(proposedActiveExpiresAtMs).toISOString();
 
-    // Claim đầu tiên ghi đồng thời start + deadline + TTL kỹ thuật. Không tồn tại
-    // trạng thái "đã bắt đầu nhưng TTL chưa cập nhật" nếu một lệnh DB phía sau lỗi.
-    await db.prepare(
-      'UPDATE _exam_grade_sessions SET started_at = ?, deadline_at = ?, expires_at = ? WHERE session_id = ? AND started_at IS NULL'
-    ).bind(proposedStartedAt, proposedDeadlineAt, proposedActiveExpiresAt, gradingSessionId).run();
+    // Với học sinh đã đăng nhập, chỉ cho phép một phiên ACTIVE trên cùng một đề.
+    // Khóa DB này chặn hai tab/thiết bị cùng vượt giới hạn lượt dù cả hai đã có READY token.
+    if (signedStudentUserId && examId) {
+      try {
+        await db.prepare(`
+          CREATE TABLE IF NOT EXISTS _exam_active_attempts (
+            attempt_key TEXT PRIMARY KEY,
+            exam_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            session_id TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            created_at TEXT NOT NULL
+          )
+        `).run();
+        const attemptKey = examId + ':' + signedStudentUserId;
+
+        // Tự-heal khóa mồ côi nếu lần nộp trước đã dọn snapshot nhưng DELETE khóa
+        // ACTIVE bị lỗi tạm thời. Không xóa khóa khi session cũ vẫn còn tồn tại.
+        const existingActive: any = await db.prepare(
+          'SELECT session_id FROM _exam_active_attempts WHERE attempt_key = ?'
+        ).bind(attemptKey).first();
+        if (existingActive?.session_id && String(existingActive.session_id) !== gradingSessionId) {
+          const existingSession: any = await db.prepare(
+            'SELECT session_id FROM _exam_grade_sessions WHERE session_id = ?'
+          ).bind(String(existingActive.session_id)).first();
+          if (!existingSession) {
+            await db.prepare(
+              'DELETE FROM _exam_active_attempts WHERE attempt_key = ? AND session_id = ?'
+            ).bind(attemptKey, String(existingActive.session_id)).run();
+          }
+        }
+
+        const claim: any = await db.prepare(`
+          INSERT INTO _exam_active_attempts
+            (attempt_key, exam_id, user_id, session_id, expires_at, created_at)
+          VALUES (?, ?, ?, ?, ?, ?)
+          ON CONFLICT (attempt_key) DO UPDATE SET
+            session_id = excluded.session_id,
+            expires_at = excluded.expires_at,
+            created_at = excluded.created_at
+          WHERE _exam_active_attempts.session_id = excluded.session_id
+             OR _exam_active_attempts.expires_at <= ?
+        `).bind(
+          attemptKey, examId, signedStudentUserId, gradingSessionId,
+          proposedActiveExpiresAt, proposedStartedAt, proposedStartedAt
+        ).run();
+        if (Number(claim?.meta?.changes || 0) !== 1) {
+          return new Response(JSON.stringify({
+            code: 'EXAM_ATTEMPT_ALREADY_ACTIVE',
+            error: 'Tài khoản này đang có một phiên làm bài của cùng đề chưa hoàn tất. Vui lòng tiếp tục phiên đang làm thay vì mở thêm lượt mới.'
+          }), { status: 409, headers: corsHeaders });
+        }
+      } catch (activeClaimError) {
+        console.error('Cannot claim active exam attempt:', activeClaimError);
+        return new Response(JSON.stringify({
+          code: 'EXAM_ATTEMPT_CLAIM_UNAVAILABLE',
+          error: 'Không thể khóa lượt làm an toàn. Hệ thống chưa chạy đồng hồ.'
+        }), { status: 503, headers: corsHeaders });
+      }
+    }
+
+    // Claim đầu tiên ghi đồng thời start + deadline + TTL kỹ thuật. Nếu lệnh này
+    // thất bại trước khi đồng hồ được ghi, thu hồi khóa ACTIVE để học sinh không mắc kẹt.
+    try {
+      await db.prepare(
+        'UPDATE _exam_grade_sessions SET started_at = ?, deadline_at = ?, expires_at = ? WHERE session_id = ? AND started_at IS NULL'
+      ).bind(proposedStartedAt, proposedDeadlineAt, proposedActiveExpiresAt, gradingSessionId).run();
+    } catch (startClaimError) {
+      if (signedStudentUserId && examId) {
+        try {
+          await db.prepare('DELETE FROM _exam_active_attempts WHERE session_id = ?')
+            .bind(gradingSessionId).run();
+        } catch {}
+      }
+      throw startClaimError;
+    }
 
     let authoritative: any = await db.prepare(
       'SELECT started_at, deadline_at FROM _exam_grade_sessions WHERE session_id = ?'
@@ -220,6 +356,13 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     // retry chỉ cần bảo đảm giá trị cũ không ngắn hơn deadline + 1 giờ.
     const activeExpiresAtMs = deadlineAtMs + 60 * 60 * 1000;
     const activeExpiresAt = new Date(activeExpiresAtMs).toISOString();
+    if (signedStudentUserId && examId) {
+      try {
+        await db.prepare(
+          'UPDATE _exam_active_attempts SET expires_at = ? WHERE session_id = ?'
+        ).bind(activeExpiresAt, gradingSessionId).run();
+      } catch {}
+    }
     if (snapshot.started_at) {
       try {
         await db.prepare(

@@ -81,3 +81,37 @@ test('unit-scoped exams require authenticated exact unit and exact class members
   assert.doesNotMatch(region,/teacherDonvi\.includes/);
   assert.doesNotMatch(region,/\.endsWith\(userLop\)|userLop\.endsWith/);
 });
+
+
+test('start revalidates max attempts and atomically allows only one active session per student and exam', () => {
+  const start=readFileSync('functions/api/exam/start.ts','utf8');
+  assert.match(start,/SELECT COUNT\(\*\) AS count FROM results WHERE exam_id = \? AND user_id = \?/);
+  assert.match(start,/_exam_active_attempts/);
+  assert.match(start,/attemptKey = examId \+ ':' \+ signedStudentUserId/);
+  assert.match(start,/ON CONFLICT \(attempt_key\) DO UPDATE SET/);
+  assert.match(start,/EXAM_ATTEMPT_ALREADY_ACTIVE/);
+  assert.match(start,/EXAM_ATTEMPT_COUNT_UNAVAILABLE/);
+  assert.match(start,/EXAM_REVOKED_BEFORE_START/);
+});
+
+test('legacy attempt counting is only used for a unique profile identity', () => {
+  const generate=readFileSync('functions/api/exam/generate.ts','utf8');
+  assert.match(generate,/SELECT COUNT\(\*\) AS count FROM users/);
+  assert.match(generate,/Number\(uniqueProfile\?\.count\) === 1/);
+  assert.match(generate,/\(user_id IS NULL OR TRIM\(user_id\) = ''\)/);
+  assert.match(generate,/LOWER\(TRIM\(student_name\)\) = LOWER\(TRIM\(\?\)\)/);
+  assert.match(generate,/LOWER\(TRIM\(COALESCE\(lop,''\)\)\) = LOWER\(TRIM\(\?\)\)/);
+  assert.match(generate,/LOWER\(TRIM\(COALESCE\(don_vi,''\)\)\) = LOWER\(TRIM\(\?\)\)/);
+});
+
+test('unit scope includes configured target unit and does not rely on substring matching', () => {
+  const generate=readFileSync('functions/api/exam/generate.ts','utf8');
+  const region=generate.slice(
+    generate.indexOf('// KIỂM TRA QUYỀN TRUY CẬP ĐỐI VỚI ĐỀ CHO ĐƠN VỊ'),
+    generate.indexOf('// KIỂM TRA GIỚI HẠN SỐ LẦN LÀM BÀI')
+  );
+  assert.match(region,/activeExamConfig\.target_donvi/);
+  assert.match(region,/activeExamConfig\.donvi/);
+  assert.match(region,/allowedUnitSet\.has\(verifiedUserDonvi\)/);
+  assert.doesNotMatch(region,/userDonvi\.includes|teacherDonvi\.includes|candidateInputDonvi/);
+});

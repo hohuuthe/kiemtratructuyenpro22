@@ -94,9 +94,14 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       'SELECT COUNT(*) AS count FROM _exam_violation_events WHERE session_id = ?'
     ).bind(gradingSessionId).first();
 
+    const cheatWarningCount = Math.max(0, Number(countRow?.count) || 0);
+    const maxCheatWarnings = Math.max(1, Number(decoded.maxCheatWarnings) || 5);
+
     return new Response(JSON.stringify({
       recorded: true,
-      cheatWarningCount: Math.max(0, Number(countRow?.count) || 0)
+      cheatWarningCount,
+      maxCheatWarnings,
+      shouldAutoSubmit: cheatWarningCount > maxCheatWarnings
     }), { status: 200, headers: corsHeaders });
   } catch (error: any) {
     console.error('POST /api/exam/violation error:', error);
