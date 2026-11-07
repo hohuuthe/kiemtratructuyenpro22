@@ -12290,13 +12290,20 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             let compressed = base64Str;
             try {
                 compressed = await compressImage(base64Str);
-                const uploadToken = localStorage.getItem(window.tenantStorageKey('auth_token')) || (typeof window !== 'undefined' && window.currentExamToken) || '';
+                const accountToken = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
+                const examToken = (typeof window !== 'undefined' && window.currentExamToken) || '';
+                const activeExamUpload = Boolean(examToken && currentExam?.deadlineAtMs && !currentExam?.deadlineLocked);
+                const uploadToken = activeExamUpload ? examToken : accountToken;
+                const uploadHeaders = {
+                    'Content-Type': 'application/json',
+                    ...(uploadToken ? { 'Authorization': `Bearer ${uploadToken}` } : {})
+                };
+                if (activeExamUpload && accountToken) {
+                    uploadHeaders['X-Account-Authorization'] = 'Bearer ' + accountToken;
+                }
                 const response = await fetch('/api/upload-image', {
                     method: 'POST',
-                    headers: { 
-                        'Content-Type': 'application/json',
-                        'Authorization': uploadToken ? `Bearer ${uploadToken}` : ''
-                    },
+                    headers: uploadHeaders,
                     body: JSON.stringify({ base64: compressed })
                 });
                 if (!response.ok) {
