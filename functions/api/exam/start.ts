@@ -268,6 +268,23 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
           )
         `).run();
         const attemptKey = examId + ':' + signedStudentUserId;
+
+        // Tự-heal khóa mồ côi nếu lần nộp trước đã dọn snapshot nhưng DELETE khóa
+        // ACTIVE bị lỗi tạm thời. Không xóa khóa khi session cũ vẫn còn tồn tại.
+        const existingActive: any = await db.prepare(
+          'SELECT session_id FROM _exam_active_attempts WHERE attempt_key = ?'
+        ).bind(attemptKey).first();
+        if (existingActive?.session_id && String(existingActive.session_id) !== gradingSessionId) {
+          const existingSession: any = await db.prepare(
+            'SELECT session_id FROM _exam_grade_sessions WHERE session_id = ?'
+          ).bind(String(existingActive.session_id)).first();
+          if (!existingSession) {
+            await db.prepare(
+              'DELETE FROM _exam_active_attempts WHERE attempt_key = ? AND session_id = ?'
+            ).bind(attemptKey, String(existingActive.session_id)).run();
+          }
+        }
+
         const claim: any = await db.prepare(`
           INSERT INTO _exam_active_attempts
             (attempt_key, exam_id, user_id, session_id, expires_at, created_at)
@@ -339,6 +356,13 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     // retry chỉ cần bảo đảm giá trị cũ không ngắn hơn deadline + 1 giờ.
     const activeExpiresAtMs = deadlineAtMs + 60 * 60 * 1000;
     const activeExpiresAt = new Date(activeExpiresAtMs).toISOString();
+    if (signedStudentUserId && examId) {
+      try {
+        await db.prepare(
+          'UPDATE _exam_active_attempts SET expires_at = ? WHERE session_id = ?'
+        ).bind(activeExpiresAt, gradingSessionId).run();
+      } catch {}
+    }
     if (snapshot.started_at) {
       try {
         await db.prepare(
