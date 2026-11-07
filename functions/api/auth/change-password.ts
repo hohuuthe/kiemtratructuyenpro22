@@ -15,15 +15,6 @@ export async function onRequestPost(context: any) {
         const body = await request.json();
         const { username, oldPassword, newPassword } = body;
 
-        const limiterKey = await hashRateLimitKey(['change-password', clientIp(request), username || '']);
-        const limiter = await consumeRateLimit(db, limiterKey, 8, 300);
-        if (!limiter.allowed) {
-            return new Response(JSON.stringify({
-                error: "Có quá nhiều lần thử đổi mật khẩu. Vui lòng thử lại sau.",
-                code: "AUTH_RATE_LIMITED"
-            }), { status: 429, headers: { ...corsHeaders, 'Retry-After': String(limiter.retryAfter) } });
-        }
-        
         if (!username || !oldPassword || !newPassword) {
             return new Response(JSON.stringify({ error: "Vui lòng cung cấp đầy đủ thông tin!" }), { status: 400, headers: corsHeaders });
         }
@@ -34,12 +25,28 @@ export async function onRequestPost(context: any) {
 
         const { results } = await db.prepare("SELECT * FROM accounts WHERE username = ?").bind(username).all();
         if (!results || results.length === 0) {
+            const limiterKey = await hashRateLimitKey(['change-password', clientIp(request), username || '']);
+            const limiter = await consumeRateLimit(db, limiterKey, 8, 300);
+            if (!limiter.allowed) {
+                return new Response(JSON.stringify({
+                    error: "Có quá nhiều lần xác minh mật khẩu cũ không thành công. Vui lòng thử lại sau.",
+                    code: "AUTH_RATE_LIMITED"
+                }), { status: 429, headers: { ...corsHeaders, 'Retry-After': String(limiter.retryAfter) } });
+            }
             return new Response(JSON.stringify({ error: "Tên đăng nhập hoặc mật khẩu cũ không đúng!" }), { status: 400, headers: corsHeaders });
         }
 
         const account = results[0];
         const isValid = await verifyPasswordPBKDF2(oldPassword, account.password);
         if (!isValid) {
+            const limiterKey = await hashRateLimitKey(['change-password', clientIp(request), username || '']);
+            const limiter = await consumeRateLimit(db, limiterKey, 8, 300);
+            if (!limiter.allowed) {
+                return new Response(JSON.stringify({
+                    error: "Có quá nhiều lần xác minh mật khẩu cũ không thành công. Vui lòng thử lại sau.",
+                    code: "AUTH_RATE_LIMITED"
+                }), { status: 429, headers: { ...corsHeaders, 'Retry-After': String(limiter.retryAfter) } });
+            }
             return new Response(JSON.stringify({ error: "Tên đăng nhập hoặc mật khẩu cũ không đúng!" }), { status: 400, headers: corsHeaders });
         }
 
