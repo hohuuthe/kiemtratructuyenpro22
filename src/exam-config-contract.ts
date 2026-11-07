@@ -32,9 +32,9 @@ function decimal(value: any, name: string, min = 0, max = 1000): number {
   if (value === null || value === '' || typeof value === 'boolean') throw new ExamConfigInputError(name + ' không hợp lệ.');
   const number = Number(value);
   if (!Number.isFinite(number) || number < min || number > max) throw new ExamConfigInputError(name + ' phải nằm trong khoảng ' + min + ' đến ' + max + '.');
-  const scaled = number * 100000;
+  const scaled = number * 10000;
   if (Math.abs(scaled - Math.round(scaled)) > 1e-7) {
-    throw new ExamConfigInputError(name + ' chỉ được có tối đa 5 chữ số thập phân.');
+    throw new ExamConfigInputError(name + ' chỉ được có tối đa 4 chữ số thập phân.');
   }
   return number;
 }
@@ -144,17 +144,28 @@ export function normalizeExamConfigInput(body: Row, old: Row | null = null) {
   const start=tg_bd ?? scheduled.startTime ?? null;
   const end=tg_kt ?? scheduled.endTime ?? null;
   if (start && end && start >= end) throw new ExamConfigInputError('Thời gian kết thúc phải sau thời gian bắt đầu.');
+
+  const points_41=decimal(value('points_41','points41',1),'Điểm Trắc nghiệm');
+  const points_tf4=decimal(value('points_tf4','pointsTF4',1),'Điểm Đúng/Sai');
+  const points_sq=decimal(value('points_sq','pointsSQ',1),'Điểm Trả lời ngắn');
+  const points_tl=decimal(value('points_tl','pointsTL',1),'Điểm Tự luận');
+  const tf4_scoring_mode=examConfigFlag(value('tf4_scoring_mode','tf4ScoringMode',0),'Chấm Đúng/Sai');
+  const tf4_points=tf4Points(value('tf4_points','tf4Points',{}));
+  const parsedTf4Points=JSON.parse(tf4_points) as Row;
+  const maxTf4Point=tf4_scoring_mode ? Number(parsedTf4Points['4'] ?? 0) : points_tf4;
+  const totalMaxScore=count_41*points_41 + count_tf4*maxTf4Point + count_sq*points_sq + count_tl*points_tl;
+  if (!Number.isFinite(totalMaxScore) || totalMaxScore < 0 || totalMaxScore > 1000) {
+    throw new ExamConfigInputError('Tổng điểm tối đa của đề thi phải nằm trong khoảng 0 đến 1000 điểm.');
+  }
+
   return {
     name, chedodethi:mode, mabaomatdethi, time_limit,
     count_41,count_tf4,count_sq,count_tl,
-    points_41:decimal(value('points_41','points41',1),'Điểm Trắc nghiệm'),
-    points_tf4:decimal(value('points_tf4','pointsTF4',1),'Điểm Đúng/Sai'),
-    points_sq:decimal(value('points_sq','pointsSQ',1),'Điểm Trả lời ngắn'),
-    points_tl:decimal(value('points_tl','pointsTL',1),'Điểm Tự luận'),
+    points_41,points_tf4,points_sq,points_tl,
     selected_lessons:lessons(value('selected_lessons','selectedLessons',[])),
     counts_detail:counts(value('counts_detail','countsDetail',{}),{count_41,count_tf4,count_sq,count_tl}),
-    tf4_scoring_mode:examConfigFlag(value('tf4_scoring_mode','tf4ScoringMode',0),'Chấm Đúng/Sai'),
-    tf4_points:tf4Points(value('tf4_points','tf4Points',{})),
+    tf4_scoring_mode,
+    tf4_points,
     access_control:access,
     immediate_feedback,show_score,show_details,
     sq_case_sensitive:examConfigFlag(value('sq_case_sensitive','sqCaseSensitive',0),'Phân biệt hoa thường'),
