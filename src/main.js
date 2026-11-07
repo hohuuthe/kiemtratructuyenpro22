@@ -9968,6 +9968,24 @@ if (contentType && contentType.includes("application/json")) {
                     currentExam.pendingViolationEvents.shift();
                     if (Number.isFinite(Number(result.cheatWarningCount))) {
                         currentExam.serverCheatWarningCount = Number(result.cheatWarningCount);
+                        // Server là nguồn quyết định duy nhất cho ngưỡng tự nộp.
+                        // Bộ đếm local chỉ phục vụ phản hồi tức thời, không được tự
+                        // nộp bài nếu server chưa xác nhận đủ số event hợp lệ.
+                        if (result.shouldAutoSubmit === true &&
+                            !currentExam.serverViolationAutoSubmitTriggered) {
+                            currentExam.serverViolationAutoSubmitTriggered = true;
+                            currentExam.cheatWarningCount = Number(result.cheatWarningCount);
+                            if (Number.isFinite(Number(result.maxCheatWarnings))) {
+                                currentExam.maxCheatWarnings = Math.max(1, Number(result.maxCheatWarnings));
+                            }
+                            window.updateCheatWarningUI?.();
+                            const lockedSessionId = currentExam.sessionId;
+                            setTimeout(() => {
+                                if (isSameExamSession(lockedSessionId) && !currentExam.submitting) {
+                                    window.submitExam(true, 'cheat_limit', lockedSessionId);
+                                }
+                            }, 0);
+                        }
                     }
                 }
                 return true;
@@ -10015,11 +10033,21 @@ if (contentType && contentType.includes("application/json")) {
                         revision
                     })
                 });
+                const saveResult = await response.json().catch(() => ({}));
                 if (!response.ok) {
-                    const errorBody = await response.json().catch(() => ({}));
-                    if (errorBody?.code !== 'EXAM_DEADLINE_REACHED') {
-                        console.warn('[ExamAutosave] Không thể lưu tạm:', errorBody?.error || response.status);
+                    if (saveResult?.code !== 'EXAM_DEADLINE_REACHED') {
+                        console.warn('[ExamAutosave] Không thể lưu tạm:', saveResult?.error || response.status);
                     }
+                    return false;
+                }
+                if (saveResult?.accepted !== true) {
+                    if (Number.isFinite(Number(saveResult?.revision))) {
+                        currentExam.autosaveRevision = Math.max(
+                            Number(currentExam.autosaveRevision) || 0,
+                            Number(saveResult.revision) || 0
+                        );
+                    }
+                    console.warn('[ExamAutosave] Revision này không được máy chủ nhận vì đã có bản mới hơn hoặc cùng revision từ phiên khác.');
                     return false;
                 }
                 currentExam.lastAutosaveAt = Date.now();
@@ -10223,7 +10251,7 @@ if (contentType && contentType.includes("application/json")) {
             window.updateCheatWarningUI();
             if (window.backupExamState) window.backupExamState();
 
-            if (currentCount > maxWarnings) {
+            if (currentCount > maxWarnings && Number(currentExam.serverCheatWarningCount || 0) > maxWarnings) {
                 const autoSubmitMsg = `
                     <div class="my-2 p-3 bg-purple-50 border border-red-200 rounded-xl text-red-900 text-xs sm:text-sm">
                         <div class="font-bold text-purple-700 text-sm sm:text-base flex items-center gap-1.5 mb-1">
