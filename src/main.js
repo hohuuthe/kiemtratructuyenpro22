@@ -8465,6 +8465,7 @@ if (contentType && contentType.includes("application/json")) {
                 studentDonvi: String(meta.studentDonvi || currentUser?.donvi || currentUser?.address || ''),
                 studentClass: String(meta.studentClass || meta.studentLop || currentUser?.lop || ''),
                 cheatWarningCount: Math.max(0, Number(data.cheatWarningCount) || 0),
+                serverCheatWarningCount: Math.max(0, Number(data.cheatWarningCount) || 0),
                 maxCheatWarnings: Math.max(1, Number(data.maxCheatWarnings) || 5),
                 timeLimitSeconds: Math.max(1, Number(data.timeLimitSeconds) || 1),
                 timeLimitMinutes: Math.max(1 / 60, Number(data.timeLimitSeconds || 1) / 60),
@@ -10888,7 +10889,9 @@ if (contentType && contentType.includes("application/json")) {
                     answeredQuestionsCount: answeredQuestionsCount,
                     answeredStatementsCount: answeredStatementsCount,
                     statsByType: statsByType,
-                    cheatWarningCount: currentExam.cheatWarningCount || 0,
+                    cheatWarningCount: Number.isFinite(Number(result.cheatWarningCount))
+                        ? Number(result.cheatWarningCount)
+                        : (currentExam.serverCheatWarningCount || currentExam.cheatWarningCount || 0),
                     timestamp: new Date().toISOString()
                 };
 
