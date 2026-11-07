@@ -678,26 +678,12 @@ async function startServer() {
   }
 
   app.get("/api/health", async (req, res) => {
-    let dbStatus = "UNKNOWN";
-    let dbError = null;
-    let userCount = 0;
     try {
-      const dbRes = await executeSqlQuery("SELECT COUNT(*) as count FROM users", []);
-      userCount = Number(dbRes.results?.[0]?.count || 0);
-      dbStatus = "CONNECTED_OK";
-    } catch (err: any) {
-      dbStatus = "CONNECTION_FAILED";
-      dbError = err?.message || String(err);
+      await executeSqlQuery("SELECT 1 AS ok", []);
+      return res.json({ status: "OK" });
+    } catch {
+      return res.status(500).json({ status: "ERROR" });
     }
-    res.json({
-      status: dbStatus === "CONNECTED_OK" ? "OK" : "ERROR",
-      database: {
-        status: dbStatus,
-        user_count: userCount,
-        error: dbError
-      },
-      timestamp: new Date().toISOString()
-    });
   });
 
   // --- API Authentication: Login ---
@@ -2422,23 +2408,44 @@ async function startServer() {
 
       // 1A. Truyền danh sách mảng classes: [{ class_name, role, subject }]
       if (Array.isArray(classes)) {
-        await executeSqlQuery("DELETE FROM teacher_classes WHERE teacher_id = ?", [teacher_id]);
-        let insertedCount = 0;
-        for (const item of classes) {
-          const cName = String(item.class_name || item.className || item.lop || '').trim();
-          if (!cName) continue;
-          const cRole = String(item.role || 'bo_mon').trim();
-          const cSubject = String(item.subject || item.mon_hoc || '').trim();
-          const id = crypto.randomUUID();
-          await executeSqlQuery(
-            `INSERT INTO teacher_classes (id, teacher_id, teacher_name, class_name, donvi, role, subject, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-             ON CONFLICT (teacher_id, class_name, donvi) DO UPDATE SET role = EXCLUDED.role, subject = EXCLUDED.subject, teacher_name = EXCLUDED.teacher_name`,
-            [id, teacher_id, teacher_name || '', cName, donvi || '', cRole, cSubject, now]
-          );
-          insertedCount++;
-        }
-        return res.status(200).json({ success: true, count: insertedCount, error: null });
+        const normalized = classes.map((item:any)=>({
+          className:String(item?.class_name||item?.className||item?.lop||'').trim(),
+          role:String(item?.role||'bo_mon').trim(),
+          subject:String(item?.subject||item?.mon_hoc||'').trim()
+        })).filter((item:any)=>item.className);
+        if(normalized.length>500)return res.status(400).json({error:"Mỗi giáo viên tối đa 500 phân công lớp."});
+        const payload=normalized.map((item:any)=>({
+          id:crypto.randomUUID(),teacher_id:String(teacher_id),teacher_name:String(teacher_name||''),
+          class_name:item.className,donvi:String(donvi||''),role:item.role,subject:item.subject,created_at:now
+        }));
+        const atomic=await executeSqlQuery(`
+          WITH input AS (
+            SELECT * FROM jsonb_to_recordset(?::jsonb) AS x(
+              id text, teacher_id text, teacher_name text, class_name text,
+              donvi text, role text, subject text, created_at text
+            )
+          ),
+          deleted AS (
+            DELETE FROM teacher_classes tc
+            WHERE tc.teacher_id=?
+              AND NOT EXISTS (
+                SELECT 1 FROM input i
+                WHERE i.teacher_id=tc.teacher_id AND i.class_name=tc.class_name AND i.donvi=tc.donvi
+              )
+            RETURNING tc.id
+          ),
+          upserted AS (
+            INSERT INTO teacher_classes(id,teacher_id,teacher_name,class_name,donvi,role,subject,created_at)
+            SELECT id,teacher_id,teacher_name,class_name,donvi,role,subject,created_at FROM input
+            ON CONFLICT(teacher_id,class_name,donvi) DO UPDATE SET
+              role=EXCLUDED.role,subject=EXCLUDED.subject,teacher_name=EXCLUDED.teacher_name
+            RETURNING id
+          )
+          SELECT COUNT(*)::int AS count FROM upserted
+        `,[JSON.stringify(payload),String(teacher_id)]);
+        const insertedCount=Number(atomic.results?.[0]?.count||0);
+        if(insertedCount!==normalized.length)throw new Error("Không thể xác nhận đầy đủ phân công lớp sau khi ghi.");
+        return res.status(200).json({success:true,count:insertedCount,error:null});
       }
 
       // 1B. Truyền một lớp đơn lẻ
@@ -4490,8 +4497,6 @@ CLOUDFLARE_R2_PUBLIC_URL: "${r2PublicUrl}"
   });
 
   // General routes
-  app.get("/api/health", (req, res) => { res.json({ status: "OK" }); });
-
   app.get("/api/config", (req, res) => {
     res.json({
       isGeminiConfigured: isConfigured("GEMINI_API_KEY"),
