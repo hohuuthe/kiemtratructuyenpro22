@@ -247,22 +247,23 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         }
 
         if (dbExam?.chedodethi === 'Đề có mã bảo mật' && !isAdmin && !isTeacher) {
-            const rateKey = await hashRateLimitKey([
-                'exam-code', clientIp(request), String(dbExam.id || examId || ''),
-                String(tokenUser?.user_id || tokenUser?.id || 'guest')
-            ]);
-            const rate = await consumeRateLimit(db, rateKey, 12, 300);
-            if (!rate.allowed) {
-                return new Response(JSON.stringify({
-                    code: 'EXAM_ACCESS_CODE_RATE_LIMITED',
-                    error: 'Đã nhập mã bảo vệ quá nhiều lần. Vui lòng thử lại sau.',
-                    retry_after: rate.retryAfter
-                }), {
-                    status: 429,
-                    headers: { ...corsHeaders, 'Retry-After': String(rate.retryAfter) }
-                });
-            }
-            if (!accessCodeMatches(submittedAccessCode, dbExam.mabaomatdethi)) {
+            const accessCodeValid = accessCodeMatches(submittedAccessCode, dbExam.mabaomatdethi);
+            if (!accessCodeValid) {
+                const rateKey = await hashRateLimitKey([
+                    'exam-code', clientIp(request), String(dbExam.id || examId || ''),
+                    String(tokenUser?.user_id || tokenUser?.id || 'guest')
+                ]);
+                const rate = await consumeRateLimit(db, rateKey, 12, 300);
+                if (!rate.allowed) {
+                    return new Response(JSON.stringify({
+                        code: 'EXAM_ACCESS_CODE_RATE_LIMITED',
+                        error: 'Đã nhập sai mã bảo vệ quá nhiều lần. Vui lòng thử lại sau.',
+                        retry_after: rate.retryAfter
+                    }), {
+                        status: 429,
+                        headers: { ...corsHeaders, 'Retry-After': String(rate.retryAfter) }
+                    });
+                }
                 return new Response(JSON.stringify({error:'Mã bảo vệ đề thi không chính xác'}), {status:403,headers:corsHeaders});
             }
         }
