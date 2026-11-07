@@ -1,55 +1,16 @@
 import { getEffectiveDb } from './neon-adapter';
-import { resolveTenantRoutingFromRequest } from '../../src/tenant-host-map';
 
-interface Env {
-  NEON_DATABASE_URL?: string;
-  DATABASE_URL?: string;
-  GEMINI_API_KEY?: string;
-  CLOUDFLARE_R2_BUCKET_NAME?: string;
-}
-
-export const onRequestGet: PagesFunction<Env> = async (context) => {
-  const { env, request } = context;
-  const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Tenant-Slug',
-    'Access-Control-Allow-Methods': 'GET, OPTIONS',
-    'Content-Type': 'application/json'
+export const onRequestGet: PagesFunction = async (context) => {
+  const headers = {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff'
   };
-
-  // Report only the server-resolved tenant; never echo a spoofed client header.
-  const tenantSelection = resolveTenantRoutingFromRequest(request, env);
-  const slug = tenantSelection.slug;
-  let dbStatus = "UNKNOWN";
-  let dbError = null;
-  let userCount = 0;
-
   try {
     const db = getEffectiveDb(context);
-    const res = await db.prepare("SELECT COUNT(*) as count FROM users").first();
-    userCount = Number(res?.count || 0);
-    dbStatus = "CONNECTED_OK";
-  } catch (err: any) {
-    dbStatus = "CONNECTION_FAILED";
-    const rawMsg = err?.message || String(err);
-    dbError = rawMsg.replace(/postgresql:\/\/[^@]+@/gi, 'postgresql://***:***@');
+    await db.prepare('SELECT 1 AS ok').first();
+    return new Response(JSON.stringify({ status: 'OK' }), { status: 200, headers });
+  } catch {
+    return new Response(JSON.stringify({ status: 'ERROR' }), { status: 503, headers });
   }
-
-  return new Response(JSON.stringify({
-    status: dbStatus === "CONNECTED_OK" ? "OK" : "ERROR",
-    tenant_slug: slug || "DEFAULT",
-    environment: {
-      has_gemini_key: !!env.GEMINI_API_KEY,
-      has_r2_configured: !!env.CLOUDFLARE_R2_BUCKET_NAME,
-    },
-    database: {
-      status: dbStatus,
-      user_count: userCount,
-      error: dbError
-    },
-    timestamp: new Date().toISOString()
-  }, null, 2), {
-    status: dbStatus === "CONNECTED_OK" ? 200 : 500,
-    headers: corsHeaders
-  });
 };
