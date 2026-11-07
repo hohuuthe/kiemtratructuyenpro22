@@ -2731,15 +2731,11 @@ async function startServer() {
             }
 
             let isSameDonVi = false;
-            if (!teacherDonvi && allowedUnits.length === 0) {
-              isSameDonVi = true;
-            } else if (user) {
-              const userDonvi = String(user.donvi || user.address || '').trim().toLowerCase();
-              if (teacherDonvi && userDonvi && (userDonvi === teacherDonvi || userDonvi.includes(teacherDonvi) || teacherDonvi.includes(userDonvi))) {
-                isSameDonVi = true;
-              } else if (allowedUnits.some((au: string) => au && (au === userDonvi || userDonvi.includes(au) || au.includes(userDonvi)))) {
-                isSameDonVi = true;
-              }
+            if (user) {
+              const normalizeUnit = (value: any) => String(value || '').trim().toLocaleLowerCase('vi').replace(/\s+/g,' ');
+              const userDonvi = normalizeUnit(user.donvi || user.address || '');
+              const configured = [...new Set([teacherDonvi, ...allowedUnits].map(normalizeUnit).filter(Boolean))];
+              isSameDonVi = !!userDonvi && configured.includes(userDonvi);
             }
 
             if (!isSameDonVi) {
@@ -2774,7 +2770,7 @@ async function startServer() {
       });
     } catch (e: any) {
       console.error("GET /api/exams error:", e.message || e);
-      return res.json({ data: [], allCreatorIds: [], error: null });
+      return res.status(503).json({ data: null, allCreatorIds: [], error: "Không thể tải danh sách đề thi từ cơ sở dữ liệu." });
     }
   });
 
