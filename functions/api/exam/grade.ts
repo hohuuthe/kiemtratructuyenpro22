@@ -68,6 +68,37 @@ const getBase64Data = (dataUri: string) => {
     } catch (e) { return null; }
 };
 
+function sanitizeStoredImageRef(value: any): string {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    if (raw.length > 8_500_000) return '';
+    const dataMatch = raw.match(/^data:(image\/(?:png|jpeg|jpg|webp));base64,([A-Za-z0-9+/=\r\n]+)$/i);
+    if (dataMatch) return raw;
+    if (raw.length > 4096) return '';
+    try {
+        const url = new URL(raw);
+        if (url.protocol !== 'https:' || url.username || url.password) return '';
+        return url.href;
+    } catch {
+        return '';
+    }
+}
+
+function sanitizeEssayAnswer(value: any): any {
+    if (value === null || value === undefined) return value;
+    if (typeof value !== 'object' || Array.isArray(value)) {
+        return String(value).slice(0, 200000);
+    }
+    return {
+        text: String(value.text || '').slice(0, 200000),
+        image: sanitizeStoredImageRef(value.image)
+    };
+}
+
+function sanitizeAiFeedback(value: any): string {
+    return String(value || '').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '').slice(0, 12000);
+}
+
 export const onRequestPost: PagesFunction<Env> = async (context) => {
   const db = getDatabase(context);
     const { request, env } = context;
@@ -486,7 +517,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                 return { question: q, userAnswer: studentAnswers[i], isCorrect: false, correctAnswer: '', needsGrading: false, score: 0, aiFeedback: 'Không tìm thấy dữ liệu gốc của câu hỏi.' };
             }
 
-            const userAnswer = studentAnswers[i];
+            const userAnswer = trueQ.type === 'TL'
+                ? sanitizeEssayAnswer(studentAnswers[i])
+                : studentAnswers[i];
             const correctAnswer = trueQ.answer;
 
             let isCorrect = false;
@@ -666,7 +699,7 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
                                     }
                                     const essayScore = roundScore(numericEssayScore, 2);
                                     d.score = essayScore;
-                                    d.aiFeedback = typeof parsed?.feedback === 'string' ? parsed.feedback : '';
+                                    d.aiFeedback = sanitizeAiFeedback(parsed?.feedback);
                                     d.gradingStatus = 'completed';
                                     d.needsGrading = false;
                                     rawEarnedScore += essayScore;
