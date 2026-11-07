@@ -13,6 +13,7 @@ const grade = read('functions/api/exam/grade.ts');
 const main = read('src/main.js');
 const accounts = read('functions/api/accounts.ts');
 const headers = read('public/_headers');
+const server = read('server.ts');
 const authSession = read('functions/api/auth/session.ts');
 
 test('teacher assignment reads and deletes are scoped to authenticated teacher', () => {
@@ -82,4 +83,18 @@ test('safe browser headers are present without enforcing a breaking CSP migratio
   assert.match(headers, /X-Frame-Options: SAMEORIGIN/);
   assert.match(headers, /Referrer-Policy: strict-origin-when-cross-origin/);
   assert.match(headers, /Permissions-Policy:/);
+});
+
+
+test('Node fallback runtime mirrors critical image, health and unit protections', () => {
+  assert.match(server, /hardenedUploadImageHandler/);
+  assert.match(server, /signCloudflareAuthSession/);
+  assert.match(server, /req\.path === '\/upload-image'/);
+  assert.match(server, /Nguồn ảnh không được phép/);
+  assert.match(server, /contentType\.includes\("svg"\)/);
+  assert.doesNotMatch(server, /userDonvi\.includes\(teacherDonvi\)/);
+  assert.doesNotMatch(server, /!teacherDonvi && allowedUnits\.length === 0/);
+  assert.match(server, /SELECT 1 AS ok/);
+  assert.doesNotMatch(server, /user_count: userCount/);
+  assert.match(server, /jsonb_to_recordset/);
 });
