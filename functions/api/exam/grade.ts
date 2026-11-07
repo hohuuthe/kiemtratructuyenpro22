@@ -807,15 +807,20 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
                         "SELECT id, score, correct_count, total_questions, details, cheat_warning_count FROM results WHERE id = ?"
                     ).bind(String(existing.result_id)).first();
                     if (stored) {
-                        let details: any[] = [];
-                        try { details = Array.isArray(stored.details) ? stored.details : JSON.parse(String(stored.details || '[]')); } catch {}
+                        let storedDetails: any[] = [];
+                        try {
+                            storedDetails = Array.isArray(stored.details)
+                                ? stored.details
+                                : JSON.parse(String(stored.details || '[]'));
+                        } catch { storedDetails = []; }
                         const showDetailsOnReplay = examFlagEnabled(
                             examConfig.showDetails ?? examConfig.show_details,
                             false
                         );
-                        const safeDetails = details.map((d: any) =>
+                        const safeDetails = storedDetails.map((d: any) =>
                             sanitizeGradingDetailForClient(d, showDetailsOnReplay)
                         );
+                        const replayGradingPending = hasPendingEssayGrading(storedDetails);
                         return new Response(JSON.stringify({
                             resultId: stored.id,
                             score: Number(stored.score) || 0,
@@ -823,8 +828,8 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
                             correctCount: Number(stored.correct_count) || 0,
                             totalQuestions: Number(stored.total_questions) || 0,
                             cheatWarningCount: Number(stored.cheat_warning_count) || 0,
-                            gradingPending: hasPendingEssayGrading(storedDetails),
-                            scoreFinalized: !hasPendingEssayGrading(storedDetails),
+                            gradingPending: replayGradingPending,
+                            scoreFinalized: !replayGradingPending,
                             detailedResults: safeDetails,
                             alreadySubmitted: true
                         }), { status: 200, headers: corsHeaders });
