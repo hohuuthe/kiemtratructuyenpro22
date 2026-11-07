@@ -334,8 +334,24 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       'SELECT started_at, deadline_at FROM _exam_grade_sessions WHERE session_id = ?'
     ).bind(gradingSessionId).first();
 
+    // Không được dùng mốc "đề xuất" làm fallback nếu DB không chứng minh đã claim
+    // started_at. Snapshot có thể bị dọn đúng giữa SELECT đầu và UPDATE; trong race
+    // đó trả token ACTIVE sẽ tạo một phiên ảo mà save/grade không thể xác minh.
+    if (!authoritative?.started_at) {
+      if (signedStudentUserId && examId) {
+        try {
+          await db.prepare('DELETE FROM _exam_active_attempts WHERE session_id = ?')
+            .bind(gradingSessionId).run();
+        } catch {}
+      }
+      return new Response(JSON.stringify({
+        code: 'EXAM_START_CLAIM_NOT_PERSISTED',
+        error: 'Máy chủ chưa xác nhận được thời điểm bắt đầu trong cơ sở dữ liệu. Đồng hồ chưa được tính; vui lòng thử lại.'
+      }), { status: 503, headers: corsHeaders });
+    }
+
     // Tự sửa dữ liệu chuyển tiếp nếu bản ghi cũ hiếm gặp đã có started_at nhưng thiếu deadline.
-    const existingStartedAtMs = new Date(String(authoritative?.started_at || '')).getTime();
+    const existingStartedAtMs = new Date(String(authoritative.started_at)).getTime();
     if (Number.isFinite(existingStartedAtMs) && existingStartedAtMs > 0 && !authoritative?.deadline_at) {
       const recoveredDeadlineAt = new Date(existingStartedAtMs + timeLimitSeconds * 1000).toISOString();
       await db.prepare(
@@ -346,8 +362,8 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       ).bind(gradingSessionId).first();
     }
 
-    const startedAtMs = new Date(String(authoritative?.started_at || proposedStartedAt)).getTime();
-    const deadlineAtMs = new Date(String(authoritative?.deadline_at || proposedDeadlineAt)).getTime();
+    const startedAtMs = new Date(String(authoritative?.started_at || '')).getTime();
+    const deadlineAtMs = new Date(String(authoritative?.deadline_at || '')).getTime();
     if (!Number.isFinite(startedAtMs) || !Number.isFinite(deadlineAtMs) || deadlineAtMs <= startedAtMs) {
       return new Response(JSON.stringify({ error: 'Không thể thiết lập mốc thời gian thi an toàn.' }), { status: 503, headers: corsHeaders });
     }
