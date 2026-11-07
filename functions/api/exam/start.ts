@@ -207,22 +207,42 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
           const profileClass = String(profile?.lop || '').trim();
           const profileUnit = String(profile?.donvi || '').trim();
           if (profileName && profileClass && profileUnit) {
-            const uniqueProfile: any = await db.prepare(
-              `SELECT COUNT(*) AS count FROM users
+            const normalizeLegacyUnit = (value: any): string =>
+              String(value || '')
+                .normalize('NFKC')
+                .toLocaleLowerCase('vi-VN')
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .replace(/đ/g, 'd')
+                .trim()
+                .replace(/^truong\s+/u, '')
+                .replace(/^trung\s+hoc\s+pho\s+thong\s+/u, '')
+                .replace(/^thpt\s+/u, '')
+                .replace(/^truong\s+thpt\s+/u, '')
+                .replace(/\s+/g, ' ');
+            const canonicalProfileUnit = normalizeLegacyUnit(profileUnit);
+
+            const { results: profileCandidates } = await db.prepare(
+              `SELECT id, donvi FROM users
                WHERE LOWER(TRIM(full_name)) = LOWER(TRIM(?))
-                 AND LOWER(TRIM(COALESCE(lop,''))) = LOWER(TRIM(?))
-                 AND LOWER(TRIM(COALESCE(donvi,''))) = LOWER(TRIM(?))`
-            ).bind(profileName, profileClass, profileUnit).first();
-            if (Number(uniqueProfile?.count) === 1) {
-              const legacyRow: any = await db.prepare(
-                `SELECT COUNT(*) AS count FROM results
+                 AND LOWER(TRIM(COALESCE(lop,''))) = LOWER(TRIM(?))`
+            ).bind(profileName, profileClass).all();
+            const matchingProfiles = (profileCandidates || []).filter((row: any) =>
+              normalizeLegacyUnit(row?.donvi) === canonicalProfileUnit
+            );
+
+            if (matchingProfiles.length === 1 &&
+                String((matchingProfiles[0] as any)?.id || '') === signedStudentUserId) {
+              const { results: legacyRows } = await db.prepare(
+                `SELECT don_vi FROM results
                  WHERE exam_id = ?
                    AND (user_id IS NULL OR TRIM(user_id) = '')
                    AND LOWER(TRIM(student_name)) = LOWER(TRIM(?))
-                   AND LOWER(TRIM(COALESCE(lop,''))) = LOWER(TRIM(?))
-                   AND LOWER(TRIM(COALESCE(don_vi,''))) = LOWER(TRIM(?))`
-              ).bind(examId, profileName, profileClass, profileUnit).first();
-              completedAttempts += Math.max(0, Number(legacyRow?.count) || 0);
+                   AND LOWER(TRIM(COALESCE(lop,''))) = LOWER(TRIM(?))`
+              ).bind(examId, profileName, profileClass).all();
+              completedAttempts += (legacyRows || []).filter((row: any) =>
+                normalizeLegacyUnit(row?.don_vi) === canonicalProfileUnit
+              ).length;
             }
           }
 

@@ -94,14 +94,22 @@ test('start revalidates max attempts and atomically allows only one active sessi
   assert.match(start,/EXAM_REVOKED_BEFORE_START/);
 });
 
-test('legacy attempt counting is only used for a unique profile identity', () => {
+test('legacy attempt counting is only used for one canonical profile and normalized unit aliases', () => {
   const generate=readFileSync('functions/api/exam/generate.ts','utf8');
-  assert.match(generate,/SELECT COUNT\(\*\) AS count FROM users/);
-  assert.match(generate,/Number\(uniqueProfile\?\.count\) === 1/);
-  assert.match(generate,/\(user_id IS NULL OR TRIM\(user_id\) = ''\)/);
-  assert.match(generate,/LOWER\(TRIM\(student_name\)\) = LOWER\(TRIM\(\?\)\)/);
-  assert.match(generate,/LOWER\(TRIM\(COALESCE\(lop,''\)\)\) = LOWER\(TRIM\(\?\)\)/);
-  assert.match(generate,/LOWER\(TRIM\(COALESCE\(don_vi,''\)\)\) = LOWER\(TRIM\(\?\)\)/);
+  const start=readFileSync('functions/api/exam/start.ts','utf8');
+  for (const source of [generate,start]) {
+    assert.match(source,/normalizeLegacyUnit/);
+    assert.match(source,/normalize\('NFD'\)/);
+    assert.match(source,/replace\(\/\[\\u0300-\\u036f\]\/g, ''\)/);
+    assert.match(source,/replace\(\/\^truong\\s\+\/u, ''\)/);
+    assert.match(source,/replace\(\/\^thpt\\s\+\/u, ''\)/);
+    assert.match(source,/SELECT id, donvi FROM users/);
+    assert.match(source,/matchingProfiles\.length === 1/);
+    assert.match(source,/\(user_id IS NULL OR TRIM\(user_id\) = ''\)/);
+    assert.match(source,/LOWER\(TRIM\(student_name\)\) = LOWER\(TRIM\(\?\)\)/);
+    assert.match(source,/LOWER\(TRIM\(COALESCE\(lop,''\)\)\) = LOWER\(TRIM\(\?\)\)/);
+    assert.match(source,/normalizeLegacyUnit\(row\?\.don_vi\) === canonicalProfileUnit/);
+  }
 });
 
 test('unit scope includes configured target unit and does not rely on substring matching', () => {
