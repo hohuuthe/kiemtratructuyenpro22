@@ -99,7 +99,9 @@ test('legacy attempt counting is only used for one canonical profile and normali
   const start=readFileSync('functions/api/exam/start.ts','utf8');
   for (const source of [generate,start]) {
     assert.match(source,/normalizeLegacyUnit/);
-    assert.match(source,/normalize\('NFD'\)/);\n    assert.match(source,/replace\(\/\[\\u0300-\\u036f\]\/g, ''\)/);\n    assert.match(source,/replace\(\/\^truong\\s\+\/u, ''\)/);
+    assert.match(source,/normalize\('NFD'\)/);
+    assert.match(source,/replace\(\/\[\\u0300-\\u036f\]\/g, ''\)/);
+    assert.match(source,/replace\(\/\^truong\\s\+\/u, ''\)/);
     assert.match(source,/replace\(\/\^thpt\\s\+\/u, ''\)/);
     assert.match(source,/SELECT id, donvi FROM users/);
     assert.match(source,/matchingProfiles\.length === 1/);
