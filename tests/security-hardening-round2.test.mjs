@@ -139,3 +139,11 @@ test('deadline grading revalidates autosaved answers before using the draft', ()
   assert.match(grade, /Deadline-safe draft validation failed/);
   assert.match(grade, /Bản lưu đáp án trước hạn chứa dữ liệu không hợp lệ/);
 });
+
+
+test('AI essay grading never scores while required images are omitted', () => {
+  assert.match(grade, /const requiredAiImages = \[/);
+  assert.match(grade, /hasUnembeddableAiImage/);
+  assert.match(grade, /Hệ thống không tự cho điểm khi thiếu dữ liệu ảnh/);
+  assert.match(grade, /pending_manual/);
+});
