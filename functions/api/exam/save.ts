@@ -19,6 +19,33 @@ const corsHeaders = {
   'Content-Type': 'application/json'
 };
 
+function normalizeDraftImage(value: unknown): string {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  if (/^data:image\/(png|jpe?g|webp);base64,[A-Za-z0-9+/=]+$/i.test(raw) && raw.length <= 900000) {
+    return raw;
+  }
+  try {
+    const url = new URL(raw);
+    if (url.protocol === 'https:' && !url.username && !url.password && raw.length <= 2048) return url.href;
+  } catch {}
+  throw new Error('EXAM_DRAFT_IMAGE_INVALID');
+}
+
+function sanitizeDraftAnswers(answers: any[]): any[] {
+  return answers.map((answer: any) => {
+    if (!answer || typeof answer !== 'object' || Array.isArray(answer)) return answer;
+    const copy = { ...answer };
+    if (Object.prototype.hasOwnProperty.call(copy, 'image')) {
+      copy.image = normalizeDraftImage(copy.image);
+    }
+    if (Object.prototype.hasOwnProperty.call(copy, 'text')) {
+      copy.text = String(copy.text ?? '').slice(0, 200000);
+    }
+    return copy;
+  });
+}
+
 export const onRequestOptions: PagesFunction<Env> = async () =>
   new Response(null, { status: 204, headers: corsHeaders });
 
@@ -31,7 +58,11 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     const body: any = await request.json();
     const token = String(body?.token || '').trim();
     const answers = body?.studentAnswers;
-    const revision = Math.max(0, Math.floor(Number(body?.revision) || 0));
+    const parsedRevision = Number(body?.revision ?? 0);
+    if (!Number.isFinite(parsedRevision) || parsedRevision < 0 || parsedRevision > 10_000_000) {
+      return new Response(JSON.stringify({ error: 'Số phiên bản lưu tạm không hợp lệ.' }), { status: 400, headers: corsHeaders });
+    }
+    const revision = Math.floor(parsedRevision);
     const writerId = String(body?.writerId || '').trim();
     if (!token || !Array.isArray(answers)) {
       return new Response(JSON.stringify({ error: 'Thiếu dữ liệu lưu tạm bài làm.' }), { status: 400, headers: corsHeaders });
@@ -85,7 +116,20 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       return new Response(JSON.stringify({ error: 'Số lượng câu trả lời lưu tạm không khớp phiên thi.' }), { status: 400, headers: corsHeaders });
     }
 
-    const answersJson = JSON.stringify(answers);
+    let safeAnswers: any[] = [];
+    try {
+      safeAnswers = sanitizeDraftAnswers(answers);
+    } catch (draftImageError: any) {
+      if (String(draftImageError?.message || '') === 'EXAM_DRAFT_IMAGE_INVALID') {
+        return new Response(JSON.stringify({
+          code: 'EXAM_DRAFT_IMAGE_INVALID',
+          error: 'Ảnh bài làm lưu tạm không đúng định dạng an toàn; hệ thống chưa ghi đè bản lưu trước đó.'
+        }), { status: 400, headers: corsHeaders });
+      }
+      throw draftImageError;
+    }
+
+    const answersJson = JSON.stringify(safeAnswers);
     if (answersJson.length > 3_000_000) {
       return new Response(JSON.stringify({ error: 'Dữ liệu bài làm lưu tạm vượt giới hạn an toàn.' }), { status: 413, headers: corsHeaders });
     }
