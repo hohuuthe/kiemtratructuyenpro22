@@ -77,7 +77,7 @@ function percentCorrect(row) {
 }
 
 function scoreDisplay(score) {
-    return score === null ? '—' : score.toLocaleString('vi-VN', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+    return score === null ? '—' : score.toLocaleString('vi-VN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 const arrowIcon = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg>';
