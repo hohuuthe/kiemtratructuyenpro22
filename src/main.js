@@ -18412,7 +18412,7 @@ CẤU TRÚC JSON:
                     const creatorId = examToCreatorMap[r.examName];
                     const teacherName = examCreatorDisplayName(r,accountsMap,currentUser);
                     const row = worksheet.addRow([
-                        i + 1, r.loaiThiSinh || 'Tự do', r.studentName, r.lop || '-', r.donvi || r.studentClass || '-', parseFloat((Number(r.score) || 0).toFixed(2)),
+                        i + 1, r.loaiThiSinh || 'Tự do', r.studentName, r.lop || '-', r.donvi || r.studentClass || '-', parseFloat((Number(r.score) || 0).toFixed(4)),
                         r.correctCount, r.totalQuestions, r.timeTaken, Number(r.cheatWarningCount) || 0, r.aiGradingSummary || '-', r.examName, teacherName,
                         window.formatVNTime(r.timestamp)
                     ]);
@@ -18451,7 +18451,7 @@ CẤU TRÚC JSON:
                 showToast('Lỗi khi xuất file Excel cao cấp! Đang thử lại chế độ cơ bản...', 'error');
                 
                 const data = [['Hạng', 'Loại Thí sinh', 'Họ tên', 'Lớp', 'Đơn vị / Trường', 'Điểm', 'Đúng', 'Tổng', 'Vi phạm (lần)', 'Đề thi']];
-                sortedResults.forEach((r, i) => data.push([i+1, r.loaiThiSinh || 'Tự do', r.studentName, r.lop || '-', r.donvi || r.studentClass || '-', parseFloat((Number(r.score) || 0).toFixed(2)), r.correctCount, r.totalQuestions, Number(r.cheatWarningCount) || 0, r.examName]));
+                sortedResults.forEach((r, i) => data.push([i+1, r.loaiThiSinh || 'Tự do', r.studentName, r.lop || '-', r.donvi || r.studentClass || '-', parseFloat((Number(r.score) || 0).toFixed(4)), r.correctCount, r.totalQuestions, Number(r.cheatWarningCount) || 0, r.examName]));
                 const ws = XLSX.utils.aoa_to_sheet(data);
                 const wb = XLSX.utils.book_new();
                 XLSX.utils.book_append_sheet(wb, ws, 'XepHang');
@@ -18567,7 +18567,7 @@ CẤU TRÚC JSON:
                                         children: [
                                             new TableCell({ children: [new Paragraph({ text: r.studentName })] }),
                                             new TableCell({ children: [new Paragraph({ text: r.studentClass })] }),
-                                            new TableCell({ children: [new Paragraph({ text: (Number(r.score) || 0).toFixed(2) })] }),
+                                            new TableCell({ children: [new Paragraph({ text: (Number(r.score) || 0).toFixed(4) })] }),
                                             new TableCell({ children: [new Paragraph({ text: r.timeTaken + "s" })] }),
                                         ],
                                     }))
@@ -26235,7 +26235,7 @@ CẤU TRÚC JSON:
                                 student.donvi || '-',
                                 isDone ? 'Đã làm' : 'Chưa',
                                 attemptsCount,
-                                isDone ? Number((Number(maxScore) || 0).toFixed(2)) : '-',
+                                isDone ? Number((Number(maxScore) || 0).toFixed(4)) : '-',
                                 isDone ? formatReportTime(timeTaken) : '-',
                                 isDone ? formattedDoneAt : '-'
                             ]);
