@@ -407,7 +407,20 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                             }), { status: 409, headers: corsHeaders });
                         }
                         let draftAnswers: any[] = [];
-                        try { draftAnswers = JSON.parse(String(draftRow.answers_json || '[]')); } catch {}
+                        try {
+                            draftAnswers = JSON.parse(String(draftRow.answers_json || '[]'));
+                            if (Array.isArray(draftAnswers)) {
+                                // Defense in depth: autosave mới đã được kiểm tra ở /exam/save,
+                                // nhưng vẫn tái kiểm tra để bảo vệ các draft cũ hoặc dữ liệu bị sửa.
+                                draftAnswers = sanitizeSubmissionAnswers(draftAnswers);
+                            }
+                        } catch (draftValidationError: any) {
+                            console.error('Deadline-safe draft validation failed:', draftValidationError);
+                            return new Response(JSON.stringify({
+                                code: 'EXAM_DEADLINE_DRAFT_INVALID',
+                                error: 'Bản lưu đáp án trước hạn chứa dữ liệu không hợp lệ; hệ thống chưa chấm và chưa lưu kết quả.'
+                            }), { status: 409, headers: corsHeaders });
+                        }
                         if (!Array.isArray(draftAnswers) || draftAnswers.length !== issuedIds.length) {
                             return new Response(JSON.stringify({
                                 code: 'EXAM_DEADLINE_DRAFT_INVALID',
@@ -631,6 +644,23 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                     d.score = 0;
                     d.aiFeedback = "Học sinh không nộp bài làm (trống).";
                     d.gradingStatus = 'completed';
+                    continue;
+                }
+
+                // Gemini request below can only embed inline Base64 images. After exam
+                // uploads were hardened to R2, an HTTPS image may be present here. Never
+                // auto-grade while silently omitting any question/rubric/student image:
+                // that can under-grade a valid answer. Route the item to manual review.
+                const requiredAiImages = [
+                    d.question?.image,
+                    d.question?.options?.answerImage,
+                    studentAnsImage
+                ].filter((value: any) => String(value || '').trim());
+                const hasUnembeddableAiImage = requiredAiImages.some((value: any) => !getBase64Data(String(value)));
+                if (hasUnembeddableAiImage) {
+                    d.gradingStatus = 'pending_manual';
+                    d.needsGrading = true;
+                    d.aiFeedback = 'Câu tự luận có ảnh không thể chuyển đầy đủ vào bộ chấm AI. Hệ thống không tự cho điểm khi thiếu dữ liệu ảnh; giáo viên cần chấm thủ công.';
                     continue;
                 }
 
