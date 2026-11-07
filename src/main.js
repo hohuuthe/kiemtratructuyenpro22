@@ -1466,8 +1466,21 @@ if (contentTypeConfig && contentTypeConfig.includes("application/json")) {
             autosaveInFlight: false,
             autosavePending: false,
             deadlineLocked: false,
-            pendingViolationEvents: []
+            pendingViolationEvents: [],
+            writerId: ''
         };
+
+        function ensureExamWriterId() {
+            if (currentExam.writerId) return currentExam.writerId;
+            let id = '';
+            try { id = sessionStorage.getItem('exam_writer_id') || ''; } catch (_) {}
+            if (!id) {
+                id = (globalThis.crypto?.randomUUID?.() || (Date.now() + '-' + Math.random().toString(36).slice(2)));
+                try { sessionStorage.setItem('exam_writer_id', id); } catch (_) {}
+            }
+            currentExam.writerId = id;
+            return id;
+        }
         let questionTypeFilter = '4-1';
         let selectedQuestionIds = new Set();
         let selectedRankingResults = new Set();
@@ -10100,12 +10113,15 @@ if (contentType && contentType.includes("application/json")) {
                     body: JSON.stringify({
                         token: window.currentExamToken,
                         studentAnswers: answers,
-                        revision
+                        revision,
+                        writerId: ensureExamWriterId()
                     })
                 });
                 const saveResult = await response.json().catch(() => ({}));
                 if (!response.ok) {
-                    if (saveResult?.code !== 'EXAM_DEADLINE_REACHED') {
+                    if (saveResult?.code === 'EXAM_OTHER_TAB_ACTIVE') {
+                        showToast('⚠️ Bài thi đang được mở ở tab khác. Tab này không ghi đè bản lưu.', 'warning');
+                    } else if (saveResult?.code !== 'EXAM_DEADLINE_REACHED') {
                         console.warn('[ExamAutosave] Không thể lưu tạm:', saveResult?.error || response.status);
                     }
                     return false;
