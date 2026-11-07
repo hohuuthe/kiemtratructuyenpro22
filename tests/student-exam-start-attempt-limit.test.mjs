@@ -115,3 +115,12 @@ test('unit scope includes configured target unit and does not rely on substring 
   assert.match(region,/allowedUnitSet\.has\(verifiedUserDonvi\)/);
   assert.doesNotMatch(region,/userDonvi\.includes|teacherDonvi\.includes|candidateInputDonvi/);
 });
+
+
+test('start fails closed if the authoritative started_at claim was not persisted', () => {
+  const start=readFileSync('functions/api/exam/start.ts','utf8');
+  assert.match(start,/EXAM_START_CLAIM_NOT_PERSISTED/);
+  assert.match(start,/if \(!authoritative\?\.started_at\)/);
+  assert.doesNotMatch(start,/authoritative\?\.started_at \|\| proposedStartedAt/);
+  assert.doesNotMatch(start,/authoritative\?\.deadline_at \|\| proposedDeadlineAt/);
+});
