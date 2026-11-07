@@ -3417,6 +3417,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
         let questionsLoaded = false;
         let questionsLoadPromise = null;
         let questionBankRevision = 0;
+        let questionBankLastLoadError = null;
 
         function checkExamQuestionsAvailability(examConfig, getCount) {
             let isEnough = true;
@@ -3485,7 +3486,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             let pageNum = 1;
             while (true) {
                 verifySession();
-                if (typeof onProgress === 'function') onProgress(allQuestions.length, pageNum, false);
+                if (typeof onProgress === 'function') onProgress(allQuestions.length, pageNum, false, expectedTotal);
                 let json;
                 for (let attempt = 0; attempt < 3; attempt++) {
                     verifySession();
@@ -3539,7 +3540,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                     allQuestions.length + ' / cần ' + finalTotal + ' câu. Hệ thống đã chặn nạp cấu hình để tránh sai đề.'
                 );
             }
-            if (typeof onProgress === 'function') onProgress(allQuestions.length, pageNum, true);
+            if (typeof onProgress === 'function') onProgress(allQuestions.length, pageNum, true, finalTotal);
             return allQuestions;
         }
         window.fetchAllQuestionsChunked = fetchAllQuestionsChunked;
@@ -3568,6 +3569,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                         creatorUsername: q.creatorUsername || q.creator_username || ''
                     }));
                     questionsLoaded = true;
+                    questionBankLastLoadError = null;
                     updateQuestionTeacherFilter();
                     updateLessonFilter();
                     updateExamTeacherFilter();
@@ -3580,6 +3582,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                     return true;
                 } catch (err) {
                     console.error('Không tải được ngân hàng câu hỏi:', err);
+                    questionBankLastLoadError = err instanceof Error ? err : new Error(String(err || 'Lỗi tải ngân hàng câu hỏi'));
                     if (generation === authDataGeneration && userId === String(currentUser?.id || '')) {
                         questionsLoaded = false;
                         const select = document.getElementById('question-lesson-filter');
@@ -3598,18 +3601,27 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
         }
 
 
-        async function ensureExamConfigQuestionPoolLoaded(draft) {
+        async function ensureExamConfigQuestionPoolLoaded(draft, onProgress = null) {
             const generation = authDataGeneration;
             const userId = String(currentUser?.id || '');
             let verification = null;
             for (let attempt = 0; attempt < 2; attempt++) {
-                const loaded = await loadQuestions(true);
+                const loaded = await loadQuestions(true, (loadedCount, pageNum, done, totalCount) => {
+                    if (typeof onProgress === 'function') {
+                        onProgress({ loadedCount, pageNum, done, totalCount, attempt: attempt + 1 });
+                    }
+                });
                 if (!loaded || generation !== authDataGeneration ||
                     userId !== String(currentUser?.id || '') || !(isAdminLoggedIn || isTeacherLoggedIn)) {
-                    throw new Error('Không thể tải và xác minh đầy đủ ngân hàng câu hỏi cho cấu hình đề thi.');
+                    throw new Error(questionBankLastLoadError?.message ||
+                        'Không thể tải và xác minh đầy đủ ngân hàng câu hỏi cho cấu hình đề thi.');
                 }
                 verification = verifyExamConfigQuestionPool(draft, questions);
                 if (verification.ok) return verification;
+                if (typeof onProgress === 'function') {
+                    onProgress({ loadedCount: questions.length, pageNum: 0, done: false,
+                        totalCount: questions.length, attempt: attempt + 1, verifying: true, verification });
+                }
             }
             throw new Error(examQuestionPoolFailureMessage(verification));
         }
@@ -5808,6 +5820,72 @@ if (contentType && contentType.includes("application/json")) {
             })();
         }
 
+        function showExamConfigLoadProgress(examLabel = '') {
+            const safeLabel = escapeHTML(String(examLabel || '').trim());
+            const progressModalHtml = `
+                <div class="p-6 sm:p-8 text-center max-w-md mx-auto">
+                    <div class="mb-5 flex justify-center">
+                        <div class="relative w-14 h-14">
+                            <div class="absolute inset-0 border-4 border-indigo-100 rounded-full"></div>
+                            <div id="exam-load-spinner" class="absolute inset-0 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+                        </div>
+                    </div>
+                    <h3 class="text-xl font-black text-gray-800 mb-1">Đang nạp đề thi</h3>
+                    <p class="text-xs text-gray-500 mb-4">${safeLabel || 'Hệ thống đang chuẩn bị dữ liệu chính xác trước khi mở trình sửa đề.'}</p>
+                    <div class="w-full bg-gray-100 rounded-full h-3 overflow-hidden">
+                        <div id="exam-load-progress-fill" class="bg-indigo-600 h-full transition-all duration-200" style="width: 3%"></div>
+                    </div>
+                    <div class="flex items-center justify-between mt-2 mb-4">
+                        <span id="exam-load-progress-step" class="text-xs font-semibold text-gray-500">Khởi tạo...</span>
+                        <span id="exam-load-progress-percent" class="text-sm font-black text-indigo-700">3%</span>
+                    </div>
+                    <div id="exam-load-progress-detail" class="text-left text-sm rounded-xl border border-indigo-100 bg-indigo-50/70 px-3 py-2.5 text-indigo-900 min-h-[44px]">
+                        Đang kiểm tra cấu hình đề thi...
+                    </div>
+                    <div id="exam-load-progress-actions" class="hidden mt-4"></div>
+                </div>
+            `;
+            showModal(progressModalHtml, 'md');
+            const modalEl = document.getElementById('modal-content');
+            modalEl?.querySelector('button[title="Đóng"]')?.classList.add('hidden');
+
+            const update = (percent, step, detail) => {
+                const safePercent = Math.max(3, Math.min(100, Math.round(Number(percent) || 3)));
+                const fill = document.getElementById('exam-load-progress-fill');
+                const percentEl = document.getElementById('exam-load-progress-percent');
+                const stepEl = document.getElementById('exam-load-progress-step');
+                const detailEl = document.getElementById('exam-load-progress-detail');
+                if (fill) fill.style.width = safePercent + '%';
+                if (percentEl) percentEl.textContent = safePercent + '%';
+                if (stepEl && step) stepEl.textContent = step;
+                if (detailEl && detail) detailEl.textContent = detail;
+            };
+
+            const fail = (message) => {
+                const spinner = document.getElementById('exam-load-spinner');
+                spinner?.classList.remove('animate-spin', 'border-indigo-600', 'border-t-transparent');
+                spinner?.classList.add('border-red-500');
+                const fill = document.getElementById('exam-load-progress-fill');
+                fill?.classList.remove('bg-indigo-600');
+                fill?.classList.add('bg-red-500');
+                const percentEl = document.getElementById('exam-load-progress-percent');
+                percentEl?.classList.remove('text-indigo-700');
+                percentEl?.classList.add('text-red-600');
+                const detailEl = document.getElementById('exam-load-progress-detail');
+                detailEl?.classList.remove('border-indigo-100', 'bg-indigo-50/70', 'text-indigo-900');
+                detailEl?.classList.add('border-red-200', 'bg-red-50', 'text-red-800');
+                update(100, 'Nạp đề chưa hoàn tất', message || 'Không thể nạp đủ dữ liệu câu hỏi.');
+                const actions = document.getElementById('exam-load-progress-actions');
+                if (actions) {
+                    actions.classList.remove('hidden');
+                    actions.innerHTML = '<button type="button" onclick="closeModal()" class="w-full px-4 py-2.5 rounded-xl bg-gray-800 hover:bg-gray-900 text-white font-bold">Đóng</button>';
+                }
+            };
+
+            return { update, fail, close: closeModal };
+        }
+        window.showExamConfigLoadProgress = showExamConfigLoadProgress;
+
         // ==================== STATISTICS ====================
         function updateStats() {
             const elQuestions = document.getElementById('stat-questions');
@@ -6351,44 +6429,84 @@ if (contentType && contentType.includes("application/json")) {
             const requestSeq = ++examConfigLoadSeq;
             const userLoadIntent = ++examUserLoadIntentSeq;
             const selectEl = document.getElementById('exam-config-name');
+            const progress = showExamConfigLoadProgress();
             try {
+                progress.update(5, 'Bước 1/5', 'Đang tải cấu hình đề thi từ máy chủ...');
                 const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
+                if (!token) throw new Error('Phiên đăng nhập không hợp lệ. Vui lòng đăng nhập lại.');
                 const res = await fetch(`/api/exams?id=${encodeURIComponent(selectedId)}`, {
-                    headers: token ? { 'Authorization': 'Bearer ' + token } : {}
+                    cache: 'no-store',
+                    headers: { 'Authorization': 'Bearer ' + token, 'Cache-Control': 'no-cache' }
                 });
-                let resJson;
                 const contentType = res.headers.get("content-type");
-                if (contentType && contentType.includes("application/json")) {
-                    resJson = await res.json();
-                } else {
-                    throw new Error("Server returned non-JSON response. Status: " + res.status);
+                if (!contentType?.includes("application/json")) {
+                    throw new Error("Máy chủ trả về dữ liệu cấu hình không đúng định dạng (HTTP " + res.status + ").");
                 }
-                
+                const resJson = await res.json();
+                if (!res.ok || !resJson?.data) {
+                    throw new Error(resJson?.error || 'Không tìm thấy cấu hình đề thi đã chọn.');
+                }
                 if (generation !== authDataGeneration || requestSeq !== examConfigLoadSeq ||
-                    !(isAdminLoggedIn || isTeacherLoggedIn)) return;
-                if (res.ok && resJson.data) {
-                    const draftToLoad = mapStoredExamToDraft(resJson.data, {currentUser, accounts, accountsMap});
-                    await ensureExamConfigQuestionPoolLoaded(draftToLoad);
-                    if (generation !== authDataGeneration || requestSeq !== examConfigLoadSeq ||
-                        userLoadIntent !== examUserLoadIntentSeq || !(isAdminLoggedIn || isTeacherLoggedIn)) return;
-                    // Chỉ mở và áp cấu hình sau khi ngân hàng câu hỏi đã được tải mới và xác minh đúng phạm vi cấu hình.
-                    const opened = await openExamEditorTab({newExam:false});
-                    if (!opened || generation !== authDataGeneration ||
-                        userLoadIntent !== examUserLoadIntentSeq ||
-                        !(isAdminLoggedIn || isTeacherLoggedIn)) return;
-                    if (String(resJson.data.id) !== String(selectedId)) return;
-                    applyExamConfig(resJson.data);
-                    if (selectEl) selectEl.value = String(resJson.data.id || selectedId);
-                    showToast(`📂 Đã nạp cấu hình đề: ${resJson.data.name || selectedId}`, 'success');
-                    const btnExport = document.getElementById('btn-export-exam-docx');
-                    if (btnExport) btnExport.classList.remove('hidden');
-                    // Cuộn mượt lên phần thông tin cấu hình
-                    const topPanel = document.getElementById('tab-exam-editor');
-                    if (topPanel) topPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                }
+                    userLoadIntent !== examUserLoadIntentSeq || !(isAdminLoggedIn || isTeacherLoggedIn)) return;
+
+                const draftToLoad = mapStoredExamToDraft(resJson.data, {currentUser, accounts, accountsMap});
+                progress.update(12, 'Bước 2/5', 'Đã nhận cấu hình. Đang chuẩn bị giao diện sửa đề...');
+                const componentReady = await ensureTabComponent('exam-editor');
+                if (!componentReady) throw new Error('Không thể tải giao diện Tạo, sửa đề thi.');
+                if (generation !== authDataGeneration || requestSeq !== examConfigLoadSeq ||
+                    userLoadIntent !== examUserLoadIntentSeq) return;
+
+                progress.update(18, 'Bước 3/5', 'Đang tải đầy đủ ngân hàng câu hỏi và kiểm tra từng trang dữ liệu...');
+                const verification = await ensureExamConfigQuestionPoolLoaded(draftToLoad, info => {
+                    if (!info) return;
+                    if (info.verifying) {
+                        progress.update(88, 'Bước 4/5', 'Đang đối chiếu đúng người tạo, bài học, dạng câu và mức độ NB/TH/VD...');
+                        return;
+                    }
+                    const total = Number(info.totalCount) || 0;
+                    const loaded = Number(info.loadedCount) || 0;
+                    const ratio = total > 0 ? Math.min(1, loaded / total) : (info.done ? 1 : 0);
+                    const percent = 18 + Math.round(ratio * 66);
+                    const retryText = info.attempt > 1 ? ` (lần xác minh ${info.attempt})` : '';
+                    progress.update(
+                        percent,
+                        'Bước 3/5',
+                        info.done
+                            ? `Đã tải đủ ${loaded.toLocaleString('vi-VN')} câu hỏi${retryText}. Đang kiểm tra cấu hình...`
+                            : `Đã tải ${loaded.toLocaleString('vi-VN')} / ${total.toLocaleString('vi-VN')} câu hỏi, trang ${info.pageNum}${retryText}...`
+                    );
+                });
+                if (!verification?.ok) throw new Error(examQuestionPoolFailureMessage(verification));
+                if (generation !== authDataGeneration || requestSeq !== examConfigLoadSeq ||
+                    userLoadIntent !== examUserLoadIntentSeq || !(isAdminLoggedIn || isTeacherLoggedIn)) return;
+
+                progress.update(92, 'Bước 4/5',
+                    `Đã xác minh đủ ${verification.requiredTotal.toLocaleString('vi-VN')} câu theo đúng cấu hình đề thi.`);
+                // Chỉ tới đây mới được phép mở tab sửa đề.
+                const opened = await openExamEditorTab({newExam:false});
+                if (!opened) throw new Error('Không thể khởi tạo giao diện sửa đề sau khi đã tải ngân hàng câu hỏi.');
+                if (generation !== authDataGeneration || requestSeq !== examConfigLoadSeq ||
+                    userLoadIntent !== examUserLoadIntentSeq || !(isAdminLoggedIn || isTeacherLoggedIn)) return;
+                if (String(resJson.data.id) !== String(selectedId)) throw new Error('Đề thi đã thay đổi trong lúc nạp. Vui lòng nạp lại.');
+
+                progress.update(97, 'Bước 5/5', 'Đang áp dụng chính xác cấu hình đề thi vào giao diện...');
+                applyExamConfig(resJson.data);
+                if (selectEl) selectEl.value = String(resJson.data.id || selectedId);
+                const btnExport = document.getElementById('btn-export-exam-docx');
+                if (btnExport) btnExport.classList.remove('hidden');
+                const topPanel = document.getElementById('tab-exam-editor');
+                if (topPanel) topPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+                progress.update(100, 'Hoàn tất', 'Đã nạp và xác minh đầy đủ ngân hàng câu hỏi. Trình sửa đề đã sẵn sàng.');
+                progress.close();
+                showToast(`📂 Đã nạp cấu hình đề: ${resJson.data.name || selectedId}`, 'success');
             } catch (e) {
                 console.error('Error in loadExamConfigById:', e);
-                showToast(e?.message || 'Không thể tải cấu hình đề thi đã chọn!', 'error');
+                if (generation === authDataGeneration && requestSeq === examConfigLoadSeq &&
+                    userLoadIntent === examUserLoadIntentSeq) {
+                    progress.fail(e?.message || 'Không thể tải cấu hình đề thi đã chọn.');
+                    showToast(e?.message || 'Không thể tải cấu hình đề thi đã chọn!', 'error');
+                }
             }
         };
 
@@ -15207,12 +15325,27 @@ D. Phát biểu SAI</pre>
                 return false;
             }
             const generation = authDataGeneration;
+            // Quan trọng: phải chờ HTML của tab lazy-load xuất hiện trước khi init.
+            // Nếu không, lần mở đầu tiên có thể init trên DOM chưa tồn tại rồi báo sai "mở lại tab".
+            const componentReady = await ensureTabComponent('exam-editor');
+            if (!componentReady || generation !== authDataGeneration) {
+                showToast('Không thể tải giao diện Tạo, sửa đề thi. Vui lòng thử lại.', 'error');
+                return false;
+            }
             switchTab('exam-editor');
             if (examEditorInitializing) await examEditorInitializing;
             if (!examEditorInitialized) await initExamPanel();
             if (generation !== authDataGeneration || !(isAdminLoggedIn || isTeacherLoggedIn)) return false;
             if (!examEditorInitialized || !questionsLoaded) {
-                showToast('Không thể tải đủ ngân hàng câu hỏi. Hãy mở lại tab để thử tải.', 'error');
+                const loaded = questionsLoaded || await loadQuestions();
+                if (!loaded) {
+                    showToast(questionBankLastLoadError?.message || 'Không thể tải đầy đủ ngân hàng câu hỏi.', 'error');
+                    return false;
+                }
+                if (!examEditorInitialized) await initExamPanel();
+            }
+            if (!examEditorInitialized || !questionsLoaded) {
+                showToast('Không thể khởi tạo trình sửa đề sau khi tải dữ liệu.', 'error');
                 return false;
             }
             if (newExam) {
