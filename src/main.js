@@ -6055,7 +6055,7 @@ if (contentType && contentType.includes("application/json")) {
             document.getElementById('tf4-advanced-scoring')?.classList.add('hidden');
             for (const [key, value] of Object.entries(examConfig.tf4Points)) {
                 const field = document.getElementById('tf4-points-' + key);
-                if (field) field.value = String(value);
+                if (field) field.value = formatScoreInput4(value);
             }
             const attemptsInput = document.getElementById('exam-config-max-attempts');
             if (attemptsInput) attemptsInput.value = '0';
@@ -6464,11 +6464,13 @@ if (contentType && contentType.includes("application/json")) {
                 if (String(payload.resJson.data.id) !== String(selectedId)) throw new Error('Đề thi đã thay đổi trong lúc nạp.');
 
                 applyExamConfig(payload.resJson.data);
-                const selectEl = document.getElementById('exam-config-name');
-                if (selectEl) selectEl.value = String(payload.resJson.data.id || selectedId);
+                const formCheck = verifyLoadedExamForm(examConfig);
+                if (!formCheck.ok) {
+                    throw new Error('Form sửa đề chưa khôi phục đầy đủ cấu hình: ' + formCheck.mismatches.slice(0, 5).join('; '));
+                }
                 document.getElementById('btn-export-exam-docx')?.classList.remove('hidden');
 
-                // Chỉ mở giao diện sau khi toàn bộ dữ liệu và cấu hình đã sẵn sàng.
+                // Chỉ mở giao diện sau khi toàn bộ dữ liệu và cấu hình đã sẵn sàng và đã được kiểm chứng.
                 switchTab('exam-editor');
                 const topPanel = document.getElementById('tab-exam-editor');
                 if (topPanel) topPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -7557,6 +7559,8 @@ if (contentType && contentType.includes("application/json")) {
                     String(selectEl?.value || '') !== String(selectedId) || !currentUser) return;
                 if (res.ok && resJson.data) {
                     applyExamConfig(resJson.data);
+                    const formCheck = verifyLoadedExamForm(examConfig);
+                    if (!formCheck.ok) throw new Error('Form chưa khôi phục đầy đủ cấu hình: ' + formCheck.mismatches.slice(0, 5).join('; '));
                     showToast(`📂 Đã tải cấu hình đề: ${name}`, 'success');
                 }
             } catch (e) { 
@@ -7605,6 +7609,139 @@ if (contentType && contentType.includes("application/json")) {
             });
         }
 
+        function ensureLoadedExamOption(cData, draft) {
+            const select = document.getElementById('exam-config-name');
+            if (!select) throw new Error('Không tìm thấy ô Chọn bộ câu hỏi hoặc đề thi.');
+            const id = String(draft?.id || cData?.id || '').trim();
+            const name = String(draft?.name || cData?.name || '').trim();
+            if (!id || !name) throw new Error('Đề thi thiếu ID hoặc tên đề.');
+
+            let option = Array.from(select.options).find(opt => String(opt.value) === id);
+            if (!option) {
+                option = document.createElement('option');
+                option.value = id;
+                select.appendChild(option);
+            }
+            option.dataset.name = name;
+            option.textContent = name;
+            select.value = id;
+            if (String(select.value) !== id) {
+                throw new Error('Không thể hiển thị tên đề thi trong ô Chọn bộ câu hỏi hoặc đề thi.');
+            }
+
+            const rows = Array.isArray(window.allExamConfigsList) ? window.allExamConfigsList : [];
+            const index = rows.findIndex(row => String(row?.id) === id);
+            const stored = {...cData, id: cData?.id ?? draft.id, name: cData?.name ?? draft.name};
+            if (index >= 0) rows[index] = {...rows[index], ...stored};
+            else rows.unshift(stored);
+            window.allExamConfigsList = rows;
+
+            if (name) {
+                window.examNameToIdMap = window.examNameToIdMap || {};
+                window.examNameToIdMap[name] = id;
+                if (draft?.creatorId) examToCreatorMap[name] = draft.creatorId;
+            }
+            return option;
+        }
+
+        function verifyLoadedExamForm(draft) {
+            const mismatches = [];
+            const value = id => document.getElementById(id)?.value ?? null;
+            const checked = id => document.getElementById(id)?.checked ?? null;
+            const eqText = (id, expected, label = id) => {
+                const actual = value(id);
+                if (actual === null) mismatches.push(label + ': thiếu ô trên giao diện');
+                else if (String(actual) !== String(expected ?? '')) {
+                    mismatches.push(label + ': "' + actual + '" ≠ "' + String(expected ?? '') + '"');
+                }
+            };
+            const eqNumber = (id, expected, label = id) => {
+                const actualRaw = value(id);
+                if (actualRaw === null) {
+                    mismatches.push(label + ': thiếu ô trên giao diện');
+                    return;
+                }
+                const actual = Number(actualRaw);
+                const target = Number(expected);
+                if (!Number.isFinite(actual) || !Number.isFinite(target) || Math.abs(actual - target) > 1e-8) {
+                    mismatches.push(label + ': ' + actualRaw + ' ≠ ' + expected);
+                }
+            };
+            const eqCheck = (id, expected, label = id) => {
+                const actual = checked(id);
+                if (actual === null) mismatches.push(label + ': thiếu ô trên giao diện');
+                else if (Boolean(actual) !== Boolean(expected)) {
+                    mismatches.push(label + ': trạng thái không khớp');
+                }
+            };
+
+            eqText('exam-config-name', draft.id, 'Tên/ID đề đang chọn');
+            const select = document.getElementById('exam-config-name');
+            const selectedOption = select?.selectedOptions?.[0];
+            if (!selectedOption || String(selectedOption.textContent || '').trim() !== String(draft.name || '').trim()) {
+                mismatches.push('Tên đề thi trong ô chọn không khớp');
+            }
+            eqText('new-exam-name', '', 'Ô tên đề mới');
+            eqText('exam-config-mode', draft.chedodethi, 'Chế độ đề');
+            eqText('exam-config-password', draft.mabaomatdethi || '', 'Mã bảo mật');
+            eqNumber('exam-config-time', draft.timeLimit, 'Thời gian');
+            eqNumber('exam-config-max-cheat-warnings', draft.maxCheatWarnings, 'Số lần rời màn hình');
+            eqNumber('exam-config-max-attempts', draft.maxAttempts, 'Số lần làm bài');
+            eqText('exam-config-donvi', draft.target_donvi || '', 'Đơn vị áp dụng');
+            eqText('exam-config-lop', draft.target_lop || '', 'Lớp áp dụng');
+
+            const countFields = [
+                ['exam-count-41-nb','count41NB'],['exam-count-41-th','count41TH'],['exam-count-41-vd','count41VD'],
+                ['exam-count-tf4-nb','countTF4NB'],['exam-count-tf4-th','countTF4TH'],['exam-count-tf4-vd','countTF4VD'],
+                ['exam-count-sq-nb','countSQNB'],['exam-count-sq-th','countSQTH'],['exam-count-sq-vd','countSQVD'],
+                ['exam-count-tl-nb','countTLNB'],['exam-count-tl-th','countTLTH'],['exam-count-tl-vd','countTLVD']
+            ];
+            countFields.forEach(([id,key]) => eqNumber(id, draft[key] || 0, key));
+
+            eqNumber('exam-points-41', draft.points41, 'Điểm 4-1');
+            eqNumber('exam-points-tf4', draft.pointsTF4, 'Điểm TF4');
+            eqNumber('exam-points-sq', draft.pointsSQ, 'Điểm SQ');
+            eqNumber('exam-points-tl', draft.pointsTL, 'Điểm TL');
+            for (const key of ['1','2','3','4']) eqNumber('tf4-points-' + key, draft.tf4Points?.[key], 'Điểm TF4 đúng ' + key + ' ý');
+
+            const advanced = document.getElementById('tf4-advanced-scoring');
+            if (!advanced) mismatches.push('Thiếu khu vực điểm TF4 nâng cao');
+            else if (advanced.classList.contains('hidden') === Boolean(draft.tf4ScoringMode)) {
+                mismatches.push('Chế độ điểm TF4 nâng cao không khớp');
+            }
+
+            eqText('exam-config-ai-prompt', draft.aiPrompt || '', 'Prompt AI');
+            eqText('exam-config-ai-grading-key', draft.aiGradingKey || '', 'AI key');
+            eqCheck('exam-config-auto-grade-essay', draft.autoGradeEssay, 'Tự động chấm tự luận');
+            eqCheck('exam-config-sq-case-sensitive', draft.sqCaseSensitive, 'Phân biệt hoa thường');
+            eqCheck('exam-config-sq-punctuation-sensitive', draft.sqPunctuationSensitive, 'Phân biệt dấu');
+            eqCheck('exam-config-immediate-feedback', draft.immediateFeedback, 'Phản hồi tức thời');
+            eqCheck('exam-config-show-score', draft.showScore, 'Cho xem điểm');
+            eqCheck('exam-config-show-details', draft.showDetails, 'Cho xem chi tiết');
+            eqCheck('exam-config-shared-results', draft.isSharedResults, 'Chia sẻ kết quả');
+            eqText('exam-shared-code', draft.id || '', 'Mã chia sẻ');
+
+            eqCheck('exam-access-enabled', draft.accessControl?.enabled, 'Kích hoạt lịch thi');
+            eqText('exam-access-start', draft.accessControl?.startTime || '', 'Thời gian bắt đầu');
+            eqText('exam-access-end', draft.accessControl?.endTime || '', 'Thời gian kết thúc');
+
+            const teacherFilter = document.getElementById('exam-teacher-filter');
+            if (teacherFilter && draft.creatorId && String(teacherFilter.value) !== String(draft.creatorId)) {
+                mismatches.push('Giáo viên/người tạo đề không khớp');
+            }
+
+            const selectedLessons = Array.from(document.querySelectorAll('#exam-lesson-selection input[type="checkbox"]:checked'))
+                .map(el => normalizeExamPoolLesson(el.value)).filter(Boolean).sort();
+            const expectedLessons = (draft.selectedLessons || []).map(normalizeExamPoolLesson).filter(Boolean).sort();
+            if (selectedLessons.length !== expectedLessons.length ||
+                selectedLessons.some((lesson, index) => lesson !== expectedLessons[index])) {
+                mismatches.push('Danh sách bài học đã chọn không khớp');
+            }
+
+            return {ok: mismatches.length === 0, mismatches};
+        }
+        window.verifyLoadedExamForm = verifyLoadedExamForm;
+
         function applyExamConfig(cData) {
             // Never merge missing fields from a previously loaded exam.
             examConfig = mapStoredExamToDraft(cData, {currentUser, accounts, accountsMap});
@@ -7612,16 +7749,11 @@ if (contentType && contentType.includes("application/json")) {
             document.getElementById('tf4-advanced-scoring')?.classList.toggle('hidden', !examConfig.tf4ScoringMode);
             for (const [key, value] of Object.entries(examConfig.tf4Points)) {
                 const field = document.getElementById('tf4-points-' + key);
-                if (field) field.value = String(value);
+                if (field) field.value = formatScoreInput4(value);
             }
-            // Cập nhật UI: chỉ gán giá trị vào select exam-config-name khi đang ở tab quản lý đề thi của giáo viên/admin
-            const examConfigSelect = document.getElementById('exam-config-name');
-            if (examConfigSelect && (isTeacherLoggedIn || isAdminLoggedIn)) {
-                const activeTab = document.querySelector('.tab-content.active')?.id;
-                if (activeTab === 'tab-exam-editor') {
-                    examConfigSelect.value = examConfig.id || '';
-                }
-            }
+            // Luôn đồng bộ đúng ID + tên đề, kể cả khi tab sửa đề chưa active.
+            // Nạp đề áp cấu hình khi tab còn ẩn để tránh race condition, nên không được phụ thuộc activeTab.
+            ensureLoadedExamOption(cData, examConfig);
             const newExamInput = document.getElementById('new-exam-name');
             if (newExamInput) newExamInput.value = '';
             
@@ -7644,10 +7776,11 @@ if (contentType && contentType.includes("application/json")) {
             
             if (currentUser && currentUser.role !== 'admin' && (examConfig.chedodethi === 'Đề cho đơn vị' || examConfig.chedodethi === 'Đề thi cho đơn vị')) {
                 const teacherDonvi = String(currentUser.donvi || currentUser.address || '').trim();
-                examConfig.target_donvi = teacherDonvi;
-                examConfig.donvi = teacherDonvi;
+                const storedDonvi = String(examConfig.target_donvi || cData.target_donvi || cData.targetDonvi || cData.donvi || '').trim();
+                examConfig.target_donvi = storedDonvi || teacherDonvi;
+                examConfig.donvi = examConfig.target_donvi;
             } else {
-                examConfig.target_donvi = cData.target_donvi || cData.targetDonvi || cData.donvi || '';
+                examConfig.target_donvi = String(examConfig.target_donvi || cData.target_donvi || cData.targetDonvi || cData.donvi || '').trim();
                 examConfig.donvi = examConfig.target_donvi;
             }
             examConfig.target_lop = cData.target_lop || cData.targetLop || cData.lop || '';
@@ -15516,7 +15649,8 @@ D. Phát biểu SAI</pre>
             
             const checkboxHTML = lessons.map(lesson => {
                 const lessonQuestions = filteredQuestions.filter(q => q.lesson === lesson);
-                const isSelected = examConfig.selectedLessons?.includes(lesson);
+                const selectedLessonKeys = new Set((examConfig.selectedLessons || []).map(normalizeExamPoolLesson));
+                const isSelected = selectedLessonKeys.has(normalizeExamPoolLesson(lesson));
                 
                 const getCounts = (type) => {
                     const qs = lessonQuestions.filter(q => q.type === type);
