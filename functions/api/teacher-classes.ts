@@ -45,8 +45,9 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
   const donvi = url.searchParams.get('donvi') || '';
   const className = url.searchParams.get('class_name') || '';
 
-  if (isTeacher && !isAdmin && !teacherId) {
-    teacherId = user.user_id || user.id;
+  if (isTeacher && !isAdmin) {
+    // Never trust a caller-supplied teacher_id for a non-admin teacher.
+    teacherId = String(user.user_id || user.id || '');
   }
 
   try {
@@ -138,22 +139,56 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     const now = new Date().toISOString();
 
     if (Array.isArray(classes)) {
-      await db.prepare("DELETE FROM teacher_classes WHERE teacher_id = ?").bind(teacher_id).run();
-
-      let insertedCount = 0;
+      // Validate the complete replacement set before touching existing rows.
+      const normalized = [];
+      const seen = new Set<string>();
       for (const item of classes) {
-        const cName = String(item.class_name || item.className || item.lop || '').trim();
+        const cName = String(item?.class_name || item?.className || item?.lop || '').trim();
         if (!cName) continue;
-        const cRole = String(item.role || 'bo_mon').trim();
-        const cSubject = String(item.subject || item.mon_hoc || '').trim();
-        const id = crypto.randomUUID();
+        if (cName.length > 120) {
+          return new Response(JSON.stringify({ error: "Tên lớp vượt giới hạn cho phép" }), { status: 400, headers: corsHeaders });
+        }
+        const cRole = String(item?.role || 'bo_mon').trim().slice(0, 80);
+        const cSubject = String(item?.subject || item?.mon_hoc || '').trim().slice(0, 160);
+        const key = cName.toLocaleLowerCase('vi') + '|' + String(donvi || '').trim().toLocaleLowerCase('vi');
+        if (seen.has(key)) continue;
+        seen.add(key);
+        normalized.push({
+          id: crypto.randomUUID(),
+          className: cName,
+          role: cRole || 'bo_mon',
+          subject: cSubject
+        });
+      }
 
-        await db.prepare(
-          `INSERT INTO teacher_classes (id, teacher_id, teacher_name, class_name, donvi, role, subject, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT (teacher_id, class_name, donvi) DO UPDATE SET role = EXCLUDED.role, subject = EXCLUDED.subject, teacher_name = EXCLUDED.teacher_name`
-        ).bind(id, teacher_id, teacher_name || '', cName, donvi || '', cRole, cSubject, now).run();
-        insertedCount++;
+      // One PostgreSQL statement makes replacement all-or-nothing.
+      const valueSql = normalized.map(() => '(?, ?, ?, ?, ?, ?, ?, ?)').join(',');
+      const sql = normalized.length
+        ? `WITH deleted AS (
+             DELETE FROM teacher_classes WHERE teacher_id = ?
+           ), inserted AS (
+             INSERT INTO teacher_classes
+               (id, teacher_id, teacher_name, class_name, donvi, role, subject, created_at)
+             VALUES ${valueSql}
+             ON CONFLICT (teacher_id, class_name, donvi) DO UPDATE SET
+               role = EXCLUDED.role,
+               subject = EXCLUDED.subject,
+               teacher_name = EXCLUDED.teacher_name
+             RETURNING 1
+           )
+           SELECT COUNT(*)::int AS count FROM inserted`
+        : `WITH deleted AS (
+             DELETE FROM teacher_classes WHERE teacher_id = ?
+           )
+           SELECT 0::int AS count`;
+      const binds: any[] = [teacher_id];
+      for (const item of normalized) {
+        binds.push(item.id, teacher_id, teacher_name || '', item.className, donvi || '', item.role, item.subject, now);
+      }
+      const row: any = await db.prepare(sql).bind(...binds).first();
+      const insertedCount = Number(row?.count || 0);
+      if (insertedCount !== normalized.length) {
+        throw new Error('Không thể xác nhận đầy đủ phân công lớp sau khi cập nhật.');
       }
 
       return new Response(JSON.stringify({ success: true, count: insertedCount, error: null }), { status: 200, headers: corsHeaders });
@@ -206,7 +241,15 @@ export const onRequestDelete: PagesFunction<Env> = async (context) => {
 
   try {
     if (id) {
-      await db.prepare("DELETE FROM teacher_classes WHERE id = ?").bind(id).run();
+      const actorTeacherId = String(user.user_id || user.id || '');
+      const result: any = isAdmin
+        ? await db.prepare("DELETE FROM teacher_classes WHERE id = ?").bind(id).run()
+        : await db.prepare("DELETE FROM teacher_classes WHERE id = ? AND teacher_id = ?").bind(id, actorTeacherId).run();
+      if (Number(result?.meta?.changes || 0) !== 1) {
+        return new Response(JSON.stringify({
+          error: isAdmin ? "Không tìm thấy phân công lớp cần xóa" : "Không có quyền xóa phân công lớp này"
+        }), { status: isAdmin ? 404 : 403, headers: corsHeaders });
+      }
       return new Response(JSON.stringify({ success: true, error: null }), { status: 200, headers: corsHeaders });
     }
 
