@@ -3,6 +3,7 @@ import { signJWT, verifyAuthSession, getDynamicSecret, getDatabase } from './uti
 import {makeGradeSessionConfig, accessCodeMatches} from './security';
 import { examFlagEnabled, validateQuestionAnswer } from '../../../src/exam-grading-core.js';
 import { EXAM_SESSION_PURPOSE_PRESTART, evaluateExamAccessWindow } from '../../../src/exam-time-authority.js';
+import { selectQuestionsStrictByDifficulty } from '../../../src/exam-question-selector.js';
 
 interface Env {
   NEON_DATABASE_URL?: string;
@@ -600,53 +601,20 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         const shuffle = (arr: any[]) => [...arr].sort(() => Math.random() - 0.5);
         let selectedQuestions: any[] = [];
 
-        // THUẬT TOÁN BỐC CÂU HỎI ĐÚNG TUYỆT ĐỐI CẢ DẠNG VÀ MỨC ĐỘ.
-        // Khi cấu hình có NB/TH/VD, thiếu bất kỳ mức nào đều dừng phát đề.
-        // Tuyệt đối không lấy câu mức độ khác để bù.
+        // Chọn câu bằng hàm thuần đã được test độc lập.
+        // Khi cấu hình có NB/TH/VD, hàm này bắt buộc đúng từng mức và fail-closed nếu thiếu.
         const pickCategory = (type: string, typeLabel: string, targetCount: number, nbTarget: number, thTarget: number, vdTarget: number) => {
-            if (targetCount <= 0) return;
-
-            const pool = validPool.filter(q => q.type === type);
-            if (pool.length < targetCount) {
-                throw new Error(`Ngân hàng đề không đủ câu hỏi [${typeLabel}] trong các bài học đã chọn! Yêu cầu: ${targetCount} câu, nhưng chỉ có sẵn ${pool.length} câu.`);
-            }
-
-            const requiredNB = Math.max(0, Number(nbTarget) || 0);
-            const requiredTH = Math.max(0, Number(thTarget) || 0);
-            const requiredVD = Math.max(0, Number(vdTarget) || 0);
-            const sumSub = requiredNB + requiredTH + requiredVD;
-
-            if (sumSub > 0) {
-                if (sumSub !== targetCount) {
-                    throw new Error(`Cấu hình mức độ [${typeLabel}] không hợp lệ: NB + TH + VD = ${sumSub} câu nhưng tổng cấu hình là ${targetCount} câu. Đề chưa được phát.`);
-                }
-
-                const nbPool = shuffle(pool.filter(q => q.level === 'NB'));
-                const thPool = shuffle(pool.filter(q => q.level === 'TH'));
-                const vdPool = shuffle(pool.filter(q => q.level === 'VD'));
-
-                const shortages = [
-                    { level: 'Nhận biết (NB)', required: requiredNB, available: nbPool.length },
-                    { level: 'Thông hiểu (TH)', required: requiredTH, available: thPool.length },
-                    { level: 'Vận dụng (VD)', required: requiredVD, available: vdPool.length }
-                ].filter(item => item.available < item.required);
-
-                if (shortages.length > 0) {
-                    const detail = shortages
-                        .map(item => `${item.level}: cần ${item.required}, hiện có ${item.available}, thiếu ${item.required - item.available}`)
-                        .join('; ');
-                    throw new Error(`Đề thi không còn hợp lệ vì ngân hàng câu hỏi không đủ đúng mức độ đã cấu hình cho [${typeLabel}]. ${detail}. Hệ thống không lấy câu ở mức độ khác để bù.`);
-                }
-
-                selectedQuestions.push(
-                    ...nbPool.slice(0, requiredNB),
-                    ...thPool.slice(0, requiredTH),
-                    ...vdPool.slice(0, requiredVD)
-                );
-            } else {
-                // Cấu hình cũ không khai báo cơ cấu mức độ: chỉ áp dụng tổng số câu.
-                selectedQuestions.push(...shuffle(pool).slice(0, targetCount));
-            }
+            const picked = selectQuestionsStrictByDifficulty(
+                validPool,
+                type,
+                typeLabel,
+                targetCount,
+                nbTarget,
+                thTarget,
+                vdTarget,
+                shuffle
+            );
+            selectedQuestions.push(...picked);
         };
 
         // Bốc từng dạng bài theo đúng cấu hình cài đặt
