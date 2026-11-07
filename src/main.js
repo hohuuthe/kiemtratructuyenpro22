@@ -9970,9 +9970,11 @@ if (contentType && contentType.includes("application/json")) {
                     const result = await response.json().catch(() => ({}));
                     if (!response.ok) {
                         if (result?.code === 'EXAM_DEADLINE_REACHED') {
-                            currentExam.pendingViolationEvents.shift();
+                            // Giữ nguyên event chưa gửi để request /grade cuối cùng
+                            // có thể ghi nhận idempotent; không làm mất vi phạm xảy ra
+                            // trước deadline chỉ vì mạng chậm đúng lúc hết giờ.
                             persistPendingExamViolationEvents();
-                            continue;
+                            return false;
                         }
                         return false;
                     }
