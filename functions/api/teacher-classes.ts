@@ -150,26 +150,41 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         return new Response(JSON.stringify({ error: "Mỗi giáo viên tối đa 500 phân công lớp." }), { status: 400, headers: corsHeaders });
       }
 
-      // Use one SQL transaction so a mid-write failure never leaves a partial assignment set.
-      const transaction = [
-        "BEGIN",
-        "DELETE FROM teacher_classes WHERE teacher_id = " + "'" + String(teacher_id).replace(/'/g, "''") + "'"
-      ];
-      for (const item of normalized) {
-        const id = crypto.randomUUID();
-        const q = (v: any) => "'" + String(v ?? '').replace(/'/g, "''") + "'";
-        transaction.push(
-          "INSERT INTO teacher_classes (id, teacher_id, teacher_name, class_name, donvi, role, subject, created_at) VALUES (" +
-          [id, teacher_id, teacher_name || '', item.className, donvi || '', item.role, item.subject, now].map(q).join(",") +
-          ") ON CONFLICT (teacher_id, class_name, donvi) DO UPDATE SET role = EXCLUDED.role, subject = EXCLUDED.subject, teacher_name = EXCLUDED.teacher_name"
-        );
-      }
-      transaction.push("COMMIT");
-      try {
-        await db.exec(transaction.join(";"));
-      } catch (error) {
-        try { await db.exec("ROLLBACK"); } catch {}
-        throw error;
+      // One PostgreSQL statement = one atomic transaction. This avoids relying on
+      // BEGIN/COMMIT support in the HTTP Neon adapter and prevents partial replacement.
+      const payload = normalized.map((item: any) => ({
+        id: crypto.randomUUID(),
+        teacher_id: String(teacher_id),
+        teacher_name: String(teacher_name || ''),
+        class_name: item.className,
+        donvi: String(donvi || ''),
+        role: item.role,
+        subject: item.subject,
+        created_at: now
+      }));
+      const atomic: any = await db.prepare(`
+        WITH deleted AS (
+          DELETE FROM teacher_classes WHERE teacher_id = ?
+        ),
+        input AS (
+          SELECT * FROM jsonb_to_recordset(?::jsonb) AS x(
+            id text, teacher_id text, teacher_name text, class_name text,
+            donvi text, role text, subject text, created_at text
+          )
+        ),
+        upserted AS (
+          INSERT INTO teacher_classes (id, teacher_id, teacher_name, class_name, donvi, role, subject, created_at)
+          SELECT id, teacher_id, teacher_name, class_name, donvi, role, subject, created_at FROM input
+          ON CONFLICT (teacher_id, class_name, donvi) DO UPDATE SET
+            role = EXCLUDED.role,
+            subject = EXCLUDED.subject,
+            teacher_name = EXCLUDED.teacher_name
+          RETURNING id
+        )
+        SELECT COUNT(*)::int AS count FROM upserted
+      `).bind(String(teacher_id), JSON.stringify(payload)).first();
+      if (Number(atomic?.count || 0) !== normalized.length) {
+        throw new Error("Không thể xác nhận đầy đủ phân công lớp sau khi ghi.");
       }
 
       return new Response(JSON.stringify({ success: true, count: normalized.length, error: null }), { status: 200, headers: corsHeaders });
