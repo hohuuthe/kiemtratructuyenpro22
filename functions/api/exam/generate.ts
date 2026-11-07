@@ -3,6 +3,7 @@ import { signJWT, verifyAuthSession, getDynamicSecret, getDatabase } from './uti
 import {makeGradeSessionConfig, accessCodeMatches} from './security';
 import { examFlagEnabled, validateQuestionAnswer } from '../../../src/exam-grading-core.js';
 import { EXAM_SESSION_PURPOSE_PRESTART, evaluateExamAccessWindow } from '../../../src/exam-time-authority.js';
+import { selectQuestionsStrictByDifficulty } from '../../../src/exam-question-selector.js';
 
 interface Env {
   NEON_DATABASE_URL?: string;
@@ -600,45 +601,20 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         const shuffle = (arr: any[]) => [...arr].sort(() => Math.random() - 0.5);
         let selectedQuestions: any[] = [];
 
-        // THUẬT TOÁN BỐC CÂU HỎI ĐÚNG CẤU HÌNH VÀ TUYỆT ĐỐI KHÔNG BỐC NGOÀI BÀI HỌC
+        // Chọn câu bằng hàm thuần đã được test độc lập.
+        // Khi cấu hình có NB/TH/VD, hàm này bắt buộc đúng từng mức và fail-closed nếu thiếu.
         const pickCategory = (type: string, typeLabel: string, targetCount: number, nbTarget: number, thTarget: number, vdTarget: number) => {
-            if (targetCount <= 0) return;
-
-            const pool = validPool.filter(q => q.type === type);
-            if (pool.length < targetCount) {
-                throw new Error(`Ngân hàng đề không đủ câu hỏi [${typeLabel}] trong các bài học đã chọn! Yêu cầu: ${targetCount} câu, nhưng chỉ có sẵn ${pool.length} câu.`);
-            }
-
-            const sumSub = (nbTarget || 0) + (thTarget || 0) + (vdTarget || 0);
-            if (sumSub > 0) {
-                const nbPool = shuffle(pool.filter(q => q.level === 'NB'));
-                const thPool = shuffle(pool.filter(q => q.level === 'TH'));
-                const vdPool = shuffle(pool.filter(q => q.level === 'VD'));
-
-                const pickedNB = nbPool.slice(0, nbTarget || 0);
-                const pickedTH = thPool.slice(0, thTarget || 0);
-                const pickedVD = vdPool.slice(0, vdTarget || 0);
-
-                const pickedSoFar = [...pickedNB, ...pickedTH, ...pickedVD];
-                const pickedIds = new Set(pickedSoFar.map(q => q.id));
-
-                // Nếu số câu theo mức độ NB/TH/VD chưa đủ targetCount (do kho thiếu mức độ chi tiết đó):
-                // Tự động bù từ các câu hỏi CÒN LẠI CỦA CÙNG DẠNG BÀI ĐÓ VÀ CÙNG BÀI HỌC ĐÃ CHỌN
-                if (pickedSoFar.length < targetCount) {
-                    const remaining = shuffle(pool.filter(q => !pickedIds.has(q.id)));
-                    const needed = targetCount - pickedSoFar.length;
-                    pickedSoFar.push(...remaining.slice(0, needed));
-                }
-
-                if (pickedSoFar.length < targetCount) {
-                    throw new Error(`Không đủ câu hỏi [${typeLabel}] để đáp ứng cấu hình đề! Cần ${targetCount} câu, chỉ bốc được ${pickedSoFar.length} câu.`);
-                }
-
-                selectedQuestions.push(...pickedSoFar);
-            } else {
-                // Bốc theo số lượng tổng của dạng bài đó trong các bài học đã chọn
-                selectedQuestions.push(...shuffle(pool).slice(0, targetCount));
-            }
+            const picked = selectQuestionsStrictByDifficulty(
+                validPool,
+                type,
+                typeLabel,
+                targetCount,
+                nbTarget,
+                thTarget,
+                vdTarget,
+                shuffle
+            );
+            selectedQuestions.push(...picked);
         };
 
         // Bốc từng dạng bài theo đúng cấu hình cài đặt
