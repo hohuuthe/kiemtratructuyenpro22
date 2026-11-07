@@ -47,19 +47,6 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     const username = String(body?.username ?? '').trim();
     const password = String(body?.password ?? '');
 
-    const limiterKey = await hashRateLimitKey(['login', clientIp(request), username || '']);
-    const limiter = await consumeRateLimit(db, limiterKey, 10, 300);
-    if (!limiter.allowed) {
-      return new Response(JSON.stringify({
-        error: 'Có quá nhiều lần đăng nhập. Vui lòng thử lại sau.',
-        code: 'AUTH_RATE_LIMITED',
-        retry_after: limiter.retryAfter
-      }), {
-        status: 429,
-        headers: { ...corsHeaders, 'Retry-After': String(limiter.retryAfter) }
-      });
-    }
-
     if (!username || !password) {
       return new Response(JSON.stringify({ error: 'Thiếu tên đăng nhập hoặc mật khẩu.' }), { status: 400, headers: corsHeaders });
     }
@@ -81,12 +68,30 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     const result: any = await stmt.first();
 
     if (!result || !result.password) {
+        const limiterKey = await hashRateLimitKey(['login', clientIp(request), username || '']);
+        const limiter = await consumeRateLimit(db, limiterKey, 10, 300);
+        if (!limiter.allowed) {
+          return new Response(JSON.stringify({
+            error: 'Có quá nhiều lần đăng nhập không thành công. Vui lòng thử lại sau.',
+            code: 'AUTH_RATE_LIMITED',
+            retry_after: limiter.retryAfter
+          }), { status: 429, headers: { ...corsHeaders, 'Retry-After': String(limiter.retryAfter) } });
+        }
         return new Response(JSON.stringify({ error: "Tên đăng nhập hoặc mật khẩu không đúng." }), { status: 401, headers: corsHeaders });
     }
 
     // Xác thực mật khẩu với chuẩn PBKDF2 kết hợp salt (hỗ trợ nâng cấp mật khẩu cũ SHA-256)
     const isValid = await verifyPassword(password, result.password);
     if (!isValid) {
+        const limiterKey = await hashRateLimitKey(['login', clientIp(request), username || '']);
+        const limiter = await consumeRateLimit(db, limiterKey, 10, 300);
+        if (!limiter.allowed) {
+          return new Response(JSON.stringify({
+            error: 'Có quá nhiều lần đăng nhập không thành công. Vui lòng thử lại sau.',
+            code: 'AUTH_RATE_LIMITED',
+            retry_after: limiter.retryAfter
+          }), { status: 429, headers: { ...corsHeaders, 'Retry-After': String(limiter.retryAfter) } });
+        }
         return new Response(JSON.stringify({ error: "Tên đăng nhập hoặc mật khẩu không đúng." }), { status: 401, headers: corsHeaders });
     }
 
