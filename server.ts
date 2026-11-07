@@ -4253,7 +4253,15 @@ async function startServer() {
       const webRequest=new Request(`${protocol}://${host}${req.originalUrl||req.url||'/api/upload-image'}`,{
         method:'POST',headers:webHeaders,body:JSON.stringify(req.body||{})
       });
-      const response=await hardenedUploadImageHandler({request:webRequest,env:process.env} as any);
+      const uploadEnv={
+        ...process.env,
+        CLOUDFLARE_R2_ACCESS_KEY_ID:getConfig("CLOUDFLARE_R2_ACCESS_KEY_ID")||process.env.CLOUDFLARE_R2_ACCESS_KEY_ID,
+        CLOUDFLARE_R2_SECRET_ACCESS_KEY:getConfig("CLOUDFLARE_R2_SECRET_ACCESS_KEY")||process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY,
+        CLOUDFLARE_R2_BUCKET_NAME:getConfig("CLOUDFLARE_R2_BUCKET_NAME")||process.env.CLOUDFLARE_R2_BUCKET_NAME,
+        CLOUDFLARE_R2_ACCOUNT_ID:getConfig("CLOUDFLARE_R2_ACCOUNT_ID")||process.env.CLOUDFLARE_R2_ACCOUNT_ID,
+        CLOUDFLARE_R2_PUBLIC_URL:getConfig("CLOUDFLARE_R2_PUBLIC_URL")||process.env.CLOUDFLARE_R2_PUBLIC_URL
+      };
+      const response=await hardenedUploadImageHandler({request:webRequest,env:uploadEnv} as any);
       res.status(response.status);
       response.headers.forEach((value,name)=>{if(name.toLowerCase()!=='content-length')res.setHeader(name,value);});
       return res.send(await response.text());
