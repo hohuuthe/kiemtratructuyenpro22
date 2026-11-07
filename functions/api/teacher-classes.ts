@@ -163,14 +163,22 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         created_at: now
       }));
       const atomic: any = await db.prepare(`
-        WITH deleted AS (
-          DELETE FROM teacher_classes WHERE teacher_id = ?
-        ),
-        input AS (
+        WITH input AS (
           SELECT * FROM jsonb_to_recordset(?::jsonb) AS x(
             id text, teacher_id text, teacher_name text, class_name text,
             donvi text, role text, subject text, created_at text
           )
+        ),
+        deleted AS (
+          DELETE FROM teacher_classes tc
+          WHERE tc.teacher_id = ?
+            AND NOT EXISTS (
+              SELECT 1 FROM input i
+              WHERE i.teacher_id = tc.teacher_id
+                AND i.class_name = tc.class_name
+                AND i.donvi = tc.donvi
+            )
+          RETURNING tc.id
         ),
         upserted AS (
           INSERT INTO teacher_classes (id, teacher_id, teacher_name, class_name, donvi, role, subject, created_at)
@@ -182,7 +190,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
           RETURNING id
         )
         SELECT COUNT(*)::int AS count FROM upserted
-      `).bind(String(teacher_id), JSON.stringify(payload)).first();
+      `).bind(JSON.stringify(payload), String(teacher_id)).first();
       if (Number(atomic?.count || 0) !== normalized.length) {
         throw new Error("Không thể xác nhận đầy đủ phân công lớp sau khi ghi.");
       }
