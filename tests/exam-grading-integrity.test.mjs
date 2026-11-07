@@ -265,10 +265,11 @@ test('third audit: snapshot order and answer-key integrity fail closed', () => {
   assert.match(grade, /Khóa đáp án câu .* không hợp lệ/);
 });
 
-test('third audit: grading validates signed point precision and custom TF4 map', () => {
+test('third audit: grading tolerates REAL round-trip while custom TF4 stays five-decimal', () => {
   const grade = fs.readFileSync(new URL('../functions/api/exam/grade.ts', import.meta.url), 'utf8');
   assert.match(grade, /const readPoint = \(value: any, fallback: number, label: string\): number \| null/);
-  assert.match(grade, /Math\.abs\(n \* 100000 - Math\.round\(n \* 100000\)\) > 1e-7/);
+  assert.doesNotMatch(grade, /Math\.abs\(n \* 100000 - Math\.round\(n \* 100000\)/);
+  assert.match(grade, /Math\.abs\(value \* 100000 - Math\.round\(value \* 100000\)\) > 1e-7/);
   assert.match(grade, /const customTf4Mode = examFlagEnabled/);
   assert.match(grade, /Bảng điểm Đúng\/Sai tùy chỉnh không hợp lệ; hệ thống chưa lưu kết quả/);
 });
