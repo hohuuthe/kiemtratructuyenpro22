@@ -3416,8 +3416,21 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
 
         let questionsLoaded = false;
         let questionsLoadPromise = null;
+        let questionsLoadPromiseScope = '';
+        let questionBankLoadedScope = '';
         let questionBankRevision = 0;
         let questionBankLastLoadError = null;
+
+        function questionBankScopeKey(teacherId = null) {
+            const actorId = String(currentUser?.id || '').trim();
+            const targetId = String(teacherId || '').trim();
+            if (isAdminLoggedIn) return targetId ? ('teacher:' + targetId) : 'admin:all';
+            return actorId ? ('teacher:' + actorId) : '';
+        }
+
+        function isQuestionBankLoadedFor(teacherId = null) {
+            return questionsLoaded && questionBankLoadedScope === questionBankScopeKey(teacherId);
+        }
 
         function checkExamQuestionsAvailability(examConfig, getCount) {
             let isEnough = true;
@@ -3448,11 +3461,13 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             return [];
         }
 
-        async function fetchAllQuestionsChunked(onProgress) {
+        async function fetchAllQuestionsChunked(onProgress, teacherId = null) {
             const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
             if (!token) throw new Error('Phiên đăng nhập không hợp lệ. Vui lòng đăng nhập lại.');
             const generation = authDataGeneration;
             const userId = String(currentUser?.id || '');
+            const targetTeacherId = String(teacherId || '').trim();
+            const teacherQuery = targetTeacherId ? ('&teacherId=' + encodeURIComponent(targetTeacherId)) : '';
             const verifySession = () => {
                 if (generation !== authDataGeneration || userId !== String(currentUser?.id || '') ||
                     token !== (localStorage.getItem(window.tenantStorageKey('auth_token')) || '')) {
@@ -3461,7 +3476,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             };
             const fetchAuthoritativeTotal = async () => {
                 verifySession();
-                const response = await fetch('/api/questions?count=true', {
+                const response = await fetch('/api/questions?count=true' + teacherQuery, {
                     cache: 'no-store',
                     headers: { 'Authorization': 'Bearer ' + token, 'Cache-Control': 'no-cache' }
                 });
@@ -3491,7 +3506,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 for (let attempt = 0; attempt < 3; attempt++) {
                     verifySession();
                     try {
-                        const res = await fetch('/api/questions?limit=' + chunkSize + '&offset=' + offset, {
+                        const res = await fetch('/api/questions?limit=' + chunkSize + '&offset=' + offset + teacherQuery, {
                             cache: 'no-store',
                             headers: { 'Authorization': 'Bearer ' + token, 'Cache-Control': 'no-cache' }
                         });
@@ -3545,21 +3560,31 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
         }
         window.fetchAllQuestionsChunked = fetchAllQuestionsChunked;
 
-        async function loadQuestions(force = false, onProgress = null) {
+        async function loadQuestions(force = false, onProgress = null, teacherId = null) {
             if (!(isAdminLoggedIn || isTeacherLoggedIn)) return false;
-            if (questionsLoaded && !force) return true;
-            // Dùng chung một request cho các tab, tránh response cũ ghi đè response mới.
-            if (questionsLoadPromise) return questionsLoadPromise;
+            const requestedScope = questionBankScopeKey(teacherId);
+            if (!requestedScope) return false;
+            if (questionsLoaded && questionBankLoadedScope === requestedScope && !force) return true;
+
+            // Chỉ dùng chung request khi đúng cùng phạm vi giáo viên.
+            if (questionsLoadPromise && questionsLoadPromiseScope === requestedScope) return questionsLoadPromise;
+            if (questionsLoadPromise && questionsLoadPromiseScope !== requestedScope) {
+                questionBankRevision += 1; // response cũ sẽ tự bị loại ở guard revision.
+                questionsLoadPromise = null;
+                questionsLoadPromiseScope = '';
+            }
+
             const generation = authDataGeneration;
             const userId = String(currentUser?.id || '');
             const revision = questionBankRevision;
             const request = (async () => {
                 try {
-                    const data = await fetchAllQuestionsChunked(onProgress);
+                    const data = await fetchAllQuestionsChunked(onProgress, teacherId);
                     if (generation !== authDataGeneration ||
                         userId !== String(currentUser?.id || '') ||
                         revision !== questionBankRevision ||
                         !(isAdminLoggedIn || isTeacherLoggedIn)) return false;
+
                     questions = data.map(q => ({
                         id: q.id, type: q.type, level: q.level, lesson: q.lesson,
                         content: q.content, options: q.options || {}, answer: q.answer,
@@ -3569,11 +3594,11 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                         creatorUsername: q.creatorUsername || q.creator_username || ''
                     }));
                     questionsLoaded = true;
+                    questionBankLoadedScope = requestedScope;
                     questionBankLastLoadError = null;
                     updateQuestionTeacherFilter();
                     updateLessonFilter();
                     updateExamTeacherFilter();
-                    // Danh sách bài trong Tạo/sửa đề luôn đồng bộ sau khi tải thành công.
                     if (document.getElementById('exam-lesson-selection')) renderLessonCheckboxes();
                     updateStats();
                     updateQuestionStats();
@@ -3585,19 +3610,27 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                     questionBankLastLoadError = err instanceof Error ? err : new Error(String(err || 'Lỗi tải ngân hàng câu hỏi'));
                     if (generation === authDataGeneration && userId === String(currentUser?.id || '')) {
                         questionsLoaded = false;
+                        questionBankLoadedScope = '';
                         const select = document.getElementById('question-lesson-filter');
                         if (select && !questions.length) select.replaceChildren(new Option('Lỗi tải danh sách bài - hãy mở lại tab để thử lại', ''));
                         const container = document.getElementById('exam-lesson-selection');
                         if (container && !questions.length) {
-                            container.textContent = 'Không thể tải ngân hàng câu hỏi. Hãy mở lại tab để thử lại. (' + (err?.message || 'Lỗi kết nối') + ')';
+                            container.textContent = 'Không thể tải ngân hàng câu hỏi. (' + (err?.message || 'Lỗi kết nối') + ')';
                         }
                     }
                     return false;
                 }
             })();
+
             questionsLoadPromise = request;
+            questionsLoadPromiseScope = requestedScope;
             try { return await request; }
-            finally { if (questionsLoadPromise === request) questionsLoadPromise = null; }
+            finally {
+                if (questionsLoadPromise === request) {
+                    questionsLoadPromise = null;
+                    questionsLoadPromiseScope = '';
+                }
+            }
         }
 
 
@@ -3606,11 +3639,12 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             const userId = String(currentUser?.id || '');
             let verification = null;
             for (let attempt = 0; attempt < 2; attempt++) {
+                const ownerTeacherId = String(draft?.creatorId || draft?.creator_id || '').trim();
                 const loaded = await loadQuestions(true, (loadedCount, pageNum, done, totalCount) => {
                     if (typeof onProgress === 'function') {
                         onProgress({ loadedCount, pageNum, done, totalCount, attempt: attempt + 1 });
                     }
-                });
+                }, ownerTeacherId);
                 if (!loaded || generation !== authDataGeneration ||
                     userId !== String(currentUser?.id || '') || !(isAdminLoggedIn || isTeacherLoggedIn)) {
                     throw new Error(questionBankLastLoadError?.message ||
@@ -4605,10 +4639,20 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
             if (tabName === 'exams' && examsLoaded) renderExamConfigsTable();
 
             if (tabName === 'questions' || tabName === 'exam-editor') {
-                if (!questionsLoaded) {
-                    showLoadingProgress('Đang tải Ngân hàng Câu hỏi', async () => {
-                        const loaded = await loadQuestions();
-                        if (!loaded) throw new Error('Tải ngân hàng câu hỏi thất bại. Mở lại tab để thử lại.');
+                const editorTeacherId = tabName === 'exam-editor' && examConfig?.id ? examConfig.creatorId : null;
+                const desiredTeacherId = tabName === 'questions' ? null : editorTeacherId;
+                if (!isQuestionBankLoadedFor(desiredTeacherId)) {
+                    showLoadingProgress('Đang tải Ngân hàng Câu hỏi', async reportProgress => {
+                        const loaded = await loadQuestions(false, (loadedCount, pageNum, done, totalCount) => {
+                            const total = Math.max(0, Number(totalCount) || 0);
+                            const current = Math.max(0, Number(loadedCount) || 0);
+                            const ratio = total > 0 ? Math.min(1, current / total) : (done ? 1 : 0);
+                            const pct = 10 + Math.round(ratio * 85);
+                            reportProgress(pct, done
+                                ? `Đã tải đủ ${current.toLocaleString('vi-VN')} câu hỏi.`
+                                : `Đang tải ${current.toLocaleString('vi-VN')} / ${total.toLocaleString('vi-VN')} câu hỏi...`);
+                        }, desiredTeacherId);
+                        if (!loaded) throw (questionBankLastLoadError || new Error('Tải ngân hàng câu hỏi thất bại.'));
                         if (tabName === 'questions') {
                             updateQuestionTeacherFilter();
                             updateLessonFilter();
@@ -5736,155 +5780,77 @@ if (contentType && contentType.includes("application/json")) {
 
         window.showLoadingProgress = showLoadingProgress;
         function showLoadingProgress(title, loadFn) {
-            // Hiển thị modal tiến trình
             const progressModalHtml = `
                 <div class="p-8 text-center max-w-md mx-auto">
                     <div class="mb-6 flex justify-center">
                         <div class="relative w-16 h-16">
-                            <!-- Spinner vòng ngoài -->
                             <div class="absolute inset-0 border-4 border-emerald-100 rounded-full"></div>
                             <div class="absolute inset-0 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
                         </div>
                     </div>
-                    
                     <h3 class="text-xl font-bold text-gray-800 mb-2">${title}</h3>
                     <p id="progress-status-msg" class="text-gray-500 text-sm mb-4">Đang kết nối máy chủ...</p>
-                    
-                    <!-- Progress Bar -->
                     <div class="w-full bg-gray-100 rounded-full h-3 mb-4 overflow-hidden">
-                        <div id="progress-bar-fill" class="bg-emerald-500 h-full w-0 transition-all duration-300 ease-out" style="width: 5%"></div>
+                        <div id="progress-bar-fill" class="bg-emerald-500 h-full transition-all duration-300 ease-out" style="width: 5%"></div>
                     </div>
-                    
                     <div id="progress-percent" class="text-lg font-bold text-emerald-600">5%</div>
                 </div>
             `;
-            
             showModal(progressModalHtml);
             const modalEl = document.getElementById('modal-content');
             if (modalEl) {
                 modalEl.style.width = '500px';
                 modalEl.style.backgroundColor = '#ffffff';
-                
-                // Tắt nút đóng (Close X) của modal để người dùng không thoát ngang
-                const closeBtn = modalEl.querySelector('button[onclick="closeModal()"]');
-                if (closeBtn) closeBtn.classList.add('hidden');
-                
-                const allCloseBtns = modalEl.querySelectorAll('.absolute.top-4.right-4, .close-modal-btn');
-                allCloseBtns.forEach(btn => btn.classList.add('hidden'));
+                modalEl.querySelector('button[title="Đóng"]')?.classList.add('hidden');
+                modalEl.querySelectorAll('.absolute.top-4.right-4, .close-modal-btn').forEach(btn => btn.classList.add('hidden'));
             }
-            
+
             let percent = 5;
-            
+            let hasRealProgress = false;
             const pMsg = document.getElementById('progress-status-msg');
             const pBar = document.getElementById('progress-bar-fill');
             const pPercent = document.getElementById('progress-percent');
-            
+
             const updateProgressUI = (p, msg) => {
-                percent = p;
+                percent = Math.max(5, Math.min(100, Math.round(Number(p) || 5)));
                 if (pMsg && msg) pMsg.innerText = msg;
-                if (pBar) pBar.style.width = `${p}%`;
-                if (pPercent) pPercent.innerText = `${p}%`;
+                if (pBar) pBar.style.width = percent + '%';
+                if (pPercent) pPercent.innerText = percent + '%';
             };
-            
-            // Giả lập tiến trình mượt mà tăng dần trong lúc gọi loadFn
+            const reportProgress = (p, msg) => {
+                hasRealProgress = true;
+                updateProgressUI(p, msg);
+            };
+
             const timer = setInterval(() => {
-                if (percent < 90) {
-                    percent += Math.floor(Math.random() * 8) + 3;
-                    if (percent > 90) percent = 90;
-                    let msg = 'Đang nhận và giải mã dữ liệu...';
-                    if (percent < 30) msg = 'Đang thiết lập kênh truyền tải an toàn...';
-                    else if (percent < 60) msg = 'Đang truy vấn các bản ghi từ CSDL...';
-                    updateProgressUI(percent, msg);
+                if (!hasRealProgress && percent < 90) {
+                    percent = Math.min(90, percent + 4);
+                    updateProgressUI(percent, percent < 30
+                        ? 'Đang thiết lập kết nối...'
+                        : percent < 60
+                            ? 'Đang tải dữ liệu từ máy chủ...'
+                            : 'Đang đồng bộ dữ liệu...');
                 }
-            }, 100);
-            
-            // Thực thi luồng tải thật
+            }, 180);
+
             return (async () => {
                 try {
-                    await loadFn();
+                    const value = await loadFn(reportProgress);
                     clearInterval(timer);
                     updateProgressUI(100, 'Tải và đồng bộ hóa thành công!');
-                    setTimeout(() => {
-                        closeModal();
-                    }, 600);
+                    closeModal();
+                    return { ok: true, value };
                 } catch (err) {
                     clearInterval(timer);
                     console.error('Lỗi khi tải dữ liệu trong tiến trình:', err);
-                    updateProgressUI(100, 'Cảnh báo: Có lỗi xảy ra khi tải dữ liệu!');
-                    if (pBar) pBar.classList.replace('bg-emerald-500', 'bg-purple-500');
-                    if (pPercent) pPercent.classList.replace('text-emerald-600', 'text-purple-600');
-                    setTimeout(() => {
-                        closeModal();
-                    }, 2000);
+                    updateProgressUI(100, err?.message || 'Có lỗi xảy ra khi tải dữ liệu!');
+                    if (pBar) pBar.classList.replace('bg-emerald-500', 'bg-red-500');
+                    if (pPercent) pPercent.classList.replace('text-emerald-600', 'text-red-600');
+                    setTimeout(() => closeModal(), 1200);
+                    return { ok: false, error: err };
                 }
             })();
         }
-
-        function showExamConfigLoadProgress(examLabel = '') {
-            const safeLabel = escapeHTML(String(examLabel || '').trim());
-            const progressModalHtml = `
-                <div class="p-6 sm:p-8 text-center max-w-md mx-auto">
-                    <div class="mb-5 flex justify-center">
-                        <div class="relative w-14 h-14">
-                            <div class="absolute inset-0 border-4 border-indigo-100 rounded-full"></div>
-                            <div id="exam-load-spinner" class="absolute inset-0 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
-                        </div>
-                    </div>
-                    <h3 class="text-xl font-black text-gray-800 mb-1">Đang nạp đề thi</h3>
-                    <p class="text-xs text-gray-500 mb-4">${safeLabel || 'Hệ thống đang chuẩn bị dữ liệu chính xác trước khi mở trình sửa đề.'}</p>
-                    <div class="w-full bg-gray-100 rounded-full h-3 overflow-hidden">
-                        <div id="exam-load-progress-fill" class="bg-indigo-600 h-full transition-all duration-200" style="width: 3%"></div>
-                    </div>
-                    <div class="flex items-center justify-between mt-2 mb-4">
-                        <span id="exam-load-progress-step" class="text-xs font-semibold text-gray-500">Khởi tạo...</span>
-                        <span id="exam-load-progress-percent" class="text-sm font-black text-indigo-700">3%</span>
-                    </div>
-                    <div id="exam-load-progress-detail" class="text-left text-sm rounded-xl border border-indigo-100 bg-indigo-50/70 px-3 py-2.5 text-indigo-900 min-h-[44px]">
-                        Đang kiểm tra cấu hình đề thi...
-                    </div>
-                    <div id="exam-load-progress-actions" class="hidden mt-4"></div>
-                </div>
-            `;
-            showModal(progressModalHtml, 'md');
-            const modalEl = document.getElementById('modal-content');
-            modalEl?.querySelector('button[title="Đóng"]')?.classList.add('hidden');
-
-            const update = (percent, step, detail) => {
-                const safePercent = Math.max(3, Math.min(100, Math.round(Number(percent) || 3)));
-                const fill = document.getElementById('exam-load-progress-fill');
-                const percentEl = document.getElementById('exam-load-progress-percent');
-                const stepEl = document.getElementById('exam-load-progress-step');
-                const detailEl = document.getElementById('exam-load-progress-detail');
-                if (fill) fill.style.width = safePercent + '%';
-                if (percentEl) percentEl.textContent = safePercent + '%';
-                if (stepEl && step) stepEl.textContent = step;
-                if (detailEl && detail) detailEl.textContent = detail;
-            };
-
-            const fail = (message) => {
-                const spinner = document.getElementById('exam-load-spinner');
-                spinner?.classList.remove('animate-spin', 'border-indigo-600', 'border-t-transparent');
-                spinner?.classList.add('border-red-500');
-                const fill = document.getElementById('exam-load-progress-fill');
-                fill?.classList.remove('bg-indigo-600');
-                fill?.classList.add('bg-red-500');
-                const percentEl = document.getElementById('exam-load-progress-percent');
-                percentEl?.classList.remove('text-indigo-700');
-                percentEl?.classList.add('text-red-600');
-                const detailEl = document.getElementById('exam-load-progress-detail');
-                detailEl?.classList.remove('border-indigo-100', 'bg-indigo-50/70', 'text-indigo-900');
-                detailEl?.classList.add('border-red-200', 'bg-red-50', 'text-red-800');
-                update(100, 'Nạp đề chưa hoàn tất', message || 'Không thể nạp đủ dữ liệu câu hỏi.');
-                const actions = document.getElementById('exam-load-progress-actions');
-                if (actions) {
-                    actions.classList.remove('hidden');
-                    actions.innerHTML = '<button type="button" onclick="closeModal()" class="w-full px-4 py-2.5 rounded-xl bg-gray-800 hover:bg-gray-900 text-white font-bold">Đóng</button>';
-                }
-            };
-
-            return { update, fail, close: closeModal };
-        }
-        window.showExamConfigLoadProgress = showExamConfigLoadProgress;
 
         // ==================== STATISTICS ====================
         function updateStats() {
@@ -6428,89 +6394,88 @@ if (contentType && contentType.includes("application/json")) {
             const generation = authDataGeneration;
             const requestSeq = ++examConfigLoadSeq;
             const userLoadIntent = ++examUserLoadIntentSeq;
-            const selectEl = document.getElementById('exam-config-name');
-            const progress = showExamConfigLoadProgress();
-            try {
-                progress.update(5, 'Bước 1/5', 'Đang tải cấu hình đề thi từ máy chủ...');
+
+            // Dùng đúng một tiến trình với tab QL Câu hỏi.
+            const loadResult = await showLoadingProgress('Đang tải Ngân hàng Câu hỏi', async reportProgress => {
                 const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
                 if (!token) throw new Error('Phiên đăng nhập không hợp lệ. Vui lòng đăng nhập lại.');
+
+                reportProgress(7, 'Đang đọc cấu hình đề thi...');
                 const res = await fetch(`/api/exams?id=${encodeURIComponent(selectedId)}`, {
                     cache: 'no-store',
                     headers: { 'Authorization': 'Bearer ' + token, 'Cache-Control': 'no-cache' }
                 });
-                const contentType = res.headers.get("content-type");
-                if (!contentType?.includes("application/json")) {
-                    throw new Error("Máy chủ trả về dữ liệu cấu hình không đúng định dạng (HTTP " + res.status + ").");
+                if (!res.headers.get('content-type')?.includes('application/json')) {
+                    throw new Error('Máy chủ trả về dữ liệu cấu hình không đúng định dạng (HTTP ' + res.status + ').');
                 }
                 const resJson = await res.json();
-                if (!res.ok || !resJson?.data) {
-                    throw new Error(resJson?.error || 'Không tìm thấy cấu hình đề thi đã chọn.');
+                if (!res.ok || !resJson?.data) throw new Error(resJson?.error || 'Không tìm thấy cấu hình đề thi đã chọn.');
+
+                if (generation !== authDataGeneration || requestSeq !== examConfigLoadSeq ||
+                    userLoadIntent !== examUserLoadIntentSeq || !(isAdminLoggedIn || isTeacherLoggedIn)) {
+                    throw new Error('Phiên nạp đề đã thay đổi.');
                 }
-                if (generation !== authDataGeneration || requestSeq !== examConfigLoadSeq ||
-                    userLoadIntent !== examUserLoadIntentSeq || !(isAdminLoggedIn || isTeacherLoggedIn)) return;
 
-                const draftToLoad = mapStoredExamToDraft(resJson.data, {currentUser, accounts, accountsMap});
-                progress.update(12, 'Bước 2/5', 'Đã nhận cấu hình. Đang chuẩn bị giao diện sửa đề...');
-                const componentReady = await ensureTabComponent('exam-editor');
-                if (!componentReady) throw new Error('Không thể tải giao diện Tạo, sửa đề thi.');
-                if (generation !== authDataGeneration || requestSeq !== examConfigLoadSeq ||
-                    userLoadIntent !== examUserLoadIntentSeq) return;
+                const draft = mapStoredExamToDraft(resJson.data, {currentUser, accounts, accountsMap});
+                const ownerTeacherId = String(draft.creatorId || '').trim();
+                if (!ownerTeacherId) throw new Error('Không xác định được giáo viên sở hữu đề thi.');
 
-                progress.update(18, 'Bước 3/5', 'Đang tải đầy đủ ngân hàng câu hỏi và kiểm tra từng trang dữ liệu...');
-                const verification = await ensureExamConfigQuestionPoolLoaded(draftToLoad, info => {
-                    if (!info) return;
-                    if (info.verifying) {
-                        progress.update(88, 'Bước 4/5', 'Đang đối chiếu đúng người tạo, bài học, dạng câu và mức độ NB/TH/VD...');
-                        return;
-                    }
-                    const total = Number(info.totalCount) || 0;
-                    const loaded = Number(info.loadedCount) || 0;
-                    const ratio = total > 0 ? Math.min(1, loaded / total) : (info.done ? 1 : 0);
-                    const percent = 18 + Math.round(ratio * 66);
-                    const retryText = info.attempt > 1 ? ` (lần xác minh ${info.attempt})` : '';
-                    progress.update(
-                        percent,
-                        'Bước 3/5',
-                        info.done
-                            ? `Đã tải đủ ${loaded.toLocaleString('vi-VN')} câu hỏi${retryText}. Đang kiểm tra cấu hình...`
-                            : `Đã tải ${loaded.toLocaleString('vi-VN')} / ${total.toLocaleString('vi-VN')} câu hỏi, trang ${info.pageNum}${retryText}...`
-                    );
-                });
-                if (!verification?.ok) throw new Error(examQuestionPoolFailureMessage(verification));
-                if (generation !== authDataGeneration || requestSeq !== examConfigLoadSeq ||
-                    userLoadIntent !== examUserLoadIntentSeq || !(isAdminLoggedIn || isTeacherLoggedIn)) return;
+                reportProgress(10, 'Đang tải toàn bộ ngân hàng câu hỏi của giáo viên...');
+                const loaded = await loadQuestions(true, (loadedCount, pageNum, done, totalCount) => {
+                    const total = Math.max(0, Number(totalCount) || 0);
+                    const current = Math.max(0, Number(loadedCount) || 0);
+                    const ratio = total > 0 ? Math.min(1, current / total) : (done ? 1 : 0);
+                    const pct = 10 + Math.round(ratio * 80);
+                    reportProgress(pct, done
+                        ? `Đã tải đủ ${current.toLocaleString('vi-VN')} câu hỏi của giáo viên.`
+                        : `Đang tải ${current.toLocaleString('vi-VN')} / ${total.toLocaleString('vi-VN')} câu hỏi của giáo viên...`);
+                }, ownerTeacherId);
+                if (!loaded) throw (questionBankLastLoadError || new Error('Không thể tải đầy đủ ngân hàng câu hỏi của giáo viên.'));
 
-                progress.update(92, 'Bước 4/5',
-                    `Đã xác minh đủ ${verification.requiredTotal.toLocaleString('vi-VN')} câu theo đúng cấu hình đề thi.`);
+                reportProgress(93, 'Đang đối chiếu ngân hàng câu hỏi với cấu hình đề...');
+                const verification = verifyExamConfigQuestionPool(draft, questions);
+                if (!verification.ok) throw new Error(examQuestionPoolFailureMessage(verification));
 
-                // FAST PATH: dữ liệu câu hỏi và component đã sẵn sàng. Không chờ thêm identity,
-                // danh sách đề hay request phụ nào ở đây, tránh đứng 92% dù ngân hàng đã đủ.
-                progress.update(95, 'Bước 5/5', 'Đang mở trình sửa đề từ dữ liệu đã xác minh...');
-                switchTab('exam-editor');
+                reportProgress(96, `Đã tải đủ ${questions.length.toLocaleString('vi-VN')} câu hỏi. Đang chuẩn bị trình sửa đề...`);
+                const componentReady = await Promise.race([
+                    ensureTabComponent('exam-editor'),
+                    new Promise(resolve => setTimeout(() => resolve(false), 12000))
+                ]);
+                if (!componentReady) throw new Error('Không thể tải giao diện Tạo, sửa đề thi. Vui lòng thử lại.');
+
+                reportProgress(99, 'Ngân hàng câu hỏi và trình sửa đề đã sẵn sàng.');
+                return { resJson, draft, verification, ownerTeacherId };
+            });
+
+            if (!loadResult?.ok) {
+                showToast(loadResult?.error?.message || 'Không thể nạp đề thi.', 'error');
+                return;
+            }
+
+            const payload = loadResult.value;
+            if (!payload || generation !== authDataGeneration || requestSeq !== examConfigLoadSeq ||
+                userLoadIntent !== examUserLoadIntentSeq || !(isAdminLoggedIn || isTeacherLoggedIn)) return;
+
+            try {
+                // Component và toàn bộ ngân hàng câu hỏi đã sẵn sàng từ cùng một tiến trình.
+                // Khởi tạo và áp cấu hình khi tab còn ẩn để switchTab không phải chờ request phụ.
                 const editorReady = initializeExamEditorFromVerifiedPool();
-                if (!editorReady) throw new Error('Không thể khởi tạo giao diện sửa đề từ dữ liệu đã xác minh.');
-                if (generation !== authDataGeneration || requestSeq !== examConfigLoadSeq ||
-                    userLoadIntent !== examUserLoadIntentSeq || !(isAdminLoggedIn || isTeacherLoggedIn)) return;
-                if (String(resJson.data.id) !== String(selectedId)) throw new Error('Đề thi đã thay đổi trong lúc nạp. Vui lòng nạp lại.');
+                if (!editorReady) throw new Error('Không thể khởi tạo giao diện sửa đề từ ngân hàng câu hỏi đã tải.');
+                if (String(payload.resJson.data.id) !== String(selectedId)) throw new Error('Đề thi đã thay đổi trong lúc nạp.');
 
-                progress.update(98, 'Bước 5/5', 'Đang áp dụng chính xác cấu hình đề thi vào giao diện...');
-                applyExamConfig(resJson.data);
-                if (selectEl) selectEl.value = String(resJson.data.id || selectedId);
-                const btnExport = document.getElementById('btn-export-exam-docx');
-                if (btnExport) btnExport.classList.remove('hidden');
+                applyExamConfig(payload.resJson.data);
+                const selectEl = document.getElementById('exam-config-name');
+                if (selectEl) selectEl.value = String(payload.resJson.data.id || selectedId);
+                document.getElementById('btn-export-exam-docx')?.classList.remove('hidden');
+
+                // Chỉ mở giao diện sau khi toàn bộ dữ liệu và cấu hình đã sẵn sàng.
+                switchTab('exam-editor');
                 const topPanel = document.getElementById('tab-exam-editor');
                 if (topPanel) topPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-
-                progress.update(100, 'Hoàn tất', 'Đã nạp và xác minh đầy đủ ngân hàng câu hỏi. Trình sửa đề đã sẵn sàng.');
-                progress.close();
-                showToast(`📂 Đã nạp cấu hình đề: ${resJson.data.name || selectedId}`, 'success');
+                showToast(`📂 Đã nạp đầy đủ ${questions.length.toLocaleString('vi-VN')} câu hỏi và cấu hình đề: ${payload.resJson.data.name || selectedId}`, 'success');
             } catch (e) {
-                console.error('Error in loadExamConfigById:', e);
-                if (generation === authDataGeneration && requestSeq === examConfigLoadSeq &&
-                    userLoadIntent === examUserLoadIntentSeq) {
-                    progress.fail(e?.message || 'Không thể tải cấu hình đề thi đã chọn.');
-                    showToast(e?.message || 'Không thể tải cấu hình đề thi đã chọn!', 'error');
-                }
+                console.error('Error opening verified exam editor:', e);
+                showToast(e?.message || 'Không thể mở giao diện sửa đề.', 'error');
             }
         };
 
@@ -15289,6 +15254,8 @@ D. Phát biểu SAI</pre>
             authDataGeneration += 1;
             questionBankRevision += 1;
             questionsLoadPromise = null; // Old session requests may finish, but must not block new ones.
+            questionsLoadPromiseScope = '';
+            questionBankLoadedScope = '';
             window._studentTeacherChangeSeq = (window._studentTeacherChangeSeq || 0) + 1;
             window._studentExamChangeSeq = (window._studentExamChangeSeq || 0) + 1;
             clearRecentQuestionFocus();
