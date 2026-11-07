@@ -124,6 +124,13 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
         const { questionIds, teacherId, gradingSessionId, studentUserId: sessionStudentUserId } = decoded;
         let examConfig: any = decoded.examConfig || {};
+        const releaseActiveAttemptLock = async () => {
+            if (!gradingSessionId) return;
+            try {
+                await db.prepare('DELETE FROM _exam_active_attempts WHERE session_id = ?')
+                    .bind(String(gradingSessionId)).run();
+            } catch {}
+        };
 
         // Verify session ownership BEFORE any replay/result lookup.
         const verifiedRequestUserId = authenticatedUserId ? String(authenticatedUserId) : '';
@@ -178,6 +185,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                         const replayDetails = storedDetails.map((d: any) =>
                             sanitizeGradingDetailForClient(d, replayShowDetails)
                         );
+                        await releaseActiveAttemptLock();
                         return new Response(JSON.stringify({
                             resultId: stored.id,
                             score: Number(stored.score) || 0,
@@ -844,6 +852,7 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
                             sanitizeGradingDetailForClient(d, showDetailsOnReplay)
                         );
                         const replayGradingPending = hasPendingEssayGrading(storedDetails);
+                        await releaseActiveAttemptLock();
                         return new Response(JSON.stringify({
                             resultId: stored.id,
                             score: Number(stored.score) || 0,
