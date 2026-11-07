@@ -1245,35 +1245,52 @@ async function startServer() {
         });
       }
 
-      const hashedPassword = hashPasswordPBKDF2Sync(password);
-      if (!hashedPassword.startsWith('pbkdf2:sha256:') || !verifyPasswordSync(password, hashedPassword)) {
-        return res.status(500).json({
-          error: "Không thể xác minh kết quả mã hóa mật khẩu. Không có tài khoản nào được cập nhật."
-        });
+      const hashes = new Map<string,string>();
+      for (const id of accountIds) {
+        const hash = hashPasswordPBKDF2Sync(password);
+        if (!hash.startsWith('pbkdf2:sha256:') || !verifyPasswordSync(password, hash)) {
+          return res.status(500).json({
+            error: "Không thể xác minh kết quả mã hóa mật khẩu. Không có tài khoản nào được cập nhật."
+          });
+        }
+        hashes.set(id, hash);
       }
 
-      await executeSqlQuery(
-        `UPDATE accounts SET password = ? WHERE id IN (${marks})`,
-        [hashedPassword, ...accountIds]
+      const payload = accountIds.map(id => ({ id, password: hashes.get(id) }));
+      const changed = await executeSqlQuery(
+        `WITH input AS (
+           SELECT * FROM jsonb_to_recordset(?::jsonb) AS x(id text,password text)
+         )
+         UPDATE accounts a SET password=input.password FROM input WHERE a.id=input.id
+         RETURNING a.id,a.password`,
+        [JSON.stringify(payload)]
       );
+      if ((changed.results || []).length !== accountIds.length) {
+        return res.status(500).json({
+          error: "Số tài khoản được cập nhật không khớp danh sách đã chọn.",
+          code: "PASSWORD_RESET_WRITE_MISMATCH"
+        });
+      }
 
       const after = await executeSqlQuery(
         `SELECT id,password FROM accounts WHERE id IN (${marks})`,
         accountIds
       );
       const rows = after.results || [];
-      const confirmed = new Set(
-        rows
-          .filter((row: any) => String(row.password || '') === hashedPassword)
-          .map((row: any) => String(row.id))
-      );
-      if (rows.length !== accountIds.length ||
-          accountIds.some(id => !confirmed.has(id)) ||
-          !verifyPasswordSync(password, hashedPassword)) {
+      if (rows.length !== accountIds.length) {
         return res.status(500).json({
-          error: "Không thể xác nhận toàn bộ mật khẩu sau khi ghi. Cần kiểm tra cơ sở dữ liệu trước khi tiếp tục.",
+          error: "Không thể xác nhận toàn bộ mật khẩu sau khi ghi.",
           code: "PASSWORD_RESET_VERIFY_FAILED"
         });
+      }
+      for (const row of rows) {
+        const expected = hashes.get(String(row.id));
+        if (!expected || String(row.password || '') !== expected || !verifyPasswordSync(password, String(row.password || ''))) {
+          return res.status(500).json({
+            error: "Không thể xác nhận toàn bộ mật khẩu sau khi ghi.",
+            code: "PASSWORD_RESET_VERIFY_FAILED"
+          });
+        }
       }
 
       return res.json({
@@ -1282,6 +1299,7 @@ async function startServer() {
           updated: accountIds.length,
           account_ids: accountIds,
           password_scheme: "pbkdf2:sha256",
+          unique_salt_per_account: true,
           session_tokens_invalidated: true,
           self_reset: accountIds.includes(String(actor.id || ''))
         },
@@ -1406,9 +1424,6 @@ async function startServer() {
               console.warn("Could not pre-fetch usernames, falling back:", e);
           }
 
-          let lastPassword = "";
-          let lastHashed = "";
-
           for (const item of list) {
               try {
                   let { user_id, username, password, role, is_active, expiry_date, full_name, lop, target_audience } = item;
@@ -1426,17 +1441,10 @@ async function startServer() {
                   }
                   existingSet.add(finalUsername.toLowerCase());
 
-                  // Tối ưu hóa 3: Tránh mã hóa lặp đi lặp lại cùng một mật khẩu mặc định (PBKDF2 rất tốn CPU)
-                  let hashedPassword = "";
-                  if (password === lastPassword && lastHashed) {
-                      hashedPassword = lastHashed;
-                  } else {
-                      hashedPassword = hashPasswordPBKDF2Sync(password);
-                      if (!verifyPasswordSync(String(password), hashedPassword)) {
-                          throw new Error("Không thể xác minh mật khẩu vừa mã hóa");
-                      }
-                      lastPassword = password;
-                      lastHashed = hashedPassword;
+                  // Mỗi tài khoản có salt PBKDF2 riêng, kể cả cùng mật khẩu mặc định.
+                  const hashedPassword = hashPasswordPBKDF2Sync(password);
+                  if (!verifyPasswordSync(String(password), hashedPassword)) {
+                      throw new Error("Không thể xác minh mật khẩu vừa mã hóa");
                   }
 
                   const id = (globalThis.crypto && globalThis.crypto.randomUUID) ? globalThis.crypto.randomUUID() : Math.random().toString(36).substring(2) + Date.now().toString(36);
@@ -4681,7 +4689,11 @@ async function getServerSecret(): Promise<string> {
       const expectedSignature = crypto.createHmac('sha256', secret).update(dataToSign).digest('base64').replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
       if (expectedSignature !== encodedSignature) return null;
       try {
-          return JSON.parse(b64DecodeUnicode(encodedPayload));
+          const claims = JSON.parse(b64DecodeUnicode(encodedPayload));
+          const now = Math.floor(Date.now() / 1000);
+          if (claims.exp !== undefined && (!Number.isFinite(Number(claims.exp)) || Number(claims.exp) <= now)) return null;
+          if (claims.nbf !== undefined && Number(claims.nbf) > now) return null;
+          return claims;
       } catch {
           return null;
       }
