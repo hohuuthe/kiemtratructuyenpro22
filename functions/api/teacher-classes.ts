@@ -45,7 +45,9 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
   const donvi = url.searchParams.get('donvi') || '';
   const className = url.searchParams.get('class_name') || '';
 
-  if (isTeacher && !isAdmin && !teacherId) {
+  if (isTeacher && !isAdmin) {
+    // Never trust a caller-supplied teacher_id for a teacher session.
+    // A teacher may only inspect their own assignments.
     teacherId = user.user_id || user.id;
   }
 
@@ -138,25 +140,62 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     const now = new Date().toISOString();
 
     if (Array.isArray(classes)) {
-      await db.prepare("DELETE FROM teacher_classes WHERE teacher_id = ?").bind(teacher_id).run();
-
-      let insertedCount = 0;
-      for (const item of classes) {
-        const cName = String(item.class_name || item.className || item.lop || '').trim();
-        if (!cName) continue;
-        const cRole = String(item.role || 'bo_mon').trim();
-        const cSubject = String(item.subject || item.mon_hoc || '').trim();
-        const id = crypto.randomUUID();
-
-        await db.prepare(
-          `INSERT INTO teacher_classes (id, teacher_id, teacher_name, class_name, donvi, role, subject, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT (teacher_id, class_name, donvi) DO UPDATE SET role = EXCLUDED.role, subject = EXCLUDED.subject, teacher_name = EXCLUDED.teacher_name`
-        ).bind(id, teacher_id, teacher_name || '', cName, donvi || '', cRole, cSubject, now).run();
-        insertedCount++;
+      // Validate and normalize the entire replacement set before mutating any row.
+      const normalized = classes.map((item: any) => ({
+        className: String(item?.class_name || item?.className || item?.lop || '').trim(),
+        role: String(item?.role || 'bo_mon').trim(),
+        subject: String(item?.subject || item?.mon_hoc || '').trim()
+      })).filter((item: any) => item.className);
+      if (normalized.length > 500) {
+        return new Response(JSON.stringify({ error: "Mỗi giáo viên tối đa 500 phân công lớp." }), { status: 400, headers: corsHeaders });
       }
 
-      return new Response(JSON.stringify({ success: true, count: insertedCount, error: null }), { status: 200, headers: corsHeaders });
+      // One PostgreSQL statement = one atomic transaction. This avoids relying on
+      // BEGIN/COMMIT support in the HTTP Neon adapter and prevents partial replacement.
+      const payload = normalized.map((item: any) => ({
+        id: crypto.randomUUID(),
+        teacher_id: String(teacher_id),
+        teacher_name: String(teacher_name || ''),
+        class_name: item.className,
+        donvi: String(donvi || ''),
+        role: item.role,
+        subject: item.subject,
+        created_at: now
+      }));
+      const atomic: any = await db.prepare(`
+        WITH input AS (
+          SELECT * FROM jsonb_to_recordset(?::jsonb) AS x(
+            id text, teacher_id text, teacher_name text, class_name text,
+            donvi text, role text, subject text, created_at text
+          )
+        ),
+        deleted AS (
+          DELETE FROM teacher_classes tc
+          WHERE tc.teacher_id = ?
+            AND NOT EXISTS (
+              SELECT 1 FROM input i
+              WHERE i.teacher_id = tc.teacher_id
+                AND i.class_name = tc.class_name
+                AND i.donvi = tc.donvi
+            )
+          RETURNING tc.id
+        ),
+        upserted AS (
+          INSERT INTO teacher_classes (id, teacher_id, teacher_name, class_name, donvi, role, subject, created_at)
+          SELECT id, teacher_id, teacher_name, class_name, donvi, role, subject, created_at FROM input
+          ON CONFLICT (teacher_id, class_name, donvi) DO UPDATE SET
+            role = EXCLUDED.role,
+            subject = EXCLUDED.subject,
+            teacher_name = EXCLUDED.teacher_name
+          RETURNING id
+        )
+        SELECT COUNT(*)::int AS count FROM upserted
+      `).bind(JSON.stringify(payload), String(teacher_id)).first();
+      if (Number(atomic?.count || 0) !== normalized.length) {
+        throw new Error("Không thể xác nhận đầy đủ phân công lớp sau khi ghi.");
+      }
+
+      return new Response(JSON.stringify({ success: true, count: normalized.length, error: null }), { status: 200, headers: corsHeaders });
     }
 
     if (!class_name || !String(class_name).trim()) {
@@ -206,7 +245,20 @@ export const onRequestDelete: PagesFunction<Env> = async (context) => {
 
   try {
     if (id) {
-      await db.prepare("DELETE FROM teacher_classes WHERE id = ?").bind(id).run();
+      if (isTeacher && !isAdmin) {
+        const actorId = String(user.user_id || user.id || '');
+        const row: any = await db.prepare("SELECT teacher_id FROM teacher_classes WHERE id = ? LIMIT 1").bind(id).first();
+        if (!row) {
+          return new Response(JSON.stringify({ error: "Không tìm thấy phân công lớp" }), { status: 404, headers: corsHeaders });
+        }
+        if (String(row.teacher_id || '') !== actorId && String(row.teacher_id || '') !== String(user.id || '')) {
+          return new Response(JSON.stringify({ error: "Không có quyền thao tác trên phân công của giáo viên khác" }), { status: 403, headers: corsHeaders });
+        }
+      }
+      const deleted: any = await db.prepare("DELETE FROM teacher_classes WHERE id = ?").bind(id).run();
+      if (Number(deleted?.meta?.changes || 0) !== 1) {
+        return new Response(JSON.stringify({ error: "Phân công lớp đã thay đổi hoặc không còn tồn tại" }), { status: 409, headers: corsHeaders });
+      }
       return new Response(JSON.stringify({ success: true, error: null }), { status: 200, headers: corsHeaders });
     }
 

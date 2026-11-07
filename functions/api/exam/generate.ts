@@ -1,3 +1,4 @@
+import { consumeSecurityAttempt, clearSecurityAttempts } from '../../../src/security-rate-limit';
 import { signJWT, verifyAuthSession, getDynamicSecret, getDatabase } from './utils';
 import {makeGradeSessionConfig, accessCodeMatches} from './security';
 import { examFlagEnabled, validateQuestionAnswer } from '../../../src/exam-grading-core.js';
@@ -245,9 +246,21 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             return new Response(JSON.stringify({ error: 'Đề thi không tồn tại hoặc chưa được lưu trên hệ thống!' }), { status: 404, headers: corsHeaders });
         }
 
-        if (dbExam?.chedodethi === 'Đề có mã bảo mật' && !isAdmin && !isTeacher &&
-            !accessCodeMatches(submittedAccessCode, dbExam.mabaomatdethi)) {
-            return new Response(JSON.stringify({error:'Mã bảo vệ đề thi không chính xác'}), {status:403,headers:corsHeaders});
+        if (dbExam?.chedodethi === 'Đề có mã bảo mật' && !isAdmin && !isTeacher) {
+            const codeLimit = await consumeSecurityAttempt(db, request, 'exam-access-code', String(dbExam.id || examId || ''), {
+                maxAttempts: 8, windowMs: 5 * 60_000, blockMs: 10 * 60_000
+            });
+            if (!codeLimit.allowed) {
+                return new Response(JSON.stringify({
+                    error:'Đã nhập sai mã bảo vệ quá nhiều lần. Vui lòng thử lại sau.',
+                    code:'EXAM_ACCESS_CODE_RATE_LIMITED',
+                    retry_after_seconds:codeLimit.retryAfterSeconds
+                }), {status:429,headers:{...corsHeaders,'Retry-After':String(codeLimit.retryAfterSeconds)}});
+            }
+            if (!accessCodeMatches(submittedAccessCode, dbExam.mabaomatdethi)) {
+                return new Response(JSON.stringify({error:'Mã bảo vệ đề thi không chính xác'}), {status:403,headers:corsHeaders});
+            }
+            await clearSecurityAttempts(db, 'exam-access-code', codeLimit.keyHash);
         }
         // KIỂM TRA QUYỀN TRUY CẬP ĐỐI VỚI ĐỀ CHO ĐƠN VỊ
         if (activeExamConfig.chedodethi === 'Đề cho đơn vị' || activeExamConfig.chedodethi === 'Đề thi cho đơn vị') {

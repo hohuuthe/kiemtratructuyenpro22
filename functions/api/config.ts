@@ -16,12 +16,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
   const config = {
     isGeminiConfigured: isConfigured(env.GEMINI_API_KEY),
     isNeonConfigured: isConfigured(env.NEON_DATABASE_URL) || isConfigured(env.DATABASE_URL),
-    isR2Configured: isConfigured(env.CLOUDFLARE_R2_ACCESS_KEY_ID) && isConfigured(env.CLOUDFLARE_R2_BUCKET_NAME),
-    timestamp: Date.now(),
-    system: {
-      node_env: "production",
-      platform: "cloudflare-pages"
-    }
+    isR2Configured: isConfigured(env.CLOUDFLARE_R2_ACCESS_KEY_ID) && isConfigured(env.CLOUDFLARE_R2_BUCKET_NAME)
   };
 
   return new Response(JSON.stringify(config), {

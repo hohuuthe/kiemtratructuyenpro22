@@ -1,3 +1,4 @@
+import { consumeSecurityAttempt, clearSecurityAttempts } from '../../../src/security-rate-limit';
 import { signJWT } from '../exam/utils';
 import { resolveTenantRoutingFromRequest } from '../../../src/tenant-host-map';
 import { boardJson, getBoardRequestContext, cleanId, canEnterBoard, canManageBoard, loadBoard } from './common';
@@ -17,10 +18,24 @@ export const onRequestPost: PagesFunction = async (context: any) => {
     if (!boardId) return boardJson({ error: 'Mã bảng không hợp lệ.' }, 400);
     const board = await loadBoard(db, boardId);
     if (!board) return boardJson({ error: 'Không tìm thấy bảng.' }, 404);
-    const gate = await canEnterBoard(user, board, isAdmin, body.accessCode);
-    if (!gate.ok) return boardJson({ error: gate.error, code: gate.code || 'BOARD_ACCESS_DENIED' }, gate.status || 403);
     const userId = String(user.id || user.user_id || '');
     const owner = canManageBoard(user, board, isAdmin);
+    let codeLimit: any = null;
+    if (!owner && board.access_mode === 'protected') {
+      codeLimit = await consumeSecurityAttempt(db, context.request, 'board-access-code', boardId + ':' + userId, {
+        maxAttempts: 8, windowMs: 5 * 60_000, blockMs: 10 * 60_000
+      });
+      if (!codeLimit.allowed) {
+        return boardJson({
+          error:'Đã nhập sai mã bảo mật quá nhiều lần. Vui lòng thử lại sau.',
+          code:'BOARD_ACCESS_CODE_RATE_LIMITED',
+          retry_after_seconds:codeLimit.retryAfterSeconds
+        },429);
+      }
+    }
+    const gate = await canEnterBoard(user, board, isAdmin, body.accessCode);
+    if (!gate.ok) return boardJson({ error: gate.error, code: gate.code || 'BOARD_ACCESS_DENIED' }, gate.status || 403);
+    if (codeLimit) await clearSecurityAttempts(db, 'board-access-code', codeLimit.keyHash);
     if (!owner) {
       const blocked:any = await db.prepare('SELECT reason FROM interactive_board_blocks WHERE board_id=? AND user_id=? LIMIT 1').bind(boardId,userId).first();
       if (blocked) return boardJson({ error: blocked.reason ? 'Bạn đã bị giáo viên chặn khỏi bảng này: ' + blocked.reason : 'Bạn đã bị giáo viên chặn khỏi bảng này.', code: 'BOARD_USER_BLOCKED' }, 403);

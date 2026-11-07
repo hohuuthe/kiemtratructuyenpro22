@@ -1,5 +1,6 @@
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
-import { verifyAuthSession, getDynamicSecret, getDatabase } from './exam/utils';
+import { verifyAuthSession, verifyJWT, getDynamicSecret, getDatabase } from './exam/utils';
+import { EXAM_SESSION_PURPOSE_ACTIVE } from '../../src/exam-time-authority.js';
 import { wordImportImageObjectKey } from '../../src/word-import-image-key.js';
 
 interface Env {
@@ -19,29 +20,43 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
   try {
     const { request, env } = context;
 
-    // BẢO MẬT: Chặn tải ảnh trái phép, chống spam dung lượng kho lưu trữ Cloudflare R2
+    // Accept either a live staff auth token or an ACTIVE exam token.
     const authHeader = request.headers.get("Authorization");
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
       return new Response(JSON.stringify({ error: "Access denied. Bạn chưa đăng nhập hoặc thiếu token xác thực." }), {
-        status: 401,
-        headers: { 'Content-Type': 'application/json' }
+        status: 401, headers: { 'Content-Type': 'application/json' }
       });
     }
-
-    const token = authHeader.substring(7);
+    const token = authHeader.substring(7).trim();
     const secret = await getDynamicSecret(db, env.JWT_SECRET);
+
     const user = await verifyAuthSession(token, secret, db);
+    const isStaff = !!user && (
+      String(user.role||'').toLowerCase()==='admin' ||
+      String(user.role||'').toLowerCase()==='teacher' ||
+      String(user.target_audience||'').toLocaleLowerCase('vi')==='giáo viên'
+    );
 
-    // Cho phép 2 trường hợp hợp lệ:
-    // 1. Giáo viên hoặc Admin đã đăng nhập
-    // 2. Thí sinh đang trong phiên làm bài thi hợp lệ (token bài thi chứa questionIds và teacherId)
-    const isStaff = user && (user.role === 'admin' || user.target_audience === 'Giáo viên');
-    const isValidExamSession = user && user.questionIds && user.teacherId;
+    let examSession: any = null;
+    if (!isStaff) {
+      const decoded: any = await verifyJWT(token, secret);
+      if (decoded?.purpose === EXAM_SESSION_PURPOSE_ACTIVE && decoded?.gradingSessionId) {
+        const row: any = await db.prepare(
+          'SELECT session_id, started_at, deadline_at, expires_at FROM _exam_grade_sessions WHERE session_id = ? LIMIT 1'
+        ).bind(String(decoded.gradingSessionId)).first();
+        const now = Date.now();
+        const deadline = Date.parse(String(row?.deadline_at||''));
+        const expires = Date.parse(String(row?.expires_at||''));
+        if (row && row.started_at && Number.isFinite(deadline) && now <= deadline &&
+            (!Number.isFinite(expires) || now <= expires)) {
+          examSession = decoded;
+        }
+      }
+    }
 
-    if (!isStaff && !isValidExamSession) {
+    if (!isStaff && !examSession) {
       return new Response(JSON.stringify({ error: "Access denied. Bạn không có quyền tải ảnh lên hệ thống." }), {
-        status: 403,
-        headers: { 'Content-Type': 'application/json' }
+        status: 403, headers: { 'Content-Type': 'application/json' }
       });
     }
 
@@ -51,12 +66,12 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     if (wordImportContentAddressed && !isStaff) {
       return new Response(JSON.stringify({error:'Chỉ giáo viên hoặc quản trị viên được tải ảnh nhập Word'}), {status:403,headers:{'Content-Type':'application/json'}});
     }
-    if (wordImportContentAddressed && (typeof base64 !== 'string' || base64.length > 11_200_000)) {
-      return new Response(JSON.stringify({error:'Dữ liệu ảnh Word không hợp lệ hoặc vượt giới hạn'}), {status:413,headers:{'Content-Type':'application/json'}});
+    const maxBase64Length = wordImportContentAddressed ? 11_200_000 : 8_400_000;
+    if (typeof base64 !== 'string' || !base64 || base64.length > maxBase64Length) {
+      return new Response(JSON.stringify({error:'Dữ liệu ảnh không hợp lệ hoặc vượt giới hạn'}), {status:413,headers:{'Content-Type':'application/json'}});
     }
-    
-    if (!base64) {
-      return new Response(JSON.stringify({ error: "Thiếu dữ liệu Base64 của ảnh!" }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+    if (!/^data:image\/(png|jpeg|jpg|webp);base64,/i.test(base64)) {
+      return new Response(JSON.stringify({error:'Chỉ chấp nhận ảnh PNG, JPEG hoặc WebP.'}), {status:415,headers:{'Content-Type':'application/json'}});
     }
 
     let r2AccessKeyId = env.CLOUDFLARE_R2_ACCESS_KEY_ID;
@@ -68,10 +83,17 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     const isR2Configured = r2AccessKeyId && r2SecretAccessKey && r2BucketName && r2AccountId;
 
     if (!isR2Configured) {
-      return new Response(JSON.stringify({ 
-        url: base64, 
+      // Exam uploads must not silently fall back to Base64: large inline images can
+      // make the deadline-safe autosave exceed its payload limit.
+      if (examSession) {
+        return new Response(JSON.stringify({
+          error: "Kho ảnh R2 chưa sẵn sàng; chưa thể nhận ảnh bài tự luận an toàn."
+        }), { status: 503, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({
+        url: base64,
         storage: "database_base64_compressed",
-        message: "Lưu ý: Đang sử dụng cơ chế fallback (Base64 nén) do chưa cấu hình Cloudflare R2."
+        message: "Đang sử dụng fallback Base64 cho dữ liệu quản trị."
       }), { headers: { 'Content-Type': 'application/json' } });
     }
 
@@ -95,8 +117,10 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     const extension = mimeType.split("/")[1] || "jpg";
     const filename = `image-${Math.random().toString(36).substring(2)}-${Date.now()}.${extension}`;
     const objectKey = wordImportContentAddressed
-      ? await wordImportImageObjectKey(bytes,String(user.id),mimeType)
-      : `luuhinhnh/${filename}`;
+      ? await wordImportImageObjectKey(bytes,String(user?.id || ''),mimeType)
+      : examSession
+        ? `exam-submissions/${String(examSession.gradingSessionId)}/${filename}`
+        : `luuhinhnh/${filename}`;
 
     const s3 = new S3Client({
       region: "auto",

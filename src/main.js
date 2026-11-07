@@ -1366,8 +1366,25 @@ if (contentTypeConfig && contentTypeConfig.includes("application/json")) {
         window.escapeHtml = escapeHTML;
         const escapeHtml = escapeHTML;
 
+        function safeImageUrl(value) {
+            const raw = String(value || '').trim();
+            if (!raw) return '';
+            // Inline images are accepted only for raster formats generated/read locally.
+            if (/^data:image\/(png|jpe?g|webp);base64,/i.test(raw)) return raw;
+            try {
+                const url = new URL(raw, window.location.origin);
+                if (url.protocol === 'https:' || (url.origin === window.location.origin && url.protocol === window.location.protocol)) {
+                    return url.href;
+                }
+            } catch {}
+            return '';
+        }
+        window.safeImageUrl = safeImageUrl;
+
+        // Purge plaintext credentials left by older app versions.
+        try { localStorage.removeItem(window.tenantStorageKey('remember_password')); } catch {}
+
         // ==================== CONFIGURATION ====================
-        const ADMIN_PASSWORD = 'giaovien';
         const doi_tuong = 0; // 0: Mặc định, 1: Dành cho học sinh (ẩn đăng nhập, đổi tiêu đề)
         const thong_tin_khach_hang = "Xin chào thầy cô, chúc thầy cô một ngày vui vẻ."; // Thông tin khách hàng
         const ho_ten_khach_hang = "Giáo viên"; // Họ tên khách hàng (Người tạo đề thi)
@@ -1434,6 +1451,20 @@ if (contentTypeConfig && contentTypeConfig.includes("application/json")) {
         }
         window.refreshAppHeaderTitle = refreshAppHeaderTitle;
 
+        function getExamWriterId() {
+            const key = window.tenantStorageKey('exam_writer_id');
+            try {
+                let id = sessionStorage.getItem(key);
+                if (!id) {
+                    id = 'tab_' + (crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36).slice(2)));
+                    sessionStorage.setItem(key, id);
+                }
+                return id;
+            } catch {
+                return 'tab_' + Date.now().toString(36) + Math.random().toString(36).slice(2);
+            }
+        }
+
         let currentExam = {
             questions: [],
             answers: {},
@@ -1441,6 +1472,7 @@ if (contentTypeConfig && contentTypeConfig.includes("application/json")) {
             startTime: null,
             timerInterval: null,
             sessionId: null,
+            writerId: getExamWriterId(),
             submitting: false,
             serverStartedAtMs: null,
             deadlineAtMs: null,
@@ -1863,7 +1895,7 @@ Trả về kết quả dưới dạng JSON Array, mỗi phần tử tương ứn
         }
         function showAdminLoginModal() {
             const savedUsername = localStorage.getItem(window.tenantStorageKey('remember_username')) || '';
-            const savedPassword = localStorage.getItem(window.tenantStorageKey('remember_password')) || '';
+            const savedPassword = '';
             const isRemembered = localStorage.getItem(window.tenantStorageKey('is_auto_login')) !== 'false' ? 'checked' : '';
 
             const modalContent = `
@@ -2141,13 +2173,42 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
         }
 
         window.adminLogin = async function adminLogin(isAutoLogin = false) {
+            if (isAutoLogin) {
+                const savedToken = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
+                if (savedToken) {
+                    try {
+                        const sessionRes = await fetch('/api/auth/session', {
+                            headers: { 'Authorization': 'Bearer ' + savedToken },
+                            cache: 'no-store'
+                        });
+                        const sessionJson = await sessionRes.json().catch(() => null);
+                        if (sessionRes.ok && sessionJson?.data) {
+                            currentUser = sessionJson.data;
+                            window.currentUser = currentUser;
+                            const roleLower = String(currentUser.role || '').toLowerCase();
+                            const audienceLower = String(currentUser.target_audience || '').toLowerCase();
+                            isAdminLoggedIn = roleLower === 'admin' || audienceLower === 'admin' || audienceLower === 'quản trị viên';
+                            isTeacherLoggedIn = !isAdminLoggedIn && (roleLower === 'teacher' || roleLower === 'giáo viên' || audienceLower === 'giáo viên');
+                            window.isAdminLoggedIn = isAdminLoggedIn;
+                            window.isTeacherLoggedIn = isTeacherLoggedIn;
+                            await handleSuccessfulLogin();
+                            return;
+                        }
+                    } catch (error) {
+                        console.warn('[AuthSession] Không thể khôi phục phiên:', error);
+                    }
+                    localStorage.removeItem(window.tenantStorageKey('auth_token'));
+                }
+                localStorage.setItem(window.tenantStorageKey('is_auto_login'), 'false');
+                return;
+            }
             const usernameInput = document.getElementById('login-username');
             const passwordInput = document.getElementById('global-admin-password');
             const rememberCheckbox = document.getElementById('login-remember');
             const submitBtn = document.getElementById('login-submit-btn');
 
-            const username = usernameInput ? usernameInput.value.trim() : (isAutoLogin ? localStorage.getItem(window.tenantStorageKey('remember_username')) : '');
-            const password = passwordInput ? passwordInput.value : (isAutoLogin ? localStorage.getItem(window.tenantStorageKey('remember_password')) : '');
+            const username = usernameInput ? usernameInput.value.trim() : '';
+            const password = passwordInput ? passwordInput.value : '';
             
             if (!username || !password) {
                 if (!isAutoLogin) showToast('Vui lòng nhập đầy đủ tên đăng nhập và mật khẩu!', 'error');
@@ -2211,10 +2272,11 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                     return;
                 }
 
-                // Luôn lưu lại thông tin đăng nhập thành công vào localStorage để tự động login lần sau
+                // Never persist the plaintext password in browser storage.
+                // The signed auth token is the only persisted login credential.
                 localStorage.setItem(window.tenantStorageKey('remember_username'), username);
-                localStorage.setItem(window.tenantStorageKey('remember_password'), password);
-                localStorage.setItem(window.tenantStorageKey('is_auto_login'), 'true');
+                localStorage.removeItem(window.tenantStorageKey('remember_password'));
+                localStorage.setItem(window.tenantStorageKey('is_auto_login'), token ? 'true' : 'false');
 
                 if (token) localStorage.setItem(window.tenantStorageKey('auth_token'), token);
                 currentUser = data;
@@ -2911,8 +2973,9 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             // Revert background color & theme ngay lập tức
             updateThemeForRole();
             
-            // Chỉ xóa cờ tự động đăng nhập khi người dùng chủ động đăng xuất
+            // Xóa mọi dấu vết đăng nhập cũ, kể cả plaintext password từ các phiên bản legacy.
             localStorage.setItem(window.tenantStorageKey('is_auto_login'), 'false');
+            localStorage.removeItem(window.tenantStorageKey('remember_password'));
             
             // Ẩn auth status, hiện nút login
             document.getElementById('auth-status')?.classList.add('hidden');
@@ -3507,22 +3570,9 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
 
         async function fetchAllResultsChunked(onProgress) {
             let token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
-            if (!token && localStorage.getItem(window.tenantStorageKey('is_auto_login')) === 'true') {
-                const savedU = localStorage.getItem(window.tenantStorageKey('remember_username'));
-                const savedP = localStorage.getItem(window.tenantStorageKey('remember_password'));
-                if (savedU && savedP) {
-                    try {
-                        const authRes = await fetch('/api/auth/login', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ username: savedU, password: savedP })
-                        });
-                        const authJson = await authRes.json();
-                        if (authJson && authJson.token) {
-                            token = authJson.token;
-                            localStorage.setItem(window.tenantStorageKey('auth_token'), token);
-                        }
-                    } catch (e) {}
+            if (!token) {
+                // Plaintext passwords are never stored. Require an explicit login when the auth token is absent.
+            } catch (e) {}
                 }
             }
             const chunkSize = 1000;
@@ -4069,22 +4119,9 @@ if (contentType && contentType.includes("application/json")) {
                 window.lastResultsError = null;
                 let token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
                 
-                if (!token && localStorage.getItem(window.tenantStorageKey('is_auto_login')) === 'true') {
-                    const savedU = localStorage.getItem(window.tenantStorageKey('remember_username'));
-                    const savedP = localStorage.getItem(window.tenantStorageKey('remember_password'));
-                    if (savedU && savedP) {
-                        try {
-                            const authRes = await fetch('/api/auth/login', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ username: savedU, password: savedP })
-                            });
-                            const authJson = await authRes.json();
-                            if (authJson && authJson.token) {
-                                token = authJson.token;
-                                localStorage.setItem(window.tenantStorageKey('auth_token'), token);
-                            }
-                        } catch (e) {}
+                if (!token) {
+                // Plaintext passwords are never stored. Require an explicit login when the auth token is absent.
+            } catch (e) {}
                     }
                 }
 
@@ -8459,6 +8496,7 @@ if (contentType && contentType.includes("application/json")) {
                 startTime: Number(data.startedAtMs) || Date.now(),
                 timerInterval: null,
                 sessionId: createExamSessionId(),
+                writerId: getExamWriterId(),
                 submitting: false,
                 studentName: String(meta.studentName || currentUser?.full_name || currentUser?.ho_ten || ''),
                 studentLop: String(meta.studentLop || currentUser?.lop || ''),
@@ -8776,6 +8814,7 @@ if (contentType && contentType.includes("application/json")) {
                     startTime: null,
                     timerInterval: null,
                     sessionId: createExamSessionId(),
+                    writerId: getExamWriterId(),
                     submitting: false,
                     studentName: name,
                     studentLop: inputLop,
@@ -9361,7 +9400,7 @@ if (contentType && contentType.includes("application/json")) {
                                 <div class="font-bold text-gray-900 leading-tight responsive-q-text mb-2 md:mb-3" style="--base-q-size: ${appSettings.questionFontSize || 24}px;">
                                     <span class="mr-2 text-blue-500 italic">Câu ${index + 1}:</span></u>${formatContent(q.content)}
                                 </div>
-                                ${q.image ? `<img src="${q.image}" alt="Question image" class="max-w-full h-auto rounded-xl shadow-lg max-h-96 cursor-zoom-in transition-transform hover:scale-[1.02]" onclick="zoomImage(this.src)">` : ''}
+                                ${q.image ? `<img src="${escapeHTML(safeImageUrl(q.image))}" alt="Question image" class="max-w-full h-auto rounded-xl shadow-lg max-h-96 cursor-zoom-in transition-transform hover:scale-[1.02]" onclick="zoomImage(this.src)">` : ''}
                             </div>
                             <div class="flex-1">
                                 ${optionsHtml}
@@ -9434,7 +9473,7 @@ if (contentType && contentType.includes("application/json")) {
                             <div class="font-bold text-gray-800 leading-tight responsive-q-text mb-2" style="--base-q-size: ${appSettings.questionFontSize || 24}px;">
                                 <span class="mr-2 text-blue-500 italic">Câu ${index + 1}/${currentExam.questions.length}:</span></u>${formatContent(q.content)}
                             </div>
-                            ${q.image ? `<div class="flex justify-center mb-2"><img src="${q.image}" alt="Question image" class="max-w-full h-auto rounded-xl shadow-md max-h-64 cursor-zoom-in transition-transform hover:scale-[1.02] border border-gray-200" onclick="zoomImage(this.src)"></div>` : ''}
+                            ${q.image ? `<div class="flex justify-center mb-2"><img src="${escapeHTML(safeImageUrl(q.image))}" alt="Question image" class="max-w-full h-auto rounded-xl shadow-md max-h-64 cursor-zoom-in transition-transform hover:scale-[1.02] border border-gray-200" onclick="zoomImage(this.src)"></div>` : ''}
                         </div>
                         <div class="flex-1 overflow-y-auto custom-scrollbar pr-1 pb-2">
                             ${optionsHtml}
@@ -9517,7 +9556,7 @@ if (contentType && contentType.includes("application/json")) {
                         <div onclick="selectAnswer('${opt}', ${index})" class="group question-option px-4 py-3 border-2 rounded-2xl cursor-pointer transition-all duration-200 ease-in-out ${optionClass} flex items-center gap-2 min-h-[3rem]">
                             <div class="text-gray-700 font-semibold leading-tight break-words responsive-a-text group-hover:text-gray-900 transition-colors flex-1 min-w-0" style="--base-a-size: ${appSettings.answerFontSize || 20}px;">
                                 <span class="font-black mr-2 ${labelClass} transition-colors">${label}.</span></u>${formatContent(optionData.text)}
-                                ${optionData.image ? `<div class="mt-2"><img src="${optionData.image}" alt="Option ${opt}" class="max-w-full h-20 object-contain rounded-lg cursor-zoom-in hover:scale-105 transition-transform border border-gray-100 shadow-sm bg-white p-1" onclick="event.stopPropagation(); zoomImage(this.src)"></div>` : ''}
+                                ${optionData.image ? `<div class="mt-2"><img src="${escapeHTML(safeImageUrl(optionData.image))}" alt="Option ${opt}" class="max-w-full h-20 object-contain rounded-lg cursor-zoom-in hover:scale-105 transition-transform border border-gray-100 shadow-sm bg-white p-1" onclick="event.stopPropagation(); zoomImage(this.src)"></div>` : ''}
                             </div>
                             ${badgeHtml}
                         </div>
@@ -9569,7 +9608,7 @@ if (contentType && contentType.includes("application/json")) {
                             <div class="flex-1 min-w-0 flex items-start gap-2">
                                 <div class="text-gray-700 font-semibold leading-tight break-words responsive-a-text group-hover:text-gray-900 transition-colors flex-1" style="--base-a-size: ${appSettings.answerFontSize || 20}px;">
                                     <span class="font-black mr-2 ${labelClass} transition-colors">${label}.</span></u>${formatContent(optionData.text)}
-                                    ${optionData.image ? `<div class="mt-2"><img src="${optionData.image}" alt="Option ${opt}" class="max-w-full h-16 md:h-20 object-contain rounded-lg cursor-zoom-in hover:scale-105 transition-transform border border-gray-100 shadow-sm bg-white p-1" onclick="event.stopPropagation(); zoomImage(this.src)"></div>` : ''}
+                                    ${optionData.image ? `<div class="mt-2"><img src="${escapeHTML(safeImageUrl(optionData.image))}" alt="Option ${opt}" class="max-w-full h-16 md:h-20 object-contain rounded-lg cursor-zoom-in hover:scale-105 transition-transform border border-gray-100 shadow-sm bg-white p-1" onclick="event.stopPropagation(); zoomImage(this.src)"></div>` : ''}
                                 </div>
                             </div>
                             <div class="flex items-center justify-end gap-2 w-full sm:w-auto mt-2 sm:mt-0 flex-shrink-0 border-t sm:border-t-0 border-gray-100 pt-3 sm:pt-0">
@@ -10045,12 +10084,16 @@ if (contentType && contentType.includes("application/json")) {
                     body: JSON.stringify({
                         token: window.currentExamToken,
                         studentAnswers: answers,
-                        revision
+                        revision,
+                        writerId: currentExam.writerId || getExamWriterId()
                     })
                 });
                 const saveResult = await response.json().catch(() => ({}));
                 if (!response.ok) {
-                    if (saveResult?.code !== 'EXAM_DEADLINE_REACHED') {
+                    if (saveResult?.code === 'EXAM_WRITER_CONFLICT') {
+                        currentExam.autosavePending = false;
+                        showToast('⚠️ Bài thi đang mở ở tab khác. Tab này không ghi đè đáp án.', 'warning');
+                    } else if (saveResult?.code !== 'EXAM_DEADLINE_REACHED') {
                         console.warn('[ExamAutosave] Không thể lưu tạm:', saveResult?.error || response.status);
                     }
                     return false;
@@ -11094,7 +11137,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                         <p class="text-sm md:text-base break-words mt-1">Đáp án của bạn: <span class="font-bold ${userAnsColor}">${formatContent(d.userAnswer) || 'Chưa trả lời'}</span></u></p>
                         ${showDetails ? `
                             <p class="text-sm md:text-base break-words mt-1">Đáp án đúng: <span class="font-bold text-green-600">${formatContent(d.correctAnswer)}</span></u></p>
-                            ${(d.question.options && d.question.options.answerImage) ? `<img src="${d.question.options.answerImage}" class="mt-1 max-w-xs h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage(this.src)">` : ''}
+                            ${(d.question.options && d.question.options.answerImage) ? `<img src="${escapeHTML(safeImageUrl(d.question.options.answerImage))}" class="mt-1 max-w-xs h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage(this.src)">` : ''}
                         ` : ''}
                         ${scoreDisplay}
                     `;
@@ -11106,18 +11149,18 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                         <div class="mt-2 p-3 bg-white rounded-lg border border-blue-100 shadow-inner">
                             <p class="text-xs font-bold text-blue-500 uppercase mb-1">Bài làm của bạn:</p>
                             <div class="text-gray-800 whitespace-pre-wrap leading-relaxed mb-2 break-words">${formatContent(studentAnsText) || (studentAnsImage ? '' : '<i class="text-gray-400">Trống</i>')}</div>
-                            ${studentAnsImage ? `<img src="${studentAnsImage}" class="max-w-xs h-auto rounded-lg border border-gray-200 cursor-zoom-in" onclick="zoomImage(this.src)">` : ''}
+                            ${studentAnsImage ? `<img src="${escapeHTML(safeImageUrl(studentAnsImage))}" class="max-w-xs h-auto rounded-lg border border-gray-200 cursor-zoom-in" onclick="zoomImage(this.src)">` : ''}
                         </div>
                         ${d.aiFeedback ? `
                         <div class="mt-2 p-3 bg-purple-50 rounded-lg border border-purple-100">
                             <p class="text-xs font-bold text-purple-600 mb-1">🤖 Nhận xét:</p>
-                            <div class="text-purple-800 break-words">${d.aiFeedback}</div>
+                            <div class="text-purple-800 break-words">${escapeHTML(d.aiFeedback || '')}</div>
                         </div>` : ''}
                         ${showDetails ? `
                         <div class="mt-2 p-3 bg-green-50 rounded-lg border border-green-100">
                             <p class="text-xs font-bold text-green-600 mb-1">Hướng dẫn chấm:</p>
                             <div class="text-green-800 break-words">${formatContent(d.correctAnswer)}</div>
-                            ${(d.question.options && d.question.options.answerImage) ? `<img src="${d.question.options.answerImage}" class="mt-2 max-w-xs h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage(this.src)">` : ''}
+                            ${(d.question.options && d.question.options.answerImage) ? `<img src="${escapeHTML(safeImageUrl(d.question.options.answerImage))}" class="mt-2 max-w-xs h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage(this.src)">` : ''}
                         </div>` : ''}
                         <p class="text-base font-semibold mt-2 ${d.needsGrading ? 'text-orange-600' : 'text-blue-600'} italic break-words">🔔 Trạng thái: ${d.needsGrading ? 'Đang chờ giáo viên chấm điểm' : 'Đã phản hồi'}</p>
                     `;
@@ -11359,8 +11402,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
 
         // ==================== QUESTIONS MANAGEMENT ====================
         function loginQuestions() {
-            const password = document.getElementById('questions-password')?.value || '';
-            if (password === ADMIN_PASSWORD) {
+            if (currentUser && (isAdminLoggedIn || isTeacherLoggedIn)) {
                 document.getElementById('questions-login')?.classList.add('hidden');
                 document.getElementById('questions-panel')?.classList.remove('hidden');
                 updateQuestionTeacherFilter();
@@ -11368,19 +11410,18 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 updateQuestionStats();
                 renderQuestionsList();
             } else {
-                showToast('Mật khẩu không đúng!', 'error');
+                showToast('Vui lòng đăng nhập tài khoản Giáo viên hoặc Quản trị viên.', 'error');
             }
         }
 
         async function loginExams() {
-            const password = document.getElementById('exams-password')?.value || '';
-            if (password === ADMIN_PASSWORD) {
+            if (currentUser && (isAdminLoggedIn || isTeacherLoggedIn)) {
                 document.getElementById('exams-login')?.classList.add('hidden');
                 document.getElementById('exams-panel')?.classList.remove('hidden');
                 await initExamPanel();
                 checkExamConfigSufficiency();
             } else {
-                showToast('Mật khẩu không đúng!', 'error');
+                showToast('Vui lòng đăng nhập tài khoản Giáo viên hoặc Quản trị viên.', 'error');
             }
         }
 
@@ -11938,7 +11979,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                             ${formatContent(q.content)}
                         </div>
 
-                        ${q.image ? `<div><img src="${q.image}" alt="Question" class="max-w-full sm:max-w-md h-auto rounded cursor-zoom-in hover:scale-[1.01] transition-transform border border-gray-100" onclick="zoomImage('${q.image}')"></div>` : ''}
+                        ${q.image ? `<div><img src="${escapeHTML(safeImageUrl(q.image))}" alt="Question" class="max-w-full sm:max-w-md h-auto rounded cursor-zoom-in hover:scale-[1.01] transition-transform border border-gray-100" onclick="zoomImage('${escapeHTML(safeImageUrl(q.image))}')"></div>` : ''}
                         ${(q.type === '4-1' || q.type === 'TF4') && q.options ? `
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
                                 ${['A','B','C','D'].map(key => {
@@ -12264,6 +12305,11 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 const data = await response.json();
                 return data.url || compressed;
             } catch (err) {
+                const examToken = (typeof window !== 'undefined' && window.currentExamToken) || '';
+                if (examToken) {
+                    console.error("Exam image upload failed; inline Base64 fallback is disabled:", err);
+                    throw err;
+                }
                 console.warn("Image upload/compression fallback to compressed base64:", err);
                 return compressed;
             }
@@ -13378,7 +13424,7 @@ D. Phát biểu SAI</pre>
                         <div class="text-sm font-semibold text-gray-800 mb-2">
                             <span class="text-blue-600">Câu ${index + 1}:</span></u> ${formatContent(q.content)}
                         </div>
-                        ${q.image ? `<img src="${q.image}" class="max-w-xs h-auto rounded-lg border border-gray-200 mb-2 cursor-zoom-in" onclick="zoomImage('${q.image}')">` : ''}
+                        ${q.image ? `<img src="${escapeHTML(safeImageUrl(q.image))}" class="max-w-xs h-auto rounded-lg border border-gray-200 mb-2 cursor-zoom-in" onclick="zoomImage('${escapeHTML(safeImageUrl(q.image))}')">` : ''}
                     </div>
                     
                     ${(q.type === '4-1' || q.type === 'TF4') ? `
@@ -17707,7 +17753,7 @@ CẤU TRÚC JSON:
                         studentColor: userAnsColor,
                     });
                     if (d.question.options && d.question.options.answerImage) {
-                        answerDisplay += `<img src="${d.question.options.answerImage}" class="mt-1 max-w-[200px] h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage(this.src)">`;
+                        answerDisplay += `<img src="${escapeHTML(safeImageUrl(d.question.options.answerImage))}" class="mt-1 max-w-[200px] h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage(this.src)">`;
                     }
                 } else if (d.question.type === 'TL') {
                     const studentAnsText = (typeof d.userAnswer === 'object' && d.userAnswer !== null) ? (d.userAnswer.text || '') : (d.userAnswer || '');
@@ -17717,12 +17763,12 @@ CẤU TRÚC JSON:
                         <div class="mt-2 p-3 bg-white rounded-lg border border-blue-100 shadow-inner">
                             <p class="text-xs font-bold text-blue-500 uppercase mb-1">Bài làm của học sinh:</p>
                             <div class="text-gray-800 whitespace-pre-wrap leading-relaxed mb-2 break-words">${formatContent(studentAnsText) || (studentAnsImage ? '' : '<i class="text-gray-400">Trống</i>')}</div>
-                            ${studentAnsImage ? `<img src="${studentAnsImage}" class="max-w-xs h-auto rounded-lg border border-gray-200 cursor-zoom-in" onclick="zoomImage(this.src)">` : ''}
+                            ${studentAnsImage ? `<img src="${escapeHTML(safeImageUrl(studentAnsImage))}" class="max-w-xs h-auto rounded-lg border border-gray-200 cursor-zoom-in" onclick="zoomImage(this.src)">` : ''}
                         </div>
                         <div class="mt-2 p-3 bg-green-50 rounded-lg border border-green-100">
                             <p class="text-xs font-bold text-green-600 mb-1">Hướng dẫn chấm:</p>
                             <div class="text-green-800 break-words">${formatContent(d.correctAnswer)}</div>
-                            ${(d.question.options && d.question.options.answerImage) ? `<img src="${d.question.options.answerImage}" class="mt-2 max-w-[200px] h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage(this.src)">` : ''}
+                            ${(d.question.options && d.question.options.answerImage) ? `<img src="${escapeHTML(safeImageUrl(d.question.options.answerImage))}" class="mt-2 max-w-[200px] h-auto rounded border border-green-200 cursor-zoom-in" onclick="zoomImage(this.src)">` : ''}
                         </div>
                         ${d.aiFeedback ? `<div class="mt-2 text-base text-purple-700 bg-purple-50 p-2 rounded border border-purple-100 break-words">🤖 Nhận xét: ${formatContent(d.aiFeedback)}</div>` : ''}
                         <div class="mt-3 flex flex-wrap items-center gap-3 p-3 bg-yellow-50 rounded-lg border border-yellow-200">

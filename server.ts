@@ -40,6 +40,8 @@ import { onRequestPost as hardenedExamStartHandler } from './functions/api/exam/
 import { onRequestPost as hardenedExamSaveHandler } from './functions/api/exam/save';
 import { onRequestPost as hardenedExamViolationHandler } from './functions/api/exam/violation';
 import { onRequestPost as hardenedExamResumeHandler } from './functions/api/exam/resume';
+import { onRequestPost as hardenedUploadImageHandler } from './functions/api/upload-image';
+import { signAuthSession as signCloudflareAuthSession } from './functions/api/exam/utils';
 
 dotenv.config({ override: true });
 
@@ -210,7 +212,7 @@ async function startServer() {
   // Requests without a bearer are handled by individual route access checks.
   app.use('/api', async (req, res, next) => {
     if (!req.headers.authorization) return next();
-    if (req.path === '/auth/login' || req.path === '/auth/change-password' || req.path === '/auth/register' || req.path === '/exam/grade') return next();
+    if (req.path === '/auth/login' || req.path === '/auth/change-password' || req.path === '/auth/register' || req.path === '/exam/grade' || req.path === '/upload-image') return next();
     const header = req.headers.authorization;
     if (!header.startsWith('Bearer ')) return res.status(401).json({ error: 'Phiên đăng nhập không hợp lệ' });
     try {
@@ -677,26 +679,12 @@ async function startServer() {
   }
 
   app.get("/api/health", async (req, res) => {
-    let dbStatus = "UNKNOWN";
-    let dbError = null;
-    let userCount = 0;
     try {
-      const dbRes = await executeSqlQuery("SELECT COUNT(*) as count FROM users", []);
-      userCount = Number(dbRes.results?.[0]?.count || 0);
-      dbStatus = "CONNECTED_OK";
-    } catch (err: any) {
-      dbStatus = "CONNECTION_FAILED";
-      dbError = err?.message || String(err);
+      await executeSqlQuery("SELECT 1 AS ok", []);
+      return res.json({ status: "OK" });
+    } catch {
+      return res.status(500).json({ status: "ERROR" });
     }
-    res.json({
-      status: dbStatus === "CONNECTED_OK" ? "OK" : "ERROR",
-      database: {
-        status: dbStatus,
-        user_count: userCount,
-        error: dbError
-      },
-      timestamp: new Date().toISOString()
-    });
   });
 
   // --- API Authentication: Login ---
@@ -794,6 +782,33 @@ async function startServer() {
       
     } catch (e: any) {
       res.status(500).json({ error: e.message || 'Lỗi server' });
+    }
+  });
+
+  app.get("/api/auth/session", async (req, res) => {
+    try {
+      res.setHeader("Cache-Control","private, no-store, max-age=0");
+      const auth=req.headers.authorization||"";
+      if(!auth.startsWith("Bearer ")) return res.status(401).json({error:"Phiên đăng nhập không hợp lệ."});
+      const claims:any=verifyJWTSync(auth.slice(7),await getServerSecret());
+      if(!claims?.id||!claims?.auth_state) return res.status(401).json({error:"Phiên đăng nhập đã hết hạn hoặc không còn hiệu lực."});
+      const row=(await executeSqlQuery(`
+        SELECT a.id,a.user_id,a.username,a.password,a.role,a.is_active,a.expiry_date,
+               u.full_name,u.target_audience,u.donvi,u.lop,u.is_active AS profile_active,u.expiry_date AS profile_expiry_date
+        FROM accounts a LEFT JOIN users u ON u.id=COALESCE(a.user_id,a.id)
+        WHERE a.id=? LIMIT 1
+      `,[claims.id])).results?.[0];
+      if(!row||!getAccountAccessStatus(row).allowed) return res.status(401).json({error:"Phiên đăng nhập đã hết hạn hoặc không còn hiệu lực."});
+      const expected=crypto.createHash('sha256').update(accountSessionMaterial(row)).digest('hex');
+      if(expected!==claims.auth_state) return res.status(401).json({error:"Phiên đăng nhập đã hết hạn hoặc không còn hiệu lực."});
+      const audience=row.target_audience||(String(row.role).toLowerCase()==='admin'?'Quản trị viên':['teacher','giáo viên'].includes(String(row.role).toLowerCase())?'Giáo viên':'Học sinh');
+      return res.json({data:{
+        id:row.id,user_id:row.user_id||row.id,username:row.username,role:row.role,
+        target_audience:audience,full_name:row.full_name||row.username,
+        donvi:row.donvi||'',lop:row.lop||'',is_vip:false
+      },error:null});
+    } catch {
+      return res.status(503).json({error:"Không thể xác minh phiên đăng nhập."});
     }
   });
 
@@ -1245,35 +1260,52 @@ async function startServer() {
         });
       }
 
-      const hashedPassword = hashPasswordPBKDF2Sync(password);
-      if (!hashedPassword.startsWith('pbkdf2:sha256:') || !verifyPasswordSync(password, hashedPassword)) {
-        return res.status(500).json({
-          error: "Không thể xác minh kết quả mã hóa mật khẩu. Không có tài khoản nào được cập nhật."
-        });
+      const hashes = new Map<string,string>();
+      for (const id of accountIds) {
+        const hash = hashPasswordPBKDF2Sync(password);
+        if (!hash.startsWith('pbkdf2:sha256:') || !verifyPasswordSync(password, hash)) {
+          return res.status(500).json({
+            error: "Không thể xác minh kết quả mã hóa mật khẩu. Không có tài khoản nào được cập nhật."
+          });
+        }
+        hashes.set(id, hash);
       }
 
-      await executeSqlQuery(
-        `UPDATE accounts SET password = ? WHERE id IN (${marks})`,
-        [hashedPassword, ...accountIds]
+      const payload = accountIds.map(id => ({ id, password: hashes.get(id) }));
+      const changed = await executeSqlQuery(
+        `WITH input AS (
+           SELECT * FROM jsonb_to_recordset(?::jsonb) AS x(id text,password text)
+         )
+         UPDATE accounts a SET password=input.password FROM input WHERE a.id=input.id
+         RETURNING a.id,a.password`,
+        [JSON.stringify(payload)]
       );
+      if ((changed.results || []).length !== accountIds.length) {
+        return res.status(500).json({
+          error: "Số tài khoản được cập nhật không khớp danh sách đã chọn.",
+          code: "PASSWORD_RESET_WRITE_MISMATCH"
+        });
+      }
 
       const after = await executeSqlQuery(
         `SELECT id,password FROM accounts WHERE id IN (${marks})`,
         accountIds
       );
       const rows = after.results || [];
-      const confirmed = new Set(
-        rows
-          .filter((row: any) => String(row.password || '') === hashedPassword)
-          .map((row: any) => String(row.id))
-      );
-      if (rows.length !== accountIds.length ||
-          accountIds.some(id => !confirmed.has(id)) ||
-          !verifyPasswordSync(password, hashedPassword)) {
+      if (rows.length !== accountIds.length) {
         return res.status(500).json({
-          error: "Không thể xác nhận toàn bộ mật khẩu sau khi ghi. Cần kiểm tra cơ sở dữ liệu trước khi tiếp tục.",
+          error: "Không thể xác nhận toàn bộ mật khẩu sau khi ghi.",
           code: "PASSWORD_RESET_VERIFY_FAILED"
         });
+      }
+      for (const row of rows) {
+        const expected = hashes.get(String(row.id));
+        if (!expected || String(row.password || '') !== expected || !verifyPasswordSync(password, String(row.password || ''))) {
+          return res.status(500).json({
+            error: "Không thể xác nhận toàn bộ mật khẩu sau khi ghi.",
+            code: "PASSWORD_RESET_VERIFY_FAILED"
+          });
+        }
       }
 
       return res.json({
@@ -1282,6 +1314,7 @@ async function startServer() {
           updated: accountIds.length,
           account_ids: accountIds,
           password_scheme: "pbkdf2:sha256",
+          unique_salt_per_account: true,
           session_tokens_invalidated: true,
           self_reset: accountIds.includes(String(actor.id || ''))
         },
@@ -1406,9 +1439,6 @@ async function startServer() {
               console.warn("Could not pre-fetch usernames, falling back:", e);
           }
 
-          let lastPassword = "";
-          let lastHashed = "";
-
           for (const item of list) {
               try {
                   let { user_id, username, password, role, is_active, expiry_date, full_name, lop, target_audience } = item;
@@ -1426,17 +1456,10 @@ async function startServer() {
                   }
                   existingSet.add(finalUsername.toLowerCase());
 
-                  // Tối ưu hóa 3: Tránh mã hóa lặp đi lặp lại cùng một mật khẩu mặc định (PBKDF2 rất tốn CPU)
-                  let hashedPassword = "";
-                  if (password === lastPassword && lastHashed) {
-                      hashedPassword = lastHashed;
-                  } else {
-                      hashedPassword = hashPasswordPBKDF2Sync(password);
-                      if (!verifyPasswordSync(String(password), hashedPassword)) {
-                          throw new Error("Không thể xác minh mật khẩu vừa mã hóa");
-                      }
-                      lastPassword = password;
-                      lastHashed = hashedPassword;
+                  // Mỗi tài khoản có salt PBKDF2 riêng, kể cả cùng mật khẩu mặc định.
+                  const hashedPassword = hashPasswordPBKDF2Sync(password);
+                  if (!verifyPasswordSync(String(password), hashedPassword)) {
+                      throw new Error("Không thể xác minh mật khẩu vừa mã hóa");
                   }
 
                   const id = (globalThis.crypto && globalThis.crypto.randomUUID) ? globalThis.crypto.randomUUID() : Math.random().toString(36).substring(2) + Date.now().toString(36);
@@ -2386,23 +2409,44 @@ async function startServer() {
 
       // 1A. Truyền danh sách mảng classes: [{ class_name, role, subject }]
       if (Array.isArray(classes)) {
-        await executeSqlQuery("DELETE FROM teacher_classes WHERE teacher_id = ?", [teacher_id]);
-        let insertedCount = 0;
-        for (const item of classes) {
-          const cName = String(item.class_name || item.className || item.lop || '').trim();
-          if (!cName) continue;
-          const cRole = String(item.role || 'bo_mon').trim();
-          const cSubject = String(item.subject || item.mon_hoc || '').trim();
-          const id = crypto.randomUUID();
-          await executeSqlQuery(
-            `INSERT INTO teacher_classes (id, teacher_id, teacher_name, class_name, donvi, role, subject, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-             ON CONFLICT (teacher_id, class_name, donvi) DO UPDATE SET role = EXCLUDED.role, subject = EXCLUDED.subject, teacher_name = EXCLUDED.teacher_name`,
-            [id, teacher_id, teacher_name || '', cName, donvi || '', cRole, cSubject, now]
-          );
-          insertedCount++;
-        }
-        return res.status(200).json({ success: true, count: insertedCount, error: null });
+        const normalized = classes.map((item:any)=>({
+          className:String(item?.class_name||item?.className||item?.lop||'').trim(),
+          role:String(item?.role||'bo_mon').trim(),
+          subject:String(item?.subject||item?.mon_hoc||'').trim()
+        })).filter((item:any)=>item.className);
+        if(normalized.length>500)return res.status(400).json({error:"Mỗi giáo viên tối đa 500 phân công lớp."});
+        const payload=normalized.map((item:any)=>({
+          id:crypto.randomUUID(),teacher_id:String(teacher_id),teacher_name:String(teacher_name||''),
+          class_name:item.className,donvi:String(donvi||''),role:item.role,subject:item.subject,created_at:now
+        }));
+        const atomic=await executeSqlQuery(`
+          WITH input AS (
+            SELECT * FROM jsonb_to_recordset(?::jsonb) AS x(
+              id text, teacher_id text, teacher_name text, class_name text,
+              donvi text, role text, subject text, created_at text
+            )
+          ),
+          deleted AS (
+            DELETE FROM teacher_classes tc
+            WHERE tc.teacher_id=?
+              AND NOT EXISTS (
+                SELECT 1 FROM input i
+                WHERE i.teacher_id=tc.teacher_id AND i.class_name=tc.class_name AND i.donvi=tc.donvi
+              )
+            RETURNING tc.id
+          ),
+          upserted AS (
+            INSERT INTO teacher_classes(id,teacher_id,teacher_name,class_name,donvi,role,subject,created_at)
+            SELECT id,teacher_id,teacher_name,class_name,donvi,role,subject,created_at FROM input
+            ON CONFLICT(teacher_id,class_name,donvi) DO UPDATE SET
+              role=EXCLUDED.role,subject=EXCLUDED.subject,teacher_name=EXCLUDED.teacher_name
+            RETURNING id
+          )
+          SELECT COUNT(*)::int AS count FROM upserted
+        `,[JSON.stringify(payload),String(teacher_id)]);
+        const insertedCount=Number(atomic.results?.[0]?.count||0);
+        if(insertedCount!==normalized.length)throw new Error("Không thể xác nhận đầy đủ phân công lớp sau khi ghi.");
+        return res.status(200).json({success:true,count:insertedCount,error:null});
       }
 
       // 1B. Truyền một lớp đơn lẻ
@@ -2688,15 +2732,11 @@ async function startServer() {
             }
 
             let isSameDonVi = false;
-            if (!teacherDonvi && allowedUnits.length === 0) {
-              isSameDonVi = true;
-            } else if (user) {
-              const userDonvi = String(user.donvi || user.address || '').trim().toLowerCase();
-              if (teacherDonvi && userDonvi && (userDonvi === teacherDonvi || userDonvi.includes(teacherDonvi) || teacherDonvi.includes(userDonvi))) {
-                isSameDonVi = true;
-              } else if (allowedUnits.some((au: string) => au && (au === userDonvi || userDonvi.includes(au) || au.includes(userDonvi)))) {
-                isSameDonVi = true;
-              }
+            if (user) {
+              const normalizeUnit = (value: any) => String(value || '').trim().toLocaleLowerCase('vi').replace(/\s+/g,' ');
+              const userDonvi = normalizeUnit(user.donvi || user.address || '');
+              const configured = [...new Set([teacherDonvi, ...allowedUnits].map(normalizeUnit).filter(Boolean))];
+              isSameDonVi = !!userDonvi && configured.includes(userDonvi);
             }
 
             if (!isSameDonVi) {
@@ -2731,7 +2771,7 @@ async function startServer() {
       });
     } catch (e: any) {
       console.error("GET /api/exams error:", e.message || e);
-      return res.json({ data: [], allCreatorIds: [], error: null });
+      return res.status(503).json({ data: null, allCreatorIds: [], error: "Không thể tải danh sách đề thi từ cơ sở dữ liệu." });
     }
   });
 
@@ -4169,162 +4209,65 @@ async function startServer() {
     }
   }
 
-  // Cloudflare R2 Upload Endpoint
+  // Image upload uses the same hardened handler as Cloudflare production.
   app.post("/api/upload-image", async (req, res) => {
     try {
-      // BẢO MẬT: Chặn upload ảnh trái phép, chống đầy ổ cứng (Cost Exhaustion Attack)
-      const authHeader = req.headers.authorization;
-      if (!authHeader || !authHeader.startsWith("Bearer ")) {
-          return res.status(401).json({ error: "Access denied. Bạn chưa đăng nhập." });
-      }
-      const token = authHeader.substring(7);
-      const user = verifyJWTSync(token, await getServerSecret());
-      const isStaff = checkIsTeacherOrAdmin(user);
-      const isValidExamSession = user && user.questionIds && user.teacherId;
-
-      if (!isStaff && !isValidExamSession) {
-          return res.status(403).json({ error: "Access denied. Bạn không có quyền tải ảnh lên hệ thống." });
+      const protocol=req.protocol||'http';
+      const host=req.get('host')||`localhost:${PORT}`;
+      const webHeaders=new Headers();
+      for(const [name,value] of Object.entries(req.headers||{})){
+        if(value===undefined)continue;
+        if(Array.isArray(value)){for(const item of value)webHeaders.append(name,String(item));}
+        else webHeaders.set(name,String(value));
       }
 
-      const { base64 } = req.body;
-      if (!base64) {
-        return res.status(400).json({ error: "Thiếu dữ liệu Base64 của ảnh!" });
-      }
-
-      // Check if Cloudflare R2 environment variables are configured
-      let r2AccessKeyId = getConfig("CLOUDFLARE_R2_ACCESS_KEY_ID");
-      const r2SecretAccessKey = getConfig("CLOUDFLARE_R2_SECRET_ACCESS_KEY");
-      
-      const rawBucketName = getConfig("CLOUDFLARE_R2_BUCKET_NAME");
-      let r2BucketName = cleanR2BucketName(rawBucketName);
-
-      const rawAccountId = getConfig("CLOUDFLARE_R2_ACCOUNT_ID");
-      let r2AccountId = cleanR2AccountId(rawAccountId);
-
-      let r2PublicUrl = getConfig("CLOUDFLARE_R2_PUBLIC_URL");
-
-      // Get the correct configuration based on previous successful test if available
-      const r2Config = loadSuccessfulR2Combo();
-      if (r2Config) {
-        if (r2Config.successfulCombo === "swapped") {
-          console.log("[R2 Upload - Active Profile Swapped]: Hoán đổi Account ID và Access Key ID dựa trên hồ sơ kết nối thành công trước đó.");
-          const temp = r2AccountId;
-          r2AccountId = r2AccessKeyId;
-          r2AccessKeyId = temp;
-        } else if (r2Config.successfulCombo === "healed") {
-          console.log("[R2 Upload - Active Profile Healed]: Áp dụng tự động sửa đổi cấu hình Account ID lỗi từ cấu hình healed lịch sử.");
-          if (r2Config.healedAccountId) {
-            r2AccountId = r2Config.healedAccountId;
+      const rawBearer=String(req.headers.authorization||'');
+      if(rawBearer.startsWith('Bearer ')){
+        const rawToken=rawBearer.slice(7);
+        const secret=await getServerSecret();
+        const decoded:any=verifyJWTSync(rawToken,secret);
+        if(decoded?.auth_state && decoded?.id){
+          const row=(await executeSqlQuery(`
+            SELECT a.id,a.user_id,a.username,a.password,a.role,a.is_active,a.expiry_date,
+                   u.full_name,u.target_audience,u.donvi,u.lop,u.is_vip AS profile_vip,
+                   u.is_active AS profile_active,u.expiry_date AS profile_expiry_date
+            FROM accounts a LEFT JOIN users u ON u.id=COALESCE(a.user_id,a.id)
+            WHERE a.id=? LIMIT 1
+          `,[decoded.id])).results?.[0];
+          if(!row||!getAccountAccessStatus(row).allowed){
+            return res.status(401).json({error:'Phiên đăng nhập không còn hiệu lực.'});
           }
-          if (r2Config.healedAccessKeyId) {
-            r2AccessKeyId = r2Config.healedAccessKeyId;
+          const expected=crypto.createHash('sha256').update(accountSessionMaterial(row)).digest('hex');
+          if(expected!==decoded.auth_state){
+            return res.status(401).json({error:'Phiên đăng nhập đã thay đổi. Vui lòng đăng nhập lại.'});
           }
-        } else if (r2Config.successfulCombo === "original") {
-          console.log("[R2 Upload - Active Profile Original]: Sử dụng nguyên trạng cấu hình gốc dựa trên hồ sơ kết nối thành công trước đó.");
-        }
-      } else {
-        // Fallback to basic heuristic guess if no verified test exists yet
-        let suspectedRealAccountId = "";
-        if (r2PublicUrl.includes(".r2.cloudflarestorage.com")) {
-          const match = r2PublicUrl.match(/https?:\/\/([a-fA-F0-9]{32})\.r2\.cloudflarestorage\.com/);
-          if (match) {
-            suspectedRealAccountId = match[1];
-          }
-        }
-        if (suspectedRealAccountId && r2AccessKeyId === suspectedRealAccountId && r2AccountId !== suspectedRealAccountId) {
-          console.log(`[Auto-Recovery R2 Image Upload - Heuristic]: Auto-correcting swapped Account ID & Access Key ID.`);
-          const temp = r2AccountId;
-          r2AccountId = r2AccessKeyId;
-          r2AccessKeyId = temp;
-          r2PublicUrl = ""; // Force calculate modern .r2.dev or CDN domain
+          const tenantKey=tenantStorage.getStore()?.databaseUrl||'';
+          const bridged=await signCloudflareAuthSession(row,{
+            id:row.id,user_id:row.user_id||row.id,username:row.username,
+            role:row.role,target_audience:row.target_audience||''
+          },secret,tenantKey);
+          webHeaders.set('authorization','Bearer '+bridged);
         }
       }
-
-      const isR2Configured = r2AccessKeyId !== "" && !r2AccessKeyId.includes("YOUR_") &&
-                             r2SecretAccessKey !== "" && !r2SecretAccessKey.includes("YOUR_") &&
-                             r2BucketName !== "" && !r2BucketName.includes("YOUR_") &&
-                             r2AccountId !== "" && !r2AccountId.includes("YOUR_");
-
-      if (!isR2Configured) {
-        // Fallback: Return backend compressed base64 directly
-        return res.json({ 
-          url: base64, 
-          storage: "database_base64_compressed",
-          message: "Lưu ý: Đang sử dụng cơ chế fallback (Base64 nén) do chưa cấu hình Cloudflare R2."
-        });
-      }
-
-      // Parse the Base64 details
-      const matches = base64.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/);
-      let mimeType = "image/jpeg";
-      let base64Data = base64;
-
-      if (matches && matches.length === 3) {
-        mimeType = matches[1];
-        base64Data = matches[2];
-      }
-
-      const buffer = Buffer.from(base64Data, "base64");
-      const extension = mimeType.split("/")[1] || "jpg";
-      const filename = `image-${Math.random().toString(36).substring(2)}-${Date.now()}.${extension}`;
-
-      // Initialize S3 Client with specialized NodeHttpHandler
-      const s3 = new S3Client({
-        region: "auto",
-        endpoint: `https://${r2AccountId}.r2.cloudflarestorage.com`,
-        credentials: {
-          accessKeyId: r2AccessKeyId,
-          secretAccessKey: r2SecretAccessKey,
-        },
-        forcePathStyle: true,
-        requestHandler: new NodeHttpHandler({
-          httpsAgent: new https.Agent({
-            rejectUnauthorized: true,
-            keepAlive: false, // Prevents TLS Handshake Failure (SSL Alert 40) by avoiding unsafe reuse of session tickets in container backends
-          }),
-        }),
+      webHeaders.set('content-type','application/json');
+      const webRequest=new Request(`${protocol}://${host}${req.originalUrl||req.url||'/api/upload-image'}`,{
+        method:'POST',headers:webHeaders,body:JSON.stringify(req.body||{})
       });
-
-      // Upload Command
-      await s3.send(new PutObjectCommand({
-        Bucket: r2BucketName,
-        Key: filename,
-        Body: buffer,
-        ContentType: mimeType,
-      }));
-
-      // Build CDN Public URL
-      if (!r2PublicUrl) {
-         r2PublicUrl = `https://${r2BucketName}.${r2AccountId}.r2.dev`;
-      }
-      if (r2PublicUrl.endsWith("/")) {
-        r2PublicUrl = r2PublicUrl.slice(0, -1);
-      }
-
-      const publicFileUrl = `${r2PublicUrl}/${filename}`;
-      return res.json({ 
-        url: publicFileUrl, 
-        storage: "cloudflare_r2",
-        message: "Tải ảnh lên Cloudflare R2 thành công!" 
-      });
-
-    } catch (error: any) {
-      // Quiet down the console output to prevent automatic scanners from triggering SSL Alert flags.
-      // Simply log a safe, high-level message without full openssl handshake trace strings.
-      const rawMsg = error?.message || String(error);
-      const isSslRelated = rawMsg.includes("handshake") || rawMsg.includes("EPROTO") || rawMsg.includes("SSL");
-      if (isSslRelated) {
-        console.log("[Graceful Support]: Khởi tạo lưu trữ hình ảnh thông qua Base64 nén thành công.");
-      } else {
-        console.log("[Graceful Support]: Chuyển đổi lưu trữ sang Base64 nén (Chi tiết:", rawMsg.substring(0, 80), ")");
-      }
-
-      // Perfect fallback: return the compressed base64 directly so the app never fails
-      return res.json({ 
-        url: req.body?.base64 || "", 
-        storage: "database_base64_compressed",
-        message: "Lưu ý: Tự động sử dụng cơ chế fallback (Base64 nén) do không thể kết nối tới Cloudflare R2." 
-      });
+      const uploadEnv={
+        ...process.env,
+        CLOUDFLARE_R2_ACCESS_KEY_ID:getConfig("CLOUDFLARE_R2_ACCESS_KEY_ID")||process.env.CLOUDFLARE_R2_ACCESS_KEY_ID,
+        CLOUDFLARE_R2_SECRET_ACCESS_KEY:getConfig("CLOUDFLARE_R2_SECRET_ACCESS_KEY")||process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY,
+        CLOUDFLARE_R2_BUCKET_NAME:getConfig("CLOUDFLARE_R2_BUCKET_NAME")||process.env.CLOUDFLARE_R2_BUCKET_NAME,
+        CLOUDFLARE_R2_ACCOUNT_ID:getConfig("CLOUDFLARE_R2_ACCOUNT_ID")||process.env.CLOUDFLARE_R2_ACCOUNT_ID,
+        CLOUDFLARE_R2_PUBLIC_URL:getConfig("CLOUDFLARE_R2_PUBLIC_URL")||process.env.CLOUDFLARE_R2_PUBLIC_URL
+      };
+      const response=await hardenedUploadImageHandler({request:webRequest,env:uploadEnv} as any);
+      res.status(response.status);
+      response.headers.forEach((value,name)=>{if(name.toLowerCase()!=='content-length')res.setHeader(name,value);});
+      return res.send(await response.text());
+    } catch(error:any) {
+      console.error('Local hardened /api/upload-image adapter error:',error?.message||error);
+      return res.status(500).json({error:'Không thể tải ảnh bằng engine bảo mật thống nhất.'});
     }
   });
 
@@ -4556,73 +4499,45 @@ CLOUDFLARE_R2_PUBLIC_URL: "${r2PublicUrl}"
     });
   });
 
-  // Proxy Image endpoint to bypass CORS when generating docx images
+  // Proxy Image endpoint: only trusted HTTPS R2 raster images.
   app.get("/api/proxy-image", async (req, res) => {
     try {
-      const imageUrl = req.query.url;
-      if (!imageUrl || typeof imageUrl !== "string") {
-        return res.status(400).send("Yêu cầu tham số URL hợp lệ.");
-      }
-      
-      const imgRes = await fetch(imageUrl);
-      if (!imgRes.ok) {
-        return res.status(imgRes.status).send(`Failed to fetch original image: ${imgRes.statusText}`);
-      }
-      
-      const contentType = imgRes.headers.get("content-type") || "image/png";
-      const buffer = await imgRes.arrayBuffer();
-      
-      res.setHeader("Content-Type", contentType);
-      res.setHeader("Cache-Control", "public, max-age=86400"); // Cache 1 ngày
-      res.send(Buffer.from(buffer));
-    } catch (e: any) {
-      console.error("[Proxy Image Error]:", e?.message || e);
-      res.status(500).send("Lỗi máy chủ khi dọn dẹp và tải ảnh proxy.");
+      const raw=typeof req.query.url==="string"?req.query.url:"";
+      if(!raw)return res.status(400).send("Yêu cầu tham số URL hợp lệ.");
+      let url:URL;
+      try{url=new URL(raw);}catch{return res.status(400).send("URL không hợp lệ.");}
+      if(url.protocol!=="https:"||url.username||url.password)return res.status(403).send("Nguồn ảnh không được phép.");
+      const bases=[
+        String(getConfig("CLOUDFLARE_R2_PUBLIC_URL")||"").trim().replace(/\/+$/,""),
+        (()=>{const b=cleanR2BucketName(getConfig("CLOUDFLARE_R2_BUCKET_NAME"));const a=cleanR2AccountId(getConfig("CLOUDFLARE_R2_ACCOUNT_ID"));return b&&a?`https://${b}.${a}.r2.dev`:"";})()
+      ].filter(Boolean);
+      if(!bases.some(base=>url.href===base||url.href.startsWith(base+"/")))return res.status(403).send("Nguồn ảnh không được phép.");
+      const imgRes=await fetch(url.href,{redirect:"error"});
+      if(!imgRes.ok)return res.status(imgRes.status).send("Không thể tải ảnh nguồn.");
+      const contentType=String(imgRes.headers.get("content-type")||"").toLowerCase();
+      if(!contentType.startsWith("image/")||contentType.includes("svg"))return res.status(415).send("Nguồn không phải ảnh raster được phép.");
+      const declared=Number(imgRes.headers.get("content-length")||0);
+      if(declared>12*1024*1024)return res.status(413).send("Ảnh vượt giới hạn proxy.");
+      const buffer=await imgRes.arrayBuffer();
+      if(buffer.byteLength>12*1024*1024)return res.status(413).send("Ảnh vượt giới hạn proxy.");
+      res.setHeader("Content-Type",contentType);
+      res.setHeader("Cache-Control","public, max-age=86400");
+      res.setHeader("X-Content-Type-Options","nosniff");
+      res.setHeader("Content-Security-Policy","default-src 'none'; sandbox");
+      return res.send(Buffer.from(buffer));
+    } catch {
+      return res.status(500).send("Lỗi máy chủ proxy ảnh.");
     }
   });
 
   // General routes
-  app.get("/api/health", (req, res) => {
-    res.json({ status: "ok" });
-  });
-
   app.get("/api/config", (req, res) => {
-    const checkKey = (key: keyof typeof BACKEND_CONFIG) => {
-      const val = getConfig(key);
-      return {
-        exists: val.length > 5,
-        source: BACKEND_CONFIG[key] ? "HARDCODED" : (process.env[key] ? "ENV" : "MISSING")
-      };
-    };
-
-    const config = { 
+    res.json({
       isGeminiConfigured: isConfigured("GEMINI_API_KEY"),
       isNeonConfigured: isConfigured("NEON_DATABASE_URL") || !!process.env.NEON_DATABASE_URL || !!process.env.DATABASE_URL,
-      isR2Configured: isConfigured("CLOUDFLARE_R2_ACCESS_KEY_ID") && isConfigured("CLOUDFLARE_R2_BUCKET_NAME"),
-      timestamp: Date.now(),
-      system: {
-        node_env: process.env.NODE_ENV,
-        platform: process.platform,
-        cwd: process.cwd(),
-        database_engine: "PostgreSQL (Neon Serverless)"
-      },
-      debug_report: {
-        gemini: checkKey("GEMINI_API_KEY"),
-        neon: {
-          configured: isConfigured("NEON_DATABASE_URL") || !!process.env.NEON_DATABASE_URL || !!process.env.DATABASE_URL
-        },
-        r2: {
-          key: checkKey("CLOUDFLARE_R2_ACCESS_KEY_ID"),
-          secret: checkKey("CLOUDFLARE_R2_SECRET_ACCESS_KEY"),
-          bucket: checkKey("CLOUDFLARE_R2_BUCKET_NAME"),
-          public: checkKey("CLOUDFLARE_R2_PUBLIC_URL")
-        }
-      }
-    };
-    
-    res.json(config);
+      isR2Configured: isConfigured("CLOUDFLARE_R2_ACCESS_KEY_ID") && isConfigured("CLOUDFLARE_R2_BUCKET_NAME")
+    });
   });
-
 
   // ==========================================
   // EXAM GENERATE AND GRADE ROUTES (BACKEND)
@@ -4681,7 +4596,11 @@ async function getServerSecret(): Promise<string> {
       const expectedSignature = crypto.createHmac('sha256', secret).update(dataToSign).digest('base64').replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
       if (expectedSignature !== encodedSignature) return null;
       try {
-          return JSON.parse(b64DecodeUnicode(encodedPayload));
+          const claims = JSON.parse(b64DecodeUnicode(encodedPayload));
+          const now = Math.floor(Date.now() / 1000);
+          if (claims.exp !== undefined && (!Number.isFinite(Number(claims.exp)) || Number(claims.exp) <= now)) return null;
+          if (claims.nbf !== undefined && Number(claims.nbf) > now) return null;
+          return claims;
       } catch {
           return null;
       }

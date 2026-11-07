@@ -204,9 +204,6 @@ export async function onRequestPost(context: any) {
                 console.warn("Could not pre-fetch usernames, falling back:", e);
             }
 
-            let lastPassword = "";
-            let lastHashed = "";
-
             for (const item of list) {
                 try {
                     let { user_id, username, password, role, is_active, expiry_date, full_name, lop, target_audience } = item;
@@ -224,17 +221,11 @@ export async function onRequestPost(context: any) {
                     }
                     existingSet.add(finalUsername.toLowerCase());
 
-                    // Tối ưu hóa 3: Tránh mã hóa lặp đi lặp lại cùng một mật khẩu mặc định (PBKDF2 rất tốn CPU)
-                    let hashedPassword = "";
-                    if (password === lastPassword && lastHashed) {
-                        hashedPassword = lastHashed;
-                    } else {
-                        hashedPassword = await hashPasswordPBKDF2(password);
-                        if (!(await verifyPassword(String(password), hashedPassword))) {
-                            throw new Error("Không thể xác minh mật khẩu vừa mã hóa");
-                        }
-                        lastPassword = password;
-                        lastHashed = hashedPassword;
+                    // Mỗi tài khoản phải có salt PBKDF2 ngẫu nhiên riêng, kể cả khi
+                    // nhiều học sinh dùng cùng một mật khẩu mặc định.
+                    const hashedPassword = await hashPasswordPBKDF2(password);
+                    if (!(await verifyPassword(String(password), hashedPassword))) {
+                        throw new Error("Không thể xác minh mật khẩu vừa mã hóa");
                     }
 
                     const id = crypto.randomUUID();
