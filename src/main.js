@@ -8381,6 +8381,7 @@ if (contentType && contentType.includes("application/json")) {
                 localStorage.removeItem('currentExamToken');
                 localStorage.removeItem(window.tenantStorageKey('currentExamToken'));
                 localStorage.removeItem(window.tenantStorageKey('active_exam_resume_meta'));
+                localStorage.removeItem(window.tenantStorageKey('pending_exam_violation_events'));
             } catch(e) {}
         }
 
@@ -8494,8 +8495,12 @@ if (contentType && contentType.includes("application/json")) {
                 autosaveInFlight: false,
                 autosavePending: false,
                 deadlineLocked: Boolean(data.expired),
-                pendingViolationEvents: []
+                pendingViolationEvents: loadPendingExamViolationEvents()
             };
+
+            if (currentExam.pendingViolationEvents.length > 0) {
+                setTimeout(() => { flushExamViolationEvents(); }, 0);
+            }
 
             try { switchTab('exam'); } catch(e) {}
             const nameInput = document.getElementById('guest_data_1');
@@ -8876,6 +8881,7 @@ if (contentType && contentType.includes("application/json")) {
                         try {
                             localStorage.setItem('currentExamToken', startResult.token);
                             localStorage.setItem(window.tenantStorageKey('currentExamToken'), startResult.token);
+                            localStorage.removeItem(window.tenantStorageKey('pending_exam_violation_events'));
                             localStorage.setItem(window.tenantStorageKey('active_exam_resume_meta'), JSON.stringify({
                                 phase: 'active',
                                 studentName: name,
@@ -9931,6 +9937,39 @@ if (contentType && contentType.includes("application/json")) {
             return String(Date.now()) + '-' + Math.random().toString(36).slice(2);
         }
 
+        function persistPendingExamViolationEvents() {
+            try {
+                const events = Array.isArray(currentExam?.pendingViolationEvents)
+                    ? currentExam.pendingViolationEvents.slice(0, 200)
+                    : [];
+                if (events.length > 0) {
+                    localStorage.setItem(
+                        window.tenantStorageKey('pending_exam_violation_events'),
+                        JSON.stringify(events)
+                    );
+                } else {
+                    localStorage.removeItem(window.tenantStorageKey('pending_exam_violation_events'));
+                }
+            } catch(e) {}
+        }
+
+        function loadPendingExamViolationEvents() {
+            try {
+                const raw = localStorage.getItem(window.tenantStorageKey('pending_exam_violation_events')) || '';
+                const parsed = raw ? JSON.parse(raw) : [];
+                if (!Array.isArray(parsed)) return [];
+                return parsed.slice(0, 200).filter(event => {
+                    const eventId = String(event?.eventId || '').trim();
+                    return eventId && eventId.length <= 120 && /^[A-Za-z0-9._:-]+$/.test(eventId);
+                }).map(event => ({
+                    eventId: String(event.eventId),
+                    reason: String(event?.reason || 'violation').slice(0, 120)
+                }));
+            } catch(e) {
+                return [];
+            }
+        }
+
         async function flushExamViolationEvents() {
             if (!Array.isArray(currentExam?.pendingViolationEvents) || currentExam.pendingViolationEvents.length === 0 ||
                 !window.currentExamToken || !currentExam.deadlineAtMs) return true;
@@ -9961,11 +10000,13 @@ if (contentType && contentType.includes("application/json")) {
                     if (!response.ok) {
                         if (result?.code === 'EXAM_DEADLINE_REACHED') {
                             currentExam.pendingViolationEvents.shift();
+                            persistPendingExamViolationEvents();
                             continue;
                         }
                         return false;
                     }
                     currentExam.pendingViolationEvents.shift();
+                    persistPendingExamViolationEvents();
                     if (Number.isFinite(Number(result.cheatWarningCount))) {
                         currentExam.serverCheatWarningCount = Number(result.cheatWarningCount);
                         // Server là nguồn quyết định duy nhất cho ngưỡng tự nộp.
@@ -10003,6 +10044,7 @@ if (contentType && contentType.includes("application/json")) {
                 eventId: createExamViolationEventId(),
                 reason: String(reason || 'violation').slice(0, 120)
             });
+            persistPendingExamViolationEvents();
             flushExamViolationEvents();
         }
         window.flushExamViolationEvents = flushExamViolationEvents;
