@@ -1,5 +1,6 @@
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
-import { verifyAuthSession, getDynamicSecret, getDatabase } from './exam/utils';
+import { verifyAuthSession, verifyJWT, getDynamicSecret, getDatabase } from './exam/utils';
+import { EXAM_SESSION_PURPOSE_ACTIVE } from '../../src/exam-time-authority.js';
 import { wordImportImageObjectKey } from '../../src/word-import-image-key.js';
 
 interface Env {
@@ -30,15 +31,52 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
     const token = authHeader.substring(7);
     const secret = await getDynamicSecret(db, env.JWT_SECRET);
+
+    // The same Authorization header may carry either a normal account token
+    // (staff upload) or an ACTIVE exam token (student essay attachment).
     const user = await verifyAuthSession(token, secret, db);
+    const isStaff = !!user && (
+      String(user.role || '').toLowerCase() === 'admin' ||
+      ['teacher','giáo viên'].includes(String(user.role || '').toLocaleLowerCase('vi')) ||
+      String(user.target_audience || '').toLocaleLowerCase('vi') === 'giáo viên'
+    );
 
-    // Cho phép 2 trường hợp hợp lệ:
-    // 1. Giáo viên hoặc Admin đã đăng nhập
-    // 2. Thí sinh đang trong phiên làm bài thi hợp lệ (token bài thi chứa questionIds và teacherId)
-    const isStaff = user && (user.role === 'admin' || user.target_audience === 'Giáo viên');
-    const isValidExamSession = user && user.questionIds && user.teacherId;
+    let examSession: any = null;
+    if (!isStaff) {
+      const decoded: any = await verifyJWT(token, secret);
+      if (decoded?.purpose === EXAM_SESSION_PURPOSE_ACTIVE && decoded?.gradingSessionId) {
+        const sessionId = String(decoded.gradingSessionId);
+        const session: any = await db.prepare(
+          'SELECT session_id, started_at, deadline_at, expires_at FROM _exam_grade_sessions WHERE session_id = ? LIMIT 1'
+        ).bind(sessionId).first();
+        const now = Date.now();
+        const deadline = Date.parse(String(session?.deadline_at || ''));
+        const expires = Date.parse(String(session?.expires_at || ''));
+        if (session && session.started_at &&
+            Number.isFinite(deadline) && now <= deadline &&
+            (!Number.isFinite(expires) || now <= expires)) {
+          const signedStudentId = String(decoded.studentUserId || '').trim();
+          if (signedStudentId) {
+            const accountHeader = request.headers.get('X-Account-Authorization') || '';
+            if (!accountHeader.startsWith('Bearer ')) {
+              return new Response(JSON.stringify({ error: 'Thiếu xác thực tài khoản học sinh cho phiên tải ảnh.' }), {
+                status: 401, headers: { 'Content-Type': 'application/json' }
+              });
+            }
+            const account = await verifyAuthSession(accountHeader.slice(7), secret, db);
+            const accountId = String(account?.user_id || account?.id || '').trim();
+            if (!accountId || accountId !== signedStudentId) {
+              return new Response(JSON.stringify({ error: 'Tài khoản học sinh không khớp phiên thi.' }), {
+                status: 403, headers: { 'Content-Type': 'application/json' }
+              });
+            }
+          }
+          examSession = decoded;
+        }
+      }
+    }
 
-    if (!isStaff && !isValidExamSession) {
+    if (!isStaff && !examSession) {
       return new Response(JSON.stringify({ error: "Access denied. Bạn không có quyền tải ảnh lên hệ thống." }), {
         status: 403,
         headers: { 'Content-Type': 'application/json' }
@@ -51,8 +89,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     if (wordImportContentAddressed && !isStaff) {
       return new Response(JSON.stringify({error:'Chỉ giáo viên hoặc quản trị viên được tải ảnh nhập Word'}), {status:403,headers:{'Content-Type':'application/json'}});
     }
-    if (wordImportContentAddressed && (typeof base64 !== 'string' || base64.length > 11_200_000)) {
-      return new Response(JSON.stringify({error:'Dữ liệu ảnh Word không hợp lệ hoặc vượt giới hạn'}), {status:413,headers:{'Content-Type':'application/json'}});
+    const maxBase64Length = wordImportContentAddressed ? 11_200_000 : 8_500_000;
+    if (typeof base64 !== 'string' || base64.length > maxBase64Length) {
+      return new Response(JSON.stringify({error:'Dữ liệu ảnh không hợp lệ hoặc vượt giới hạn'}), {status:413,headers:{'Content-Type':'application/json'}});
     }
     
     if (!base64) {
@@ -68,22 +107,29 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     const isR2Configured = r2AccessKeyId && r2SecretAccessKey && r2BucketName && r2AccountId;
 
     if (!isR2Configured) {
+      // Do not silently return a giant Base64 payload during an exam: that can
+      // overflow the deadline-safe draft and cost the learner their attachment.
+      if (examSession) {
+        return new Response(JSON.stringify({
+          error: 'Kho ảnh bài thi chưa sẵn sàng. Ảnh chưa được ghi; vui lòng thử lại trước khi nộp bài.'
+        }), { status: 503, headers: { 'Content-Type': 'application/json' } });
+      }
       return new Response(JSON.stringify({ 
         url: base64, 
         storage: "database_base64_compressed",
-        message: "Lưu ý: Đang sử dụng cơ chế fallback (Base64 nén) do chưa cấu hình Cloudflare R2."
+        message: "Đang sử dụng cơ chế fallback Base64 do chưa cấu hình Cloudflare R2."
       }), { headers: { 'Content-Type': 'application/json' } });
     }
 
     // Parse the Base64 details
-    const matches = base64.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/);
-    let mimeType = "image/jpeg";
-    let base64Data = base64;
-
-    if (matches && matches.length === 3) {
-      mimeType = matches[1];
-      base64Data = matches[2];
+    const matches = base64.match(/^data:(image\/(?:png|jpeg|jpg|webp));base64,([A-Za-z0-9+/=\r\n]+)$/i);
+    if (!matches || matches.length !== 3) {
+      return new Response(JSON.stringify({ error: 'Chỉ chấp nhận ảnh PNG, JPEG hoặc WEBP hợp lệ.' }), {
+        status: 415, headers: { 'Content-Type': 'application/json' }
+      });
     }
+    const mimeType = matches[1].toLowerCase() === 'image/jpg' ? 'image/jpeg' : matches[1].toLowerCase();
+    const base64Data = matches[2].replace(/[\r\n]/g, '');
 
     // Decode base64 to Uint8Array instead of Buffer for Cloudflare Workers compatibility
     const binaryString = atob(base64Data);
