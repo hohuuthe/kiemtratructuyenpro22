@@ -94,10 +94,14 @@ test('manual grading API preserves objective details and recomputes canonical to
   assert.match(results, /clampScore/);
 });
 
-test('browser uses shared grading core and no one-decimal manual score rounding', () => {
+test('browser keeps four-decimal score math but displays final scores with two decimals', () => {
   const main = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
   assert.match(main, /from '.\/exam-grading-core\.js'/);
   assert.match(main, /roundScore\(newTotalScore, 4\)/);
+  assert.match(main, /function formatScoreDisplay2\(value\)/);
+  assert.match(main, /number\.toFixed\(2\)/);
+  assert.match(main, /function formatScoreInput4\(value\)/);
+  assert.match(main, /number\.toFixed\(4\)/);
   assert.doesNotMatch(main, /newTotalScore\) \|\| 0\)\.toFixed\(1\)/);
 });
 
@@ -237,9 +241,11 @@ test('second audit: config and UI use one four-decimal score precision contract'
   assert.match(contract, /Tổng điểm tối đa của đề thi phải nằm trong khoảng 0 đến 1000 điểm/);
   assert.match(editor, /id="exam-points-41"[^>]*step="0\.0001"/);
   assert.match(editor, /id="tf4-points-1"[^>]*step="0\.0001"/);
-  assert.match(editor, /id="tf4-points-2" value="0\.50"/);
-  assert.match(editor, /id="tf4-points-3" value="0\.75"/);
-  assert.match(editor, /id="tf4-points-4" value="1\.00"/);
+  assert.match(editor, /id="exam-points-41" value="1\.0000"[^>]*step="0\.0001"/);
+  assert.match(editor, /id="tf4-points-1" value="0\.2500"[^>]*step="0\.0001"/);
+  assert.match(editor, /id="tf4-points-2" value="0\.5000"/);
+  assert.match(editor, /id="tf4-points-3" value="0\.7500"/);
+  assert.match(editor, /id="tf4-points-4" value="1\.0000"/);
   assert.match(generate, /hasFourDecimalPrecision/);
 });
 
@@ -427,4 +433,14 @@ test('final audit: one-step 0.0001 manual score edits are persisted', () => {
   const main = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
   assert.match(main, /Math\.abs\(newScore - currentScore\) >= 0\.0001/);
   assert.match(main, /Math\.abs\(newTotalScore - \(result\.score \|\| 0\)\) >= 0\.0001/);
+});
+
+
+test('score preview calculates from raw four-decimal inputs and rounds only the web display to two decimals', () => {
+  const main = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+  const preview = main.slice(main.indexOf('function updatePointsPreview()'), main.indexOf('window.toggleTF4ScoringMode'));
+  assert.match(preview, /const total41 = count41 \* points41/);
+  assert.match(preview, /const grandTotal = total41 \+ totalTF4 \+ totalSQ \+ totalTL/);
+  assert.match(preview, /formatScoreDisplay2\(grandTotal\)/);
+  assert.doesNotMatch(preview, /toFixed\(4\)/);
 });

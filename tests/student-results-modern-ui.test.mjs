@@ -138,3 +138,14 @@ test('Grouped student result cards show one exam summary and defer attempt detai
     assert.match(ui,/điểm cao nhất/);
     assert.match(ui,/!isGrouped && canDetail/);
 });
+
+
+test('Student result web UI displays exactly two decimal places',()=>{
+    const ui=readFileSync('src/student-results-ui.js','utf8');
+    assert.match(ui,/minimumFractionDigits:\s*2/);
+    assert.match(ui,/maximumFractionDigits:\s*2/);
+    const html=buildStudentAttemptHistoryMarkup([
+        {id:'a',exam_id:'e',exam_name:'Đề',score:8.5678,can_view_score:true,time_taken:10,created_at:'2026-11-07',cheat_warning_count:0}
+    ],{examName:'Đề',formatDate:()=> '07/11/2026'});
+    assert.ok(html.includes('8,57'));
+});
