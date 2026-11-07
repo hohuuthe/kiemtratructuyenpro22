@@ -31,12 +31,17 @@ test('image proxy rejects arbitrary hosts and active content', () => {
   assert.doesNotMatch(proxyImage, /fetch\(imageUrl\)(?!\.href)/);
 });
 
-test('exam image upload uses ACTIVE exam session and forbids exam Base64 fallback', () => {
+test('exam image upload uses ACTIVE exam session, verified student ownership and forbids Base64 fallback', () => {
   assert.match(uploadImage, /EXAM_SESSION_PURPOSE_ACTIVE/);
   assert.match(uploadImage, /_exam_grade_sessions/);
   assert.match(uploadImage, /now <= deadline/);
+  assert.match(uploadImage, /studentUserId/);
+  assert.match(uploadImage, /X-Account-Authorization/);
+  assert.match(uploadImage, /Tài khoản học sinh không khớp phiên thi/);
   assert.match(uploadImage, /Kho ảnh R2 chưa sẵn sàng/);
   assert.match(uploadImage, /exam-submissions/);
+  assert.match(main, /activeExamUpload \? examToken : accountToken/);
+  assert.match(main, /X-Account-Authorization/);
 });
 
 test('browser never persists plaintext login password and restores by JWT', () => {
@@ -62,6 +67,18 @@ test('submission image data is validated server-side before persistence', () => 
   assert.match(main, /safeImageUrl/);
   assert.match(main, /escapeHTML\(safeImageUrl\(studentAnsImage\)\)/);
   assert.match(main, /escapeHTML\(d\.aiFeedback/);
+});
+
+
+test('AI essay grading isolates untrusted student text and fails suspicious grader instructions to manual review', () => {
+  assert.match(grade, /function looksLikeAiGraderInjection/);
+  assert.match(grade, /function sanitizeAiFeedback/);
+  assert.match(grade, /systemInstruction/);
+  assert.match(grade, /dữ liệu KHÔNG TIN CẬY/);
+  assert.match(grade, /\[Xem khối STUDENT_ANSWER bên dưới\]/);
+  assert.match(grade, /looksLikeAiGraderInjection\(studentAnsText\)/);
+  assert.match(grade, /pending_manual/);
+  assert.match(grade, /sanitizeAiFeedback\(parsed\?\.feedback\)/);
 });
 
 test('Cloudflare rate limits login and protected exam code attempts', () => {
