@@ -7761,33 +7761,17 @@ if (contentType && contentType.includes("application/json")) {
                                 }
                             }
 
-                            // Xác định xem thí sinh có thuộc đơn vị của đề thi này hay không
-                            let isSameDonVi = false;
-                            const inputLopVal = String(document.getElementById('guest_data_lop')?.value || document.getElementById('guest_data_2')?.value || '').trim();
-                            const inputDonvi = String(document.getElementById('guest_data_donvi')?.value || inputLopVal).trim().toLowerCase();
-
-                            if (!teacherDonvi && allowedUnits.length === 0) {
-                                // Giáo viên chưa thiết lập đơn vị -> Mở cho tất cả học sinh
-                                isSameDonVi = true;
-                            } else if (currentUser) {
-                                const userDonvi = String(currentUser.donvi || currentUser.address || '').trim().toLowerCase();
-                                if (teacherDonvi && userDonvi && (userDonvi === teacherDonvi || userDonvi.includes(teacherDonvi) || teacherDonvi.includes(userDonvi))) {
-                                    isSameDonVi = true;
-                                } else if (allowedUnits.some(u => u && (u === userDonvi || userDonvi.includes(u) || u.includes(userDonvi)))) {
-                                    isSameDonVi = true;
-                                } else if (teacherDonvi && inputDonvi && (inputDonvi === teacherDonvi || inputDonvi.includes(teacherDonvi) || teacherDonvi.includes(inputDonvi))) {
-                                    isSameDonVi = true;
-                                } else if (allowedUnits.some(u => u && (u === inputDonvi || inputDonvi.includes(u) || u.includes(inputDonvi)))) {
-                                    isSameDonVi = true;
-                                }
-                            } else {
-                                // Thí sinh vãng lai chưa đăng nhập
-                                if (teacherDonvi && inputDonvi && (inputDonvi === teacherDonvi || inputDonvi.includes(teacherDonvi) || teacherDonvi.includes(inputDonvi))) {
-                                    isSameDonVi = true;
-                                } else if (allowedUnits.some(u => u && (u === inputDonvi || inputDonvi.includes(u) || u.includes(inputDonvi)))) {
-                                    isSameDonVi = true;
-                                }
-                            }
+                            // Chỉ dùng danh tính tài khoản đã đăng nhập và so khớp chính xác
+                            // sau chuẩn hóa; giao diện phải cùng quy tắc với backend.
+                            const normalizeUnit = (value) => String(value || '')
+                                .normalize('NFKC').trim().toLocaleLowerCase('vi-VN').replace(/\s+/g, ' ');
+                            const normalizedAllowedUnits = new Set(
+                                [teacherDonvi, ...allowedUnits].map(normalizeUnit).filter(Boolean)
+                            );
+                            const userDonvi = currentUser
+                                ? normalizeUnit(currentUser.donvi || currentUser.address || '')
+                                : '';
+                            const isSameDonVi = Boolean(currentUser && userDonvi && normalizedAllowedUnits.has(userDonvi));
 
                             // Nếu không thuộc đơn vị đó -> Không hiển thị đề
                             if (!isSameDonVi) {
@@ -7804,10 +7788,12 @@ if (contentType && contentType.includes("application/json")) {
                             if (!currentUser) {
                                 return false; // Chưa đăng nhập sẽ không thấy đề cấu hình riêng theo lớp
                             }
-                            const normalizeLop = (s) => String(s || '').trim().toLowerCase().replace(/\s+/g, '');
+                            const normalizeLop = (s) => String(s || '')
+                                .normalize('NFKC').trim().toLocaleLowerCase('vi-VN')
+                                .replace(/^lớp\s*/u, '').replace(/\s+/g, '');
                             const userLop = normalizeLop(currentUser.lop || '');
-                            const allowedLops = targetLop.split(',').map(s => normalizeLop(s)).filter(Boolean);
-                            return allowedLops.includes(userLop);
+                            const allowedLops = targetLop.split(/[,;\n]+/).map(s => normalizeLop(s)).filter(Boolean);
+                            return Boolean(userLop) && allowedLops.includes(userLop);
                         }
 
                         return false;
@@ -8643,29 +8629,15 @@ if (contentType && contentType.includes("application/json")) {
                         allowedUnits.push(...extraUnits);
                     }
 
-                    let isSameDonVi = false;
-                    const candidateDonvi = String(inputDonvi || (currentUser?.donvi || currentUser?.address) || inputLop).trim().toLowerCase();
-
-                    if (!teacherDonvi && allowedUnits.length === 0) {
-                        isSameDonVi = true;
-                    } else if (currentUser) {
-                        const userDonvi = String(currentUser.donvi || currentUser.address || '').trim().toLowerCase();
-                        if (teacherDonvi && userDonvi && (userDonvi === teacherDonvi || userDonvi.includes(teacherDonvi) || teacherDonvi.includes(userDonvi))) {
-                            isSameDonVi = true;
-                        } else if (allowedUnits.some(u => u && (u === userDonvi || userDonvi.includes(u) || u.includes(userDonvi)))) {
-                            isSameDonVi = true;
-                        } else if (teacherDonvi && candidateDonvi && (candidateDonvi === teacherDonvi || candidateDonvi.includes(teacherDonvi) || teacherDonvi.includes(candidateDonvi))) {
-                            isSameDonVi = true;
-                        } else if (allowedUnits.some(u => u && (u === candidateDonvi || candidateDonvi.includes(u) || u.includes(candidateDonvi)))) {
-                            isSameDonVi = true;
-                        }
-                    } else {
-                        if (teacherDonvi && candidateDonvi && (candidateDonvi === teacherDonvi || candidateDonvi.includes(teacherDonvi) || teacherDonvi.includes(candidateDonvi))) {
-                            isSameDonVi = true;
-                        } else if (allowedUnits.some(u => u && (u === candidateDonvi || candidateDonvi.includes(u) || u.includes(candidateDonvi)))) {
-                            isSameDonVi = true;
-                        }
-                    }
+                    const normalizeUnit = (value) => String(value || '')
+                        .normalize('NFKC').trim().toLocaleLowerCase('vi-VN').replace(/\s+/g, ' ');
+                    const normalizedAllowedUnits = new Set(
+                        [teacherDonvi, ...allowedUnits].map(normalizeUnit).filter(Boolean)
+                    );
+                    const userDonvi = currentUser
+                        ? normalizeUnit(currentUser.donvi || currentUser.address || '')
+                        : '';
+                    const isSameDonVi = Boolean(currentUser && userDonvi && normalizedAllowedUnits.has(userDonvi));
 
                     if (!isSameDonVi) {
                         showToast(`🛑 Bạn không có quyền làm đề thi này do Đơn vị/Trường không phù hợp! (Đề thi chỉ dành cho học sinh thuộc đơn vị "${teacherAccount?.donvi || 'được chỉ định'}").`, 'error');
@@ -8680,14 +8652,12 @@ if (contentType && contentType.includes("application/json")) {
                             if (startBtn) { startBtn.disabled = false; startBtn.innerHTML = originalBtnText; }
                             return;
                         }
-                        const normalizeLop = (s) => String(s || '').trim().toLowerCase().replace(/\s+/g, '');
-                        const userLop = normalizeLop(currentUser.lop || inputLop || '');
-                        const candidateLop = normalizeLop(inputLop);
+                        const normalizeLop = (s) => String(s || '')
+                            .normalize('NFKC').trim().toLocaleLowerCase('vi-VN')
+                            .replace(/^lớp\s*/u, '').replace(/\s+/g, '');
+                        const userLop = normalizeLop(currentUser.lop || '');
                         const allowedLops = targetLop.split(/[,;\n]+/).map(s => normalizeLop(s)).filter(Boolean);
-                        const isLopMatched = allowedLops.some(al => 
-                            (userLop && (al === userLop || userLop === 'lớp' + al || al === 'lớp' + userLop || userLop.endsWith(al) || al.endsWith(userLop))) ||
-                            (candidateLop && (al === candidateLop || candidateLop === 'lớp' + al || al === 'lớp' + candidateLop || candidateLop.endsWith(al) || al.endsWith(candidateLop)))
-                        );
+                        const isLopMatched = Boolean(userLop) && allowedLops.includes(userLop);
                         if (!isLopMatched) {
                             showToast(`🛑 Bạn không có quyền làm đề thi này do Lớp không phù hợp! (Đề thi chỉ dành riêng cho học sinh Lớp ${targetLop}. Tài khoản của bạn hiện thuộc Lớp ${currentUser.lop || inputLop || 'khác'}).`, 'error');
                             if (startBtn) { startBtn.disabled = false; startBtn.innerHTML = originalBtnText; }
