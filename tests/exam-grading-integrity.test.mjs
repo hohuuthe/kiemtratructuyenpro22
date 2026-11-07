@@ -310,3 +310,27 @@ test('final hardening: manual essay updates bind exact question IDs and reject i
   assert.match(results, /requestedScore < 0 \|\| requestedScore > maxScore/);
   assert.match(results, /gradingStatus: 'completed_manual'/);
 });
+
+
+test('submission replay after an atomic claim uses one defined storedDetails snapshot', () => {
+  const grade = fs.readFileSync(new URL('../functions/api/exam/grade.ts', import.meta.url), 'utf8');
+  const secondClaim = grade.slice(
+    grade.lastIndexOf('ON CONFLICT (token_hash) DO NOTHING'),
+    grade.indexOf('// Lưu kết quả bài thi', grade.lastIndexOf('ON CONFLICT (token_hash) DO NOTHING'))
+  );
+  assert.match(secondClaim, /let storedDetails: any\[\] = \[\]/);
+  assert.match(secondClaim, /const replayGradingPending = hasPendingEssayGrading\(storedDetails\)/);
+  assert.match(secondClaim, /gradingPending: replayGradingPending/);
+  assert.match(secondClaim, /scoreFinalized: !replayGradingPending/);
+  assert.doesNotMatch(secondClaim, /let details: any\[\]/);
+});
+
+test('autosave response reports the revision that actually remains persisted', () => {
+  const save = fs.readFileSync(new URL('../functions/api/exam/save.ts', import.meta.url), 'utf8');
+  assert.match(save, /SELECT revision, saved_at FROM _exam_answer_drafts WHERE session_id = \?/);
+  assert.match(save, /const persistedRevision = Math\.max/);
+  assert.match(save, /const accepted = persistedRevision === revision/);
+  assert.match(save, /requestedRevision: revision/);
+  assert.match(save, /revision: persistedRevision/);
+  assert.match(save, /savedAt: persistedSavedAt/);
+});
