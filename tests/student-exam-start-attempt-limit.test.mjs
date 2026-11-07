@@ -49,3 +49,35 @@ test('Front end never enters fullscreen before server accepts exam start', () =>
     assert.match(backend,/code: 'EXAM_ATTEMPT_LIMIT_REACHED', attemptCount, maxAttempts: maxAttemptsVal/);
   }
 });
+
+
+test('attempt limits are bound only to authenticated user_id and exact exam_id', () => {
+  const backend=readFileSync('functions/api/exam/generate.ts','utf8');
+  assert.match(backend,/EXAM_ATTEMPT_LOGIN_REQUIRED/);
+  assert.match(backend,/WHERE exam_id = \? AND user_id = \?/);
+  assert.doesNotMatch(
+    backend.slice(
+      backend.indexOf('// KIỂM TRA GIỚI HẠN SỐ LẦN LÀM BÀI'),
+      backend.indexOf('// Chuẩn hóa và đối sánh bài học')
+    ),
+    /student_name|exam_name/
+  );
+  assert.match(backend,/EXAM_ATTEMPT_COUNT_UNAVAILABLE/);
+});
+
+test('unit-scoped exams require authenticated exact unit and exact class membership', () => {
+  const backend=readFileSync('functions/api/exam/generate.ts','utf8');
+  const region=backend.slice(
+    backend.indexOf('// KIỂM TRA QUYỀN TRUY CẬP ĐỐI VỚI ĐỀ CHO ĐƠN VỊ'),
+    backend.indexOf('// KIỂM TRA GIỚI HẠN SỐ LẦN LÀM BÀI')
+  );
+  assert.match(region,/EXAM_UNIT_LOGIN_REQUIRED/);
+  assert.match(region,/EXAM_UNIT_SCOPE_INVALID/);
+  assert.match(region,/EXAM_UNIT_MISMATCH/);
+  assert.match(region,/allowedUnitSet\.has\(verifiedUserDonvi\)/);
+  assert.match(region,/allowedLops\.includes\(userLop\)/);
+  assert.doesNotMatch(region,/candidateInputDonvi/);
+  assert.doesNotMatch(region,/\.includes\(teacherDonvi\)/);
+  assert.doesNotMatch(region,/teacherDonvi\.includes/);
+  assert.doesNotMatch(region,/\.endsWith\(userLop\)|userLop\.endsWith/);
+});
