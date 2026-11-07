@@ -13,6 +13,7 @@ const grade = read('functions/api/exam/grade.ts');
 const main = read('src/main.js');
 const accounts = read('functions/api/accounts.ts');
 const headers = read('public/_headers');
+const authSession = read('functions/api/auth/session.ts');
 
 test('teacher assignment reads and deletes are scoped to authenticated teacher', () => {
   assert.match(teacherClasses, /if \(isTeacher && !isAdmin\) \{[\s\S]*teacherId = user\.user_id \|\| user\.id/);
@@ -37,9 +38,13 @@ test('exam image upload uses ACTIVE exam session and forbids exam Base64 fallbac
   assert.match(uploadImage, /exam-submissions/);
 });
 
-test('browser never persists plaintext login password', () => {
+test('browser never persists plaintext login password and restores by JWT', () => {
   assert.doesNotMatch(main, /setItem\(window\.tenantStorageKey\('remember_password'\)/);
+  assert.doesNotMatch(main, /getItem\(window\.tenantStorageKey\('remember_password'\)/);
   assert.match(main, /removeItem\(window\.tenantStorageKey\('remember_password'\)\)/);
+  assert.match(main, /\/api\/auth\/session/);
+  assert.match(authSession, /verifyAuthSession/);
+  assert.match(authSession, /Cache-Control.*no-store/);
   assert.match(main, /ACCOUNT_EXPIRED/);
   assert.match(main, /Tài khoản đã hết hạn sử dụng/);
 });
