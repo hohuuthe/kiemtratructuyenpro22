@@ -7749,7 +7749,7 @@ if (contentType && contentType.includes("application/json")) {
             document.getElementById('tf4-advanced-scoring')?.classList.toggle('hidden', !examConfig.tf4ScoringMode);
             for (const [key, value] of Object.entries(examConfig.tf4Points)) {
                 const field = document.getElementById('tf4-points-' + key);
-                if (field) field.value = String(value);
+                if (field) field.value = formatScoreInput4(value);
             }
             // Luôn đồng bộ đúng ID + tên đề, kể cả khi tab sửa đề chưa active.
             // Nạp đề áp cấu hình khi tab còn ẩn để tránh race condition, nên không được phụ thuộc activeTab.
