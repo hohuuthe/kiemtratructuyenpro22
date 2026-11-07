@@ -18,19 +18,21 @@ export const onRequestPost: PagesFunction = async (context: any) => {
     if (!boardId) return boardJson({ error: 'Mã bảng không hợp lệ.' }, 400);
     const board = await loadBoard(db, boardId);
     if (!board) return boardJson({ error: 'Không tìm thấy bảng.' }, 404);
-    if (board.access_mode === 'protected' && !canManageBoard(user, board, isAdmin)) {
-      const rateKey = await hashRateLimitKey([
-        'board-code', clientIp(context.request), boardId, user.id || user.user_id || ''
-      ]);
-      const rate = await consumeRateLimit(db, rateKey, 15, 300);
-      if (!rate.allowed) return boardJson({
-        error: 'Đã nhập mã bảng quá nhiều lần. Vui lòng thử lại sau.',
-        code: 'BOARD_ACCESS_RATE_LIMITED',
-        retry_after: rate.retryAfter
-      }, 429);
-    }
     const gate = await canEnterBoard(user, board, isAdmin, body.accessCode);
-    if (!gate.ok) return boardJson({ error: gate.error, code: gate.code || 'BOARD_ACCESS_DENIED' }, gate.status || 403);
+    if (!gate.ok) {
+      if (gate.code === 'BOARD_ACCESS_CODE_INVALID') {
+        const rateKey = await hashRateLimitKey([
+          'board-code', clientIp(context.request), boardId, user.id || user.user_id || ''
+        ]);
+        const rate = await consumeRateLimit(db, rateKey, 15, 300);
+        if (!rate.allowed) return boardJson({
+          error: 'Đã nhập sai mã bảng quá nhiều lần. Vui lòng thử lại sau.',
+          code: 'BOARD_ACCESS_RATE_LIMITED',
+          retry_after: rate.retryAfter
+        }, 429);
+      }
+      return boardJson({ error: gate.error, code: gate.code || 'BOARD_ACCESS_DENIED' }, gate.status || 403);
+    }
     const userId = String(user.id || user.user_id || '');
     const owner = canManageBoard(user, board, isAdmin);
     if (!owner) {
