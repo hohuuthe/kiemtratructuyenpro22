@@ -73,7 +73,8 @@ test('essay score is clamped and score precision keeps quarter points', () => {
   assert.equal(clampScore(-0.25, 1), 0);
   assert.equal(roundScore(0.25, 2), 0.25);
   assert.equal(roundScore(7.25, 2), 7.25);
-  assert.equal(roundScore(0.1 + 0.2, 2), 0.3);
+  assert.equal(roundScore(0.1 + 0.2, 5), 0.3);
+  assert.equal(roundScore(0.123456, 5), 0.12346);
 });
 
 test('server grading uses immutable snapshots and fail-closed persistence', () => {
@@ -96,7 +97,7 @@ test('manual grading API preserves objective details and recomputes canonical to
 test('browser uses shared grading core and no one-decimal manual score rounding', () => {
   const main = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
   assert.match(main, /from '.\/exam-grading-core\.js'/);
-  assert.match(main, /roundScore\(newTotalScore, 2\)/);
+  assert.match(main, /roundScore\(newTotalScore, 5\)/);
   assert.doesNotMatch(main, /newTotalScore\) \|\| 0\)\.toFixed\(1\)/);
 });
 
@@ -228,16 +229,16 @@ test('second audit: authoritative exam identity, time and AI key cannot come fro
   assert.match(grade, /String\(examConfig\.name \|\| studentInfo\.examName \|\| ''\)/);
 });
 
-test('second audit: config and UI use one two-decimal score precision contract', () => {
+test('second audit: config and UI use one five-decimal score precision contract', () => {
   const contract = fs.readFileSync(new URL('../src/exam-config-contract.ts', import.meta.url), 'utf8');
   const editor = fs.readFileSync(new URL('../public/components/tab-exam-editor.html', import.meta.url), 'utf8');
   const generate = fs.readFileSync(new URL('../functions/api/exam/generate.ts', import.meta.url), 'utf8');
-  assert.match(contract, /tối đa 2 chữ số thập phân/);
-  assert.doesNotMatch(editor, /step="0\.001"/);
+  assert.match(contract, /tối đa 5 chữ số thập phân/);
+  assert.doesNotMatch(editor, /step="0\.000001"/);
   assert.match(editor, /id="tf4-points-2" value="0\.50"/);
   assert.match(editor, /id="tf4-points-3" value="0\.75"/);
   assert.match(editor, /id="tf4-points-4" value="1\.00"/);
-  assert.match(generate, /hasTwoDecimalPrecision/);
+  assert.match(generate, /hasFiveDecimalPrecision/);
 });
 
 test('second audit: image-only MC options remain valid through save and generation filters', () => {
@@ -267,7 +268,7 @@ test('third audit: snapshot order and answer-key integrity fail closed', () => {
 test('third audit: grading validates signed point precision and custom TF4 map', () => {
   const grade = fs.readFileSync(new URL('../functions/api/exam/grade.ts', import.meta.url), 'utf8');
   assert.match(grade, /const readPoint = \(value: any, fallback: number, label: string\): number \| null/);
-  assert.match(grade, /Math\.abs\(n \* 100 - Math\.round\(n \* 100\)\) > 1e-9/);
+  assert.match(grade, /Math\.abs\(n \* 100000 - Math\.round\(n \* 100000\)\) > 1e-7/);
   assert.match(grade, /const customTf4Mode = examFlagEnabled/);
   assert.match(grade, /Bảng điểm Đúng\/Sai tùy chỉnh không hợp lệ; hệ thống chưa lưu kết quả/);
 });
