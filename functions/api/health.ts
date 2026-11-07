@@ -36,18 +36,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
   }
 
   return new Response(JSON.stringify({
-    status: dbStatus === "CONNECTED_OK" ? "OK" : "ERROR",
-    tenant_slug: slug || "DEFAULT",
-    environment: {
-      has_gemini_key: !!env.GEMINI_API_KEY,
-      has_r2_configured: !!env.CLOUDFLARE_R2_BUCKET_NAME,
-    },
-    database: {
-      status: dbStatus,
-      user_count: userCount,
-      error: dbError
-    },
-    timestamp: new Date().toISOString()
+    status: dbStatus === "CONNECTED_OK" ? "OK" : "ERROR"
   }, null, 2), {
     status: dbStatus === "CONNECTED_OK" ? 200 : 500,
     headers: corsHeaders
