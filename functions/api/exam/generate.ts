@@ -2,6 +2,7 @@ import { signJWT, verifyAuthSession, getDynamicSecret, getDatabase } from './uti
 import {makeGradeSessionConfig, accessCodeMatches} from './security';
 import { examFlagEnabled, validateQuestionAnswer } from '../../../src/exam-grading-core.js';
 import { EXAM_SESSION_PURPOSE_PRESTART, evaluateExamAccessWindow } from '../../../src/exam-time-authority.js';
+import { consumeRateLimit, hashRateLimitKey, clientIp } from '../rate-limit';
 
 interface Env {
   NEON_DATABASE_URL?: string;
@@ -245,9 +246,25 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             return new Response(JSON.stringify({ error: 'Đề thi không tồn tại hoặc chưa được lưu trên hệ thống!' }), { status: 404, headers: corsHeaders });
         }
 
-        if (dbExam?.chedodethi === 'Đề có mã bảo mật' && !isAdmin && !isTeacher &&
-            !accessCodeMatches(submittedAccessCode, dbExam.mabaomatdethi)) {
-            return new Response(JSON.stringify({error:'Mã bảo vệ đề thi không chính xác'}), {status:403,headers:corsHeaders});
+        if (dbExam?.chedodethi === 'Đề có mã bảo mật' && !isAdmin && !isTeacher) {
+            const rateKey = await hashRateLimitKey([
+                'exam-code', clientIp(request), String(dbExam.id || examId || ''),
+                String(tokenUser?.user_id || tokenUser?.id || 'guest')
+            ]);
+            const rate = await consumeRateLimit(db, rateKey, 12, 300);
+            if (!rate.allowed) {
+                return new Response(JSON.stringify({
+                    code: 'EXAM_ACCESS_CODE_RATE_LIMITED',
+                    error: 'Đã nhập mã bảo vệ quá nhiều lần. Vui lòng thử lại sau.',
+                    retry_after: rate.retryAfter
+                }), {
+                    status: 429,
+                    headers: { ...corsHeaders, 'Retry-After': String(rate.retryAfter) }
+                });
+            }
+            if (!accessCodeMatches(submittedAccessCode, dbExam.mabaomatdethi)) {
+                return new Response(JSON.stringify({error:'Mã bảo vệ đề thi không chính xác'}), {status:403,headers:corsHeaders});
+            }
         }
         // KIỂM TRA QUYỀN TRUY CẬP ĐỐI VỚI ĐỀ CHO ĐƠN VỊ
         if (activeExamConfig.chedodethi === 'Đề cho đơn vị' || activeExamConfig.chedodethi === 'Đề thi cho đơn vị') {
