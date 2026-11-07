@@ -407,7 +407,20 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                             }), { status: 409, headers: corsHeaders });
                         }
                         let draftAnswers: any[] = [];
-                        try { draftAnswers = JSON.parse(String(draftRow.answers_json || '[]')); } catch {}
+                        try {
+                            draftAnswers = JSON.parse(String(draftRow.answers_json || '[]'));
+                            if (Array.isArray(draftAnswers)) {
+                                // Defense in depth: autosave mới đã được kiểm tra ở /exam/save,
+                                // nhưng vẫn tái kiểm tra để bảo vệ các draft cũ hoặc dữ liệu bị sửa.
+                                draftAnswers = sanitizeSubmissionAnswers(draftAnswers);
+                            }
+                        } catch (draftValidationError: any) {
+                            console.error('Deadline-safe draft validation failed:', draftValidationError);
+                            return new Response(JSON.stringify({
+                                code: 'EXAM_DEADLINE_DRAFT_INVALID',
+                                error: 'Bản lưu đáp án trước hạn chứa dữ liệu không hợp lệ; hệ thống chưa chấm và chưa lưu kết quả.'
+                            }), { status: 409, headers: corsHeaders });
+                        }
                         if (!Array.isArray(draftAnswers) || draftAnswers.length !== issuedIds.length) {
                             return new Response(JSON.stringify({
                                 code: 'EXAM_DEADLINE_DRAFT_INVALID',
