@@ -1452,6 +1452,20 @@ if (contentTypeConfig && contentTypeConfig.includes("application/json")) {
         }
         window.refreshAppHeaderTitle = refreshAppHeaderTitle;
 
+        function getExamWriterId() {
+            const key = window.tenantStorageKey('exam_writer_id');
+            try {
+                let id = sessionStorage.getItem(key);
+                if (!id) {
+                    id = 'tab_' + (crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36).slice(2)));
+                    sessionStorage.setItem(key, id);
+                }
+                return id;
+            } catch {
+                return 'tab_' + Date.now().toString(36) + Math.random().toString(36).slice(2);
+            }
+        }
+
         let currentExam = {
             questions: [],
             answers: {},
@@ -1459,6 +1473,7 @@ if (contentTypeConfig && contentTypeConfig.includes("application/json")) {
             startTime: null,
             timerInterval: null,
             sessionId: null,
+            writerId: getExamWriterId(),
             submitting: false,
             serverStartedAtMs: null,
             deadlineAtMs: null,
@@ -8453,6 +8468,7 @@ if (contentType && contentType.includes("application/json")) {
                 startTime: Number(data.startedAtMs) || Date.now(),
                 timerInterval: null,
                 sessionId: createExamSessionId(),
+                writerId: getExamWriterId(),
                 submitting: false,
                 studentName: String(meta.studentName || currentUser?.full_name || currentUser?.ho_ten || ''),
                 studentLop: String(meta.studentLop || currentUser?.lop || ''),
@@ -8770,6 +8786,7 @@ if (contentType && contentType.includes("application/json")) {
                     startTime: null,
                     timerInterval: null,
                     sessionId: createExamSessionId(),
+                    writerId: getExamWriterId(),
                     submitting: false,
                     studentName: name,
                     studentLop: inputLop,
@@ -10039,12 +10056,16 @@ if (contentType && contentType.includes("application/json")) {
                     body: JSON.stringify({
                         token: window.currentExamToken,
                         studentAnswers: answers,
-                        revision
+                        revision,
+                        writerId: currentExam.writerId || getExamWriterId()
                     })
                 });
                 const saveResult = await response.json().catch(() => ({}));
                 if (!response.ok) {
-                    if (saveResult?.code !== 'EXAM_DEADLINE_REACHED') {
+                    if (saveResult?.code === 'EXAM_WRITER_CONFLICT') {
+                        currentExam.autosavePending = false;
+                        showToast('⚠️ Bài thi đang mở ở tab khác. Tab này không ghi đè đáp án.', 'warning');
+                    } else if (saveResult?.code !== 'EXAM_DEADLINE_REACHED') {
                         console.warn('[ExamAutosave] Không thể lưu tạm:', saveResult?.error || response.status);
                     }
                     return false;
