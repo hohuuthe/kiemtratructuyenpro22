@@ -492,11 +492,12 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             }
         }
 
-        // Điểm phải được lấy từ cấu hình đã ký/snapshot và phải hữu hạn, không âm,
-        // không vượt biên bảo vệ, tối đa 5 chữ số thập phân.
+        // points_* come from PostgreSQL REAL. Five-decimal precision is enforced
+        // when config is written; after the REAL round-trip, only finite/range checks
+        // are safe because binary float noise can exceed a strict decimal-place test.
         const readPoint = (value: any, fallback: number, label: string): number | null => {
             const n = getNum(value, fallback);
-            if (!Number.isFinite(n) || n < 0 || n > 1000 || Math.abs(n * 100000 - Math.round(n * 100000)) > 1e-7) {
+            if (!Number.isFinite(n) || n < 0 || n > 1000) {
                 console.error('Invalid scoring point in grading session', { label, value });
                 return null;
             }
