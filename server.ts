@@ -797,6 +797,33 @@ async function startServer() {
     }
   });
 
+  app.get("/api/auth/session", async (req, res) => {
+    try {
+      res.setHeader("Cache-Control","private, no-store, max-age=0");
+      const auth=req.headers.authorization||"";
+      if(!auth.startsWith("Bearer ")) return res.status(401).json({error:"Phiên đăng nhập không hợp lệ."});
+      const claims:any=verifyJWTSync(auth.slice(7),await getServerSecret());
+      if(!claims?.id||!claims?.auth_state) return res.status(401).json({error:"Phiên đăng nhập đã hết hạn hoặc không còn hiệu lực."});
+      const row=(await executeSqlQuery(`
+        SELECT a.id,a.user_id,a.username,a.password,a.role,a.is_active,a.expiry_date,
+               u.full_name,u.target_audience,u.donvi,u.lop,u.is_active AS profile_active,u.expiry_date AS profile_expiry_date
+        FROM accounts a LEFT JOIN users u ON u.id=COALESCE(a.user_id,a.id)
+        WHERE a.id=? LIMIT 1
+      `,[claims.id])).results?.[0];
+      if(!row||!getAccountAccessStatus(row).allowed) return res.status(401).json({error:"Phiên đăng nhập đã hết hạn hoặc không còn hiệu lực."});
+      const expected=crypto.createHash('sha256').update(accountSessionMaterial(row)).digest('hex');
+      if(expected!==claims.auth_state) return res.status(401).json({error:"Phiên đăng nhập đã hết hạn hoặc không còn hiệu lực."});
+      const audience=row.target_audience||(String(row.role).toLowerCase()==='admin'?'Quản trị viên':['teacher','giáo viên'].includes(String(row.role).toLowerCase())?'Giáo viên':'Học sinh');
+      return res.json({data:{
+        id:row.id,user_id:row.user_id||row.id,username:row.username,role:row.role,
+        target_audience:audience,full_name:row.full_name||row.username,
+        donvi:row.donvi||'',lop:row.lop||'',is_vip:false
+      },error:null});
+    } catch {
+      return res.status(503).json({error:"Không thể xác minh phiên đăng nhập."});
+    }
+  });
+
   app.post("/api/auth/change-password", async (req, res) => {
     try {
       const { username, oldPassword, newPassword } = req.body;
@@ -4564,73 +4591,47 @@ CLOUDFLARE_R2_PUBLIC_URL: "${r2PublicUrl}"
     });
   });
 
-  // Proxy Image endpoint to bypass CORS when generating docx images
+  // Proxy Image endpoint: only trusted HTTPS R2 raster images.
   app.get("/api/proxy-image", async (req, res) => {
     try {
-      const imageUrl = req.query.url;
-      if (!imageUrl || typeof imageUrl !== "string") {
-        return res.status(400).send("Yêu cầu tham số URL hợp lệ.");
-      }
-      
-      const imgRes = await fetch(imageUrl);
-      if (!imgRes.ok) {
-        return res.status(imgRes.status).send(`Failed to fetch original image: ${imgRes.statusText}`);
-      }
-      
-      const contentType = imgRes.headers.get("content-type") || "image/png";
-      const buffer = await imgRes.arrayBuffer();
-      
-      res.setHeader("Content-Type", contentType);
-      res.setHeader("Cache-Control", "public, max-age=86400"); // Cache 1 ngày
-      res.send(Buffer.from(buffer));
-    } catch (e: any) {
-      console.error("[Proxy Image Error]:", e?.message || e);
-      res.status(500).send("Lỗi máy chủ khi dọn dẹp và tải ảnh proxy.");
+      const raw=typeof req.query.url==="string"?req.query.url:"";
+      if(!raw)return res.status(400).send("Yêu cầu tham số URL hợp lệ.");
+      let url:URL;
+      try{url=new URL(raw);}catch{return res.status(400).send("URL không hợp lệ.");}
+      if(url.protocol!=="https:"||url.username||url.password)return res.status(403).send("Nguồn ảnh không được phép.");
+      const bases=[
+        String(getConfig("CLOUDFLARE_R2_PUBLIC_URL")||"").trim().replace(/\/+$/,""),
+        (()=>{const b=cleanR2BucketName(getConfig("CLOUDFLARE_R2_BUCKET_NAME"));const a=cleanR2AccountId(getConfig("CLOUDFLARE_R2_ACCOUNT_ID"));return b&&a?`https://${b}.${a}.r2.dev`:"";})()
+      ].filter(Boolean);
+      if(!bases.some(base=>url.href===base||url.href.startsWith(base+"/")))return res.status(403).send("Nguồn ảnh không được phép.");
+      const imgRes=await fetch(url.href,{redirect:"error"});
+      if(!imgRes.ok)return res.status(imgRes.status).send("Không thể tải ảnh nguồn.");
+      const contentType=String(imgRes.headers.get("content-type")||"").toLowerCase();
+      if(!contentType.startsWith("image/")||contentType.includes("svg"))return res.status(415).send("Nguồn không phải ảnh raster được phép.");
+      const declared=Number(imgRes.headers.get("content-length")||0);
+      if(declared>12*1024*1024)return res.status(413).send("Ảnh vượt giới hạn proxy.");
+      const buffer=await imgRes.arrayBuffer();
+      if(buffer.byteLength>12*1024*1024)return res.status(413).send("Ảnh vượt giới hạn proxy.");
+      res.setHeader("Content-Type",contentType);
+      res.setHeader("Cache-Control","public, max-age=86400");
+      res.setHeader("X-Content-Type-Options","nosniff");
+      res.setHeader("Content-Security-Policy","default-src 'none'; sandbox");
+      return res.send(Buffer.from(buffer));
+    } catch {
+      return res.status(500).send("Lỗi máy chủ proxy ảnh.");
     }
   });
 
   // General routes
-  app.get("/api/health", (req, res) => {
-    res.json({ status: "ok" });
-  });
+  app.get("/api/health", (req, res) => { res.json({ status: "OK" }); });
 
   app.get("/api/config", (req, res) => {
-    const checkKey = (key: keyof typeof BACKEND_CONFIG) => {
-      const val = getConfig(key);
-      return {
-        exists: val.length > 5,
-        source: BACKEND_CONFIG[key] ? "HARDCODED" : (process.env[key] ? "ENV" : "MISSING")
-      };
-    };
-
-    const config = { 
+    res.json({
       isGeminiConfigured: isConfigured("GEMINI_API_KEY"),
       isNeonConfigured: isConfigured("NEON_DATABASE_URL") || !!process.env.NEON_DATABASE_URL || !!process.env.DATABASE_URL,
-      isR2Configured: isConfigured("CLOUDFLARE_R2_ACCESS_KEY_ID") && isConfigured("CLOUDFLARE_R2_BUCKET_NAME"),
-      timestamp: Date.now(),
-      system: {
-        node_env: process.env.NODE_ENV,
-        platform: process.platform,
-        cwd: process.cwd(),
-        database_engine: "PostgreSQL (Neon Serverless)"
-      },
-      debug_report: {
-        gemini: checkKey("GEMINI_API_KEY"),
-        neon: {
-          configured: isConfigured("NEON_DATABASE_URL") || !!process.env.NEON_DATABASE_URL || !!process.env.DATABASE_URL
-        },
-        r2: {
-          key: checkKey("CLOUDFLARE_R2_ACCESS_KEY_ID"),
-          secret: checkKey("CLOUDFLARE_R2_SECRET_ACCESS_KEY"),
-          bucket: checkKey("CLOUDFLARE_R2_BUCKET_NAME"),
-          public: checkKey("CLOUDFLARE_R2_PUBLIC_URL")
-        }
-      }
-    };
-    
-    res.json(config);
+      isR2Configured: isConfigured("CLOUDFLARE_R2_ACCESS_KEY_ID") && isConfigured("CLOUDFLARE_R2_BUCKET_NAME")
+    });
   });
-
 
   // ==========================================
   // EXAM GENERATE AND GRADE ROUTES (BACKEND)
