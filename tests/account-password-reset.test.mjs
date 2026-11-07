@@ -26,13 +26,17 @@ test('bulk password reset uses the same PBKDF2 password scheme as login', () => 
   assert.match(server, /verifyPasswordSync\(password, hashedPassword\)/);
 });
 
-test('bulk reset validates the whole selection and performs one set-based update', () => {
+test('bulk reset validates the whole selection and assigns a unique PBKDF2 salt per account', () => {
   assert.match(cf, /SELECT id FROM accounts WHERE id IN/);
   assert.match(cf, /ACCOUNT_SELECTION_CHANGED/);
-  assert.match(cf, /UPDATE accounts SET password = \? WHERE id IN/);
+  assert.match(cf, /const hashes = new Map<string,string>\(\)/);
+  assert.match(cf, /jsonb_to_recordset/);
+  assert.match(cf, /unique_salt_per_account: true/);
   assert.match(cf, /PASSWORD_RESET_VERIFY_FAILED/);
   assert.match(server, /SELECT id FROM accounts WHERE id IN/);
-  assert.match(server, /UPDATE accounts SET password = \? WHERE id IN/);
+  assert.match(server, /const hashes = new Map<string,string>\(\)/);
+  assert.match(server, /jsonb_to_recordset/);
+  assert.match(server, /unique_salt_per_account: true/);
   assert.match(server, /PASSWORD_RESET_VERIFY_FAILED/);
 });
 
