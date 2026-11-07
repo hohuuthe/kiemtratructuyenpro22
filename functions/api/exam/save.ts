@@ -105,10 +105,19 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       WHERE excluded.revision > _exam_answer_drafts.revision
     `).bind(gradingSessionId, answersJson, revision, savedAt).run();
 
+    const persistedDraft: any = await db.prepare(
+      'SELECT revision, saved_at FROM _exam_answer_drafts WHERE session_id = ?'
+    ).bind(gradingSessionId).first();
+    const persistedRevision = Math.max(0, Number(persistedDraft?.revision) || 0);
+    const persistedSavedAt = persistedDraft?.saved_at || null;
+    const accepted = persistedRevision === revision;
+
     return new Response(JSON.stringify({
-      saved: true,
-      revision,
-      savedAt,
+      saved: accepted,
+      accepted,
+      requestedRevision: revision,
+      revision: persistedRevision,
+      savedAt: persistedSavedAt,
       remainingSeconds: remainingExamSecondsFromDeadline(timing.deadlineAtMs, nowMs)
     }), { status: 200, headers: corsHeaders });
   } catch (error: any) {

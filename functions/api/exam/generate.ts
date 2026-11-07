@@ -252,11 +252,27 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         // KIỂM TRA QUYỀN TRUY CẬP ĐỐI VỚI ĐỀ CHO ĐƠN VỊ
         if (activeExamConfig.chedodethi === 'Đề cho đơn vị' || activeExamConfig.chedodethi === 'Đề thi cho đơn vị') {
             if (!isAdmin && !isTeacher) {
-                // Lấy thông tin đơn vị của giáo viên tạo đề (hỗ trợ cả id người dùng và id tài khoản)
+                // Đề theo đơn vị bắt buộc dùng danh tính đã xác thực. Không bao giờ
+                // tin studentDonvi/userDonvi/studentClass do trình duyệt tự khai.
+                if (!tokenUser) {
+                    return new Response(JSON.stringify({
+                        code: 'EXAM_UNIT_LOGIN_REQUIRED',
+                        error: 'Đề thi này chỉ dành cho học sinh thuộc đơn vị được phân công. Vui lòng đăng nhập tài khoản học sinh để xác minh đơn vị.'
+                    }), { status: 403, headers: corsHeaders });
+                }
+
+                const normalizeScopeValue = (value: any): string =>
+                    String(value ?? '')
+                        .normalize('NFKC')
+                        .trim()
+                        .toLocaleLowerCase('vi-VN')
+                        .replace(/\s+/g, ' ');
+
+                // Lấy đơn vị của giáo viên tạo đề từ CSDL; đây là nguồn tin cậy.
                 const { results: teacherRows } = await db.prepare(
                     "SELECT donvi FROM users WHERE id = ? OR id IN (SELECT user_id FROM accounts WHERE id = ?)"
                 ).bind(effectiveTeacherId, effectiveTeacherId).all();
-                const teacherDonvi = String((teacherRows?.[0] as any)?.donvi || '').trim().toLowerCase();
+                const teacherDonvi = normalizeScopeValue((teacherRows?.[0] as any)?.donvi || '');
 
                 let allowedUnits: string[] = [];
                 const rawAC = activeExamConfig.access_control || activeExamConfig.accessControl;
@@ -264,52 +280,59 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                     try {
                         const ac = typeof rawAC === 'object' ? rawAC : JSON.parse(rawAC);
                         if (ac && ac.allowedUnits) {
-                            allowedUnits = Array.isArray(ac.allowedUnits)
-                                ? ac.allowedUnits.map((u: any) => String(u).trim().toLowerCase())
-                                : [String(ac.allowedUnits).trim().toLowerCase()];
+                            allowedUnits = (Array.isArray(ac.allowedUnits) ? ac.allowedUnits : [ac.allowedUnits])
+                                .map((u: any) => normalizeScopeValue(u))
+                                .filter(Boolean);
                         }
-                    } catch(e) {}
-                }
-
-                let isSameDonVi = false;
-                const candidateInputDonvi = String(body.studentDonvi || body.userDonvi || body.studentClass || '').trim().toLowerCase();
-                if (!teacherDonvi && allowedUnits.length === 0) {
-                    isSameDonVi = true;
-                } else if (tokenUser) {
-                    const userDonvi = String(tokenUser.donvi || tokenUser.address || '').trim().toLowerCase();
-                    if (teacherDonvi && userDonvi && (userDonvi === teacherDonvi || userDonvi.includes(teacherDonvi) || teacherDonvi.includes(userDonvi))) {
-                        isSameDonVi = true;
-                    } else if (allowedUnits.some((au: string) => au && (au === userDonvi || userDonvi.includes(au) || au.includes(userDonvi)))) {
-                        isSameDonVi = true;
-                    }
-                } else {
-                    if (teacherDonvi && candidateInputDonvi && (candidateInputDonvi === teacherDonvi || candidateInputDonvi.includes(teacherDonvi) || teacherDonvi.includes(candidateInputDonvi))) {
-                        isSameDonVi = true;
-                    } else if (allowedUnits.some((au: string) => au && (au === candidateInputDonvi || candidateInputDonvi.includes(au) || au.includes(candidateInputDonvi)))) {
-                        isSameDonVi = true;
+                    } catch(e) {
+                        return new Response(JSON.stringify({
+                            code: 'EXAM_UNIT_SCOPE_INVALID',
+                            error: 'Cấu hình đơn vị được phép của đề thi không hợp lệ. Hệ thống chưa cho phép bắt đầu để tránh cấp sai quyền.'
+                        }), { status: 409, headers: corsHeaders });
                     }
                 }
 
-                if (!isSameDonVi) {
-                    return new Response(JSON.stringify({ error: `🛑 Bạn không có quyền làm đề thi này do Đơn vị/Trường không phù hợp! (Đề thi chỉ dành cho học sinh thuộc đơn vị "${(teacherRows?.[0] as any)?.donvi || 'được phân công'}").` }), { status: 403, headers: corsHeaders });
+                const verifiedUserDonvi = normalizeScopeValue(tokenUser.donvi || '');
+                const allowedUnitSet = new Set<string>([
+                    ...(teacherDonvi ? [teacherDonvi] : []),
+                    ...allowedUnits
+                ]);
+
+                // Fail-closed nếu đề khai báo "cho đơn vị" nhưng không xác định được
+                // bất kỳ đơn vị tin cậy nào từ giáo viên hoặc cấu hình.
+                if (allowedUnitSet.size === 0) {
+                    return new Response(JSON.stringify({
+                        code: 'EXAM_UNIT_SCOPE_INVALID',
+                        error: 'Đề thi chưa xác định được đơn vị được phép. Vui lòng liên hệ giáo viên để kiểm tra cấu hình.'
+                    }), { status: 409, headers: corsHeaders });
+                }
+
+                if (!verifiedUserDonvi || !allowedUnitSet.has(verifiedUserDonvi)) {
+                    return new Response(JSON.stringify({
+                        code: 'EXAM_UNIT_MISMATCH',
+                        error: 'Bạn không có quyền làm đề thi này do đơn vị/trường của tài khoản không thuộc phạm vi được phép.'
+                    }), { status: 403, headers: corsHeaders });
                 }
 
                 const targetLop = String(activeExamConfig.target_lop || activeExamConfig.lop || '').trim();
-                // TH1: Nếu không nhập lớp nào -> Dành cho tất cả học sinh thuộc đơn vị đó, không ràng buộc lớp.
-                // TH2: Nếu có nhập tên lớp cố định:
                 if (targetLop) {
-                    if (!tokenUser) {
-                        return new Response(JSON.stringify({ error: `🛑 Bạn không có quyền làm đề thi này do chưa đăng nhập! (Đề thi chỉ dành riêng cho học sinh Lớp ${targetLop}. Vui lòng đăng nhập tài khoản học sinh để làm bài).` }), { status: 403, headers: corsHeaders });
-                    }
-                    const normalizeLop = (s: string) => String(s || '').trim().toLowerCase().replace(/\s+/g, '');
+                    // Chỉ chuẩn hóa Unicode, chữ hoa/thường, khoảng trắng và tiền tố "Lớp".
+                    // Không dùng includes/endsWith vì có thể làm lớp ngắn khớp nhầm lớp khác.
+                    const normalizeLop = (value: any): string =>
+                        normalizeScopeValue(value)
+                            .replace(/^lớp\s*/u, '')
+                            .replace(/\s+/g, '');
                     const userLop = normalizeLop(tokenUser.lop || '');
-                    const candidateClass = normalizeLop(body.studentLop || body.userLop || body.studentClass || '');
-                    const allowedLops = targetLop.split(/[,;\n]+/).map((s: string) => normalizeLop(s)).filter(Boolean);
-                    const isLopMatched = allowedLops.some((al: string) =>
-                        userLop && (al === userLop || userLop === 'lớp' + al || al === 'lớp' + userLop || userLop.endsWith(al) || al.endsWith(userLop))
-                    );
+                    const allowedLops = targetLop
+                        .split(/[,;\n]+/)
+                        .map((s: string) => normalizeLop(s))
+                        .filter(Boolean);
+                    const isLopMatched = Boolean(userLop) && allowedLops.includes(userLop);
                     if (!isLopMatched) {
-                        return new Response(JSON.stringify({ error: `🛑 Bạn không có quyền làm đề thi này do Lớp không phù hợp! (Đề thi chỉ dành riêng cho học sinh Lớp ${targetLop}. Tài khoản của bạn thuộc Lớp ${tokenUser.lop || 'khác'}).` }), { status: 403, headers: corsHeaders });
+                        return new Response(JSON.stringify({
+                            code: 'EXAM_CLASS_MISMATCH',
+                            error: `Bạn không có quyền làm đề thi này do lớp của tài khoản không thuộc phạm vi được phép (Lớp yêu cầu: ${targetLop}).`
+                        }), { status: 403, headers: corsHeaders });
                     }
                 }
             }
@@ -321,42 +344,39 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             : Number(activeExamConfig.max_attempts || activeExamConfig.maxAttempts || 0);
 
         if (maxAttemptsVal > 0 && !isAdmin && !isTeacher) {
-            const studentNameVal = (body.studentName || '').trim();
             const studentUserIdVal = tokenUser?.user_id || tokenUser?.id || null;
             const targetExamIdStr = String(activeExamConfig.id || examId || '').trim();
-            const targetExamNameStr = String(activeExamConfig.name || examName || '').trim();
+
+            // Khi có giới hạn lượt, định danh bằng tên là không đủ an toàn: hai học sinh
+            // trùng tên có thể bị cộng lượt của nhau. Bắt buộc tài khoản đã xác thực.
+            if (!studentUserIdVal) {
+                return new Response(JSON.stringify({
+                    code: 'EXAM_ATTEMPT_LOGIN_REQUIRED',
+                    maxAttempts: maxAttemptsVal,
+                    error: 'Đề thi có giới hạn số lần làm. Vui lòng đăng nhập tài khoản học sinh để hệ thống đếm lượt chính xác.'
+                }), { status: 403, headers: corsHeaders });
+            }
+            if (!targetExamIdStr) {
+                return new Response(JSON.stringify({
+                    code: 'EXAM_ATTEMPT_SCOPE_INVALID',
+                    error: 'Không thể xác định chính xác đề thi để kiểm tra số lần làm. Hệ thống chưa cho phép bắt đầu.'
+                }), { status: 409, headers: corsHeaders });
+            }
 
             let attemptCount = 0;
             try {
-                if (studentUserIdVal) {
-                    const { results: attempts } = await db.prepare(
-                        `SELECT COUNT(*) as count FROM results 
-                         WHERE (
-                             (exam_id IS NOT NULL AND (exam_id = ? OR CAST(exam_id AS TEXT) = ? OR LOWER(TRIM(exam_id)) = LOWER(TRIM(?))))
-                             OR 
-                             (exam_name IS NOT NULL AND (exam_name = ? OR LOWER(TRIM(exam_name)) = LOWER(TRIM(?))))
-                         ) AND (
-                             (user_id IS NOT NULL AND (user_id = ? OR user_id = ?))
-                             OR
-                             (student_name IS NOT NULL AND LOWER(TRIM(student_name)) = LOWER(TRIM(?)))
-                         )`
-                    ).bind(targetExamIdStr, targetExamIdStr, targetExamIdStr, targetExamNameStr, targetExamNameStr, String(studentUserIdVal), String(studentUserIdVal), studentNameVal).all();
-                    attemptCount = Number((attempts?.[0] as any)?.count || (attempts?.[0] as any)?.['COUNT(*)'] || 0);
-                } else {
-                    const { results: attempts } = await db.prepare(
-                        `SELECT COUNT(*) as count FROM results 
-                         WHERE (
-                             (exam_id IS NOT NULL AND (exam_id = ? OR CAST(exam_id AS TEXT) = ? OR LOWER(TRIM(exam_id)) = LOWER(TRIM(?))))
-                             OR 
-                             (exam_name IS NOT NULL AND (exam_name = ? OR LOWER(TRIM(exam_name)) = LOWER(TRIM(?))))
-                         ) AND (
-                             student_name IS NOT NULL AND LOWER(TRIM(student_name)) = LOWER(TRIM(?))
-                         )`
-                    ).bind(targetExamIdStr, targetExamIdStr, targetExamIdStr, targetExamNameStr, targetExamNameStr, studentNameVal).all();
-                    attemptCount = Number((attempts?.[0] as any)?.count || (attempts?.[0] as any)?.['COUNT(*)'] || 0);
-                }
+                const attemptRow: any = await db.prepare(
+                    `SELECT COUNT(*) AS count
+                     FROM results
+                     WHERE exam_id = ? AND user_id = ?`
+                ).bind(targetExamIdStr, String(studentUserIdVal)).first();
+                attemptCount = Math.max(0, Number(attemptRow?.count) || 0);
             } catch(err) {
                 console.error("Lỗi kiểm tra số lần làm bài:", err);
+                return new Response(JSON.stringify({
+                    code: 'EXAM_ATTEMPT_COUNT_UNAVAILABLE',
+                    error: 'Không thể xác minh số lần làm bài hiện tại. Hệ thống chưa mở bài thi để tránh tính sai quyền lợi học sinh.'
+                }), { status: 503, headers: corsHeaders });
             }
 
             if (attemptCount >= maxAttemptsVal) {
