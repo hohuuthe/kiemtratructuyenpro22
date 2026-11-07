@@ -4200,8 +4200,10 @@ if (contentType && contentType.includes("application/json")) {
                 (payload.questions && receipt.count !== payload.questions.length))
                 throw new Error(receipt.error || 'Máy chủ chưa xác nhận lưu đủ câu hỏi.');
             questionsLoaded = false;
+            questionBankLoadedScope = '';
             questionBankRevision++;
             questionsLoadPromise = null; // Mutations require a fresh readback, not an old pending read.
+            questionsLoadPromiseScope = '';
             return true;
         }
 
@@ -6394,13 +6396,13 @@ if (contentType && contentType.includes("application/json")) {
             const generation = authDataGeneration;
             const requestSeq = ++examConfigLoadSeq;
             const userLoadIntent = ++examUserLoadIntentSeq;
+            const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
 
-            // Dùng đúng một tiến trình với tab QL Câu hỏi.
-            const loadResult = await showLoadingProgress('Đang tải Ngân hàng Câu hỏi', async reportProgress => {
-                const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
+            try {
                 if (!token) throw new Error('Phiên đăng nhập không hợp lệ. Vui lòng đăng nhập lại.');
 
-                reportProgress(7, 'Đang đọc cấu hình đề thi...');
+                // Luôn tải mới cấu hình đề vì cấu hình có thể vừa được chỉnh sửa.
+                // Ngân hàng câu hỏi thì được tái sử dụng theo scope giáo viên nếu cache còn hợp lệ.
                 const res = await fetch(`/api/exams?id=${encodeURIComponent(selectedId)}`, {
                     cache: 'no-store',
                     headers: { 'Authorization': 'Bearer ' + token, 'Cache-Control': 'no-cache' }
@@ -6409,75 +6411,103 @@ if (contentType && contentType.includes("application/json")) {
                     throw new Error('Máy chủ trả về dữ liệu cấu hình không đúng định dạng (HTTP ' + res.status + ').');
                 }
                 const resJson = await res.json();
-                if (!res.ok || !resJson?.data) throw new Error(resJson?.error || 'Không tìm thấy cấu hình đề thi đã chọn.');
-
-                if (generation !== authDataGeneration || requestSeq !== examConfigLoadSeq ||
-                    userLoadIntent !== examUserLoadIntentSeq || !(isAdminLoggedIn || isTeacherLoggedIn)) {
-                    throw new Error('Phiên nạp đề đã thay đổi.');
+                if (!res.ok || !resJson?.data) {
+                    throw new Error(resJson?.error || 'Không tìm thấy cấu hình đề thi đã chọn.');
                 }
+                if (generation !== authDataGeneration || requestSeq !== examConfigLoadSeq ||
+                    userLoadIntent !== examUserLoadIntentSeq || !(isAdminLoggedIn || isTeacherLoggedIn)) return;
 
                 const draft = mapStoredExamToDraft(resJson.data, {currentUser, accounts, accountsMap});
                 const ownerTeacherId = String(draft.creatorId || '').trim();
                 if (!ownerTeacherId) throw new Error('Không xác định được giáo viên sở hữu đề thi.');
 
-                reportProgress(10, 'Đang tải toàn bộ ngân hàng câu hỏi của giáo viên...');
-                const loaded = await loadQuestions(true, (loadedCount, pageNum, done, totalCount) => {
-                    const total = Math.max(0, Number(totalCount) || 0);
-                    const current = Math.max(0, Number(loadedCount) || 0);
-                    const ratio = total > 0 ? Math.min(1, current / total) : (done ? 1 : 0);
-                    const pct = 10 + Math.round(ratio * 80);
-                    reportProgress(pct, done
-                        ? `Đã tải đủ ${current.toLocaleString('vi-VN')} câu hỏi của giáo viên.`
-                        : `Đang tải ${current.toLocaleString('vi-VN')} / ${total.toLocaleString('vi-VN')} câu hỏi của giáo viên...`);
-                }, ownerTeacherId);
-                if (!loaded) throw (questionBankLastLoadError || new Error('Không thể tải đầy đủ ngân hàng câu hỏi của giáo viên.'));
+                let verification = null;
+                let reusedQuestionBank = false;
 
-                reportProgress(93, 'Đang đối chiếu ngân hàng câu hỏi với cấu hình đề...');
-                const verification = verifyExamConfigQuestionPool(draft, questions);
-                if (!verification.ok) throw new Error(examQuestionPoolFailureMessage(verification));
+                // FAST CACHE PATH:
+                // Nếu full ngân hàng của đúng giáo viên đã tải thành công trong phiên và chưa bị mutation làm bẩn,
+                // không gọi API /api/questions lần nữa.
+                if (isQuestionBankLoadedFor(ownerTeacherId)) {
+                    verification = verifyExamConfigQuestionPool(draft, questions);
+                    reusedQuestionBank = Boolean(verification?.ok);
+                }
 
-                reportProgress(96, `Đã tải đủ ${questions.length.toLocaleString('vi-VN')} câu hỏi. Đang chuẩn bị trình sửa đề...`);
-                const componentReady = await Promise.race([
-                    ensureTabComponent('exam-editor'),
-                    new Promise(resolve => setTimeout(() => resolve(false), 12000))
-                ]);
-                if (!componentReady) throw new Error('Không thể tải giao diện Tạo, sửa đề thi. Vui lòng thử lại.');
+                // Chỉ tải full ngân hàng khi:
+                // 1) chưa từng tải đúng giáo viên này; 2) đổi giáo viên; 3) cache đã bị invalidate;
+                // 4) cache hiện có không còn đáp ứng cấu hình -> tải mới một lần để xác nhận.
+                if (!reusedQuestionBank) {
+                    const loadResult = await showLoadingProgress('Đang tải Ngân hàng Câu hỏi', async reportProgress => {
+                        reportProgress(8, 'Đang tải toàn bộ ngân hàng câu hỏi của giáo viên...');
+                        const loaded = await loadQuestions(true, (loadedCount, pageNum, done, totalCount) => {
+                            const total = Math.max(0, Number(totalCount) || 0);
+                            const current = Math.max(0, Number(loadedCount) || 0);
+                            const ratio = total > 0 ? Math.min(1, current / total) : (done ? 1 : 0);
+                            const pct = 8 + Math.round(ratio * 82);
+                            reportProgress(pct, done
+                                ? `Đã tải đủ ${current.toLocaleString('vi-VN')} câu hỏi của giáo viên.`
+                                : `Đang tải ${current.toLocaleString('vi-VN')} / ${total.toLocaleString('vi-VN')} câu hỏi của giáo viên...`);
+                        }, ownerTeacherId);
 
-                reportProgress(99, 'Ngân hàng câu hỏi và trình sửa đề đã sẵn sàng.');
-                return { resJson, draft, verification, ownerTeacherId };
-            });
+                        if (!loaded) {
+                            throw (questionBankLastLoadError || new Error('Không thể tải đầy đủ ngân hàng câu hỏi của giáo viên.'));
+                        }
+                        verification = verifyExamConfigQuestionPool(draft, questions);
+                        if (!verification.ok) throw new Error(examQuestionPoolFailureMessage(verification));
 
-            if (!loadResult?.ok) {
-                showToast(loadResult?.error?.message || 'Không thể nạp đề thi.', 'error');
-                return;
-            }
+                        reportProgress(96, `Đã sẵn sàng ${questions.length.toLocaleString('vi-VN')} câu hỏi. Đang chuẩn bị trình sửa đề...`);
+                        const componentReady = await Promise.race([
+                            ensureTabComponent('exam-editor'),
+                            new Promise(resolve => setTimeout(() => resolve(false), 12000))
+                        ]);
+                        if (!componentReady) throw new Error('Không thể tải giao diện Tạo, sửa đề thi. Vui lòng thử lại.');
+                        reportProgress(99, 'Ngân hàng câu hỏi và trình sửa đề đã sẵn sàng.');
+                        return true;
+                    });
 
-            const payload = loadResult.value;
-            if (!payload || generation !== authDataGeneration || requestSeq !== examConfigLoadSeq ||
-                userLoadIntent !== examUserLoadIntentSeq || !(isAdminLoggedIn || isTeacherLoggedIn)) return;
+                    if (!loadResult?.ok) {
+                        showToast(loadResult?.error?.message || 'Không thể nạp đề thi.', 'error');
+                        return;
+                    }
+                } else {
+                    // Cache hit: không hiển thị tiến trình tải câu hỏi, không gọi lại /api/questions.
+                    // Chỉ bảo đảm component editor đã sẵn sàng.
+                    const componentReady = await Promise.race([
+                        ensureTabComponent('exam-editor'),
+                        new Promise(resolve => setTimeout(() => resolve(false), 12000))
+                    ]);
+                    if (!componentReady) throw new Error('Không thể tải giao diện Tạo, sửa đề thi. Vui lòng thử lại.');
+                }
 
-            try {
-                // Component và toàn bộ ngân hàng câu hỏi đã sẵn sàng từ cùng một tiến trình.
-                // Khởi tạo và áp cấu hình khi tab còn ẩn để switchTab không phải chờ request phụ.
+                if (generation !== authDataGeneration || requestSeq !== examConfigLoadSeq ||
+                    userLoadIntent !== examUserLoadIntentSeq || !(isAdminLoggedIn || isTeacherLoggedIn)) return;
+
                 const editorReady = initializeExamEditorFromVerifiedPool();
                 if (!editorReady) throw new Error('Không thể khởi tạo giao diện sửa đề từ ngân hàng câu hỏi đã tải.');
-                if (String(payload.resJson.data.id) !== String(selectedId)) throw new Error('Đề thi đã thay đổi trong lúc nạp.');
+                if (String(resJson.data.id) !== String(selectedId)) throw new Error('Đề thi đã thay đổi trong lúc nạp.');
 
-                applyExamConfig(payload.resJson.data);
+                applyExamConfig(resJson.data);
                 const formCheck = verifyLoadedExamForm(examConfig);
                 if (!formCheck.ok) {
                     throw new Error('Form sửa đề chưa khôi phục đầy đủ cấu hình: ' + formCheck.mismatches.slice(0, 5).join('; '));
                 }
                 document.getElementById('btn-export-exam-docx')?.classList.remove('hidden');
 
-                // Chỉ mở giao diện sau khi toàn bộ dữ liệu và cấu hình đã sẵn sàng và đã được kiểm chứng.
                 switchTab('exam-editor');
                 const topPanel = document.getElementById('tab-exam-editor');
                 if (topPanel) topPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                showToast(`📂 Đã nạp đầy đủ ${questions.length.toLocaleString('vi-VN')} câu hỏi và cấu hình đề: ${payload.resJson.data.name || selectedId}`, 'success');
+
+                showToast(
+                    reusedQuestionBank
+                        ? `📂 Đã nạp cấu hình đề: ${resJson.data.name || selectedId}. Ngân hàng ${questions.length.toLocaleString('vi-VN')} câu đã có sẵn, không tải lại.`
+                        : `📂 Đã nạp đầy đủ ${questions.length.toLocaleString('vi-VN')} câu hỏi và cấu hình đề: ${resJson.data.name || selectedId}`,
+                    'success'
+                );
             } catch (e) {
-                console.error('Error opening verified exam editor:', e);
-                showToast(e?.message || 'Không thể mở giao diện sửa đề.', 'error');
+                console.error('Error loading exam configuration:', e);
+                if (generation === authDataGeneration && requestSeq === examConfigLoadSeq &&
+                    userLoadIntent === examUserLoadIntentSeq) {
+                    showToast(e?.message || 'Không thể nạp đề thi.', 'error');
+                }
             }
         };
 
