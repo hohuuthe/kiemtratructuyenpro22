@@ -171,6 +171,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             const number = Number(value);
             return Number.isFinite(number) && Math.abs(number * 100000 - Math.round(number * 100000)) <= 1e-7;
         };
+        // points_* are stored as PostgreSQL REAL. Five-decimal precision is
+        // enforced when saving config; after a REAL round-trip we only validate
+        // finiteness/range to avoid rejecting a valid stored score due to float noise.
         for (const [label, value] of [
             ['Trắc nghiệm', activeExamConfig.points41],
             ['Đúng/Sai', activeExamConfig.pointsTF4],
@@ -178,8 +181,8 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             ['Tự luận', activeExamConfig.pointsTL]
         ] as any[]) {
             const point = Number(value);
-            if (!Number.isFinite(point) || point < 0 || point > 1000 || !hasTwoDecimalPrecision(point)) {
-                return new Response(JSON.stringify({ error: `Điểm cấu hình ${label} không hợp lệ hoặc có quá 2 chữ số thập phân.` }), { status: 400, headers: corsHeaders });
+            if (!Number.isFinite(point) || point < 0 || point > 1000) {
+                return new Response(JSON.stringify({ error: `Điểm cấu hình ${label} không hợp lệ.` }), { status: 400, headers: corsHeaders });
             }
         }
 
@@ -192,7 +195,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             if (values.some(value => !Number.isFinite(value) || value < 0 || value > 1000 || !hasFiveDecimalPrecision(value)) ||
                 !(values[0] <= values[1] && values[1] <= values[2] && values[2] <= values[3])) {
                 return new Response(JSON.stringify({
-                    error: 'Bảng điểm Đúng/Sai tùy chỉnh không hợp lệ, không tăng dần hoặc có quá 2 chữ số thập phân.'
+                    error: 'Bảng điểm Đúng/Sai tùy chỉnh không hợp lệ, không tăng dần hoặc có quá 5 chữ số thập phân.'
                 }), { status: 400, headers: corsHeaders });
             }
         }
