@@ -492,10 +492,10 @@ export const onRequestPut: PagesFunction<Env> = async (context) => {
       }
       const requestedScore = Number(incoming.score);
       if (!Number.isFinite(requestedScore) || requestedScore < 0 || requestedScore > maxScore ||
-          Math.abs(requestedScore * 100000 - Math.round(requestedScore * 100000)) > 1e-7) {
-        throw new Error(`Điểm tự luận tại vị trí ${index + 1} không hợp lệ, vượt thang điểm hoặc có quá 5 chữ số thập phân.`);
+          Math.abs(requestedScore * 10000 - Math.round(requestedScore * 10000)) > 1e-7) {
+        throw new Error(`Điểm tự luận tại vị trí ${index + 1} không hợp lệ, vượt thang điểm hoặc có quá 4 chữ số thập phân.`);
       }
-      const score = roundScore(requestedScore, 5);
+      const score = roundScore(requestedScore, 4);
       const next = {
         ...storedDetail,
         score,
@@ -510,7 +510,7 @@ export const onRequestPut: PagesFunction<Env> = async (context) => {
 
     const canonicalScore = roundScore(
       updatedDetails.reduce((sum: number, d: any) => sum + (Number(d.score) || 0), 0),
-      5
+      4
     );
     const canonicalCorrectCount = updatedDetails.filter((d: any) =>
       String(d?.question?.type || '').toUpperCase() !== 'TL' && d?.isCorrect === true
