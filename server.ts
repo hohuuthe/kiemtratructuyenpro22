@@ -40,6 +40,7 @@ import { onRequestPost as hardenedExamStartHandler } from './functions/api/exam/
 import { onRequestPost as hardenedExamSaveHandler } from './functions/api/exam/save';
 import { onRequestPost as hardenedExamViolationHandler } from './functions/api/exam/violation';
 import { onRequestPost as hardenedExamResumeHandler } from './functions/api/exam/resume';
+import { onRequestPost as hardenedUploadImageHandler } from './functions/api/upload-image';
 
 dotenv.config({ override: true });
 
@@ -4204,162 +4205,28 @@ async function startServer() {
     }
   }
 
-  // Cloudflare R2 Upload Endpoint
+  // Image upload uses the same hardened handler as Cloudflare production.
   app.post("/api/upload-image", async (req, res) => {
     try {
-      // BẢO MẬT: Chặn upload ảnh trái phép, chống đầy ổ cứng (Cost Exhaustion Attack)
-      const authHeader = req.headers.authorization;
-      if (!authHeader || !authHeader.startsWith("Bearer ")) {
-          return res.status(401).json({ error: "Access denied. Bạn chưa đăng nhập." });
+      const protocol=req.protocol||'http';
+      const host=req.get('host')||`localhost:${PORT}`;
+      const webHeaders=new Headers();
+      for(const [name,value] of Object.entries(req.headers||{})){
+        if(value===undefined)continue;
+        if(Array.isArray(value)){for(const item of value)webHeaders.append(name,String(item));}
+        else webHeaders.set(name,String(value));
       }
-      const token = authHeader.substring(7);
-      const user = verifyJWTSync(token, await getServerSecret());
-      const isStaff = checkIsTeacherOrAdmin(user);
-      const isValidExamSession = user && user.questionIds && user.teacherId;
-
-      if (!isStaff && !isValidExamSession) {
-          return res.status(403).json({ error: "Access denied. Bạn không có quyền tải ảnh lên hệ thống." });
-      }
-
-      const { base64 } = req.body;
-      if (!base64) {
-        return res.status(400).json({ error: "Thiếu dữ liệu Base64 của ảnh!" });
-      }
-
-      // Check if Cloudflare R2 environment variables are configured
-      let r2AccessKeyId = getConfig("CLOUDFLARE_R2_ACCESS_KEY_ID");
-      const r2SecretAccessKey = getConfig("CLOUDFLARE_R2_SECRET_ACCESS_KEY");
-      
-      const rawBucketName = getConfig("CLOUDFLARE_R2_BUCKET_NAME");
-      let r2BucketName = cleanR2BucketName(rawBucketName);
-
-      const rawAccountId = getConfig("CLOUDFLARE_R2_ACCOUNT_ID");
-      let r2AccountId = cleanR2AccountId(rawAccountId);
-
-      let r2PublicUrl = getConfig("CLOUDFLARE_R2_PUBLIC_URL");
-
-      // Get the correct configuration based on previous successful test if available
-      const r2Config = loadSuccessfulR2Combo();
-      if (r2Config) {
-        if (r2Config.successfulCombo === "swapped") {
-          console.log("[R2 Upload - Active Profile Swapped]: Hoán đổi Account ID và Access Key ID dựa trên hồ sơ kết nối thành công trước đó.");
-          const temp = r2AccountId;
-          r2AccountId = r2AccessKeyId;
-          r2AccessKeyId = temp;
-        } else if (r2Config.successfulCombo === "healed") {
-          console.log("[R2 Upload - Active Profile Healed]: Áp dụng tự động sửa đổi cấu hình Account ID lỗi từ cấu hình healed lịch sử.");
-          if (r2Config.healedAccountId) {
-            r2AccountId = r2Config.healedAccountId;
-          }
-          if (r2Config.healedAccessKeyId) {
-            r2AccessKeyId = r2Config.healedAccessKeyId;
-          }
-        } else if (r2Config.successfulCombo === "original") {
-          console.log("[R2 Upload - Active Profile Original]: Sử dụng nguyên trạng cấu hình gốc dựa trên hồ sơ kết nối thành công trước đó.");
-        }
-      } else {
-        // Fallback to basic heuristic guess if no verified test exists yet
-        let suspectedRealAccountId = "";
-        if (r2PublicUrl.includes(".r2.cloudflarestorage.com")) {
-          const match = r2PublicUrl.match(/https?:\/\/([a-fA-F0-9]{32})\.r2\.cloudflarestorage\.com/);
-          if (match) {
-            suspectedRealAccountId = match[1];
-          }
-        }
-        if (suspectedRealAccountId && r2AccessKeyId === suspectedRealAccountId && r2AccountId !== suspectedRealAccountId) {
-          console.log(`[Auto-Recovery R2 Image Upload - Heuristic]: Auto-correcting swapped Account ID & Access Key ID.`);
-          const temp = r2AccountId;
-          r2AccountId = r2AccessKeyId;
-          r2AccessKeyId = temp;
-          r2PublicUrl = ""; // Force calculate modern .r2.dev or CDN domain
-        }
-      }
-
-      const isR2Configured = r2AccessKeyId !== "" && !r2AccessKeyId.includes("YOUR_") &&
-                             r2SecretAccessKey !== "" && !r2SecretAccessKey.includes("YOUR_") &&
-                             r2BucketName !== "" && !r2BucketName.includes("YOUR_") &&
-                             r2AccountId !== "" && !r2AccountId.includes("YOUR_");
-
-      if (!isR2Configured) {
-        // Fallback: Return backend compressed base64 directly
-        return res.json({ 
-          url: base64, 
-          storage: "database_base64_compressed",
-          message: "Lưu ý: Đang sử dụng cơ chế fallback (Base64 nén) do chưa cấu hình Cloudflare R2."
-        });
-      }
-
-      // Parse the Base64 details
-      const matches = base64.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/);
-      let mimeType = "image/jpeg";
-      let base64Data = base64;
-
-      if (matches && matches.length === 3) {
-        mimeType = matches[1];
-        base64Data = matches[2];
-      }
-
-      const buffer = Buffer.from(base64Data, "base64");
-      const extension = mimeType.split("/")[1] || "jpg";
-      const filename = `image-${Math.random().toString(36).substring(2)}-${Date.now()}.${extension}`;
-
-      // Initialize S3 Client with specialized NodeHttpHandler
-      const s3 = new S3Client({
-        region: "auto",
-        endpoint: `https://${r2AccountId}.r2.cloudflarestorage.com`,
-        credentials: {
-          accessKeyId: r2AccessKeyId,
-          secretAccessKey: r2SecretAccessKey,
-        },
-        forcePathStyle: true,
-        requestHandler: new NodeHttpHandler({
-          httpsAgent: new https.Agent({
-            rejectUnauthorized: true,
-            keepAlive: false, // Prevents TLS Handshake Failure (SSL Alert 40) by avoiding unsafe reuse of session tickets in container backends
-          }),
-        }),
+      webHeaders.set('content-type','application/json');
+      const webRequest=new Request(`${protocol}://${host}${req.originalUrl||req.url||'/api/upload-image'}`,{
+        method:'POST',headers:webHeaders,body:JSON.stringify(req.body||{})
       });
-
-      // Upload Command
-      await s3.send(new PutObjectCommand({
-        Bucket: r2BucketName,
-        Key: filename,
-        Body: buffer,
-        ContentType: mimeType,
-      }));
-
-      // Build CDN Public URL
-      if (!r2PublicUrl) {
-         r2PublicUrl = `https://${r2BucketName}.${r2AccountId}.r2.dev`;
-      }
-      if (r2PublicUrl.endsWith("/")) {
-        r2PublicUrl = r2PublicUrl.slice(0, -1);
-      }
-
-      const publicFileUrl = `${r2PublicUrl}/${filename}`;
-      return res.json({ 
-        url: publicFileUrl, 
-        storage: "cloudflare_r2",
-        message: "Tải ảnh lên Cloudflare R2 thành công!" 
-      });
-
-    } catch (error: any) {
-      // Quiet down the console output to prevent automatic scanners from triggering SSL Alert flags.
-      // Simply log a safe, high-level message without full openssl handshake trace strings.
-      const rawMsg = error?.message || String(error);
-      const isSslRelated = rawMsg.includes("handshake") || rawMsg.includes("EPROTO") || rawMsg.includes("SSL");
-      if (isSslRelated) {
-        console.log("[Graceful Support]: Khởi tạo lưu trữ hình ảnh thông qua Base64 nén thành công.");
-      } else {
-        console.log("[Graceful Support]: Chuyển đổi lưu trữ sang Base64 nén (Chi tiết:", rawMsg.substring(0, 80), ")");
-      }
-
-      // Perfect fallback: return the compressed base64 directly so the app never fails
-      return res.json({ 
-        url: req.body?.base64 || "", 
-        storage: "database_base64_compressed",
-        message: "Lưu ý: Tự động sử dụng cơ chế fallback (Base64 nén) do không thể kết nối tới Cloudflare R2." 
-      });
+      const response=await hardenedUploadImageHandler({request:webRequest,env:process.env} as any);
+      res.status(response.status);
+      response.headers.forEach((value,name)=>{if(name.toLowerCase()!=='content-length')res.setHeader(name,value);});
+      return res.send(await response.text());
+    } catch(error:any) {
+      console.error('Local hardened /api/upload-image adapter error:',error?.message||error);
+      return res.status(500).json({error:'Không thể tải ảnh bằng engine bảo mật thống nhất.'});
     }
   });
 
