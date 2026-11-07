@@ -32,9 +32,9 @@ function decimal(value: any, name: string, min = 0, max = 1000): number {
   if (value === null || value === '' || typeof value === 'boolean') throw new ExamConfigInputError(name + ' không hợp lệ.');
   const number = Number(value);
   if (!Number.isFinite(number) || number < min || number > max) throw new ExamConfigInputError(name + ' phải nằm trong khoảng ' + min + ' đến ' + max + '.');
-  const scaled = number * 100;
-  if (Math.abs(scaled - Math.round(scaled)) > 1e-9) {
-    throw new ExamConfigInputError(name + ' chỉ được có tối đa 2 chữ số thập phân.');
+  const scaled = number * 100000;
+  if (Math.abs(scaled - Math.round(scaled)) > 1e-7) {
+    throw new ExamConfigInputError(name + ' chỉ được có tối đa 5 chữ số thập phân.');
   }
   return number;
 }
