@@ -114,14 +114,32 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         }
         {
           const examRow: any = authoritativeExamRow;
-          const access = evaluateExamAccessWindow(examRow, nowMs);
-          if (!access.allowed) {
-            const message = access.code === 'EXAM_NOT_STARTED'
-              ? 'Chưa đến thời gian được phép bắt đầu làm bài.'
-              : access.code === 'EXAM_WINDOW_CLOSED'
-                ? 'Đã hết thời gian được phép bắt đầu làm bài.'
-                : 'Cấu hình khung thời gian của đề thi không hợp lệ.';
-            return new Response(JSON.stringify({ code: access.code, error: message }), { status: 403, headers: corsHeaders });
+          // Giữ nhất quán với /exam/generate: Admin và đúng giáo viên sở hữu đề
+          // được phép kiểm thử cấu hình ngoài khung giờ. Quyền bỏ qua chỉ dựa trên
+          // phiên tài khoản LIVE đã xác thực, không dựa vào dữ liệu client/JWT đề thi.
+          const verifiedActorIds = new Set(
+            [verifiedUser?.user_id, verifiedUser?.id]
+              .map((value: any) => String(value || '').trim())
+              .filter(Boolean)
+          );
+          const creatorId = String(examRow?.creator_id || '').trim();
+          const verifiedActorRole = String(verifiedUser?.role || '').trim().toLowerCase();
+          const verifiedActorAudience = String(verifiedUser?.target_audience || '').trim().toLocaleLowerCase('vi');
+          const canBypassAccessWindow = verifiedActorRole === 'admin' ||
+            (Boolean(creatorId) &&
+             verifiedActorIds.has(creatorId) &&
+             (verifiedActorRole === 'teacher' || verifiedActorAudience === 'giáo viên'));
+
+          if (!canBypassAccessWindow) {
+            const access = evaluateExamAccessWindow(examRow, nowMs);
+            if (!access.allowed) {
+              const message = access.code === 'EXAM_NOT_STARTED'
+                ? 'Chưa đến thời gian được phép bắt đầu làm bài.'
+                : access.code === 'EXAM_WINDOW_CLOSED'
+                  ? 'Đã hết thời gian được phép bắt đầu làm bài.'
+                  : 'Cấu hình khung thời gian của đề thi không hợp lệ.';
+              return new Response(JSON.stringify({ code: access.code, error: message }), { status: 403, headers: corsHeaders });
+            }
           }
         }
       } catch (error) {
