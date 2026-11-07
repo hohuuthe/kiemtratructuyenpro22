@@ -86,20 +86,28 @@ export async function onRequestPost(context: any) {
       }, 409);
     }
 
-    // Use the exact same password format as account creation and login.
-    // A single hash is intentionally shared for this one bulk default-password reset,
-    // matching the existing bulk-account creation optimization and allowing one atomic UPDATE.
-    const hashedPassword = await hashPasswordPBKDF2(password);
-    if (!hashedPassword.startsWith('pbkdf2:sha256:') ||
-        !(await verifyPassword(password, hashedPassword))) {
-      return json({
-        error: 'Không thể xác minh kết quả mã hóa mật khẩu. Không có tài khoản nào được cập nhật.'
-      }, 500);
+    // Generate a distinct salt/hash for every account. The final UPDATE is still
+    // a single atomic SQL statement, so a failure cannot leave a partially reset batch.
+    const hashById = new Map<string, string>();
+    for (const id of accountIds) {
+      const hash = await hashPasswordPBKDF2(password);
+      if (!hash.startsWith('pbkdf2:sha256:') || !(await verifyPassword(password, hash))) {
+        return json({
+          error: 'Không thể xác minh kết quả mã hóa mật khẩu. Không có tài khoản nào được cập nhật.'
+        }, 500);
+      }
+      hashById.set(id, hash);
     }
 
+    const caseSql = accountIds.map(() => 'WHEN ? THEN ?').join(' ');
     const update: any = await db.prepare(
-      `UPDATE accounts SET password = ? WHERE id IN (${marks})`
-    ).bind(hashedPassword, ...accountIds).run();
+      `UPDATE accounts
+       SET password = CASE id ${caseSql} ELSE password END
+       WHERE id IN (${marks})`
+    ).bind(
+      ...accountIds.flatMap(id => [id, hashById.get(id)]),
+      ...accountIds
+    ).run();
 
     if (Number(update?.meta?.changes ?? accountIds.length) !== accountIds.length) {
       return json({
@@ -108,21 +116,20 @@ export async function onRequestPost(context: any) {
       }, 500);
     }
 
-    // Read-after-write verification: every requested row must contain the exact hash
-    // that was cryptographically verified above.
     const after: any = await db.prepare(
       `SELECT id, password FROM accounts WHERE id IN (${marks})`
     ).bind(...accountIds).all();
     const rows = after?.results || [];
-    const confirmedIds = new Set(
-      rows
-        .filter((row: any) => String(row.password || '') === hashedPassword)
-        .map((row: any) => String(row.id))
-    );
-
-    if (rows.length !== accountIds.length ||
-        accountIds.some(id => !confirmedIds.has(id)) ||
-        !(await verifyPassword(password, hashedPassword))) {
+    const byId = new Map(rows.map((row: any) => [String(row.id), String(row.password || '')]));
+    let verifiedAll = rows.length === accountIds.length;
+    for (const id of accountIds) {
+      const expected = hashById.get(id) || '';
+      if (byId.get(id) !== expected || !(await verifyPassword(password, expected))) {
+        verifiedAll = false;
+        break;
+      }
+    }
+    if (!verifiedAll) {
       return json({
         error: 'Không thể xác nhận toàn bộ mật khẩu sau khi ghi. Cần kiểm tra cơ sở dữ liệu trước khi tiếp tục.',
         code: 'PASSWORD_RESET_VERIFY_FAILED'
