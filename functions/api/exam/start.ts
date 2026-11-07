@@ -106,7 +106,13 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     if (examId) {
       try {
         authoritativeExamRow = await db.prepare('SELECT * FROM exam_configs WHERE id = ? LIMIT 1').bind(examId).first();
-        if (authoritativeExamRow) {
+        if (!authoritativeExamRow) {
+          return new Response(JSON.stringify({
+            code: 'EXAM_REVOKED_BEFORE_START',
+            error: 'Đề thi đã bị thu hồi hoặc không còn tồn tại. Phiên READY này không được phép bắt đầu.'
+          }), { status: 409, headers: corsHeaders });
+        }
+        {
           const examRow: any = authoritativeExamRow;
           const access = evaluateExamAccessWindow(examRow, nowMs);
           if (!access.allowed) {
@@ -291,11 +297,21 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       }
     }
 
-    // Claim đầu tiên ghi đồng thời start + deadline + TTL kỹ thuật. Không tồn tại
-    // trạng thái "đã bắt đầu nhưng TTL chưa cập nhật" nếu một lệnh DB phía sau lỗi.
-    await db.prepare(
-      'UPDATE _exam_grade_sessions SET started_at = ?, deadline_at = ?, expires_at = ? WHERE session_id = ? AND started_at IS NULL'
-    ).bind(proposedStartedAt, proposedDeadlineAt, proposedActiveExpiresAt, gradingSessionId).run();
+    // Claim đầu tiên ghi đồng thời start + deadline + TTL kỹ thuật. Nếu lệnh này
+    // thất bại trước khi đồng hồ được ghi, thu hồi khóa ACTIVE để học sinh không mắc kẹt.
+    try {
+      await db.prepare(
+        'UPDATE _exam_grade_sessions SET started_at = ?, deadline_at = ?, expires_at = ? WHERE session_id = ? AND started_at IS NULL'
+      ).bind(proposedStartedAt, proposedDeadlineAt, proposedActiveExpiresAt, gradingSessionId).run();
+    } catch (startClaimError) {
+      if (signedStudentUserId && examId) {
+        try {
+          await db.prepare('DELETE FROM _exam_active_attempts WHERE session_id = ?')
+            .bind(gradingSessionId).run();
+        } catch {}
+      }
+      throw startClaimError;
+    }
 
     let authoritative: any = await db.prepare(
       'SELECT started_at, deadline_at FROM _exam_grade_sessions WHERE session_id = ?'
