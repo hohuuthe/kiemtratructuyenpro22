@@ -1,3 +1,4 @@
+import { consumeSecurityAttempt, clearSecurityAttempts } from '../../../src/security-rate-limit';
 import { getAccountAccessStatus } from '../../../src/account-expiry';
 import { signAuthSession, isLiveAccount, getDynamicSecret, verifyPassword, hashPasswordPBKDF2, getDatabase, ensureUserVipColumn } from '../exam/utils';
 
@@ -54,6 +55,17 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       return new Response(JSON.stringify({ error: "Database not configured." }), { status: 500, headers: corsHeaders });
     }
 
+    const limit = await consumeSecurityAttempt(db, request, 'auth-login', username, {
+      maxAttempts: 10, windowMs: 5 * 60_000, blockMs: 10 * 60_000
+    });
+    if (!limit.allowed) {
+      return new Response(JSON.stringify({
+        error: 'Đăng nhập tạm thời bị giới hạn do có quá nhiều lần thử. Vui lòng thử lại sau.',
+        code: 'AUTH_RATE_LIMITED',
+        retry_after_seconds: limit.retryAfterSeconds
+      }), { status: 429, headers: { ...corsHeaders, 'Retry-After': String(limit.retryAfterSeconds) } });
+    }
+
     await ensureUserVipColumn(db);
 
     // Lấy tài khoản theo username kết hợp thông tin hồ sơ người dùng từ bảng users
@@ -75,6 +87,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     if (!isValid) {
         return new Response(JSON.stringify({ error: "Tên đăng nhập hoặc mật khẩu không đúng." }), { status: 401, headers: corsHeaders });
     }
+    await clearSecurityAttempts(db, 'auth-login', limit.keyHash);
 
     const accessStatus = getAccountAccessStatus(result);
     if (!accessStatus.allowed) {
