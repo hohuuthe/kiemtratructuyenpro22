@@ -32,8 +32,13 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     const token = String(body?.token || '').trim();
     const answers = body?.studentAnswers;
     const revision = Math.max(0, Math.floor(Number(body?.revision) || 0));
+    const writerId = String(body?.writerId || '').trim();
     if (!token || !Array.isArray(answers)) {
       return new Response(JSON.stringify({ error: 'Thiếu dữ liệu lưu tạm bài làm.' }), { status: 400, headers: corsHeaders });
+    }
+
+    if (!/^[A-Za-z0-9_-]{8,120}$/.test(writerId)) {
+      return new Response(JSON.stringify({ error: 'Thiếu mã tab lưu bài hợp lệ.' }), { status: 400, headers: corsHeaders });
     }
 
     const decoded: any = await verifyJWT(token, SECRET);
@@ -90,23 +95,38 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         session_id TEXT PRIMARY KEY,
         answers_json TEXT NOT NULL,
         revision INTEGER NOT NULL DEFAULT 0,
-        saved_at TEXT NOT NULL
+        saved_at TEXT NOT NULL,
+        writer_id TEXT,
+        writer_seen_at TEXT
       )
     `).run();
+    for (const sql of [
+      'ALTER TABLE _exam_answer_drafts ADD COLUMN IF NOT EXISTS writer_id TEXT',
+      'ALTER TABLE _exam_answer_drafts ADD COLUMN IF NOT EXISTS writer_seen_at TEXT'
+    ]) await db.prepare(sql).run();
 
     const savedAt = new Date(nowMs).toISOString();
+    const leaseCutoff = new Date(nowMs - 15_000).toISOString();
     await db.prepare(`
-      INSERT INTO _exam_answer_drafts (session_id, answers_json, revision, saved_at)
-      VALUES (?, ?, ?, ?)
+      INSERT INTO _exam_answer_drafts (session_id, answers_json, revision, saved_at, writer_id, writer_seen_at)
+      VALUES (?, ?, ?, ?, ?, ?)
       ON CONFLICT (session_id) DO UPDATE SET
         answers_json = excluded.answers_json,
         revision = excluded.revision,
-        saved_at = excluded.saved_at
+        saved_at = excluded.saved_at,
+        writer_id = excluded.writer_id,
+        writer_seen_at = excluded.writer_seen_at
       WHERE excluded.revision > _exam_answer_drafts.revision
-    `).bind(gradingSessionId, answersJson, revision, savedAt).run();
+        AND (
+          _exam_answer_drafts.writer_id IS NULL OR
+          _exam_answer_drafts.writer_id = excluded.writer_id OR
+          _exam_answer_drafts.writer_seen_at IS NULL OR
+          _exam_answer_drafts.writer_seen_at < ?
+        )
+    `).bind(gradingSessionId, answersJson, revision, savedAt, writerId, savedAt, leaseCutoff).run();
 
     const persistedDraft: any = await db.prepare(
-      'SELECT answers_json, revision, saved_at FROM _exam_answer_drafts WHERE session_id = ?'
+      'SELECT answers_json, revision, saved_at, writer_id, writer_seen_at FROM _exam_answer_drafts WHERE session_id = ?'
     ).bind(gradingSessionId).first();
     const persistedRevision = Math.max(0, Number(persistedDraft?.revision) || 0);
     const persistedSavedAt = persistedDraft?.saved_at || null;
@@ -114,9 +134,23 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     // Cùng revision nhưng payload khác có thể xảy ra khi hai tab cùng gửi revision N.
     // Chỉ xác nhận "accepted" khi CHÍNH request này là bản đã persist (revision +
     // payload + saved_at đều trùng), tuyệt đối không báo lưu thành công nhầm tab.
+    const persistedWriterId = String(persistedDraft?.writer_id || '');
+    const persistedWriterSeenAt = Date.parse(String(persistedDraft?.writer_seen_at || ''));
     const accepted = persistedRevision === revision &&
       persistedAnswersJson === answersJson &&
-      persistedSavedAt === savedAt;
+      persistedSavedAt === savedAt &&
+      persistedWriterId === writerId;
+
+    if (!accepted && persistedWriterId && persistedWriterId !== writerId &&
+        Number.isFinite(persistedWriterSeenAt) && persistedWriterSeenAt >= Date.parse(leaseCutoff)) {
+      return new Response(JSON.stringify({
+        code: 'EXAM_WRITER_CONFLICT',
+        error: 'Bài thi đang được lưu từ một tab khác. Tab này không được phép ghi đè đáp án.',
+        revision: persistedRevision,
+        savedAt: persistedSavedAt,
+        retryAfterSeconds: Math.max(1, Math.ceil((persistedWriterSeenAt + 15_000 - nowMs) / 1000))
+      }), { status: 409, headers: corsHeaders });
+    }
 
     return new Response(JSON.stringify({
       saved: accepted,
