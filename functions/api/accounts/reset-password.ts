@@ -86,47 +86,58 @@ export async function onRequestPost(context: any) {
       }, 409);
     }
 
-    // Use the exact same password format as account creation and login.
-    // A single hash is intentionally shared for this one bulk default-password reset,
-    // matching the existing bulk-account creation optimization and allowing one atomic UPDATE.
-    const hashedPassword = await hashPasswordPBKDF2(password);
-    if (!hashedPassword.startsWith('pbkdf2:sha256:') ||
-        !(await verifyPassword(password, hashedPassword))) {
-      return json({
-        error: 'Không thể xác minh kết quả mã hóa mật khẩu. Không có tài khoản nào được cập nhật.'
-      }, 500);
+    // Generate a distinct PBKDF2 salt/hash for every account. Reusing one hash
+    // would also reuse its salt and unnecessarily couples the security of the batch.
+    const hashes = new Map<string,string>();
+    for (const id of accountIds) {
+      const hash = await hashPasswordPBKDF2(password);
+      if (!hash.startsWith('pbkdf2:sha256:') || !(await verifyPassword(password, hash))) {
+        return json({
+          error: 'Không thể xác minh kết quả mã hóa mật khẩu. Không có tài khoản nào được cập nhật.'
+        }, 500);
+      }
+      hashes.set(id, hash);
     }
 
-    const update: any = await db.prepare(
-      `UPDATE accounts SET password = ? WHERE id IN (${marks})`
-    ).bind(hashedPassword, ...accountIds).run();
-
-    if (Number(update?.meta?.changes ?? accountIds.length) !== accountIds.length) {
+    // Apply all per-account hashes in one atomic PostgreSQL statement.
+    const payload = accountIds.map(id => ({ id, password: hashes.get(id) }));
+    const updated: any = await db.prepare(`
+      WITH input AS (
+        SELECT * FROM jsonb_to_recordset(?::jsonb) AS x(id text, password text)
+      ),
+      changed AS (
+        UPDATE accounts a SET password = input.password
+        FROM input WHERE a.id = input.id
+        RETURNING a.id, a.password
+      )
+      SELECT COUNT(*)::int AS count FROM changed
+    `).bind(JSON.stringify(payload)).first();
+    if (Number(updated?.count || 0) !== accountIds.length) {
       return json({
-        error: 'Số tài khoản được cập nhật không khớp danh sách đã chọn. Vui lòng kiểm tra lại dữ liệu.',
+        error: 'Số tài khoản được cập nhật không khớp danh sách đã chọn.',
         code: 'PASSWORD_RESET_WRITE_MISMATCH'
       }, 500);
     }
 
-    // Read-after-write verification: every requested row must contain the exact hash
-    // that was cryptographically verified above.
+    // Read-after-write verification for every requested account.
     const after: any = await db.prepare(
       `SELECT id, password FROM accounts WHERE id IN (${marks})`
     ).bind(...accountIds).all();
     const rows = after?.results || [];
-    const confirmedIds = new Set(
-      rows
-        .filter((row: any) => String(row.password || '') === hashedPassword)
-        .map((row: any) => String(row.id))
-    );
-
-    if (rows.length !== accountIds.length ||
-        accountIds.some(id => !confirmedIds.has(id)) ||
-        !(await verifyPassword(password, hashedPassword))) {
+    if (rows.length !== accountIds.length) {
       return json({
-        error: 'Không thể xác nhận toàn bộ mật khẩu sau khi ghi. Cần kiểm tra cơ sở dữ liệu trước khi tiếp tục.',
+        error: 'Không thể xác nhận toàn bộ mật khẩu sau khi ghi.',
         code: 'PASSWORD_RESET_VERIFY_FAILED'
       }, 500);
+    }
+    for (const row of rows) {
+      const expected = hashes.get(String(row.id));
+      if (!expected || String(row.password || '') !== expected || !(await verifyPassword(password, String(row.password || '')))) {
+        return json({
+          error: 'Không thể xác nhận toàn bộ mật khẩu sau khi ghi.',
+          code: 'PASSWORD_RESET_VERIFY_FAILED'
+        }, 500);
+      }
     }
 
     return json({
@@ -135,6 +146,7 @@ export async function onRequestPost(context: any) {
         updated: accountIds.length,
         account_ids: accountIds,
         password_scheme: 'pbkdf2:sha256',
+        unique_salt_per_account: true,
         session_tokens_invalidated: true,
         self_reset: accountIds.includes(String(actor.id || ''))
       },
