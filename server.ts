@@ -1245,16 +1245,23 @@ async function startServer() {
         });
       }
 
-      const hashedPassword = hashPasswordPBKDF2Sync(password);
-      if (!hashedPassword.startsWith('pbkdf2:sha256:') || !verifyPasswordSync(password, hashedPassword)) {
-        return res.status(500).json({
-          error: "Không thể xác minh kết quả mã hóa mật khẩu. Không có tài khoản nào được cập nhật."
-        });
+      const hashById = new Map<string,string>();
+      for (const id of accountIds) {
+        const hash = hashPasswordPBKDF2Sync(password);
+        if (!hash.startsWith('pbkdf2:sha256:') || !verifyPasswordSync(password, hash)) {
+          return res.status(500).json({
+            error: "Không thể xác minh kết quả mã hóa mật khẩu. Không có tài khoản nào được cập nhật."
+          });
+        }
+        hashById.set(id, hash);
       }
 
+      const caseSql = accountIds.map(() => 'WHEN ? THEN ?').join(' ');
       await executeSqlQuery(
-        `UPDATE accounts SET password = ? WHERE id IN (${marks})`,
-        [hashedPassword, ...accountIds]
+        `UPDATE accounts
+         SET password = CASE id ${caseSql} ELSE password END
+         WHERE id IN (${marks})`,
+        [...accountIds.flatMap(id => [id, hashById.get(id)]), ...accountIds]
       );
 
       const after = await executeSqlQuery(
@@ -1262,14 +1269,16 @@ async function startServer() {
         accountIds
       );
       const rows = after.results || [];
-      const confirmed = new Set(
-        rows
-          .filter((row: any) => String(row.password || '') === hashedPassword)
-          .map((row: any) => String(row.id))
-      );
-      if (rows.length !== accountIds.length ||
-          accountIds.some(id => !confirmed.has(id)) ||
-          !verifyPasswordSync(password, hashedPassword)) {
+      const byId = new Map(rows.map((row: any) => [String(row.id), String(row.password || '')]));
+      let verifiedAll = rows.length === accountIds.length;
+      for (const id of accountIds) {
+        const expected = hashById.get(id) || '';
+        if (byId.get(id) !== expected || !verifyPasswordSync(password, expected)) {
+          verifiedAll = false;
+          break;
+        }
+      }
+      if (!verifiedAll) {
         return res.status(500).json({
           error: "Không thể xác nhận toàn bộ mật khẩu sau khi ghi. Cần kiểm tra cơ sở dữ liệu trước khi tiếp tục.",
           code: "PASSWORD_RESET_VERIFY_FAILED"
@@ -1406,9 +1415,6 @@ async function startServer() {
               console.warn("Could not pre-fetch usernames, falling back:", e);
           }
 
-          let lastPassword = "";
-          let lastHashed = "";
-
           for (const item of list) {
               try {
                   let { user_id, username, password, role, is_active, expiry_date, full_name, lop, target_audience } = item;
@@ -1426,17 +1432,11 @@ async function startServer() {
                   }
                   existingSet.add(finalUsername.toLowerCase());
 
-                  // Tối ưu hóa 3: Tránh mã hóa lặp đi lặp lại cùng một mật khẩu mặc định (PBKDF2 rất tốn CPU)
-                  let hashedPassword = "";
-                  if (password === lastPassword && lastHashed) {
-                      hashedPassword = lastHashed;
-                  } else {
-                      hashedPassword = hashPasswordPBKDF2Sync(password);
-                      if (!verifyPasswordSync(String(password), hashedPassword)) {
-                          throw new Error("Không thể xác minh mật khẩu vừa mã hóa");
-                      }
-                      lastPassword = password;
-                      lastHashed = hashedPassword;
+                  // Mỗi tài khoản phải có salt PBKDF2 độc lập, kể cả khi dùng
+                  // cùng một mật khẩu mặc định trong đợt tạo hàng loạt.
+                  const hashedPassword = hashPasswordPBKDF2Sync(password);
+                  if (!verifyPasswordSync(String(password), hashedPassword)) {
+                      throw new Error("Không thể xác minh mật khẩu vừa mã hóa");
                   }
 
                   const id = (globalThis.crypto && globalThis.crypto.randomUUID) ? globalThis.crypto.randomUUID() : Math.random().toString(36).substring(2) + Date.now().toString(36);
