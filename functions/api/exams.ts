@@ -224,17 +224,16 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
             } catch(e) {}
           }
 
+          const normalizeUnit = (value: any) =>
+            String(value || '').normalize('NFKC').trim().toLocaleLowerCase('vi').replace(/\s+/g, ' ');
+          const requiredUnits = [teacherDonvi, ...allowedUnits].map(normalizeUnit).filter(Boolean);
           let isSameDonVi = false;
-          if (!teacherDonvi && allowedUnits.length === 0) {
-            isSameDonVi = true;
-          } else if (user) {
-            const userDonvi = String(user.donvi || user.address || '').trim().toLowerCase();
-            if (teacherDonvi && userDonvi && (userDonvi === teacherDonvi || userDonvi.includes(teacherDonvi) || teacherDonvi.includes(userDonvi))) {
-              isSameDonVi = true;
-            } else if (allowedUnits.some((au: string) => au && (au === userDonvi || userDonvi.includes(au) || au.includes(userDonvi)))) {
-              isSameDonVi = true;
-            }
+          if (user && requiredUnits.length > 0) {
+            const userDonvi = normalizeUnit(user.donvi || user.address || '');
+            isSameDonVi = !!userDonvi && requiredUnits.includes(userDonvi);
           }
+          // A unit-restricted exam with no valid unit metadata is misconfigured.
+          // Never fail open in the discovery list.
 
           if (!isSameDonVi) {
             return false;
