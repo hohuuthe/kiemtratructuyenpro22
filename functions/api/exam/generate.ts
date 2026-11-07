@@ -167,11 +167,11 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             return new Response(JSON.stringify({ error: 'Không tìm thấy thông tin cấu hình đề thi' }), { status: 400, headers: corsHeaders });
         }
 
-        const hasFiveDecimalPrecision = (value: any) => {
+        const hasFourDecimalPrecision = (value: any) => {
             const number = Number(value);
-            return Number.isFinite(number) && Math.abs(number * 100000 - Math.round(number * 100000)) <= 1e-7;
+            return Number.isFinite(number) && Math.abs(number * 10000 - Math.round(number * 10000)) <= 1e-7;
         };
-        // points_* are stored as PostgreSQL REAL. Five-decimal precision is
+        // points_* are stored as PostgreSQL REAL. Four-decimal precision is
         // enforced when saving config; after a REAL round-trip we only validate
         // finiteness/range to avoid rejecting a valid stored score due to float noise.
         for (const [label, value] of [
@@ -192,10 +192,10 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         }
         if (activeTf4Points && typeof activeTf4Points === 'object' && !Array.isArray(activeTf4Points)) {
             const values = ['1','2','3','4'].map(key => Number(activeTf4Points[key]));
-            if (values.some(value => !Number.isFinite(value) || value < 0 || value > 1000 || !hasFiveDecimalPrecision(value)) ||
+            if (values.some(value => !Number.isFinite(value) || value < 0 || value > 1000 || !hasFourDecimalPrecision(value)) ||
                 !(values[0] <= values[1] && values[1] <= values[2] && values[2] <= values[3])) {
                 return new Response(JSON.stringify({
-                    error: 'Bảng điểm Đúng/Sai tùy chỉnh không hợp lệ, không tăng dần hoặc có quá 5 chữ số thập phân.'
+                    error: 'Bảng điểm Đúng/Sai tùy chỉnh không hợp lệ, không tăng dần hoặc có quá 4 chữ số thập phân.'
                 }), { status: 400, headers: corsHeaders });
             }
         }
