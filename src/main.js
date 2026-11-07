@@ -3569,11 +3569,9 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
         }
 
         async function fetchAllResultsChunked(onProgress) {
-            let token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
+            const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
             if (!token) {
-                // Plaintext passwords are never stored. Require an explicit login when the auth token is absent.
-            } catch (e) {}
-                }
+                throw new Error('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
             }
             const chunkSize = 1000;
             let offset = 0;
@@ -4117,12 +4115,10 @@ if (contentType && contentType.includes("application/json")) {
         async function saveResultsToDB(newResult = null, deletedIds = null) {
             try {
                 window.lastResultsError = null;
-                let token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
-                
+                const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
                 if (!token) {
-                // Plaintext passwords are never stored. Require an explicit login when the auth token is absent.
-            } catch (e) {}
-                    }
+                    window.lastResultsError = 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.';
+                    return false;
                 }
 
                 if (deletedIds && deletedIds.length > 0) {
