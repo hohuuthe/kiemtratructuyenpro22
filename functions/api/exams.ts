@@ -225,15 +225,13 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
           }
 
           let isSameDonVi = false;
-          if (!teacherDonvi && allowedUnits.length === 0) {
-            isSameDonVi = true;
-          } else if (user) {
-            const userDonvi = String(user.donvi || user.address || '').trim().toLowerCase();
-            if (teacherDonvi && userDonvi && (userDonvi === teacherDonvi || userDonvi.includes(teacherDonvi) || teacherDonvi.includes(userDonvi))) {
-              isSameDonVi = true;
-            } else if (allowedUnits.some((au: string) => au && (au === userDonvi || userDonvi.includes(au) || au.includes(userDonvi)))) {
-              isSameDonVi = true;
-            }
+          // Listing must use the same fail-closed exact unit rule as exam issuance.
+          // Missing unit configuration never widens access.
+          if (user) {
+            const normalizeUnit = (value: any) => String(value || '').trim().toLocaleLowerCase('vi').replace(/\s+/g, ' ');
+            const userDonvi = normalizeUnit(user.donvi || user.address || '');
+            const configured = [...new Set([teacherDonvi, ...allowedUnits].map(normalizeUnit).filter(Boolean))];
+            isSameDonVi = !!userDonvi && configured.includes(userDonvi);
           }
 
           if (!isSameDonVi) {
