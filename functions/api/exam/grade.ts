@@ -501,7 +501,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                 console.error('Invalid scoring point in grading session', { label, value });
                 return null;
             }
-            return n;
+            // Canonicalize the PostgreSQL REAL round-trip before every score/max comparison.
+            // Example: 9.9999 may arrive as 9.999899864..., which must still mean 9.9999.
+            return roundScore(n, 4);
         };
         const p41 = readPoint(examConfig.points41 ?? examConfig.points_41, 1, '4-1');
         const pTF4 = readPoint(examConfig.pointsTF4 ?? examConfig.points_tf4, 1, 'TF4');

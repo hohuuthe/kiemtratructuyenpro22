@@ -414,3 +414,17 @@ test('active attempt locks self-heal only when the previous grading session is g
   assert.match(start, /if \(!existingSession\)/);
   assert.match(start, /DELETE FROM _exam_active_attempts WHERE attempt_key = \? AND session_id = \?/);
 });
+
+
+test('final audit: REAL-backed max scores are canonicalized before grading comparisons', () => {
+  const grade = fs.readFileSync(new URL('../functions/api/exam/grade.ts', import.meta.url), 'utf8');
+  const results = fs.readFileSync(new URL('../functions/api/results.ts', import.meta.url), 'utf8');
+  assert.match(grade, /return roundScore\(n, 4\)/);
+  assert.match(results, /const maxScore = roundScore\(rawMaxScore, 4\)/);
+});
+
+test('final audit: one-step 0.0001 manual score edits are persisted', () => {
+  const main = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+  assert.match(main, /Math\.abs\(newScore - currentScore\) >= 0\.0001/);
+  assert.match(main, /Math\.abs\(newTotalScore - \(result\.score \|\| 0\)\) >= 0\.0001/);
+});

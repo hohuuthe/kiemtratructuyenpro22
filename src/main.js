@@ -16546,7 +16546,7 @@ if (contentType && contentType.includes("application/json")) {
                         input.value = String(newScore);
                         
                         // So sánh số thực với sai số nhỏ
-                        if (Math.abs(newScore - currentScore) > 0.0001) {
+                        if (Math.abs(newScore - currentScore) >= 0.0001) {
                             d.score = newScore;
                             d.isCorrect = newScore > 0;
                             changes = true;
@@ -16561,7 +16561,7 @@ if (contentType && contentType.includes("application/json")) {
 
             // Nếu không có thay đổi ở từng câu, hãy kiểm tra xem tổng điểm có khác với điểm cũ không
             // (Ví dụ: sau khi AI chấm điểm đã cập nhật d.score trong state nhưng chưa lưu vào DB)
-            const scoreChanged = Math.abs(newTotalScore - (result.score || 0)) > 0.0001;
+            const scoreChanged = Math.abs(newTotalScore - (result.score || 0)) >= 0.0001;
             const countChanged = newCorrectCount !== (result.correctCount || 0);
 
             if (!changes && !scoreChanged && !countChanged) {
