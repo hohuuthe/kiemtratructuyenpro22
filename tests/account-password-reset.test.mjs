@@ -21,9 +21,9 @@ test('bulk password reset uses the same PBKDF2 password scheme as login', () => 
   assert.match(utils, /return `pbkdf2:sha256:\$\{PBKDF2_ITERATIONS\}/);
   assert.match(login, /verifyPassword\(password, result\.password\)/);
   assert.match(cf, /hashPasswordPBKDF2\(password\)/);
-  assert.match(cf, /verifyPassword\(password, hashedPassword\)/);
+  assert.match(cf, /verifyPassword\(password, hash\)/);
   assert.match(server, /hashPasswordPBKDF2Sync\(password\)/);
-  assert.match(server, /verifyPasswordSync\(password, hashedPassword\)/);
+  assert.match(server, /verifyPasswordSync\(password, hash\)/);
 });
 
 test('bulk reset validates the whole selection and assigns a unique PBKDF2 salt per account', () => {
