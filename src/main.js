@@ -12,6 +12,7 @@ import { scrollExamSubmitIntoView } from './exam-scroll-to-submit.js';
 import 'katex/dist/katex.min.css';
 import { renderRoleHelp, attachRoleHelpInteractions, resetRoleHelpCache } from './help-center.js';
 import { createEmptyExamDraft, mapStoredExamToDraft, resolveExamSaveIdentity } from './exam-editor-safety.js';
+import { verifyExamConfigQuestionPool, examQuestionPoolFailureMessage, normalizeExamPoolLesson, normalizeExamPoolType, normalizeExamPoolLevel } from './exam-question-pool-integrity.js';
 import './style.css';
 import { planRecentQuestionView, resolveWordImportedQuestionIds } from './question-bank-recent-view.js';
 import { questionCreatorId, matchesQuestionTeacher, questionTeacherOptions } from './question-teacher-filter.js';
@@ -3457,6 +3458,27 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                     throw new Error('Phiên đăng nhập đã thay đổi trong khi tải câu hỏi.');
                 }
             };
+            const fetchAuthoritativeTotal = async () => {
+                verifySession();
+                const response = await fetch('/api/questions?count=true', {
+                    cache: 'no-store',
+                    headers: { 'Authorization': 'Bearer ' + token, 'Cache-Control': 'no-cache' }
+                });
+                verifySession();
+                if (!response.ok || !response.headers.get('content-type')?.includes('application/json')) {
+                    const error = new Error('Không thể xác minh tổng số câu hỏi trên máy chủ (HTTP ' + response.status + ').');
+                    error.status = response.status;
+                    throw error;
+                }
+                const payload = await response.json();
+                verifySession();
+                const total = Number(payload?.count);
+                if (!Number.isSafeInteger(total) || total < 0) {
+                    throw new Error('Máy chủ trả về tổng số câu hỏi không hợp lệ.');
+                }
+                return total;
+            };
+            const expectedTotal = await fetchAuthoritativeTotal();
             const chunkSize = 1000;
             let offset = 0;
             const allQuestions = [];
@@ -3509,6 +3531,13 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             const receivedIds = new Set(allQuestions.map(q => String(q?.id || '')));
             if (receivedIds.size !== allQuestions.length || receivedIds.has('')) {
                 throw new Error('Dữ liệu ngân hàng câu hỏi bị trùng hoặc thiếu mã câu hỏi khi phân trang.');
+            }
+            const finalTotal = await fetchAuthoritativeTotal();
+            if (finalTotal !== expectedTotal || allQuestions.length !== expectedTotal) {
+                throw new Error(
+                    'Ngân hàng câu hỏi đã thay đổi hoặc tải chưa đủ trong lúc nạp: đã tải ' +
+                    allQuestions.length + ' / cần ' + finalTotal + ' câu. Hệ thống đã chặn nạp cấu hình để tránh sai đề.'
+                );
             }
             if (typeof onProgress === 'function') onProgress(allQuestions.length, pageNum, true);
             return allQuestions;
@@ -3567,6 +3596,24 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             try { return await request; }
             finally { if (questionsLoadPromise === request) questionsLoadPromise = null; }
         }
+
+
+        async function ensureExamConfigQuestionPoolLoaded(draft) {
+            const generation = authDataGeneration;
+            const userId = String(currentUser?.id || '');
+            let verification = null;
+            for (let attempt = 0; attempt < 2; attempt++) {
+                const loaded = await loadQuestions(true);
+                if (!loaded || generation !== authDataGeneration ||
+                    userId !== String(currentUser?.id || '') || !(isAdminLoggedIn || isTeacherLoggedIn)) {
+                    throw new Error('Không thể tải và xác minh đầy đủ ngân hàng câu hỏi cho cấu hình đề thi.');
+                }
+                verification = verifyExamConfigQuestionPool(draft, questions);
+                if (verification.ok) return verification;
+            }
+            throw new Error(examQuestionPoolFailureMessage(verification));
+        }
+        window.ensureExamConfigQuestionPoolLoaded = ensureExamConfigQuestionPoolLoaded;
 
         async function fetchAllResultsChunked(onProgress) {
             const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
@@ -6320,8 +6367,11 @@ if (contentType && contentType.includes("application/json")) {
                 if (generation !== authDataGeneration || requestSeq !== examConfigLoadSeq ||
                     !(isAdminLoggedIn || isTeacherLoggedIn)) return;
                 if (res.ok && resJson.data) {
-                    // The editor initializes on first open; its defaults invalidate older
-                    // requests. Do not discard the user-initiated load because of init.
+                    const draftToLoad = mapStoredExamToDraft(resJson.data, {currentUser, accounts, accountsMap});
+                    await ensureExamConfigQuestionPoolLoaded(draftToLoad);
+                    if (generation !== authDataGeneration || requestSeq !== examConfigLoadSeq ||
+                        userLoadIntent !== examUserLoadIntentSeq || !(isAdminLoggedIn || isTeacherLoggedIn)) return;
+                    // Chỉ mở và áp cấu hình sau khi ngân hàng câu hỏi đã được tải mới và xác minh đúng phạm vi cấu hình.
                     const opened = await openExamEditorTab({newExam:false});
                     if (!opened || generation !== authDataGeneration ||
                         userLoadIntent !== examUserLoadIntentSeq ||
@@ -6338,7 +6388,7 @@ if (contentType && contentType.includes("application/json")) {
                 }
             } catch (e) {
                 console.error('Error in loadExamConfigById:', e);
-                showToast('Không thể tải cấu hình đề thi đã chọn!', 'error');
+                showToast(e?.message || 'Không thể tải cấu hình đề thi đã chọn!', 'error');
             }
         };
 
@@ -15475,7 +15525,7 @@ D. Phát biểu SAI</pre>
             const allowedSet = new Set(allowedLessons);
             const filterByLesson = (q) => {
                 if (allowedSet.size === 0) return false;
-                const qLesson = String(q.lesson || '').trim().toLowerCase().replace(/\s+/g, ' ');
+                const qLesson = normalizeExamPoolLesson(q.lesson);
                 return allowedSet.has(qLesson);
             };
             
@@ -15492,7 +15542,11 @@ D. Phát biểu SAI</pre>
             }
 
             // Helper to count by type and level
-            const count = (type, level) => filteredQuestions.filter(q => q.type === type && q.level === level && filterByLesson(q)).length;
+            const count = (type, level) => filteredQuestions.filter(q =>
+                normalizeExamPoolType(q.type) === type &&
+                normalizeExamPoolLevel(q.level) === level &&
+                filterByLesson(q)
+            ).length;
 
             const updateField = (type, level, idSuffix) => {
                 const c = count(type, level);
