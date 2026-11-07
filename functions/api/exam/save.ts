@@ -32,6 +32,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     const token = String(body?.token || '').trim();
     const answers = body?.studentAnswers;
     const revision = Math.max(0, Math.floor(Number(body?.revision) || 0));
+    const writerId = String(body?.writerId || '').trim();
     if (!token || !Array.isArray(answers)) {
       return new Response(JSON.stringify({ error: 'Thiếu dữ liệu lưu tạm bài làm.' }), { status: 400, headers: corsHeaders });
     }
@@ -55,6 +56,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     }
 
     const gradingSessionId = String(decoded.gradingSessionId || '').trim();
+    if (writerId && !/^[A-Za-z0-9._:-]{8,120}$/.test(writerId)) {
+      return new Response(JSON.stringify({ error: 'Mã thiết bị lưu bài không hợp lệ.' }), { status: 400, headers: corsHeaders });
+    }
     const session: any = await db.prepare(
       'SELECT question_ids, expires_at, started_at, deadline_at FROM _exam_grade_sessions WHERE session_id = ?'
     ).bind(gradingSessionId).first();
@@ -83,6 +87,35 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     const answersJson = JSON.stringify(answers);
     if (answersJson.length > 3_000_000) {
       return new Response(JSON.stringify({ error: 'Dữ liệu bài làm lưu tạm vượt giới hạn an toàn.' }), { status: 413, headers: corsHeaders });
+    }
+
+    // Browser-tab lease prevents two open tabs from alternately overwriting the
+    // same server draft. A crashed tab naturally releases after the short lease.
+    if (writerId) {
+      await db.prepare(`
+        CREATE TABLE IF NOT EXISTS _exam_writer_leases (
+          session_id TEXT PRIMARY KEY,
+          writer_id TEXT NOT NULL,
+          lease_until TEXT NOT NULL
+        )
+      `).run();
+      const leaseUntil = new Date(nowMs + 30_000).toISOString();
+      const lease: any = await db.prepare(`
+        INSERT INTO _exam_writer_leases (session_id, writer_id, lease_until)
+        VALUES (?, ?, ?)
+        ON CONFLICT (session_id) DO UPDATE SET
+          writer_id = excluded.writer_id,
+          lease_until = excluded.lease_until
+        WHERE _exam_writer_leases.writer_id = excluded.writer_id
+           OR _exam_writer_leases.lease_until < ?
+        RETURNING writer_id
+      `).bind(gradingSessionId, writerId, leaseUntil, new Date(nowMs).toISOString()).first();
+      if (!lease || String(lease.writer_id) !== writerId) {
+        return new Response(JSON.stringify({
+          code: 'EXAM_OTHER_TAB_ACTIVE',
+          error: 'Bài thi đang được lưu từ một tab khác. Tab này không được ghi đè bản lưu.'
+        }), { status: 409, headers: corsHeaders });
+      }
     }
 
     await db.prepare(`
