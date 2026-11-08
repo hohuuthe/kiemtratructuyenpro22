@@ -3139,6 +3139,50 @@ async function startServer() {
         : [];
       const ownerIds = new Set([String(user.id||''),String(user.user_id||'')].filter(Boolean));
 
+      // Validate the entire mutation set before deleting or upserting anything.
+      for (const q of questions) {
+        if (!q || typeof q !== 'object' || Array.isArray(q)) {
+          return res.status(400).json({error:'Dữ liệu câu hỏi trong batch không hợp lệ'});
+        }
+        const qId = q.id || '(câu mới)';
+        if (!isAdmin && q.id) {
+          const existing = await executeSqlQuery("SELECT creator_id FROM questions WHERE id = ?", [q.id]);
+          const owner = existing.results?.[0]?.creator_id;
+          if (owner && !ownerIds.has(String(owner))) {
+            return res.status(403).json({error:'Không có quyền sửa câu hỏi của tài khoản khác'});
+          }
+        }
+        let options:any = {};
+        if (q.options && typeof q.options === 'object' && !Array.isArray(q.options)) options = q.options;
+        else if (typeof q.options === 'string' && q.options.trim()) {
+          try { options = JSON.parse(q.options); }
+          catch { return res.status(400).json({error:`Câu hỏi ${qId}: tùy chọn không phải JSON hợp lệ`}); }
+        }
+        const type = normalizeQuestionType(q.type || 'trac_nghiem');
+        const level = String(q.level ?? '').trim().toUpperCase();
+        if (!['NB','TH','VD'].includes(level)) {
+          return res.status(400).json({error:`Câu hỏi ${qId}: mức độ phải là NB, TH hoặc VD.`,code:'INVALID_QUESTION_LEVEL'});
+        }
+        const answerVerdict = validateQuestionAnswer(type,q.answer,options);
+        if (!answerVerdict.ok) {
+          return res.status(400).json({error:`Câu hỏi ${qId}: ${answerVerdict.reason}`,code:'INVALID_QUESTION_ANSWER'});
+        }
+        if (type === '4-1') {
+          for (const key of ['A','B','C','D']) {
+            const option:any = options[key];
+            const text = option && typeof option === 'object'
+              ? String(option.text ?? option.content ?? option.value ?? '').trim()
+              : String(option ?? '').trim();
+            const image = option && typeof option === 'object'
+              ? String(option.image ?? option.img ?? option.src ?? option.url ?? '').trim()
+              : '';
+            if (!text && !image) {
+              return res.status(400).json({error:`Câu hỏi ${qId}: câu trắc nghiệm phải có đủ phương án A, B, C, D.`,code:'INVALID_QUESTION_OPTIONS'});
+            }
+          }
+        }
+      }
+
       if (deletedIds && deletedIds.length > 0) {
         for (const id of deletedIds) {
           if (!isAdmin) {
