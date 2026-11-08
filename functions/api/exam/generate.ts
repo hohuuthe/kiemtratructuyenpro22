@@ -599,7 +599,21 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             return new Response(JSON.stringify({ error: 'Cấu hình đề thi chưa có số lượng câu hỏi nào (> 0)!' }), { status: 400, headers: corsHeaders });
         }
 
-        const shuffle = (arr: any[]) => [...arr].sort(() => Math.random() - 0.5);
+        const shuffle = (arr: any[]) => {
+            const result = [...arr];
+            for (let i = result.length - 1; i > 0; i--) {
+                const limit = Math.floor(0x100000000 / (i + 1)) * (i + 1);
+                let randomValue = 0;
+                do {
+                    const buffer = new Uint32Array(1);
+                    crypto.getRandomValues(buffer);
+                    randomValue = buffer[0];
+                } while (randomValue >= limit);
+                const j = randomValue % (i + 1);
+                [result[i], result[j]] = [result[j], result[i]];
+            }
+            return result;
+        };
         let selectedQuestions: any[] = [];
 
         // Chọn câu bằng hàm thuần đã được test độc lập.
