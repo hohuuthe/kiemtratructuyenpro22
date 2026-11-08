@@ -25,7 +25,7 @@ export const onRequestOptions: PagesFunction<Env> = async () => {
 };
 
 // Helper parse details JSON
-function parseResultRow(row: any, includeDetails = false) {
+function parseResultRow(row: any, includeDetails = false, hidePendingScore = false) {
   let details = [];
   if (includeDetails && row.details) {
     if (typeof row.details === 'string') {
@@ -42,6 +42,10 @@ function parseResultRow(row: any, includeDetails = false) {
   const lop = row.lop || row.user_lop || '';
   const donVi = row.don_vi || row.donvi || row.user_don_vi || row.student_class || '';
 
+  const gradingStatus = String(row.grading_status || 'FINAL').trim().toUpperCase() || 'FINAL';
+  const scoreFinalized = gradingStatus !== 'PENDING' && gradingStatus !== 'REVIEW_REQUIRED';
+  const exposeScore = !hidePendingScore || scoreFinalized;
+
   return {
     id: row.id,
     user_id: row.user_id || '',
@@ -51,8 +55,8 @@ function parseResultRow(row: any, includeDetails = false) {
     lop: lop,
     don_vi: donVi,
     donvi: donVi,
-    score: row.score,
-    correct_count: row.correct_count,
+    score: exposeScore ? row.score : null,
+    correct_count: exposeScore ? row.correct_count : null,
     total_questions: row.total_questions,
     time_taken: row.time_taken,
     exam_name: row.exam_name,
@@ -64,6 +68,8 @@ function parseResultRow(row: any, includeDetails = false) {
     cheat_warning_count: Number(row.cheat_warning_count) || 0,
     cheatWarningCount: Number(row.cheat_warning_count) || 0,
     ai_grading_summary: row.ai_grading_summary || null,
+    grading_status: gradingStatus,
+    score_finalized: scoreFinalized,
     ...(includeDetails ? { details } : {})
   };
 }
@@ -102,8 +108,8 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
 
   const paginationClause = limit > 0 ? ` LIMIT ${limit} OFFSET ${offset}` : '';
 
-  function makePaginatedResponse(rawResults: any[], incDetails: boolean) {
-    const data = (rawResults || []).map((r: any) => parseResultRow(r, incDetails));
+  function makePaginatedResponse(rawResults: any[], incDetails: boolean, hidePendingScore = false) {
+    const data = (rawResults || []).map((r: any) => parseResultRow(r, incDetails, hidePendingScore));
     return new Response(JSON.stringify({
       data,
       total: data.length,
@@ -143,6 +149,9 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     } catch (e) {}
     try {
       await db.prepare("ALTER TABLE results ADD COLUMN don_vi TEXT").run();
+    } catch (e) {}
+    try {
+      await db.prepare("ALTER TABLE results ADD COLUMN IF NOT EXISTS grading_status TEXT DEFAULT 'FINAL'").run();
     } catch (e) {}
     try {
       await db.prepare(`
@@ -193,7 +202,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
           SELECT 
             r.id, r.user_id, r.student_name, r.student_class, r.exam_name, r.exam_id, r.score, r.time_taken, 
             r.correct_count, r.total_questions, r.details, r.loai_thi_sinh, r.cheat_warning_count, 
-            r.ai_grading_summary, r.created_at,
+            r.ai_grading_summary, r.grading_status, r.created_at,
             COALESCE(u.lop, u2.lop, '') as lop,
             COALESCE(u.donvi, u.address, u2.donvi, u2.address, r.student_class, '') as don_vi
           FROM results r
@@ -272,8 +281,8 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     }
 
     const columns = includeDetails
-      ? "r.id, r.user_id, r.student_name, r.student_class, r.score, r.correct_count, r.total_questions, r.time_taken, r.exam_name, r.exam_id, r.created_at, r.loai_thi_sinh, r.cheat_warning_count, r.ai_grading_summary, COALESCE(u.lop, u2.lop, '') as lop, COALESCE(u.donvi, u.address, u2.donvi, u2.address, r.student_class, '') as don_vi, r.details"
-      : "r.id, r.user_id, r.student_name, r.student_class, r.score, r.correct_count, r.total_questions, r.time_taken, r.exam_name, r.exam_id, r.created_at, r.loai_thi_sinh, r.cheat_warning_count, r.ai_grading_summary, COALESCE(u.lop, u2.lop, '') as lop, COALESCE(u.donvi, u.address, u2.donvi, u2.address, r.student_class, '') as don_vi";
+      ? "r.id, r.user_id, r.student_name, r.student_class, r.score, r.correct_count, r.total_questions, r.time_taken, r.exam_name, r.exam_id, r.created_at, r.loai_thi_sinh, r.cheat_warning_count, r.ai_grading_summary, r.grading_status, COALESCE(u.lop, u2.lop, '') as lop, COALESCE(u.donvi, u.address, u2.donvi, u2.address, r.student_class, '') as don_vi, r.details"
+      : "r.id, r.user_id, r.student_name, r.student_class, r.score, r.correct_count, r.total_questions, r.time_taken, r.exam_name, r.exam_id, r.created_at, r.loai_thi_sinh, r.cheat_warning_count, r.ai_grading_summary, r.grading_status, COALESCE(u.lop, u2.lop, '') as lop, COALESCE(u.donvi, u.address, u2.donvi, u2.address, r.student_class, '') as don_vi";
 
     // 3. Tải danh sách kết quả theo mã chia sẻ đề thi (?examId=xxx)
     if (examIdParam && !user && includeDetails) {
@@ -320,7 +329,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
         results = res.results || [];
       }
 
-      return makePaginatedResponse(results, includeDetails);
+      return makePaginatedResponse(results, includeDetails, !user);
     }
 
     // 4. Tải danh sách kết quả tổng quát theo quyền người dùng
