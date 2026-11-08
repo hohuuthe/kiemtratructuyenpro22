@@ -548,7 +548,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         const normalizeLevel = (lvl: any) => {
             const l = String(lvl || '').trim().toUpperCase();
             if (l === 'NB' || l === 'TH' || l === 'VD') return l;
-            return 'NB';
+            return '';
         };
 
         // LỌC BỎ NGAY LẬP TỨC 100% CÁC CÂU HỎI THUỘC BÀI KHÁC HOẶC KHÔNG CÓ BÀI HỌC
@@ -575,6 +575,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                 creatorId: q.creator_id
             }))
             .filter(q => {
+                if (!q.level) return false;
                 if (!isQuestionInSelectedLessons(q.lesson)) return false;
                 const verdict = validateQuestionAnswer(q.type, q.answer, q.options);
                 if (!verdict.ok) return false;
