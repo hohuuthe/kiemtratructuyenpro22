@@ -10,9 +10,13 @@ export function isExamSettingEnabled(value: unknown): boolean {
 }
 
 export function studentExamVisibility(row: any) {
+  const gradingStatus = String(row?.grading_status || 'FINAL').trim().toUpperCase();
+  const scoreFinalized = gradingStatus !== 'PENDING' && gradingStatus !== 'REVIEW_REQUIRED';
   return {
-    can_view_score: isExamSettingEnabled(row?.exam_show_score),
-    can_view_details: isExamSettingEnabled(row?.exam_show_details)
+    can_view_score: scoreFinalized && isExamSettingEnabled(row?.exam_show_score),
+    can_view_details: isExamSettingEnabled(row?.exam_show_details),
+    grading_status: gradingStatus || 'FINAL',
+    score_finalized: scoreFinalized
   };
 }
 
@@ -170,6 +174,8 @@ export function projectStudentResultRow(row: any) {
     time_taken: row.time_taken,
     created_at: row.created_at,
     cheat_warning_count: Math.max(0, Math.floor(Number(row.cheat_warning_count) || 0)),
+    grading_status: permission.grading_status,
+    score_finalized: permission.score_finalized,
     ...permission
   };
 }
