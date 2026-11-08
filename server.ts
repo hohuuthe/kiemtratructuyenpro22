@@ -3131,12 +3131,18 @@ async function startServer() {
 
       const body = req.body || {};
       const questions: any[] = Array.isArray(body) ? body : (body.questions || [body]);
-      const deletedIds: string[] = body.deletedIds || [];
+      if (!Array.isArray(body) && body?.deletedIds !== undefined && !Array.isArray(body.deletedIds)) {
+        return res.status(400).json({error:'Danh sách ID câu hỏi cần xóa không hợp lệ'});
+      }
+      const deletedIds: string[] = Array.isArray(body?.deletedIds)
+        ? [...new Set(body.deletedIds.map((id:any)=>String(id||'').trim()).filter(Boolean))]
+        : [];
+      const ownerIds = new Set([String(user.id||''),String(user.user_id||'')].filter(Boolean));
 
       if (deletedIds && deletedIds.length > 0) {
         for (const id of deletedIds) {
           if (!isAdmin) {
-            await executeSqlQuery("DELETE FROM questions WHERE id = ? AND creator_id = ?", [id, user.id]);
+            await executeSqlQuery("DELETE FROM questions WHERE id = ? AND creator_id IN (?, ?)", [id, user.id, user.user_id || user.id]);
           } else {
             await executeSqlQuery("DELETE FROM questions WHERE id = ?", [id]);
           }
@@ -3159,14 +3165,18 @@ async function startServer() {
         `;
 
         for (const q of questions) {
+          if (!q || typeof q !== 'object' || Array.isArray(q)) {
+            return res.status(400).json({error:'Dữ liệu câu hỏi trong batch không hợp lệ'});
+          }
           const qId = q.id || ((globalThis.crypto && globalThis.crypto.randomUUID) ? globalThis.crypto.randomUUID() : Math.random().toString(36).substring(2) + Date.now().toString(36));
-          const creatorId = isAdmin ? (q.creatorId || user.id) : user.id;
+          let creatorId = isAdmin ? (q.creatorId || user.id) : user.id;
           if (!isAdmin && q.id) {
             const existing = await executeSqlQuery("SELECT creator_id FROM questions WHERE id = ?", [q.id]);
             const owner = existing.results?.[0]?.creator_id;
-            if (owner && String(owner) !== String(user.id)) {
+            if (owner && !ownerIds.has(String(owner))) {
               return res.status(403).json({error:'Không có quyền sửa câu hỏi của tài khoản khác'});
             }
+            if (owner) creatorId = String(owner);
           }
           let optionObject:any = {};
           if (q.options && typeof q.options === 'object' && !Array.isArray(q.options)) optionObject = q.options;
@@ -3256,7 +3266,7 @@ async function startServer() {
         if (isAdmin) {
           await executeSqlQuery("DELETE FROM questions WHERE id = ?", [id]);
         } else {
-          await executeSqlQuery("DELETE FROM questions WHERE id = ? AND creator_id = ?", [id, user.id]);
+          await executeSqlQuery("DELETE FROM questions WHERE id = ? AND creator_id IN (?, ?)", [id, user.id, user.user_id || user.id]);
         }
       }
 
