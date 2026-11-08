@@ -1,6 +1,7 @@
 import {QUESTION_CREATOR_JOIN_SQL,QUESTION_CREATOR_NAME_SQL,QUESTION_CREATOR_USERNAME_SQL} from '../../src/question-creator-identity.js';
 import { verifyAuthSession, getDynamicSecret, getDatabase, checkIsTeacherOrAdmin, checkIsAdmin } from './exam/utils';
 import { requiredQuestionLesson, questionLessonDeleteScope, requireQuestionLessonConfirmation, questionLessonCountQuery, questionLessonDeleteQuery, QuestionLessonDeleteError, canDeleteQuestionsByLesson } from '../../src/question-lesson-delete-policy';
+import { normalizeQuestionType, validateQuestionAnswer } from '../../src/exam-grading-core.js';
 
 interface Env {
   NEON_DATABASE_URL?: string;
@@ -55,16 +56,6 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
   const countOnly = url.searchParams.get('count') === 'true';
   const metaOnly = url.searchParams.get('metaOnly') === 'true' || url.searchParams.get('metadata') === 'true';
 
-  // BẢO MẬT: Nếu là yêu cầu lấy metadata (chỉ type, level, lesson) để đếm số lượng câu hỏi khả dụng cho học sinh làm bài
-  if (metaOnly && teacherIdParam) {
-    try {
-      const { results } = await db.prepare("SELECT type, level, lesson FROM questions WHERE creator_id = ?").bind(teacherIdParam).all();
-      return new Response(JSON.stringify({ data: results || [], error: null }), { status: 200, headers: corsHeaders });
-    } catch (e: any) {
-      return new Response(JSON.stringify({ error: e.message || "Lỗi truy vấn metadata", data: [] }), { status: 500, headers: corsHeaders });
-    }
-  }
-
   const SECRET = await getDynamicSecret(db, env.JWT_SECRET);
   const authHeader = request.headers.get('Authorization');
   let user: any = null;
@@ -85,6 +76,13 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     let targetTeacherId = user.id;
     if (isAdmin && teacherIdParam) {
       targetTeacherId = teacherIdParam;
+    }
+
+    if (metaOnly) {
+      const { results } = await db.prepare(
+        "SELECT type, level, lesson FROM questions WHERE creator_id = ?"
+      ).bind(targetTeacherId).all();
+      return new Response(JSON.stringify({ data: results || [], error: null }), { status: 200, headers: corsHeaders });
     }
 
     if (countOnly) {
@@ -185,6 +183,60 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
           ? [body]
           : [];
     const deletedIds: string[] = body.deletedIds || [];
+
+    // Preflight toàn bộ payload trước khi có bất kỳ DELETE/UPSERT nào.
+    // Nhờ đó lỗi quyền, level, JSON tùy chọn hoặc đáp án không hợp lệ không thể
+    // khiến một batch bị thay đổi nửa chừng chỉ vì câu sau cùng mới phát hiện lỗi.
+    for (const q of questions) {
+      const qId = q.id || '(câu mới)';
+      if (!isAdmin && q.id) {
+        const record = await db.prepare("SELECT creator_id FROM questions WHERE id = ?").bind(q.id).first();
+        if (record && String(record.creator_id) !== String(user.id)) {
+          return new Response(JSON.stringify({error:'Không có quyền sửa câu hỏi của tài khoản khác'}), {status:403,headers:corsHeaders});
+        }
+      }
+      let optionObject: any = {};
+      if (q.options && typeof q.options === 'object' && !Array.isArray(q.options)) {
+        optionObject = q.options;
+      } else if (typeof q.options === 'string' && q.options.trim()) {
+        try { optionObject = JSON.parse(q.options); }
+        catch {
+          return new Response(JSON.stringify({error:`Câu hỏi ${qId}: tùy chọn không phải JSON hợp lệ`}), {status:400,headers:corsHeaders});
+        }
+      }
+      const normalizedType = normalizeQuestionType(q.type || 'trac_nghiem');
+      const normalizedLevel = String(q.level ?? '').trim().toUpperCase();
+      if (!['NB', 'TH', 'VD'].includes(normalizedLevel)) {
+        return new Response(JSON.stringify({
+          error: `Câu hỏi ${qId}: mức độ phải là NB, TH hoặc VD. Hệ thống không tự chuyển dữ liệu sai sang NB.`,
+          code: 'INVALID_QUESTION_LEVEL'
+        }), {status:400,headers:corsHeaders});
+      }
+      const answerVerdict = validateQuestionAnswer(normalizedType, q.answer, optionObject);
+      if (!answerVerdict.ok) {
+        return new Response(JSON.stringify({
+          error: `Câu hỏi ${qId}: ${answerVerdict.reason}`,
+          code: 'INVALID_QUESTION_ANSWER'
+        }), {status:400,headers:corsHeaders});
+      }
+      if (normalizedType === '4-1') {
+        for (const key of ['A','B','C','D']) {
+          const option: any = optionObject[key];
+          const text = option && typeof option === 'object'
+            ? String(option.text ?? option.content ?? option.value ?? '').trim()
+            : String(option ?? '').trim();
+          const image = option && typeof option === 'object'
+            ? String(option.image ?? option.img ?? option.src ?? option.url ?? '').trim()
+            : '';
+          if (!text && !image) {
+            return new Response(JSON.stringify({
+              error: `Câu hỏi ${qId}: câu trắc nghiệm phải có đủ phương án A, B, C, D.`,
+              code: 'INVALID_QUESTION_OPTIONS'
+            }), {status:400,headers:corsHeaders});
+          }
+        }
+      }
+    }
 
     // 1. Xóa các câu hỏi được yêu cầu xóa
     if (deletedIds && deletedIds.length > 0) {
