@@ -113,7 +113,7 @@ export async function queryOwnResultHistory(db: any, user: any, url: URL) {
       const groupedSql =
         'WITH ranked AS (' +
         ' SELECT r.id, r.exam_id, r.exam_name, r.score, r.correct_count, r.total_questions, ' +
-        'r.time_taken, r.created_at, r.cheat_warning_count, ec.show_score AS exam_show_score, ' +
+        'r.time_taken, r.created_at, r.cheat_warning_count, r.grading_status, ec.show_score AS exam_show_score, ' +
         'ec.show_details AS exam_show_details, ' +
         'COUNT(*) OVER (PARTITION BY ' + groupKey + ') AS attempt_count, ' +
         'MAX(r.created_at) OVER (PARTITION BY ' + groupKey + ') AS latest_created_at, ' +
@@ -158,7 +158,7 @@ export async function queryOwnResultHistory(db: any, user: any, url: URL) {
     ).bind(...ids).first();
     const response: any = await db.prepare(
       'SELECT r.id, r.exam_id, r.exam_name, r.score, r.correct_count, r.total_questions, ' +
-      'r.time_taken, r.created_at, r.cheat_warning_count, ec.show_score AS exam_show_score, ' +
+      'r.time_taken, r.created_at, r.cheat_warning_count, r.grading_status, ec.show_score AS exam_show_score, ' +
       'ec.show_details AS exam_show_details FROM results r ' +
       'LEFT JOIN exam_configs ec ON ec.id = r.exam_id WHERE r.' + scope +
       ' ORDER BY r.created_at DESC, r.id DESC LIMIT ? OFFSET ?'
@@ -181,6 +181,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     }
 
     const db = getDatabase(context);
+    try { await db.prepare("ALTER TABLE results ADD COLUMN IF NOT EXISTS grading_status TEXT DEFAULT 'FINAL'").run(); } catch {}
     const secret = await getDynamicSecret(db, env.JWT_SECRET);
     const user = await verifyAuthSession(header.substring(7), secret, db);
     if (!user) return reply({ error: 'Phiên đăng nhập không hợp lệ hoặc đã hết hạn.' }, 401);
