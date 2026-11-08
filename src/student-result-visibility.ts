@@ -9,14 +9,17 @@ export function isExamSettingEnabled(value: unknown): boolean {
   return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
 }
 
+function studentGradingLifecycle(row: any) {
+  const grading_status = String(row?.grading_status || 'FINAL').trim().toUpperCase() || 'FINAL';
+  const score_finalized = grading_status !== 'PENDING' && grading_status !== 'REVIEW_REQUIRED';
+  return { grading_status, score_finalized };
+}
+
 export function studentExamVisibility(row: any) {
-  const gradingStatus = String(row?.grading_status || 'FINAL').trim().toUpperCase();
-  const scoreFinalized = gradingStatus !== 'PENDING' && gradingStatus !== 'REVIEW_REQUIRED';
+  const lifecycle = studentGradingLifecycle(row);
   return {
-    can_view_score: scoreFinalized && isExamSettingEnabled(row?.exam_show_score),
-    can_view_details: isExamSettingEnabled(row?.exam_show_details),
-    grading_status: gradingStatus || 'FINAL',
-    score_finalized: scoreFinalized
+    can_view_score: lifecycle.score_finalized && isExamSettingEnabled(row?.exam_show_score),
+    can_view_details: isExamSettingEnabled(row?.exam_show_details)
   };
 }
 
@@ -164,6 +167,7 @@ export function projectStudentAttemptDetails(raw: any, canViewScore: boolean): a
 
 export function projectStudentResultRow(row: any) {
   const permission = studentExamVisibility(row);
+  const lifecycle = studentGradingLifecycle(row);
   return {
     id: row.id,
     exam_id: row.exam_id,
@@ -174,8 +178,8 @@ export function projectStudentResultRow(row: any) {
     time_taken: row.time_taken,
     created_at: row.created_at,
     cheat_warning_count: Math.max(0, Math.floor(Number(row.cheat_warning_count) || 0)),
-    grading_status: permission.grading_status,
-    score_finalized: permission.score_finalized,
+    grading_status: lifecycle.grading_status,
+    score_finalized: lifecycle.score_finalized,
     ...permission
   };
 }
