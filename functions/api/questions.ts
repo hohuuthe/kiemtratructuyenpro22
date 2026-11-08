@@ -56,6 +56,18 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
   const countOnly = url.searchParams.get('count') === 'true';
   const metaOnly = url.searchParams.get('metaOnly') === 'true' || url.searchParams.get('metadata') === 'true';
 
+  // Metadata-only remains backward compatible for public exam readiness checks.
+  // It exposes no content or answer keys; authoritative generation still validates
+  // the full pool on the server before a READY session can be created.
+  if (metaOnly && teacherIdParam) {
+    try {
+      const { results } = await db.prepare("SELECT type, level, lesson FROM questions WHERE creator_id = ?").bind(teacherIdParam).all();
+      return new Response(JSON.stringify({ data: results || [], error: null }), { status: 200, headers: corsHeaders });
+    } catch (e: any) {
+      return new Response(JSON.stringify({ error: e.message || "Lỗi truy vấn metadata", data: [] }), { status: 500, headers: corsHeaders });
+    }
+  }
+
   const SECRET = await getDynamicSecret(db, env.JWT_SECRET);
   const authHeader = request.headers.get('Authorization');
   let user: any = null;
@@ -76,13 +88,6 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     let targetTeacherId = user.id;
     if (isAdmin && teacherIdParam) {
       targetTeacherId = teacherIdParam;
-    }
-
-    if (metaOnly) {
-      const { results } = await db.prepare(
-        "SELECT type, level, lesson FROM questions WHERE creator_id = ?"
-      ).bind(targetTeacherId).all();
-      return new Response(JSON.stringify({ data: results || [], error: null }), { status: 200, headers: corsHeaders });
     }
 
     if (countOnly) {
