@@ -11,10 +11,13 @@ on:
       - 'functions/api/results/me.ts'
       - 'src/exam-question-selector.ts'
       - 'src/exam-question-pool-validity.ts'
+      - 'src/exam-question-pool-integrity.js'
       - 'src/exam-config-deletion-policy.ts'
       - 'src/student-result-visibility.ts'
+      - 'server.ts'
       - 'index.html'
       - 'tests/exam-critical-integrity.test.ts'
+      - 'tests/exam-question-pool-integrity.test.mjs'
       - '.github/workflows/exam-critical-integrity.yml'
 
 permissions:
