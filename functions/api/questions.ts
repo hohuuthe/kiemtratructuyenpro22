@@ -232,6 +232,13 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
           }
         }
         const normalizedType = normalizeQuestionType(q.type || 'trac_nghiem');
+        const normalizedLevel = String(q.level ?? '').trim().toUpperCase();
+        if (!['NB', 'TH', 'VD'].includes(normalizedLevel)) {
+          return new Response(JSON.stringify({
+            error: `Câu hỏi ${qId}: mức độ phải là NB, TH hoặc VD. Hệ thống không tự chuyển dữ liệu sai sang NB.`,
+            code: 'INVALID_QUESTION_LEVEL'
+          }), {status:400,headers:corsHeaders});
+        }
         const answerVerdict = validateQuestionAnswer(normalizedType, q.answer, optionObject);
         if (!answerVerdict.ok) {
           return new Response(JSON.stringify({
@@ -261,7 +268,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         await db.prepare(upsertSql).bind(
           qId,
           normalizedType,
-          q.level || 'NB',
+          normalizedLevel,
           q.lesson || '',
           q.content || '',
           safeOptions,
