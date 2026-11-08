@@ -118,7 +118,8 @@ export async function queryOwnResultHistory(db: any, user: any, url: URL) {
         'COUNT(*) OVER (PARTITION BY ' + groupKey + ') AS attempt_count, ' +
         'MAX(r.created_at) OVER (PARTITION BY ' + groupKey + ') AS latest_created_at, ' +
         'ROW_NUMBER() OVER (PARTITION BY ' + groupKey +
-        ' ORDER BY r.score DESC NULLS LAST, r.created_at DESC, r.id DESC) AS pick_rank ' +
+        " ORDER BY CASE WHEN COALESCE(r.grading_status, 'FINAL') = 'FINAL' THEN 0 ELSE 1 END, " +
+        'r.score DESC NULLS LAST, r.created_at DESC, r.id DESC) AS pick_rank ' +
         'FROM results r LEFT JOIN exam_configs ec ON ec.id = r.exam_id WHERE r.' + scope +
         ') SELECT * FROM ranked WHERE pick_rank = 1 ' +
         'ORDER BY latest_created_at DESC, id DESC LIMIT ? OFFSET ?';
