@@ -518,9 +518,15 @@ export const onRequestPut: PagesFunction<Env> = async (context) => {
       String(d?.question?.type || '').toUpperCase() !== 'TL' && d?.isCorrect === true
     ).length;
 
+    for (const sql of [
+      "ALTER TABLE results ADD COLUMN IF NOT EXISTS grading_status TEXT DEFAULT 'FINAL'",
+      "ALTER TABLE results ADD COLUMN IF NOT EXISTS score_finalized_at TEXT"
+    ]) {
+      try { await db.prepare(sql).run(); } catch {}
+    }
     await db.prepare(
-      "UPDATE results SET score = ?, correct_count = ?, details = ? WHERE id = ?"
-    ).bind(canonicalScore, canonicalCorrectCount, JSON.stringify(updatedDetails), id).run();
+      "UPDATE results SET score = ?, correct_count = ?, details = ?, grading_status = 'FINAL', score_finalized_at = ? WHERE id = ?"
+    ).bind(canonicalScore, canonicalCorrectCount, JSON.stringify(updatedDetails), new Date().toISOString(), id).run();
 
     return new Response(JSON.stringify({
       success: true,
