@@ -665,7 +665,10 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
         // Freeze the exact grading key server-side at issue time. Never put answers in
         // the JWT because a signed JWT is readable by the browser.
-        const gradeSessionConfig = makeGradeSessionConfig(activeExamConfig);
+        const gradeSessionConfig = {
+            ...makeGradeSessionConfig(activeExamConfig),
+            examRevision: String(activeExamConfig.updated_at || activeExamConfig.examRevision || '')
+        };
         const gradingSessionId = crypto.randomUUID();
         const expiresAtEpoch = Math.floor(Date.now() / 1000) + Math.max(3600, Math.min(8 * 3600, timeLimitSeconds + 3600));
         const expiresAt = new Date(expiresAtEpoch * 1000).toISOString();
