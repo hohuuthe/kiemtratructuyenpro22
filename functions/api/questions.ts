@@ -187,16 +187,25 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         : (body && typeof body === 'object' && (body.id != null || body.content != null || body.type != null))
           ? [body]
           : [];
-    const deletedIds: string[] = body.deletedIds || [];
+    if (!Array.isArray(body) && body?.deletedIds !== undefined && !Array.isArray(body.deletedIds)) {
+      return new Response(JSON.stringify({error:'Danh sách ID câu hỏi cần xóa không hợp lệ'}), {status:400,headers:corsHeaders});
+    }
+    const deletedIds: string[] = Array.isArray(body?.deletedIds)
+      ? [...new Set(body.deletedIds.map((id: any) => String(id || '').trim()).filter(Boolean))]
+      : [];
+    const ownerIds = new Set([String(user.id || ''), String(user.user_id || '')].filter(Boolean));
 
     // Preflight toàn bộ payload trước khi có bất kỳ DELETE/UPSERT nào.
     // Nhờ đó lỗi quyền, level, JSON tùy chọn hoặc đáp án không hợp lệ không thể
     // khiến một batch bị thay đổi nửa chừng chỉ vì câu sau cùng mới phát hiện lỗi.
     for (const q of questions) {
+      if (!q || typeof q !== 'object' || Array.isArray(q)) {
+        return new Response(JSON.stringify({error:'Dữ liệu câu hỏi trong batch không hợp lệ'}), {status:400,headers:corsHeaders});
+      }
       const qId = q.id || '(câu mới)';
       if (!isAdmin && q.id) {
         const record = await db.prepare("SELECT creator_id FROM questions WHERE id = ?").bind(q.id).first();
-        if (record && String(record.creator_id) !== String(user.id)) {
+        if (record && !ownerIds.has(String(record.creator_id || ''))) {
           return new Response(JSON.stringify({error:'Không có quyền sửa câu hỏi của tài khoản khác'}), {status:403,headers:corsHeaders});
         }
       }
@@ -247,7 +256,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     if (deletedIds && deletedIds.length > 0) {
       for (const id of deletedIds) {
         if (!isAdmin) {
-          await db.prepare("DELETE FROM questions WHERE id = ? AND creator_id = ?").bind(id, user.id).run();
+          await db.prepare("DELETE FROM questions WHERE id = ? AND creator_id IN (?, ?)").bind(id, user.id, user.user_id || user.id).run();
         } else {
           await db.prepare("DELETE FROM questions WHERE id = ?").bind(id).run();
         }
@@ -272,12 +281,15 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
       for (const q of questions) {
         const qId = q.id || crypto.randomUUID();
-        const creatorId = isAdmin ? (q.creatorId || user.id) : user.id;
+        let creatorId = isAdmin ? (q.creatorId || user.id) : user.id;
         if (!isAdmin && q.id) {
           const record = await db.prepare("SELECT creator_id FROM questions WHERE id = ?").bind(q.id).first();
-          if (record && String(record.creator_id) !== String(user.id)) {
+          if (record && !ownerIds.has(String(record.creator_id || ''))) {
             return new Response(JSON.stringify({error:'Không có quyền sửa câu hỏi của tài khoản khác'}), {status:403,headers:corsHeaders});
           }
+          // Preserve the immutable historical owner identity so legacy questions
+          // stored by linked user_id remain editable by the same verified teacher.
+          if (record?.creator_id) creatorId = String(record.creator_id);
         }
         let optionObject: any = {};
         if (q.options && typeof q.options === 'object' && !Array.isArray(q.options)) {
@@ -414,7 +426,7 @@ export const onRequestDelete: PagesFunction<Env> = async (context) => {
       if (isAdmin) {
         await db.prepare("DELETE FROM questions WHERE id = ?").bind(id).run();
       } else {
-        await db.prepare("DELETE FROM questions WHERE id = ? AND creator_id = ?").bind(id, user.id).run();
+        await db.prepare("DELETE FROM questions WHERE id = ? AND creator_id IN (?, ?)").bind(id, user.id, user.user_id || user.id).run();
       }
     }
     return new Response(JSON.stringify({ success: true, message: `Đã xóa ${ids.length} câu hỏi`, error: null }), { status: 200, headers: corsHeaders });
