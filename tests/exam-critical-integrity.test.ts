@@ -80,7 +80,18 @@ test('submission persistence has durable idempotency and ambiguous commit verifi
   assert.match(grade, /submission_token_hash/);
   assert.match(grade, /uq_results_submission_token_hash/);
   assert.match(grade, /ambiguous result commit/i);
+  assert.match(grade, /resultId = String\(committed\.id\)/);
   assert.match(grade, /Keeping submission claim because commit state could not be proven/);
+});
+
+test('local metadata compatibility guard exists only in question route', () => {
+  const server = fs.readFileSync('server.ts', 'utf8');
+  const accountsStart = server.indexOf('app.post("/api/accounts"');
+  const questionsStart = server.indexOf('app.get("/api/questions"');
+  const questionPost = server.indexOf('app.post("/api/questions"', questionsStart);
+  assert.ok(accountsStart >= 0 && questionsStart > accountsStart && questionPost > questionsStart);
+  assert.doesNotMatch(server.slice(accountsStart, questionsStart), /metaOnly/);
+  assert.match(server.slice(questionsStart, questionPost), /metaOnly/);
 });
 
 test('blocked native confirm fails closed', () => {
