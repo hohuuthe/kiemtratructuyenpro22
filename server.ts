@@ -1415,6 +1415,12 @@ async function startServer() {
   // 2. Tạo tài khoản mới (Admin only)
   app.post("/api/accounts", async (req, res) => {
     try {
+      // Keep metadata-only backward compatible with the Production route.
+      if (metaOnly && teacherIdParam) {
+        const { results } = await executeSqlQuery("SELECT type, level, lesson FROM questions WHERE creator_id = ?", [teacherIdParam]);
+        return res.json({ data: results || [], error: null });
+      }
+
       const authHeader = req.headers.authorization;
       if (!authHeader || !authHeader.startsWith("Bearer ")) return res.status(401).json({ error: "Unauthorized" });
       const token = authHeader.substring(7);
@@ -3019,14 +3025,6 @@ async function startServer() {
       const countOnly = req.query.count === 'true';
       let targetTeacherId = user.id;
       if (isAdmin && teacherIdParam) targetTeacherId = teacherIdParam;
-
-      if (metaOnly) {
-        const { results } = await executeSqlQuery(
-          "SELECT type, level, lesson FROM questions WHERE creator_id = ?",
-          [targetTeacherId]
-        );
-        return res.json({ data: results || [], error: null });
-      }
 
       if (countOnly) {
         let countSql = "SELECT COUNT(*) as total FROM questions";
