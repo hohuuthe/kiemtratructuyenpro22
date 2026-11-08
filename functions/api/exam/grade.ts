@@ -995,7 +995,7 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
         }
 
         // Lưu kết quả bài thi vào cơ sở dữ liệu Cloudflare D1
-        const resultId = claimedResultId || crypto.randomUUID();
+        let resultId = claimedResultId || crypto.randomUUID();
         try {
             await db.prepare(`
                 CREATE TABLE IF NOT EXISTS results (
@@ -1073,7 +1073,10 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
                 const committed: any = await db.prepare(
                     'SELECT id FROM results WHERE id = ? OR submission_token_hash = ? LIMIT 1'
                 ).bind(resultId, tokenHash).first();
-                if (committed?.id) resultPersisted = true;
+                if (committed?.id) {
+                    resultId = String(committed.id);
+                    resultPersisted = true;
+                }
             } catch (verifyErr) {
                 console.error('Could not verify ambiguous result commit:', verifyErr);
                 throw new Error('Không thể xác minh trạng thái lưu bài. Phiên nộp được giữ khóa an toàn; vui lòng gửi lại để hệ thống đối chiếu.');
