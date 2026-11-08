@@ -84,9 +84,9 @@ function normalizeType(type: any): '4-1' | 'TF4' | 'SQ' | 'TL' | '' {
   return '';
 }
 
-function normalizeLevel(level: any): 'NB' | 'TH' | 'VD' {
+function normalizeLevel(level: any): 'NB' | 'TH' | 'VD' | '' {
   const value = String(level || '').trim().toUpperCase();
-  return value === 'TH' || value === 'VD' ? value : 'NB';
+  return value === 'NB' || value === 'TH' || value === 'VD' ? value : '';
 }
 
 function normalizeLesson(value: any): string {
@@ -174,6 +174,8 @@ export function validateExamQuestionPool(config: Row, questionRows: any[]): Exam
     if (!content) return false;
     const type = normalizeType(row?.type);
     if (!type) return false;
+    const level = normalizeLevel(row?.level);
+    if (!level) return false;
     if (!lessonMatches(row?.lesson, selectedLessons)) return false;
     const options = parseOptions(row?.options);
     const answerVerdict = validateQuestionAnswer(type, row?.answer, options);

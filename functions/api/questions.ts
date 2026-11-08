@@ -1,6 +1,7 @@
 import {QUESTION_CREATOR_JOIN_SQL,QUESTION_CREATOR_NAME_SQL,QUESTION_CREATOR_USERNAME_SQL} from '../../src/question-creator-identity.js';
 import { verifyAuthSession, getDynamicSecret, getDatabase, checkIsTeacherOrAdmin, checkIsAdmin } from './exam/utils';
 import { requiredQuestionLesson, questionLessonDeleteScope, requireQuestionLessonConfirmation, questionLessonCountQuery, questionLessonDeleteQuery, QuestionLessonDeleteError, canDeleteQuestionsByLesson } from '../../src/question-lesson-delete-policy';
+import { normalizeQuestionType, validateQuestionAnswer } from '../../src/exam-grading-core.js';
 
 interface Env {
   NEON_DATABASE_URL?: string;
@@ -55,7 +56,9 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
   const countOnly = url.searchParams.get('count') === 'true';
   const metaOnly = url.searchParams.get('metaOnly') === 'true' || url.searchParams.get('metadata') === 'true';
 
-  // BẢO MẬT: Nếu là yêu cầu lấy metadata (chỉ type, level, lesson) để đếm số lượng câu hỏi khả dụng cho học sinh làm bài
+  // Metadata-only remains backward compatible for public exam readiness checks.
+  // It exposes no content or answer keys; authoritative generation still validates
+  // the full pool on the server before a READY session can be created.
   if (metaOnly && teacherIdParam) {
     try {
       const { results } = await db.prepare("SELECT type, level, lesson FROM questions WHERE creator_id = ?").bind(teacherIdParam).all();
@@ -184,13 +187,76 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         : (body && typeof body === 'object' && (body.id != null || body.content != null || body.type != null))
           ? [body]
           : [];
-    const deletedIds: string[] = body.deletedIds || [];
+    if (!Array.isArray(body) && body?.deletedIds !== undefined && !Array.isArray(body.deletedIds)) {
+      return new Response(JSON.stringify({error:'Danh sách ID câu hỏi cần xóa không hợp lệ'}), {status:400,headers:corsHeaders});
+    }
+    const deletedIds: string[] = Array.isArray(body?.deletedIds)
+      ? [...new Set(body.deletedIds.map((id: any) => String(id || '').trim()).filter(Boolean))]
+      : [];
+    const ownerIds = new Set([String(user.id || ''), String(user.user_id || '')].filter(Boolean));
+
+    // Preflight toàn bộ payload trước khi có bất kỳ DELETE/UPSERT nào.
+    // Nhờ đó lỗi quyền, level, JSON tùy chọn hoặc đáp án không hợp lệ không thể
+    // khiến một batch bị thay đổi nửa chừng chỉ vì câu sau cùng mới phát hiện lỗi.
+    for (const q of questions) {
+      if (!q || typeof q !== 'object' || Array.isArray(q)) {
+        return new Response(JSON.stringify({error:'Dữ liệu câu hỏi trong batch không hợp lệ'}), {status:400,headers:corsHeaders});
+      }
+      const qId = q.id || '(câu mới)';
+      if (!isAdmin && q.id) {
+        const record = await db.prepare("SELECT creator_id FROM questions WHERE id = ?").bind(q.id).first();
+        if (record && !ownerIds.has(String(record.creator_id || ''))) {
+          return new Response(JSON.stringify({error:'Không có quyền sửa câu hỏi của tài khoản khác'}), {status:403,headers:corsHeaders});
+        }
+      }
+      let optionObject: any = {};
+      if (q.options && typeof q.options === 'object' && !Array.isArray(q.options)) {
+        optionObject = q.options;
+      } else if (typeof q.options === 'string' && q.options.trim()) {
+        try { optionObject = JSON.parse(q.options); }
+        catch {
+          return new Response(JSON.stringify({error:`Câu hỏi ${qId}: tùy chọn không phải JSON hợp lệ`}), {status:400,headers:corsHeaders});
+        }
+      }
+      const normalizedType = normalizeQuestionType(q.type || 'trac_nghiem');
+      const normalizedLevel = String(q.level ?? '').trim().toUpperCase();
+      if (!['NB', 'TH', 'VD'].includes(normalizedLevel)) {
+        return new Response(JSON.stringify({
+          error: `Câu hỏi ${qId}: mức độ phải là NB, TH hoặc VD. Hệ thống không tự chuyển dữ liệu sai sang NB.`,
+          code: 'INVALID_QUESTION_LEVEL'
+        }), {status:400,headers:corsHeaders});
+      }
+      const answerVerdict = validateQuestionAnswer(normalizedType, q.answer, optionObject);
+      if (!answerVerdict.ok) {
+        return new Response(JSON.stringify({
+          error: `Câu hỏi ${qId}: ${answerVerdict.reason}`,
+          code: 'INVALID_QUESTION_ANSWER'
+        }), {status:400,headers:corsHeaders});
+      }
+      if (normalizedType === '4-1') {
+        for (const key of ['A','B','C','D']) {
+          const option: any = optionObject[key];
+          const text = option && typeof option === 'object'
+            ? String(option.text ?? option.content ?? option.value ?? '').trim()
+            : String(option ?? '').trim();
+          const image = option && typeof option === 'object'
+            ? String(option.image ?? option.img ?? option.src ?? option.url ?? '').trim()
+            : '';
+          if (!text && !image) {
+            return new Response(JSON.stringify({
+              error: `Câu hỏi ${qId}: câu trắc nghiệm phải có đủ phương án A, B, C, D.`,
+              code: 'INVALID_QUESTION_OPTIONS'
+            }), {status:400,headers:corsHeaders});
+          }
+        }
+      }
+    }
 
     // 1. Xóa các câu hỏi được yêu cầu xóa
     if (deletedIds && deletedIds.length > 0) {
       for (const id of deletedIds) {
         if (!isAdmin) {
-          await db.prepare("DELETE FROM questions WHERE id = ? AND creator_id = ?").bind(id, user.id).run();
+          await db.prepare("DELETE FROM questions WHERE id = ? AND creator_id IN (?, ?)").bind(id, user.id, user.user_id || user.id).run();
         } else {
           await db.prepare("DELETE FROM questions WHERE id = ?").bind(id).run();
         }
@@ -215,12 +281,15 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
       for (const q of questions) {
         const qId = q.id || crypto.randomUUID();
-        const creatorId = isAdmin ? (q.creatorId || user.id) : user.id;
+        let creatorId = isAdmin ? (q.creatorId || user.id) : user.id;
         if (!isAdmin && q.id) {
           const record = await db.prepare("SELECT creator_id FROM questions WHERE id = ?").bind(q.id).first();
-          if (record && String(record.creator_id) !== String(user.id)) {
+          if (record && !ownerIds.has(String(record.creator_id || ''))) {
             return new Response(JSON.stringify({error:'Không có quyền sửa câu hỏi của tài khoản khác'}), {status:403,headers:corsHeaders});
           }
+          // Preserve the immutable historical owner identity so legacy questions
+          // stored by linked user_id remain editable by the same verified teacher.
+          if (record?.creator_id) creatorId = String(record.creator_id);
         }
         let optionObject: any = {};
         if (q.options && typeof q.options === 'object' && !Array.isArray(q.options)) {
@@ -232,6 +301,13 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
           }
         }
         const normalizedType = normalizeQuestionType(q.type || 'trac_nghiem');
+        const normalizedLevel = String(q.level ?? '').trim().toUpperCase();
+        if (!['NB', 'TH', 'VD'].includes(normalizedLevel)) {
+          return new Response(JSON.stringify({
+            error: `Câu hỏi ${qId}: mức độ phải là NB, TH hoặc VD. Hệ thống không tự chuyển dữ liệu sai sang NB.`,
+            code: 'INVALID_QUESTION_LEVEL'
+          }), {status:400,headers:corsHeaders});
+        }
         const answerVerdict = validateQuestionAnswer(normalizedType, q.answer, optionObject);
         if (!answerVerdict.ok) {
           return new Response(JSON.stringify({
@@ -261,7 +337,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         await db.prepare(upsertSql).bind(
           qId,
           normalizedType,
-          q.level || 'NB',
+          normalizedLevel,
           q.lesson || '',
           q.content || '',
           safeOptions,
@@ -350,7 +426,7 @@ export const onRequestDelete: PagesFunction<Env> = async (context) => {
       if (isAdmin) {
         await db.prepare("DELETE FROM questions WHERE id = ?").bind(id).run();
       } else {
-        await db.prepare("DELETE FROM questions WHERE id = ? AND creator_id = ?").bind(id, user.id).run();
+        await db.prepare("DELETE FROM questions WHERE id = ? AND creator_id IN (?, ?)").bind(id, user.id, user.user_id || user.id).run();
       }
     }
     return new Response(JSON.stringify({ success: true, message: `Đã xóa ${ids.length} câu hỏi`, error: null }), { status: 200, headers: corsHeaders });

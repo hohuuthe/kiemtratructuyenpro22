@@ -27,7 +27,7 @@ export function normalizeExamPoolType(value) {
 
 export function normalizeExamPoolLevel(value) {
   const level = String(value ?? '').trim().toUpperCase();
-  return LEVELS.includes(level) ? level : 'NB';
+  return LEVELS.includes(level) ? level : '';
 }
 
 export function verifyExamConfigQuestionPool(config, questions) {

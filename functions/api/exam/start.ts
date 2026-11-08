@@ -101,6 +101,10 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       return new Response(JSON.stringify({ error: 'Danh sách câu hỏi của phiên chuẩn bị thi không khớp dữ liệu máy chủ.' }), { status: 409, headers: corsHeaders });
     }
 
+    let frozenExamConfig: any = {};
+    try { frozenExamConfig = JSON.parse(String(snapshot.exam_config || '{}')); } catch {}
+    const frozenExamRevision = String(frozenExamConfig?.examRevision || frozenExamConfig?.updated_at || '').trim();
+
     const examId = String(snapshot.exam_id || decoded?.examConfig?.id || '').trim();
     let authoritativeExamRow: any = null;
     if (examId) {
@@ -114,6 +118,12 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         }
         {
           const examRow: any = authoritativeExamRow;
+          if (frozenExamRevision && String(examRow?.updated_at || '').trim() !== frozenExamRevision) {
+            return new Response(JSON.stringify({
+              code: 'EXAM_CHANGED_BEFORE_START',
+              error: 'Cấu hình đề thi đã thay đổi sau khi phiên READY được tạo. Vui lòng nạp lại đề để bảo đảm mọi học sinh dùng đúng cùng một phiên bản.'
+            }), { status: 409, headers: corsHeaders });
+          }
           // Giữ nhất quán với /exam/generate: Admin và đúng giáo viên sở hữu đề
           // được phép kiểm thử cấu hình ngoài khung giờ. Quyền bỏ qua chỉ dựa trên
           // phiên tài khoản LIVE đã xác thực, không dựa vào dữ liệu client/JWT đề thi.

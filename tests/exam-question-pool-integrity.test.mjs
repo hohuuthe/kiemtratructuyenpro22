@@ -80,7 +80,7 @@ test('normalizers keep editor availability counts aligned with server-era aliase
   assert.equal(normalizeExamPoolType('tra_loi_ngan'), 'SQ');
   assert.equal(normalizeExamPoolType('tu_luan'), 'TL');
   assert.equal(normalizeExamPoolLevel(' th '), 'TH');
-  assert.equal(normalizeExamPoolLevel(''), 'NB');
+  assert.equal(normalizeExamPoolLevel(''), '');
 });
 
 test('load flow verifies authoritative bank total and pool before applyExamConfig', () => {

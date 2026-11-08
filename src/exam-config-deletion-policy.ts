@@ -22,9 +22,11 @@ export function canManageExamConfig(user: any, creatorId: unknown, isAdmin: bool
  * (including historical NULL) and against new result submissions. This is
  * intentionally NOT a cascade delete of submissions.
  */
-export function examConfigGuardedDeleteStatement(id: string, creatorId: unknown) {
+export function examConfigGuardedDeleteStatement(id: string, creatorId: unknown, nowIso = new Date().toISOString()) {
     return {
-        sql: 'DELETE FROM exam_configs WHERE id = ? AND creator_id IS NOT DISTINCT FROM ? AND NOT EXISTS (SELECT 1 FROM results WHERE exam_id = ?)',
-        params: [id, creatorId == null ? null : creatorId, id]
+        sql: 'DELETE FROM exam_configs WHERE id = ? AND creator_id IS NOT DISTINCT FROM ? ' +
+            'AND NOT EXISTS (SELECT 1 FROM results WHERE exam_id = ?) ' +
+            'AND NOT EXISTS (SELECT 1 FROM _exam_grade_sessions WHERE exam_id = ? AND expires_at >= ?)',
+        params: [id, creatorId == null ? null : creatorId, id, id, nowIso]
     };
 }

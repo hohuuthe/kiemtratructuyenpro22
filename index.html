@@ -30,8 +30,8 @@
         }
       };
       window.confirm = function(msg) {
-        console.warn('[Blocked native confirm]:', msg);
-        return true;
+        console.warn('[Blocked native confirm - fail closed]:', msg);
+        return false;
       };
       window.prompt = function(msg) {
         console.warn('[Blocked native prompt]:', msg);

@@ -995,7 +995,7 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
         }
 
         // Lưu kết quả bài thi vào cơ sở dữ liệu Cloudflare D1
-        const resultId = claimedResultId || crypto.randomUUID();
+        let resultId = claimedResultId || crypto.randomUUID();
         try {
             await db.prepare(`
                 CREATE TABLE IF NOT EXISTS results (
@@ -1028,9 +1028,21 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
             try {
                 await db.prepare("ALTER TABLE results ADD COLUMN don_vi TEXT").run();
             } catch (e) {}
+            for (const sql of [
+                "ALTER TABLE results ADD COLUMN IF NOT EXISTS submission_token_hash TEXT",
+                "ALTER TABLE results ADD COLUMN IF NOT EXISTS grading_status TEXT DEFAULT 'FINAL'",
+                "ALTER TABLE results ADD COLUMN IF NOT EXISTS score_finalized_at TEXT",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_results_submission_token_hash ON results(submission_token_hash) WHERE submission_token_hash IS NOT NULL"
+            ]) {
+                // These are submission-integrity invariants, not optional migrations.
+                // If they cannot be guaranteed, fail closed before inserting a result.
+                await db.prepare(sql).run();
+            }
 
+            const gradingStatus = hasPendingEssayGrades ? 'PENDING' : 'FINAL';
+            const finalizedAt = hasPendingEssayGrades ? null : new Date().toISOString();
             await db.prepare(
-                `INSERT INTO results (id, user_id, student_name, student_class, lop, don_vi, exam_name, exam_id, score, time_taken, correct_count, total_questions, details, loai_thi_sinh, cheat_warning_count, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                `INSERT INTO results (id, user_id, student_name, student_class, lop, don_vi, exam_name, exam_id, score, time_taken, correct_count, total_questions, details, loai_thi_sinh, cheat_warning_count, submission_token_hash, grading_status, score_finalized_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
             ).bind(
                 resultId,
                 authenticatedUserId || null,
@@ -1047,14 +1059,33 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
                 JSON.stringify(detailedResults),
                 studentInfo.loaiThiSinh || (authenticatedUserId ? 'Đã đăng nhập' : 'Tự do'),
                 cheatWarningCount,
+                tokenHash,
+                gradingStatus,
+                finalizedAt,
                 new Date().toISOString()
             ).run();
             resultPersisted = true;
         } catch (dbErr) {
             console.error("Lỗi khi lưu kết quả bài thi vào CSDL:", dbErr);
-            // Fail closed: never tell the student that submission succeeded if the
-            // authoritative result row was not durably persisted.
-            throw new Error('Không thể lưu kết quả bài thi. Phiên thi chưa bị đánh dấu đã nộp; vui lòng gửi lại bài.');
+            // Ambiguous-commit protection: the database may have committed the row
+            // even when the Worker lost the acknowledgement. Verify by the immutable
+            // result ID/token before deciding that persistence failed. Never release
+            // the submission claim when this verification itself is unavailable.
+            try {
+                const committed: any = await db.prepare(
+                    'SELECT id FROM results WHERE id = ? OR submission_token_hash = ? LIMIT 1'
+                ).bind(resultId, tokenHash).first();
+                if (committed?.id) {
+                    resultId = String(committed.id);
+                    resultPersisted = true;
+                }
+            } catch (verifyErr) {
+                console.error('Could not verify ambiguous result commit:', verifyErr);
+                throw new Error('Không thể xác minh trạng thái lưu bài. Phiên nộp được giữ khóa an toàn; vui lòng gửi lại để hệ thống đối chiếu.');
+            }
+            if (!resultPersisted) {
+                throw new Error('Không thể lưu kết quả bài thi. Phiên thi chưa bị đánh dấu đã nộp; vui lòng gửi lại bài.');
+            }
         }
 
         // Finalize the atomic token claim. Even if this metadata update fails, the
@@ -1119,11 +1150,19 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
 
     } catch (err: any) {
         if (tokenClaimed && !resultPersisted && tokenHash) {
+            // Release only after proving that the preallocated result ID was not
+            // committed. If verification fails, keep the claim fail-closed.
             try {
-                await db.prepare("DELETE FROM _submitted_exam_tokens WHERE token_hash = ? AND status = ?")
-                    .bind(tokenHash, 'processing').run();
+                const committed: any = claimedResultId
+                    ? await db.prepare('SELECT id FROM results WHERE id = ? OR submission_token_hash = ? LIMIT 1')
+                        .bind(claimedResultId, tokenHash).first()
+                    : null;
+                if (!committed?.id) {
+                    await db.prepare("DELETE FROM _submitted_exam_tokens WHERE token_hash = ? AND status = ?")
+                        .bind(tokenHash, 'processing').run();
+                }
             } catch (releaseErr) {
-                console.error('Error releasing failed submission claim:', releaseErr);
+                console.error('Keeping submission claim because commit state could not be proven:', releaseErr);
             }
         }
         console.error("Lỗi POST /api/exam/grade:", err);

@@ -429,6 +429,20 @@ export const onRequestDelete: PagesFunction<Env> = async (context) => {
     if(Number(existingResults?.total||0)>0)
       return respond({error:'Đề thi đã có bài làm của học sinh nên không thể xóa vĩnh viễn. Cần giữ đề để bảo toàn lịch sử và quyền xem kết quả.',code:'EXAM_HAS_RESULTS'},409);
 
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS _exam_grade_sessions (
+        session_id TEXT PRIMARY KEY, exam_id TEXT, teacher_id TEXT,
+        question_ids TEXT NOT NULL, question_snapshot TEXT NOT NULL,
+        exam_config TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL,
+        started_at TEXT, deadline_at TEXT
+      )
+    `).run();
+    const liveSession:any=await db.prepare(
+      'SELECT session_id FROM _exam_grade_sessions WHERE exam_id = ? AND expires_at >= ? LIMIT 1'
+    ).bind(id,new Date().toISOString()).first();
+    if(liveSession)
+      return respond({error:'Đề thi đang có phiên READY/ACTIVE của học sinh nên chưa thể xóa. Hãy chờ phiên kết thúc hoặc thu hồi phiên một cách có kiểm soát.',code:'EXAM_HAS_LIVE_SESSION'},409);
+
     // The DELETE itself prevents any concurrent newly submitted result from becoming orphaned.
     const stmt=examConfigGuardedDeleteStatement(id,exam.creator_id);
     const deleted=await db.prepare(stmt.sql).bind(...stmt.params).run();

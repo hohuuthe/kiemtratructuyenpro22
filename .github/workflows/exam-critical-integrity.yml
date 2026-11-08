@@ -1,0 +1,46 @@
+name: Exam critical integrity hardening
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'functions/api/exam/**'
+      - 'functions/api/exams.ts'
+      - 'functions/api/questions.ts'
+      - 'functions/api/results.ts'
+      - 'functions/api/results/me.ts'
+      - 'src/exam-question-selector.ts'
+      - 'src/exam-question-pool-validity.ts'
+      - 'src/exam-question-pool-integrity.js'
+      - 'src/exam-config-deletion-policy.ts'
+      - 'src/student-result-visibility.ts'
+      - 'server.ts'
+      - 'index.html'
+      - 'tests/exam-critical-integrity.test.ts'
+      - 'tests/exam-question-pool-integrity.test.mjs'
+      - '.github/workflows/exam-critical-integrity.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Critical exam integrity tests
+        run: node --import tsx --test tests/exam-critical-integrity.test.ts
+      - name: Existing question-pool regressions
+        run: node --test tests/exam-question-pool-integrity.test.mjs tests/question-lesson-load-race.test.mjs tests/exam-tab-separation.test.mjs
+      - name: Existing student result privacy tests
+        run: node --import tsx --test tests/student-results-privacy.test.ts tests/student-result-visibility.test.ts
+      - name: TypeScript validation
+        run: npm run lint
+      - name: Production build
+        run: npm run build

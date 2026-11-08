@@ -205,6 +205,9 @@ export async function ensureD1SchemaAndIndexes(db: any) {
                 loai_thi_sinh TEXT,
                 cheat_warning_count INTEGER DEFAULT 0,
                 ai_grading_summary TEXT,
+                submission_token_hash TEXT,
+                grading_status TEXT DEFAULT 'FINAL',
+                score_finalized_at TEXT,
                 created_at TEXT
             )`,
             `CREATE TABLE IF NOT EXISTS questions (
@@ -328,6 +331,9 @@ export async function ensureD1SchemaAndIndexes(db: any) {
             "ALTER TABLE results ADD COLUMN IF NOT EXISTS don_vi TEXT",
             "ALTER TABLE results ADD COLUMN IF NOT EXISTS cheat_warning_count INTEGER DEFAULT 0",
             "ALTER TABLE results ADD COLUMN IF NOT EXISTS ai_grading_summary TEXT",
+            "ALTER TABLE results ADD COLUMN IF NOT EXISTS submission_token_hash TEXT",
+            "ALTER TABLE results ADD COLUMN IF NOT EXISTS grading_status TEXT DEFAULT 'FINAL'",
+            "ALTER TABLE results ADD COLUMN IF NOT EXISTS score_finalized_at TEXT",
             "ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS target_lop TEXT",
             "ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS lop TEXT",
             "ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS max_attempts INTEGER DEFAULT 0",
@@ -378,6 +384,8 @@ export async function ensureD1SchemaAndIndexes(db: any) {
             "CREATE INDEX IF NOT EXISTS idx_results_name_student ON results(exam_name, student_name)",
             "CREATE INDEX IF NOT EXISTS idx_results_exam_score_time ON results(exam_id, score DESC, time_taken ASC)",
             "CREATE INDEX IF NOT EXISTS idx_results_lop ON results(lop)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_results_submission_token_hash ON results(submission_token_hash) WHERE submission_token_hash IS NOT NULL",
+            "CREATE INDEX IF NOT EXISTS idx_results_grading_status ON results(grading_status)",
 
             // --- BẢNG QUESTIONS ---
             "CREATE INDEX IF NOT EXISTS idx_questions_creator_id ON questions(creator_id)",

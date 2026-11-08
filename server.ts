@@ -42,6 +42,7 @@ import { onRequestPost as hardenedExamViolationHandler } from './functions/api/e
 import { onRequestPost as hardenedExamResumeHandler } from './functions/api/exam/resume';
 import { onRequestPost as hardenedUploadImageHandler } from './functions/api/upload-image';
 import { signAuthSession as signCloudflareAuthSession } from './functions/api/exam/utils';
+import { normalizeQuestionType, validateQuestionAnswer } from './src/exam-grading-core.js';
 
 dotenv.config({ override: true });
 
@@ -2972,6 +2973,21 @@ async function startServer() {
       if (Number(counts?.[0]?.total||0)>0)
         return res.status(409).json({error:'Đề thi đã có bài làm của học sinh nên không thể xóa vĩnh viễn. Cần giữ đề để bảo toàn lịch sử và quyền xem kết quả.',code:'EXAM_HAS_RESULTS'});
 
+      await executeSqlQuery(`
+        CREATE TABLE IF NOT EXISTS _exam_grade_sessions (
+          session_id TEXT PRIMARY KEY, exam_id TEXT, teacher_id TEXT,
+          question_ids TEXT NOT NULL, question_snapshot TEXT NOT NULL,
+          exam_config TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL,
+          started_at TEXT, deadline_at TEXT
+        )
+      `,[]);
+      const {results:liveSessions}=await executeSqlQuery(
+        'SELECT session_id FROM _exam_grade_sessions WHERE exam_id = ? AND expires_at >= ? LIMIT 1',
+        [id,new Date().toISOString()]
+      );
+      if(liveSessions?.length)
+        return res.status(409).json({error:'Đề thi đang có phiên READY/ACTIVE của học sinh nên chưa thể xóa.',code:'EXAM_HAS_LIVE_SESSION'});
+
       const stmt=examConfigGuardedDeleteStatement(id,exam.creator_id);
       const deleted=await executeSqlQuery(stmt.sql,stmt.params);
       if(Number(deleted.changes||0)!==1)
@@ -2989,7 +3005,7 @@ async function startServer() {
       const teacherIdParam = (req.query.teacherId || req.query.teacher_id) as string;
       const metaOnly = req.query.metaOnly === 'true' || req.query.metadata === 'true';
 
-      // BẢO MẬT: Nếu là yêu cầu lấy metadata (chỉ type, level, lesson) để đếm số lượng câu hỏi khả dụng cho học sinh làm bài
+      // Keep metadata-only backward compatible with the Production route.
       if (metaOnly && teacherIdParam) {
         const { results } = await executeSqlQuery("SELECT type, level, lesson FROM questions WHERE creator_id = ?", [teacherIdParam]);
         return res.json({ data: results || [], error: null });
@@ -3115,12 +3131,62 @@ async function startServer() {
 
       const body = req.body || {};
       const questions: any[] = Array.isArray(body) ? body : (body.questions || [body]);
-      const deletedIds: string[] = body.deletedIds || [];
+      if (!Array.isArray(body) && body?.deletedIds !== undefined && !Array.isArray(body.deletedIds)) {
+        return res.status(400).json({error:'Danh sách ID câu hỏi cần xóa không hợp lệ'});
+      }
+      const deletedIds: string[] = Array.isArray(body?.deletedIds)
+        ? [...new Set(body.deletedIds.map((id:any)=>String(id||'').trim()).filter(Boolean))]
+        : [];
+      const ownerIds = new Set([String(user.id||''),String(user.user_id||'')].filter(Boolean));
+
+      // Validate the entire mutation set before deleting or upserting anything.
+      for (const q of questions) {
+        if (!q || typeof q !== 'object' || Array.isArray(q)) {
+          return res.status(400).json({error:'Dữ liệu câu hỏi trong batch không hợp lệ'});
+        }
+        const qId = q.id || '(câu mới)';
+        if (!isAdmin && q.id) {
+          const existing = await executeSqlQuery("SELECT creator_id FROM questions WHERE id = ?", [q.id]);
+          const owner = existing.results?.[0]?.creator_id;
+          if (owner && !ownerIds.has(String(owner))) {
+            return res.status(403).json({error:'Không có quyền sửa câu hỏi của tài khoản khác'});
+          }
+        }
+        let options:any = {};
+        if (q.options && typeof q.options === 'object' && !Array.isArray(q.options)) options = q.options;
+        else if (typeof q.options === 'string' && q.options.trim()) {
+          try { options = JSON.parse(q.options); }
+          catch { return res.status(400).json({error:`Câu hỏi ${qId}: tùy chọn không phải JSON hợp lệ`}); }
+        }
+        const type = normalizeQuestionType(q.type || 'trac_nghiem');
+        const level = String(q.level ?? '').trim().toUpperCase();
+        if (!['NB','TH','VD'].includes(level)) {
+          return res.status(400).json({error:`Câu hỏi ${qId}: mức độ phải là NB, TH hoặc VD.`,code:'INVALID_QUESTION_LEVEL'});
+        }
+        const answerVerdict = validateQuestionAnswer(type,q.answer,options);
+        if (!answerVerdict.ok) {
+          return res.status(400).json({error:`Câu hỏi ${qId}: ${answerVerdict.reason}`,code:'INVALID_QUESTION_ANSWER'});
+        }
+        if (type === '4-1') {
+          for (const key of ['A','B','C','D']) {
+            const option:any = options[key];
+            const text = option && typeof option === 'object'
+              ? String(option.text ?? option.content ?? option.value ?? '').trim()
+              : String(option ?? '').trim();
+            const image = option && typeof option === 'object'
+              ? String(option.image ?? option.img ?? option.src ?? option.url ?? '').trim()
+              : '';
+            if (!text && !image) {
+              return res.status(400).json({error:`Câu hỏi ${qId}: câu trắc nghiệm phải có đủ phương án A, B, C, D.`,code:'INVALID_QUESTION_OPTIONS'});
+            }
+          }
+        }
+      }
 
       if (deletedIds && deletedIds.length > 0) {
         for (const id of deletedIds) {
           if (!isAdmin) {
-            await executeSqlQuery("DELETE FROM questions WHERE id = ? AND creator_id = ?", [id, user.id]);
+            await executeSqlQuery("DELETE FROM questions WHERE id = ? AND creator_id IN (?, ?)", [id, user.id, user.user_id || user.id]);
           } else {
             await executeSqlQuery("DELETE FROM questions WHERE id = ?", [id]);
           }
@@ -3139,21 +3205,48 @@ async function startServer() {
             options = excluded.options,
             answer = excluded.answer,
             image = excluded.image
+          WHERE questions.creator_id = excluded.creator_id
         `;
 
         for (const q of questions) {
+          if (!q || typeof q !== 'object' || Array.isArray(q)) {
+            return res.status(400).json({error:'Dữ liệu câu hỏi trong batch không hợp lệ'});
+          }
           const qId = q.id || ((globalThis.crypto && globalThis.crypto.randomUUID) ? globalThis.crypto.randomUUID() : Math.random().toString(36).substring(2) + Date.now().toString(36));
-          const creatorId = (isAdmin && q.creatorId) ? q.creatorId : (q.creatorId || user.id);
-          const safeOptions = typeof q.options === 'object' ? JSON.stringify(q.options) : (q.options || '{}');
+          let creatorId = isAdmin ? (q.creatorId || user.id) : user.id;
+          if (!isAdmin && q.id) {
+            const existing = await executeSqlQuery("SELECT creator_id FROM questions WHERE id = ?", [q.id]);
+            const owner = existing.results?.[0]?.creator_id;
+            if (owner && !ownerIds.has(String(owner))) {
+              return res.status(403).json({error:'Không có quyền sửa câu hỏi của tài khoản khác'});
+            }
+            if (owner) creatorId = String(owner);
+          }
+          let optionObject:any = {};
+          if (q.options && typeof q.options === 'object' && !Array.isArray(q.options)) optionObject = q.options;
+          else if (typeof q.options === 'string' && q.options.trim()) {
+            try { optionObject = JSON.parse(q.options); }
+            catch { return res.status(400).json({error:'Tùy chọn câu hỏi không phải JSON hợp lệ'}); }
+          }
+          const normalizedType = normalizeQuestionType(q.type || 'trac_nghiem');
+          const normalizedLevel = String(q.level ?? '').trim().toUpperCase();
+          if (!['NB','TH','VD'].includes(normalizedLevel)) {
+            return res.status(400).json({error:`Câu hỏi ${qId}: mức độ phải là NB, TH hoặc VD.`,code:'INVALID_QUESTION_LEVEL'});
+          }
+          const answerVerdict = validateQuestionAnswer(normalizedType,q.answer,optionObject);
+          if (!answerVerdict.ok) {
+            return res.status(400).json({error:`Câu hỏi ${qId}: ${answerVerdict.reason}`,code:'INVALID_QUESTION_ANSWER'});
+          }
+          const safeOptions = JSON.stringify(optionObject);
 
           await executeSqlQuery(upsertSql, [
             qId,
-            q.type || 'trac_nghiem',
-            q.level || 'NB',
+            normalizedType,
+            normalizedLevel,
             q.lesson || '',
             q.content || '',
             safeOptions,
-            q.answer || '',
+            answerVerdict.value,
             q.image || null,
             creatorId
           ]);
@@ -3217,7 +3310,7 @@ async function startServer() {
         if (isAdmin) {
           await executeSqlQuery("DELETE FROM questions WHERE id = ?", [id]);
         } else {
-          await executeSqlQuery("DELETE FROM questions WHERE id = ? AND creator_id = ?", [id, user.id]);
+          await executeSqlQuery("DELETE FROM questions WHERE id = ? AND creator_id IN (?, ?)", [id, user.id, user.user_id || user.id]);
         }
       }
 
