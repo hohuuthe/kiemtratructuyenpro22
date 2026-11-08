@@ -1034,7 +1034,9 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
                 "ALTER TABLE results ADD COLUMN IF NOT EXISTS score_finalized_at TEXT",
                 "CREATE UNIQUE INDEX IF NOT EXISTS uq_results_submission_token_hash ON results(submission_token_hash) WHERE submission_token_hash IS NOT NULL"
             ]) {
-                try { await db.prepare(sql).run(); } catch (e) {}
+                // These are submission-integrity invariants, not optional migrations.
+                // If they cannot be guaranteed, fail closed before inserting a result.
+                await db.prepare(sql).run();
             }
 
             const gradingStatus = hasPendingEssayGrades ? 'PENDING' : 'FINAL';
