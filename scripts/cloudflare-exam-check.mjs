@@ -2,12 +2,26 @@
 // On this PR's preview branch, publish a small test report to diagnose CI failures.
 // On main/other branches, a failed test blocks the production build.
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { buildSync } from 'esbuild';
 
+// Bundle TS-only test entrypoints with esbuild. The repo includes both
+// exam-grading-core.js and a TS re-export shim of the same basename. The tsx
+// loader redirects .js imports to that shim, producing a false missing-export
+// error before any test executes. Bundling preserves the actual .js implementation.
+const testDir = mkdtempSync(join(tmpdir(), 'exam-release-'));
+const compileTest = (source, name) => {
+  const output = join(testDir, name + '.mjs');
+  buildSync({ entryPoints: [source], outfile: output, bundle: true,
+    platform: 'node', format: 'esm', packages: 'external', logLevel: 'silent' });
+  return output;
+};
 const checks = [
   ['javascript_syntax', ['--check', 'src/main.js']],
-  ['exam_integrity', ['--import', 'tsx', '--test', 'tests/exam-critical-integrity.test.ts']],
-  ['question_pool', ['--import', 'tsx', '--test', 'tests/exam-question-pool-validity.test.ts']],
+  ['exam_integrity', ['--test', compileTest('tests/exam-critical-integrity.test.ts', 'integrity')]],
+  ['question_pool', ['--test', compileTest('tests/exam-question-pool-validity.test.ts', 'pool')]],
   ['typescript', ['node_modules/typescript/bin/tsc', '--noEmit']]
 ];
 const results = [];
@@ -28,6 +42,8 @@ for (const [name, args] of checks) {
   process.stdout.write('[exam-build] ' + name + ': ' + (ok ? 'PASS' : 'FAIL') + '\n');
   if (!ok) process.stderr.write('[exam-build] ' + name + ' failed: ' + relevant.join(' | ').slice(0, 3200) + '\n');
 }
+
+rmSync(testDir, { recursive: true, force: true });
 
 const branch = process.env.CF_PAGES_BRANCH || '';
 const diagnosticPreview = branch === 'fix/student-exam-fast-loading-status-20261110';
