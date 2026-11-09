@@ -8263,10 +8263,11 @@ if (contentType && contentType.includes("application/json")) {
                     throw new Error(detailRes.body?.error || 'Không tải được cấu hình đề thi từ máy chủ.');
                 }
                 if (currentExamSeq !== window._studentExamChangeSeq) return;
-                if (!data || String(data.id) !== String(selectedExamId) ||
-                    String(data.creator_id) !== String(teacherId)) {
-                    throw new Error('Cấu hình đề thi không khớp với giáo viên và đề đã chọn.');
+                if (!data || String(data.id) !== String(selectedExamId)) {
+                    throw new Error('Cấu hình đề thi không khớp với đề đã chọn.');
                 }
+                // Owner may be stored as account.id or linked users.id in legacy tenants.
+                // The server validates actual teacher/owner association at generation time.
                 if (serverNowMs > 0 && typeof performance !== 'undefined') {
                     window._studentExamServerClock = { serverMs: serverNowMs, tickMs: performance.now() };
                 }
@@ -8430,7 +8431,11 @@ if (contentType && contentType.includes("application/json")) {
                     : hasLoadError ? 'Không tải được đề thi' : 'Chưa có đề thi'; 
                 if (elCreatorWrapper) elCreatorWrapper.classList.add('hidden');
                 if (fullDetailsContainer) fullDetailsContainer.classList.add('hidden');
-                if (elInfo) { elInfo.innerHTML = ''; elInfo.classList.add('hidden'); }
+                if (elInfo) {
+                    elInfo.textContent = isLoadingExam ? 'Đang nhận cấu hình từ máy chủ...'
+                        : hasLoadError ? studentLoad.message : '';
+                    elInfo.classList.toggle('hidden', !(isLoadingExam || hasLoadError));
+                }
             } else {
                 if (elName) elName.textContent = examConfig.name || '';
                 if (elCreator) elCreator.textContent = examConfig.creatorName || accountsMap[examConfig.creatorId] || ho_ten_khach_hang || '';
