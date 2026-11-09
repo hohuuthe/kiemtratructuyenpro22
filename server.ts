@@ -3007,7 +3007,10 @@ async function startServer() {
 
       // Keep metadata-only backward compatible with the Production route.
       if (metaOnly && teacherIdParam) {
-        const { results } = await executeSqlQuery("SELECT type, level, lesson FROM questions WHERE creator_id = ?", [teacherIdParam]);
+        const { results } = await executeSqlQuery(
+          "SELECT type, level, lesson FROM questions WHERE creator_id = ? OR creator_id IN (SELECT user_id FROM accounts WHERE id = ?) OR creator_id IN (SELECT id FROM accounts WHERE user_id = ?)",
+          [teacherIdParam, teacherIdParam, teacherIdParam]
+        );
         return res.json({ data: results || [], error: null });
       }
 
@@ -4812,18 +4815,20 @@ async function getServerSecret(): Promise<string> {
               targetCountTL = Number(cfg.countTL || 0);
           }
 
-          // Compute target counts with fallback to sum of counts_detail
+          // Khi ma trận NB/TH/VD đã tồn tại, tổng theo ma trận là nguồn chuẩn.
+          // Điều này tương thích với các đề lịch sử có cột tổng dẫn xuất cũ bị lệch;
+          // UI khi lưu lại cũng luôn ghi tổng = NB+TH+VD.
           const sum41Detail = Number(finalCountsDetail.count41NB || 0) + Number(finalCountsDetail.count41TH || 0) + Number(finalCountsDetail.count41VD || 0);
-          if (targetCount41 <= 0 && sum41Detail > 0) targetCount41 = sum41Detail;
+          if (sum41Detail > 0) targetCount41 = sum41Detail;
 
           const sumTF4Detail = Number(finalCountsDetail.countTF4NB || 0) + Number(finalCountsDetail.countTF4TH || 0) + Number(finalCountsDetail.countTF4VD || 0);
-          if (targetCountTF4 <= 0 && sumTF4Detail > 0) targetCountTF4 = sumTF4Detail;
+          if (sumTF4Detail > 0) targetCountTF4 = sumTF4Detail;
 
           const sumSQDetail = Number(finalCountsDetail.countSQNB || 0) + Number(finalCountsDetail.countSQTH || 0) + Number(finalCountsDetail.countSQVD || 0);
-          if (targetCountSQ <= 0 && sumSQDetail > 0) targetCountSQ = sumSQDetail;
+          if (sumSQDetail > 0) targetCountSQ = sumSQDetail;
 
           const sumTLDetail = Number(finalCountsDetail.countTLNB || 0) + Number(finalCountsDetail.countTLTH || 0) + Number(finalCountsDetail.countTLVD || 0);
-          if (targetCountTL <= 0 && sumTLDetail > 0) targetCountTL = sumTLDetail;
+          if (sumTLDetail > 0) targetCountTL = sumTLDetail;
 
           let teacherDonVi = '';
           if (effectiveTeacherId) {
