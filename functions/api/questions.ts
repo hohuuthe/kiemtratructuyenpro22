@@ -61,7 +61,9 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
   // the full pool on the server before a READY session can be created.
   if (metaOnly && teacherIdParam) {
     try {
-      const { results } = await db.prepare("SELECT type, level, lesson FROM questions WHERE creator_id = ?").bind(teacherIdParam).all();
+      const { results } = await db.prepare(
+        "SELECT type, level, lesson FROM questions WHERE creator_id = ? OR creator_id IN (SELECT user_id FROM accounts WHERE id = ?) OR creator_id IN (SELECT id FROM accounts WHERE user_id = ?)"
+      ).bind(teacherIdParam, teacherIdParam, teacherIdParam).all();
       return new Response(JSON.stringify({ data: results || [], error: null }), { status: 200, headers: corsHeaders });
     } catch (e: any) {
       return new Response(JSON.stringify({ error: e.message || "Lỗi truy vấn metadata", data: [] }), { status: 500, headers: corsHeaders });
