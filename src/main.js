@@ -8440,6 +8440,11 @@ if (contentType && contentType.includes("application/json")) {
                 if (elCreator) elCreator.textContent = examConfig.creatorName || accountsMap[examConfig.creatorId] || ho_ten_khach_hang || '';
                 if (elCreatorWrapper) elCreatorWrapper.classList.remove('hidden');
                 if (fullDetailsContainer) fullDetailsContainer.classList.remove('hidden');
+                // Clear the stale loading/error message when the selected exam is ready.
+                if (elInfo) {
+                    elInfo.textContent = '';
+                    elInfo.classList.add('hidden');
+                }
             }
 
             const total = (examConfig.count41 || 0) + (examConfig.countTF4 || 0) + (examConfig.countSQ || 0) + (examConfig.countTL || 0);
