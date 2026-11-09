@@ -8275,9 +8275,10 @@ if (contentType && contentType.includes("application/json")) {
                     if (currentExamSeq !== window._studentExamChangeSeq) return;
                     applyExamConfig(data);
                     
-                    // LUỒNG MỚI BƯỚC 2: Chỉ đếm số lượng câu hỏi trên Server, KHÔNG TẢI NỘI DUNG CÂU HỎI VỀ
-                    await verifyExamQuestionsOnServer(data);
-                    
+                    // Không chặn giao diện học sinh bằng phép đếm metadata phụ.
+                    // /api/exam/generate là nguồn xác minh duy nhất: máy chủ đọc trực tiếp DB,
+                    // lọc câu hợp lệ và bốc chính xác NB/TH/VD trước khi tạo phiên READY.
+                    // Nhờ vậy không còn trạng thái "thiếu giả" hoặc phải chờ thêm một request metadata.
                     if (currentExamSeq === window._studentExamChangeSeq) {
                         updateCurrentExamInfo();
                     }
@@ -8416,9 +8417,12 @@ if (contentType && contentType.includes("application/json")) {
                     return allowedSet.has(qLesson);
                 };
                 
-                // NẾU CÓ DỮ LIỆU ĐÃ ĐẾM XÁC THỰC TỪ SERVER CHO HỌC SINH -> ƯU TIÊN DÙNG SỐ LIỆU NÀY
-                if (window.examAvailableCounts && studentTeacher && studentExam) {
-                    getCount = (type, level) => window.examAvailableCounts[type + '-' + level] || 0;
+                // Học sinh không có và cũng không được tải toàn bộ ngân hàng câu hỏi.
+                // Vì vậy client tuyệt đối không được dùng mảng questions rỗng hoặc metadata phụ
+                // để kết luận kho thiếu và khóa nút Bắt đầu. Việc đủ/thiếu được xác minh duy nhất
+                // bởi /api/exam/generate trên DB bằng cùng thuật toán bốc câu chính thức.
+                if (hasStudentSelectedExam && !isAdminLoggedIn && !isTeacherLoggedIn) {
+                    isEnough = true;
                 } else {
                     const normType = (t) => {
                         const s = String(t || '').trim().toLowerCase();
@@ -8431,12 +8435,11 @@ if (contentType && contentType.includes("application/json")) {
                     const normLevel = (lvl) => {
                         const l = String(lvl || '').trim().toUpperCase();
                         if (l === 'NB' || l === 'TH' || l === 'VD') return l;
-                        return 'NB';
+                        return '';
                     };
                     getCount = (type, level) => filteredQuestions.filter(q => normType(q.type) === type && normLevel(q.level) === level && filterByLesson(q)).length;
+                    isEnough = checkExamQuestionsAvailability(examConfig, getCount);
                 }
-                
-                isEnough = checkExamQuestionsAvailability(examConfig, getCount);
             }
 
             // 2. Cập nhật chi tiết các thẻ chỉ số trên giao diện học sinh khi đã chọn đề
@@ -8500,7 +8503,9 @@ if (contentType && contentType.includes("application/json")) {
                 if (elStatus) {
                     const countDetails = `Chi tiết kiểm tra:\nTổng: ${total}\n[4-1] NB cần ${examConfig.count41NB || 0}, TH cần ${examConfig.count41TH || 0}, VD cần ${examConfig.count41VD || 0}\n[TF4] NB cần ${examConfig.countTF4NB || 0}, TH cần ${examConfig.countTF4TH || 0}, VD cần ${examConfig.countTF4VD || 0}\n[SQ] NB cần ${examConfig.countSQNB || 0}, TH cần ${examConfig.countSQTH || 0}, VD cần ${examConfig.countSQVD || 0}\n[TL] NB cần ${examConfig.countTLNB || 0}, TH cần ${examConfig.countTLTH || 0}, VD cần ${examConfig.countTLVD || 0}`;
                     if (total > 0) {
-                        if (!isEnough) {
+                        if (hasStudentSelectedExam && !isAdminLoggedIn && !isTeacherLoggedIn) {
+                            elStatus.innerHTML = `<span class="text-blue-700 bg-blue-100 px-2.5 py-1 rounded-lg font-bold flex items-center gap-1">🛡️ Máy chủ sẽ xác minh chính xác khi bắt đầu</span>`;
+                        } else if (!isEnough) {
                             elStatus.innerHTML = `<span class="text-rose-700 bg-rose-100 px-2.5 py-1 rounded-lg font-bold flex items-center gap-1 cursor-help" title="${countDetails}">❌ Kho chưa đủ câu</span>`;
                         } else {
                             elStatus.innerHTML = `<span class="text-emerald-700 bg-emerald-100 px-2.5 py-1 rounded-lg font-bold flex items-center gap-1">✅ Đáp ứng đủ ${total} câu</span>`;
