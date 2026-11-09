@@ -185,7 +185,13 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
       : isTeacher
         ? ", CASE WHEN ec.creator_id IN (?, ?) THEN (SELECT COUNT(*) FROM results r WHERE r.exam_id = ec.id) ELSE NULL END AS attempt_count"
         : "";
-    let query = "SELECT ec.*, creator_profile.donvi AS teacher_donvi, "+EXAM_CREATOR_NAME_SQL+" AS creator_name" + attemptCountProjection +
+    // Student teacher selector needs only a small projection, not AI prompts,
+    // grading settings, shared-teacher metadata or full editor configuration.
+    // A subsequent GET by exact ID supplies the public exam configuration.
+    const isStudentTeacherPicker = Boolean(teacherIdParam && !isAdmin && !isTeacher);
+    const pickerColumns = "ec.id, ec.name, ec.creator_id, ec.chedodethi, ec.target_lop, ec.lop, ec.target_donvi, ec.donvi, ec.access_control, ec.is_shared_results, ec.created_at, ec.updated_at";
+    let query = "SELECT " + (isStudentTeacherPicker ? pickerColumns : "ec.*") +
+      ", creator_profile.donvi AS teacher_donvi, " + EXAM_CREATOR_NAME_SQL + " AS creator_name" + attemptCountProjection +
       " FROM exam_configs ec " + EXAM_CREATOR_JOIN_SQL;
     const params: any[] = isTeacher ? [user.id, user.user_id || user.id] : [];
 
