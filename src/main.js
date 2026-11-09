@@ -8010,6 +8010,7 @@ if (contentType && contentType.includes("application/json")) {
             window._studentExamVerifiedId = '';
             window._studentExamLoadStatus = null;
             window._studentExamServerClock = null;
+            window._studentTeacherListLoading = false;
             console.log('onStudentTeacherFilterChange called, seq:', currentTeacherSeq);
             
             const elTeacher = document.getElementById('student-teacher-filter');
@@ -8055,29 +8056,25 @@ if (contentType && contentType.includes("application/json")) {
             
             if (!teacherId) {
                 examSelect.innerHTML = '<option value="">Chọn Bộ Câu hỏi/Đề thi</option>';
-                // we keep it disabled if no teacher is chosen
                 updateCurrentExamInfo();
                 return;
             }
 
+            window._studentTeacherListLoading = true;
+            updateCurrentExamInfo();
             try {
-                // QUY TẮC SỐNG CÒN: Chỉ lấy đề thi do CHÍNH giáo viên này tạo ra
-                // Tuyệt đối không cho phép chia sẻ đề thi ở Tab này
+                // Only retrieve the teacher's public exam selector, not all question data.
                 const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
-                const res = await fetch(`/api/exams?teacherId=${encodeURIComponent(teacherId)}`, {
-                    headers: token ? { 'Authorization': 'Bearer ' + token } : {}
-                });
-                if (currentTeacherSeq !== window._studentTeacherChangeSeq) {
-                    return; // Đã có thao tác chọn giáo viên mới hơn, bỏ qua phản hồi cũ
+                const response = await fetchExamStartResponse(fetch,
+                    `/api/exams?teacherId=${encodeURIComponent(teacherId)}`, {
+                        headers: token ? { 'Authorization': 'Bearer ' + token } : {},
+                        cache: 'no-store'
+                    }, 12000);
+                if (currentTeacherSeq !== window._studentTeacherChangeSeq) return;
+                if (!response.ok || !Array.isArray(response.body?.data)) {
+                    throw new Error(response.body?.error || 'Không thể tải danh sách đề thi.');
                 }
-                let resJson;
-                const contentType = res.headers.get("content-type");
-                if (contentType && contentType.includes("application/json")) {
-                    resJson = await res.json();
-                } else {
-                    throw new Error("Server returned non-JSON response (likely 502/504 during restart). Status: " + res.status);
-                }
-                const data = resJson.data || [];
+                const data = response.body.data;
                 
                 examSelect.disabled = false;
                 examSelect.innerHTML = '<option value="">Chọn Bộ Câu hỏi/Đề thi</option>';
@@ -8165,14 +8162,15 @@ if (contentType && contentType.includes("application/json")) {
                 }
             } catch (e) { 
                 if (currentTeacherSeq !== window._studentTeacherChangeSeq) return;
-                console.warn('Notice: Error loading exam names for student, trying cached exams:', e);
+                console.warn('Could not load exam names for student:', e);
                 examSelect.disabled = false;
-                if (!examSelect.options || examSelect.options.length <= 1) {
-                    examSelect.innerHTML = '<option value="">Chọn đề thi</option>';
+                examSelect.innerHTML = '<option value="">Không tải được danh sách - Chọn lại giáo viên</option>';
+                showToast(e?.message || 'Không thể tải danh sách đề thi. Vui lòng chọn lại giáo viên.', 'error');
+            } finally {
+                if (currentTeacherSeq === window._studentTeacherChangeSeq) {
+                    window._studentTeacherListLoading = false;
+                    updateCurrentExamInfo();
                 }
-            }
-            if (currentTeacherSeq === window._studentTeacherChangeSeq) {
-                updateCurrentExamInfo();
             }
         }
 
@@ -8424,6 +8422,7 @@ if (contentType && contentType.includes("application/json")) {
                 String(studentLoad.examId) === String(studentExam));
             const isLoadingExam = loadMatches && studentLoad.status === 'loading';
             const hasLoadError = loadMatches && studentLoad.status === 'error';
+            const isLoadingTeacherList = Boolean(window._studentTeacherListLoading && studentTeacher && !studentExam);
 
             // 1. Render actual loading/error instead of a misleading "no exam" banner.
             if (!hasStudentSelectedExam) {
@@ -8583,9 +8582,11 @@ if (contentType && contentType.includes("application/json")) {
                 if (!startBtn.dataset.studentExamDefaultHtml) {
                     startBtn.dataset.studentExamDefaultHtml = startBtn.innerHTML;
                 }
-                if (isLoadingExam) {
+                if (isLoadingExam || isLoadingTeacherList) {
                     startBtn.disabled = true;
-                    startBtn.innerHTML = '<span class="inline-block animate-spin" aria-hidden="true">⏳</span> Đang tải đề thi...';
+                    startBtn.innerHTML = isLoadingTeacherList
+                        ? '<span class="inline-block animate-spin" aria-hidden="true">⏳</span> Đang tải danh sách đề thi...'
+                        : '<span class="inline-block animate-spin" aria-hidden="true">⏳</span> Đang tải đề thi...';
                     startBtn.classList.add('opacity-50', 'cursor-not-allowed');
                 } else if (hasLoadError) {
                     startBtn.disabled = false; // Retry re-fetches the selected exam.
