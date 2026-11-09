@@ -183,6 +183,8 @@ test('student selection renders loading, error and retry without blocking on ext
   assert.match(info, /Thử tải lại đề thi/);
   assert.match(info, /loadMatches/);
   assert.match(info, /startBtn\.disabled = true;/);
+  // The information panel must never retain a stale loading notice after READY.
+  assert.match(info, /if \(hasStudentSelectedExam\)[\s\S]*?if \(elInfo\) \{\s*elInfo\.textContent = '';\s*elInfo\.classList\.add\('hidden'\);/);
 
   const begin = main.indexOf('window.startExam = async function');
   const finish = main.indexOf('function generateExamQuestions()', begin);
