@@ -209,3 +209,17 @@ test('student exam detail bypasses teacher editor and returns server time', () =
   assert.match(api, /isStudentTeacherPicker/);
   assert.match(api, /SELECT target_lop, lop, max_attempts, keep_raw_score, tieu_de_bai_thi FROM exam_configs LIMIT 0/);
 });
+
+
+test('teacher exam selector has bounded request and visible progress', () => {
+  const main = fs.readFileSync('src/main.js', 'utf8');
+  const begin = main.indexOf('window.onStudentTeacherFilterChange = async function');
+  const finish = main.indexOf('window._studentExamChangeSeq = 0;', begin);
+  const teacher = main.slice(begin, finish);
+  assert.match(teacher, /_studentTeacherListLoading = true/);
+  assert.match(teacher, /fetchExamStartResponse\(fetch,/);
+  assert.match(teacher, /\/api\/exams\?teacherId=/);
+  assert.match(teacher, /finally \{/);
+  assert.match(teacher, /_studentTeacherListLoading = false/);
+  assert.match(main, /Đang tải danh sách đề thi\.\.\./);
+});
