@@ -2622,7 +2622,48 @@ async function startServer() {
         if(challenge)return res.status(challenge.status).json({data:null,...challenge});
         const mapped = isExamOwner(user,row)?mapRowRead(row):redactExamForPublic(mapRowRead(row));
         mapped.is_shared_results = row.is_shared_results === 1 || row.is_shared_results === true || row.is_shared_results === 'true';
-        return res.json({ data: mapped, error: null });
+app.get("/api/exams", async (req, res) => {
+    try {
+      const idParam = req.query.id as string;
+      const codeParam = req.query.code as string;
+      const teacherIdParam = req.query.teacherId as string;
+      const sharedOnly = req.query.sharedOnly === 'true';
+
+      const authHeader = req.headers.authorization;
+      let user: any = null;
+      if (authHeader && authHeader.startsWith("Bearer ")) {
+        user = verifyJWTSync(authHeader.substring(7), await getServerSecret());
+        if (user && (user.id || user.user_id)) {
+          try {
+            const { results: uRows } = await executeSqlQuery(
+              "SELECT donvi, lop, target_audience FROM users WHERE id = ? OR id = ?",
+              [user.user_id || user.id, user.id]
+            );
+            if (uRows && uRows.length > 0) {
+              const u = uRows[0];
+              if (u.donvi) user.donvi = u.donvi;
+              if (u.lop) user.lop = u.lop;
+              if (u.target_audience) user.target_audience = u.target_audience;
+            }
+          } catch(e) {}
+        }
+      }
+
+      const isAdmin = checkIsAdmin(user);
+      const isTeacher = checkIsTeacherOrAdmin(user) && !isAdmin;
+
+      if (idParam) {
+        let query = "SELECT * FROM exam_configs WHERE id = ?";
+        const { results } = await executeSqlQuery(query, [idParam]);
+        if (!results || results.length === 0) {
+          return res.status(404).json({ data: null, error: "Không tìm thấy cấu hình đề thi" });
+        }
+        const row: any = results[0];
+        const challenge=examAccessChallenge(user,row,req.header('X-Exam-Access-Code'));
+        if(challenge)return res.status(challenge.status).json({data:null,...challenge});
+        const mapped = isExamOwner(user,row)?mapRowRead(row):redactExamForPublic(mapRowRead(row));
+        mapped.is_shared_results = row.is_shared_results === 1 || row.is_shared_results === true || row.is_shared_results === 'true';
+        return res.json({ data: mapped, server_now_ms: Date.now(), error: null });
       }
 
       if (codeParam) {
