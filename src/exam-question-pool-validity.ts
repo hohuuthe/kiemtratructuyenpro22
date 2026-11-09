@@ -203,7 +203,19 @@ export function validateExamQuestionPool(config: Row, questionRows: any[]): Exam
   const shortages: ExamQuestionPoolShortage[] = [];
   let requiredTotal = 0;
   for (const spec of TYPE_SPECS) {
-    const required = firstCount(config, spec.totalKeys);
+    const storedTotal = firstCount(config, spec.totalKeys);
+    const detailRequired = {
+      NB: nonNegativeInt(countsDetail[`count${spec.key}NB`]),
+      TH: nonNegativeInt(countsDetail[`count${spec.key}TH`]),
+      VD: nonNegativeInt(countsDetail[`count${spec.key}VD`])
+    };
+    const detailSum = detailRequired.NB + detailRequired.TH + detailRequired.VD;
+
+    // Dữ liệu lịch sử có thể còn cột tổng cũ lệch với NB/TH/VD. Trình sửa đề
+    // luôn coi cơ cấu chi tiết là nguồn chuẩn và khi lưu sẽ ghi lại tổng = NB+TH+VD.
+    // Vì vậy khi cơ cấu chi tiết tồn tại, phải dùng chính nó làm số lượng hiệu lực;
+    // không được bắt giáo viên "lưu lại không đổi gì" chỉ để sửa cột tổng dẫn xuất.
+    const required = detailSum > 0 ? detailSum : storedTotal;
     requiredTotal += required;
     const available = availableByType[spec.type] || 0;
     if (available < required) {
@@ -218,12 +230,6 @@ export function validateExamQuestionPool(config: Row, questionRows: any[]): Exam
       });
     }
 
-    const detailRequired = {
-      NB: nonNegativeInt(countsDetail[`count${spec.key}NB`]),
-      TH: nonNegativeInt(countsDetail[`count${spec.key}TH`]),
-      VD: nonNegativeInt(countsDetail[`count${spec.key}VD`])
-    };
-    const detailSum = detailRequired.NB + detailRequired.TH + detailRequired.VD;
     if (detailSum > 0) {
       for (const level of ['NB', 'TH', 'VD'] as const) {
         const levelAvailable = availableByTypeLevel[spec.type]?.[level] || 0;
@@ -239,17 +245,6 @@ export function validateExamQuestionPool(config: Row, questionRows: any[]): Exam
             missing: levelRequired - levelAvailable
           });
         }
-      }
-      if (detailSum !== required) {
-        shortages.push({
-          type: spec.type,
-          typeLabel: spec.label,
-          level: 'TOTAL',
-          levelLabel: 'Cơ cấu chi tiết',
-          required,
-          available: detailSum,
-          missing: Math.abs(required - detailSum)
-        });
       }
     }
   }
