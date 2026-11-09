@@ -22,7 +22,9 @@ for (const [name, args] of checks) {
   ).slice(0, 45);
   const ok = run.status === 0 && !run.error;
   results.push({ name, ok, exitCode: run.status, error: run.error?.message || null,
-    elapsedMs: Date.now() - started, diagnostics: relevant });
+    elapsedMs: Date.now() - started, diagnostics: relevant,
+    // Preview-only diagnostic; test output from this repository contains no credentials.
+    failureOutput: ok ? undefined : output.slice(-6000) });
   process.stdout.write('[exam-build] ' + name + ': ' + (ok ? 'PASS' : 'FAIL') + '\n');
   if (!ok) process.stderr.write('[exam-build] ' + name + ' failed: ' + relevant.join(' | ').slice(0, 3200) + '\n');
 }
