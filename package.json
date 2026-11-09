@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "tsx server.ts",
     "test:word-import-release": "node scripts/check-word-import-release.mjs",
-    "prebuild": "node scripts/mathtype-preview-check.mjs",
+    "prebuild": "node scripts/mathtype-preview-check.mjs && node scripts/cloudflare-exam-check.mjs",
+    "check:exam-release": "node --check src/main.js && node --import tsx --test tests/exam-critical-integrity.test.ts tests/exam-question-pool-validity.test.ts && npm run lint",
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
     "start": "node dist/server.cjs",
     "migrate:neon": "node scripts/migrate-to-neon.mjs",

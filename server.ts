@@ -2622,7 +2622,7 @@ async function startServer() {
         if(challenge)return res.status(challenge.status).json({data:null,...challenge});
         const mapped = isExamOwner(user,row)?mapRowRead(row):redactExamForPublic(mapRowRead(row));
         mapped.is_shared_results = row.is_shared_results === 1 || row.is_shared_results === true || row.is_shared_results === 'true';
-        return res.json({ data: mapped, error: null });
+        return res.json({ data: mapped, server_now_ms: Date.now(), error: null });
       }
 
       if (codeParam) {

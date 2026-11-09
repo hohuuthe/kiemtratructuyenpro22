@@ -7775,6 +7775,13 @@ if (contentType && contentType.includes("application/json")) {
         function applyExamConfig(cData) {
             // Never merge missing fields from a previously loaded exam.
             examConfig = mapStoredExamToDraft(cData, {currentUser, accounts, accountsMap});
+            if (!isAdminLoggedIn && !isTeacherLoggedIn) {
+                // Student read-only path: do not re-render all teacher editor inputs,
+                // lesson checkboxes, AI-key validation and bank count scans.
+                // Authoritative question allocation remains in /api/exam/generate.
+                updateCurrentExamInfo();
+                return;
+            }
             examEditorRevision += 1;
             document.getElementById('tf4-advanced-scoring')?.classList.toggle('hidden', !examConfig.tf4ScoringMode);
             for (const [key, value] of Object.entries(examConfig.tf4Points)) {
@@ -7979,6 +7986,19 @@ if (contentType && contentType.includes("application/json")) {
             updateAvailableCounts();
         }
 
+        // State is scoped by selected exam ID so late responses can never unlock
+        // the start button for another exam.
+        window._studentExamLoadStatus = null;
+        window._studentExamServerClock = null;
+        function studentExamReferenceTime() {
+            const clock = window._studentExamServerClock;
+            if (clock && Number.isFinite(clock.serverMs) &&
+                typeof performance !== 'undefined' && Number.isFinite(performance.now())) {
+                return new Date(clock.serverMs + Math.max(0, performance.now() - clock.tickMs));
+            }
+            // UX only: /api/exam/generate enforces time windows on the server.
+            return new Date();
+        }
         window._studentTeacherChangeSeq = 0;
         window.onStudentTeacherFilterChange = async function onStudentTeacherFilterChange() {
             // Student-only state must never reset teacher/admin question-bank state.
@@ -7988,6 +8008,9 @@ if (contentType && contentType.includes("application/json")) {
             ++window._studentExamChangeSeq;
             window._studentExamAccessCode = '';
             window._studentExamVerifiedId = '';
+            window._studentExamLoadStatus = null;
+            window._studentExamServerClock = null;
+            window._studentTeacherListLoading = false;
             console.log('onStudentTeacherFilterChange called, seq:', currentTeacherSeq);
             
             const elTeacher = document.getElementById('student-teacher-filter');
@@ -8033,29 +8056,25 @@ if (contentType && contentType.includes("application/json")) {
             
             if (!teacherId) {
                 examSelect.innerHTML = '<option value="">Chọn Bộ Câu hỏi/Đề thi</option>';
-                // we keep it disabled if no teacher is chosen
                 updateCurrentExamInfo();
                 return;
             }
 
+            window._studentTeacherListLoading = true;
+            updateCurrentExamInfo();
             try {
-                // QUY TẮC SỐNG CÒN: Chỉ lấy đề thi do CHÍNH giáo viên này tạo ra
-                // Tuyệt đối không cho phép chia sẻ đề thi ở Tab này
+                // Only retrieve the teacher's public exam selector, not all question data.
                 const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
-                const res = await fetch(`/api/exams?teacherId=${encodeURIComponent(teacherId)}`, {
-                    headers: token ? { 'Authorization': 'Bearer ' + token } : {}
-                });
-                if (currentTeacherSeq !== window._studentTeacherChangeSeq) {
-                    return; // Đã có thao tác chọn giáo viên mới hơn, bỏ qua phản hồi cũ
+                const response = await fetchExamStartResponse(fetch,
+                    `/api/exams?teacherId=${encodeURIComponent(teacherId)}`, {
+                        headers: token ? { 'Authorization': 'Bearer ' + token } : {},
+                        cache: 'no-store'
+                    }, 12000);
+                if (currentTeacherSeq !== window._studentTeacherChangeSeq) return;
+                if (!response.ok || !Array.isArray(response.body?.data)) {
+                    throw new Error(response.body?.error || 'Không thể tải danh sách đề thi.');
                 }
-                let resJson;
-                const contentType = res.headers.get("content-type");
-                if (contentType && contentType.includes("application/json")) {
-                    resJson = await res.json();
-                } else {
-                    throw new Error("Server returned non-JSON response (likely 502/504 during restart). Status: " + res.status);
-                }
-                const data = resJson.data || [];
+                const data = response.body.data;
                 
                 examSelect.disabled = false;
                 examSelect.innerHTML = '<option value="">Chọn Bộ Câu hỏi/Đề thi</option>';
@@ -8143,14 +8162,15 @@ if (contentType && contentType.includes("application/json")) {
                 }
             } catch (e) { 
                 if (currentTeacherSeq !== window._studentTeacherChangeSeq) return;
-                console.warn('Notice: Error loading exam names for student, trying cached exams:', e);
+                console.warn('Could not load exam names for student:', e);
                 examSelect.disabled = false;
-                if (!examSelect.options || examSelect.options.length <= 1) {
-                    examSelect.innerHTML = '<option value="">Chọn đề thi</option>';
+                examSelect.innerHTML = '<option value="">Không tải được danh sách - Chọn lại giáo viên</option>';
+                showToast(e?.message || 'Không thể tải danh sách đề thi. Vui lòng chọn lại giáo viên.', 'error');
+            } finally {
+                if (currentTeacherSeq === window._studentTeacherChangeSeq) {
+                    window._studentTeacherListLoading = false;
+                    updateCurrentExamInfo();
                 }
-            }
-            if (currentTeacherSeq === window._studentTeacherChangeSeq) {
-                updateCurrentExamInfo();
             }
         }
 
@@ -8194,50 +8214,66 @@ if (contentType && contentType.includes("application/json")) {
             if (typeof resetExam === 'function') {
                 resetExam();
             }
-
-            if (!teacherId || !selectedExamId) {
-                updateCurrentExamInfo();
-                return;
-            }
+            window._studentExamLoadStatus = teacherId && selectedExamId
+                ? { teacherId: String(teacherId), examId: String(selectedExamId), status: 'loading', message: '' }
+                : null;
+            window._studentExamServerClock = null;
+            // Paint loading feedback before the first async request.
+            updateCurrentExamInfo();
+            if (!teacherId || !selectedExamId) return;
 
             try {
                 let data = null;
-                try {
-                    const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
-                    // TẢI TRỰC TIẾP CHÍNH XÁC THEO ID DUY NHẤT CỦA ĐỀ THI
-                    const detailRes = await fetch(`/api/exams?id=${encodeURIComponent(selectedExamId)}`, {
-                        headers: token ? { 'Authorization': 'Bearer ' + token } : {}
-                    });
-                    if (currentExamSeq !== window._studentExamChangeSeq) return;
-                    if (detailRes.ok) {
-                        const detailJson = await detailRes.json();
-                        data = detailJson.data;
-                    } else if (detailRes.status === 403) {
-                        const detailJson = await detailRes.json().catch(() => ({}));
-                        if (detailJson.code === 'EXAM_ACCESS_CODE_REQUIRED') {
-                            const code = await showExamPasswordModal(selectedExamId);
-                            if (currentExamSeq !== window._studentExamChangeSeq) return;
-                            if (!code) { examSelect.value = ''; updateCurrentExamInfo(); return; }
-                            const verified = await fetch(`/api/exams?id=${encodeURIComponent(selectedExamId)}`, {
-                                headers: { ...(token ? { 'Authorization': 'Bearer ' + token } : {}), 'X-Exam-Access-Code': code }, cache:'no-store'
-                            });
-                            if (currentExamSeq !== window._studentExamChangeSeq) return;
-                            if (!verified.ok) throw Error('Không thể xác thực mã truy cập đề thi.');
-                            data = (await verified.json()).data;
-                            window._studentExamAccessCode = code;
-                            window._studentExamVerifiedId = selectedExamId;
-                        } else throw Error(detailJson.error || 'Không thể tải đề thi.');
-                    }
-                } catch (apiErr) {
-                    console.warn('API get exam config error:', apiErr);
-                }
-                
+                let serverNowMs = 0;
+                const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
+                // Short, bounded request. No question-bank download and no external time APIs.
+                const detailUrl = `/api/exams?id=${encodeURIComponent(selectedExamId)}`;
+                const detailRes = await fetchExamStartResponse(fetch, detailUrl, {
+                    headers: token ? { 'Authorization': 'Bearer ' + token } : {},
+                    cache: 'no-store'
+                }, 12000);
                 if (currentExamSeq !== window._studentExamChangeSeq) return;
+                if (detailRes.ok && detailRes.body?.data) {
+                    data = detailRes.body.data;
+                    serverNowMs = Number(detailRes.body.server_now_ms) || 0;
+                } else if (detailRes.status === 403 && detailRes.body?.code === 'EXAM_ACCESS_CODE_REQUIRED') {
+                    const code = await showExamPasswordModal(selectedExamId);
+                    if (currentExamSeq !== window._studentExamChangeSeq) return;
+                    if (!code) {
+                        examSelect.value = '';
+                        window._studentExamLoadStatus = null;
+                        updateCurrentExamInfo();
+                        return;
+                    }
+                    const verified = await fetchExamStartResponse(fetch, detailUrl, {
+                        headers: { ...(token ? { 'Authorization': 'Bearer ' + token } : {}), 'X-Exam-Access-Code': code },
+                        cache: 'no-store'
+                    }, 12000);
+                    if (currentExamSeq !== window._studentExamChangeSeq) return;
+                    if (!verified.ok || !verified.body?.data) {
+                        throw new Error(verified.body?.error || 'Không thể xác thực mã truy cập đề thi.');
+                    }
+                    data = verified.body.data;
+                    serverNowMs = Number(verified.body.server_now_ms) || 0;
+                    window._studentExamAccessCode = code;
+                    window._studentExamVerifiedId = selectedExamId;
+                } else {
+                    throw new Error(detailRes.body?.error || 'Không tải được cấu hình đề thi từ máy chủ.');
+                }
+                if (currentExamSeq !== window._studentExamChangeSeq) return;
+                if (!data || String(data.id) !== String(selectedExamId)) {
+                    throw new Error('Cấu hình đề thi không khớp với đề đã chọn.');
+                }
+                // Owner may be stored as account.id or linked users.id in legacy tenants.
+                // The server validates actual teacher/owner association at generation time.
+                if (serverNowMs > 0 && typeof performance !== 'undefined') {
+                    window._studentExamServerClock = { serverMs: serverNowMs, tickMs: performance.now() };
+                }
 
                 if (data) {
                     // 1. Kiểm tra thời gian cho phép làm bài TRƯỚC
                     if (data.access_control && data.access_control.enabled && !isAdminLoggedIn && (!currentUser || currentUser.id !== data.creator_id)) {
-                        const now = await getInternetTime();
+                        const now = studentExamReferenceTime();
                         const startTime = data.tg_bd ? new Date(data.tg_bd) : (data.access_control.startTime ? new Date(data.access_control.startTime) : null);
                         const endTime = data.tg_kt ? new Date(data.tg_kt) : (data.access_control.endTime ? new Date(data.access_control.endTime) : null);
                         
@@ -8274,6 +8310,11 @@ if (contentType && contentType.includes("application/json")) {
 
                     if (currentExamSeq !== window._studentExamChangeSeq) return;
                     applyExamConfig(data);
+                    if (currentExamSeq !== window._studentExamChangeSeq) return;
+                    window._studentExamLoadStatus = {
+                        teacherId: String(teacherId), examId: String(selectedExamId),
+                        status: 'ready', message: ''
+                    };
                     
                     // Không chặn giao diện học sinh bằng phép đếm metadata phụ.
                     // /api/exam/generate là nguồn xác minh duy nhất: máy chủ đọc trực tiếp DB,
@@ -8283,9 +8324,15 @@ if (contentType && contentType.includes("application/json")) {
                         updateCurrentExamInfo();
                     }
                 }
-            } catch (e) { 
+            } catch (e) {
                 if (currentExamSeq !== window._studentExamChangeSeq) return;
-                console.warn('Notice: Could not load specific exam for student:', e); 
+                console.warn('Could not load specific exam for student:', e);
+                window._studentExamLoadStatus = {
+                    teacherId: String(teacherId), examId: String(selectedExamId),
+                    status: 'error',
+                    message: String(e?.message || 'Máy chủ chưa phản hồi. Vui lòng thử lại.')
+                };
+                updateCurrentExamInfo();
             }
         }
         
@@ -8365,21 +8412,39 @@ if (contentType && contentType.includes("application/json")) {
             const studentExam = document.getElementById('student-exam-name-filter')?.value;
             
             // Boolean checking if both filters are actually selected in the student UI
-            const hasStudentSelectedExam = !!(studentTeacher && studentExam && examConfig?.id === studentExam &&
+            const hasStudentSelectedExam = !!(studentTeacher && studentExam && String(examConfig?.id || '') === String(studentExam) &&
                 (examConfig.chedodethi !== 'Đề có mã bảo mật' || isAdminLoggedIn || isTeacherLoggedIn ||
                  window._studentExamVerifiedId === studentExam));
 
-            // 1. Áp dụng hiển thị text cơ bản nếu chưa chọn đề
+            const studentLoad = window._studentExamLoadStatus;
+            const loadMatches = Boolean(studentLoad && studentTeacher && studentExam &&
+                String(studentLoad.teacherId) === String(studentTeacher) &&
+                String(studentLoad.examId) === String(studentExam));
+            const isLoadingExam = loadMatches && studentLoad.status === 'loading';
+            const hasLoadError = loadMatches && studentLoad.status === 'error';
+            const isLoadingTeacherList = Boolean(window._studentTeacherListLoading && studentTeacher && !studentExam);
+
+            // 1. Render actual loading/error instead of a misleading "no exam" banner.
             if (!hasStudentSelectedExam) {
-                if (elName) elName.textContent = 'Chưa có đề thi'; 
+                if (elName) elName.textContent = isLoadingExam ? 'Đang tải đề thi...'
+                    : hasLoadError ? 'Không tải được đề thi' : 'Chưa có đề thi'; 
                 if (elCreatorWrapper) elCreatorWrapper.classList.add('hidden');
                 if (fullDetailsContainer) fullDetailsContainer.classList.add('hidden');
-                if (elInfo) { elInfo.innerHTML = ''; elInfo.classList.add('hidden'); }
+                if (elInfo) {
+                    elInfo.textContent = isLoadingExam ? 'Đang nhận cấu hình từ máy chủ...'
+                        : hasLoadError ? studentLoad.message : '';
+                    elInfo.classList.toggle('hidden', !(isLoadingExam || hasLoadError));
+                }
             } else {
                 if (elName) elName.textContent = examConfig.name || '';
                 if (elCreator) elCreator.textContent = examConfig.creatorName || accountsMap[examConfig.creatorId] || ho_ten_khach_hang || '';
                 if (elCreatorWrapper) elCreatorWrapper.classList.remove('hidden');
                 if (fullDetailsContainer) fullDetailsContainer.classList.remove('hidden');
+                // Clear the stale loading/error message when the selected exam is ready.
+                if (elInfo) {
+                    elInfo.textContent = '';
+                    elInfo.classList.add('hidden');
+                }
             }
 
             const total = (examConfig.count41 || 0) + (examConfig.countTF4 || 0) + (examConfig.countSQ || 0) + (examConfig.countTL || 0);
@@ -8519,12 +8584,26 @@ if (contentType && contentType.includes("application/json")) {
             // KHOÁ / MỞ KHOÁ NÚT BẮT ĐẦU DỰA VÀO ĐIỀU KIỆN ĐỀ THI
             const startBtn = document.querySelector('button[onclick="startExam(this)"]') || document.querySelector('button[onclick*="startExam"]');
             if (startBtn) {
-                if (hasStudentSelectedExam && total > 0 && isEnough) {
-                    startBtn.disabled = false;
-                    startBtn.classList.remove('opacity-50', 'cursor-not-allowed');
-                } else {
+                if (!startBtn.dataset.studentExamDefaultHtml) {
+                    startBtn.dataset.studentExamDefaultHtml = startBtn.innerHTML;
+                }
+                if (isLoadingExam || isLoadingTeacherList) {
                     startBtn.disabled = true;
+                    startBtn.innerHTML = isLoadingTeacherList
+                        ? '<span class="inline-block animate-spin" aria-hidden="true">⏳</span> Đang tải danh sách đề thi...'
+                        : '<span class="inline-block animate-spin" aria-hidden="true">⏳</span> Đang tải đề thi...';
                     startBtn.classList.add('opacity-50', 'cursor-not-allowed');
+                } else if (hasLoadError) {
+                    startBtn.disabled = false; // Retry re-fetches the selected exam.
+                    startBtn.innerHTML = '↻ Thử tải lại đề thi';
+                    startBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                } else if (examStartPending) {
+                    startBtn.disabled = true;
+                } else {
+                    startBtn.innerHTML = startBtn.dataset.studentExamDefaultHtml;
+                    startBtn.disabled = !(hasStudentSelectedExam && total > 0 && isEnough);
+                    startBtn.classList.toggle('opacity-50', startBtn.disabled);
+                    startBtn.classList.toggle('cursor-not-allowed', startBtn.disabled);
                 }
             }
 
@@ -8881,6 +8960,15 @@ if (contentType && contentType.includes("application/json")) {
 
         let examStartPending = false;
         window.startExam = async function startExam(btn) {
+            const selectionId = document.getElementById('student-exam-name-filter')?.value || '';
+            const loadingState = window._studentExamLoadStatus;
+            if (loadingState && String(loadingState.examId) === String(selectionId)) {
+                if (loadingState.status === 'loading') return;
+                if (loadingState.status === 'error') {
+                    await window.onStudentExamNameChange();
+                    return;
+                }
+            }
             if (window.__EXAM_RESUME_BLOCK_NEW__) {
                 showToast('Bài thi trước đang được máy chủ xử lý. Vui lòng kiểm tra lại trước khi tạo phiên mới.', 'warning');
                 return;
@@ -9009,7 +9097,7 @@ if (contentType && contentType.includes("application/json")) {
 
                 // Kiểm tra thời gian cho phép làm bài (tg_bd, tg_kt)
                 if (examConfig.accessControl && examConfig.accessControl.enabled && !isAdminLoggedIn && (!currentUser || currentUser.id !== examConfig.creatorId)) {
-                    const internetNow = await getInternetTime();
+                    const internetNow = studentExamReferenceTime();
                     const startTime = examConfig.accessControl.startTime ? new Date(examConfig.accessControl.startTime) : null;
                     const endTime = examConfig.accessControl.endTime ? new Date(examConfig.accessControl.endTime) : null;
                     

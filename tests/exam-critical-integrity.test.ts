@@ -160,3 +160,68 @@ test('blocked native confirm fails closed', () => {
   assert.match(block, /return false;/);
   assert.doesNotMatch(block, /return true;/);
 });
+
+
+test('student selection renders loading, error and retry without blocking on external clocks', () => {
+  const main = fs.readFileSync('src/main.js', 'utf8');
+  const start = main.indexOf('window.onStudentExamNameChange = async function');
+  const end = main.indexOf('window._verifyQuestionsSeq = 0;', start);
+  assert.ok(start >= 0 && end > start);
+  const selection = main.slice(start, end);
+  assert.match(selection, /status: 'loading'/);
+  assert.match(selection, /status: 'ready'/);
+  assert.match(selection, /status: 'error'/);
+  assert.match(selection, /fetchExamStartResponse\(fetch, detailUrl/);
+  assert.doesNotMatch(selection, /await getInternetTime\(/);
+  assert.match(selection, /studentExamReferenceTime\(\)/);
+  assert.match(selection, /currentExamSeq !== window\._studentExamChangeSeq/);
+
+  const statusStart = main.indexOf('window.updateCurrentExamInfo = function');
+  const statusEnd = main.indexOf('// ==================== EXAM TAB', statusStart);
+  const info = main.slice(statusStart, statusEnd);
+  assert.match(info, /Đang tải đề thi\.\.\./);
+  assert.match(info, /Thử tải lại đề thi/);
+  assert.match(info, /loadMatches/);
+  assert.match(info, /startBtn\.disabled = true;/);
+  // The information panel must never retain a stale loading notice after READY.
+  assert.match(info, /\} else \{\s*if \(elName\) elName\.textContent = examConfig\.name[\s\S]*?if \(elInfo\) \{\s*elInfo\.textContent = '';\s*elInfo\.classList\.add\('hidden'\);/);
+
+  const begin = main.indexOf('window.startExam = async function');
+  const finish = main.indexOf('function generateExamQuestions()', begin);
+  const submit = main.slice(begin, finish);
+  assert.match(submit, /loadingState\.status === 'error'/);
+  assert.match(submit, /await window\.onStudentExamNameChange\(\)/);
+  assert.doesNotMatch(submit, /await getInternetTime\(/);
+  assert.match(submit, /studentExamReferenceTime\(\)/);
+  assert.match(submit, /\/api\/exam\/generate/);
+});
+
+test('student exam detail bypasses teacher editor and returns server time', () => {
+  const main = fs.readFileSync('src/main.js', 'utf8');
+  const beginning = main.indexOf('function applyExamConfig(cData)');
+  const editor = main.indexOf('examEditorRevision += 1;', beginning);
+  assert.ok(beginning >= 0 && editor > beginning);
+  assert.match(main.slice(beginning, editor), /if \(!isAdminLoggedIn && !isTeacherLoggedIn\)/);
+  assert.match(main.slice(beginning, editor), /updateCurrentExamInfo\(\);[\s\S]*?return;/);
+
+  const api = fs.readFileSync('functions/api/exams.ts', 'utf8');
+  const local = fs.readFileSync('server.ts', 'utf8');
+  assert.match(api, /server_now_ms: Date\.now\(\)/);
+  assert.match(local, /server_now_ms: Date\.now\(\)/);
+  assert.match(api, /isStudentTeacherPicker/);
+  assert.match(api, /SELECT target_lop, lop, max_attempts, keep_raw_score, tieu_de_bai_thi FROM exam_configs LIMIT 0/);
+});
+
+
+test('teacher exam selector has bounded request and visible progress', () => {
+  const main = fs.readFileSync('src/main.js', 'utf8');
+  const begin = main.indexOf('window.onStudentTeacherFilterChange = async function');
+  const finish = main.indexOf('window._studentExamChangeSeq = 0;', begin);
+  const teacher = main.slice(begin, finish);
+  assert.match(teacher, /_studentTeacherListLoading = true/);
+  assert.match(teacher, /fetchExamStartResponse\(fetch,/);
+  assert.match(teacher, /\/api\/exams\?teacherId=/);
+  assert.match(teacher, /finally \{/);
+  assert.match(teacher, /_studentTeacherListLoading = false/);
+  assert.match(main, /Đang tải danh sách đề thi\.\.\./);
+});
