@@ -73,21 +73,22 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
   };
 
   try {
+    // Read-only hot path: do not run five ALTER TABLE statements for every
+    // student selecting an exam. A zero-row projection checks legacy tenant schema
+    // cheaply; only an older schema triggers the idempotent repair.
     try {
-      await db.prepare("ALTER TABLE exam_configs ADD COLUMN target_lop TEXT").run();
-    } catch (e) {}
-    try {
-      await db.prepare("ALTER TABLE exam_configs ADD COLUMN lop TEXT").run();
-    } catch (e) {}
-    try {
-      await db.prepare("ALTER TABLE exam_configs ADD COLUMN max_attempts INTEGER DEFAULT 0").run();
-    } catch (e) {}
-    try {
-      await db.prepare("ALTER TABLE exam_configs ADD COLUMN keep_raw_score INTEGER DEFAULT 0").run();
-    } catch (e) {}
-    try {
-      await db.prepare("ALTER TABLE exam_configs ADD COLUMN tieu_de_bai_thi TEXT").run();
-    } catch (e) {}
+      await db.prepare(
+        "SELECT target_lop, lop, max_attempts, keep_raw_score, tieu_de_bai_thi FROM exam_configs LIMIT 0"
+      ).all();
+    } catch {
+      for (const ddl of [
+        "ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS target_lop TEXT",
+        "ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS lop TEXT",
+        "ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS max_attempts INTEGER DEFAULT 0",
+        "ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS keep_raw_score INTEGER DEFAULT 0",
+        "ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS tieu_de_bai_thi TEXT"
+      ]) await db.prepare(ddl).run();
+    }
 
     // 1. Lấy chi tiết một đề thi theo ID
     if (idParam) {
@@ -124,7 +125,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
           };
         }
       }
-      return new Response(JSON.stringify({ data: mapped, question_pool_validity: questionPoolValidity, error: null }), { status: 200, headers: corsHeaders });
+      return new Response(JSON.stringify({ data: mapped, question_pool_validity: questionPoolValidity, server_now_ms: Date.now(), error: null }), { status: 200, headers: corsHeaders });
     }
 
     // 2. Tra cứu đề thi chia sẻ kết quả theo Code (Dành cho Học sinh / Khách tra cứu bảng điểm)
