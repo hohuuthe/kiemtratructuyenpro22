@@ -12,6 +12,7 @@ on:
       - 'src/exam-question-selector.ts'
       - 'src/exam-question-pool-validity.ts'
       - 'src/exam-question-pool-integrity.js'
+      - 'src/main.js'
       - 'src/exam-config-deletion-policy.ts'
       - 'src/student-result-visibility.ts'
       - 'server.ts'
