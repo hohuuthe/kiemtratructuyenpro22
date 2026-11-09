@@ -110,6 +110,21 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             targetCountSQ = Number(mappedExam.count_sq || 0);
             targetCountTL = Number(mappedExam.count_tl || 0);
 
+            // Với cấu hình đã có ma trận NB/TH/VD, cơ cấu chi tiết là nguồn chuẩn.
+            // Một số đề lịch sử còn cột tổng dẫn xuất cũ; trước đây chỉ cần mở và
+            // lưu lại đề là UI tự ghi tổng = NB+TH+VD nên lỗi "thiếu giả" biến mất.
+            // Chuẩn hóa ngay khi phát đề để không bắt giáo viên phải lưu lại không đổi gì.
+            const detailedTotals = {
+                count41: Number(finalCountsDetail.count41NB || 0) + Number(finalCountsDetail.count41TH || 0) + Number(finalCountsDetail.count41VD || 0),
+                countTF4: Number(finalCountsDetail.countTF4NB || 0) + Number(finalCountsDetail.countTF4TH || 0) + Number(finalCountsDetail.countTF4VD || 0),
+                countSQ: Number(finalCountsDetail.countSQNB || 0) + Number(finalCountsDetail.countSQTH || 0) + Number(finalCountsDetail.countSQVD || 0),
+                countTL: Number(finalCountsDetail.countTLNB || 0) + Number(finalCountsDetail.countTLTH || 0) + Number(finalCountsDetail.countTLVD || 0)
+            };
+            if (detailedTotals.count41 > 0) targetCount41 = detailedTotals.count41;
+            if (detailedTotals.countTF4 > 0) targetCountTF4 = detailedTotals.countTF4;
+            if (detailedTotals.countSQ > 0) targetCountSQ = detailedTotals.countSQ;
+            if (detailedTotals.countTL > 0) targetCountTL = detailedTotals.countTL;
+
             if (mappedExam.max_cheat_warnings !== null && mappedExam.max_cheat_warnings !== undefined && !isNaN(Number(mappedExam.max_cheat_warnings))) {
                 maxCheatWarningsFromDB = Math.max(1, Number(mappedExam.max_cheat_warnings));
             }
