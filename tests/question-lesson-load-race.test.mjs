@@ -12,8 +12,8 @@ function section(start, end) {
 }
 
 test('loadQuestions deduplicates simultaneous requests, rejects stale sessions and refreshes both lesson selectors', () => {
-  const src = section('async function loadQuestions(force = false, onProgress = null)', 'async function fetchAllResultsChunked');
-  assert.match(src, /if \(questionsLoadPromise\) return questionsLoadPromise/);
+  const src = section('async function loadQuestions(force = false, onProgress = null, teacherId = null)', 'async function ensureExamConfigQuestionPoolLoaded');
+  assert.match(src, /questionsLoadPromise && questionsLoadPromiseScope === requestedScope\) return questionsLoadPromise/);
   assert.match(src, /generation !== authDataGeneration/);
   assert.match(src, /revision !== questionBankRevision/);
   assert.match(src, /userId !== String\(currentUser\?\.id/);
@@ -25,7 +25,7 @@ test('loadQuestions deduplicates simultaneous requests, rejects stale sessions a
 });
 
 test('question bank pagination rejects malformed/error responses and retries transient errors without treating them as empty data', () => {
-  const src = section('async function fetchAllQuestionsChunked(onProgress)', 'window.fetchAllQuestionsChunked = fetchAllQuestionsChunked');
+  const src = section('async function fetchAllQuestionsChunked(onProgress, teacherId = null)', 'window.fetchAllQuestionsChunked = fetchAllQuestionsChunked');
   assert.match(src, /cache: 'no-store'/);
   assert.match(src, /!res\.ok/);
   assert.match(src, /!Array\.isArray\(json\.data\) \|\| json\.error/);
@@ -59,6 +59,7 @@ test('guest/student exam filters never wipe teacher bank or editor draft', () =>
 
 test('failure does not permanently mark editor initialized or clear selected lessons', () => {
   const lesson = section('function renderLessonCheckboxes()', 'function toggleAllLessons(checked)');
-  assert.match(lesson, /if \(questionsLoaded && examConfig\.selectedLessons/);
+  assert.match(lesson, /const selectedLessonKeys = new Set\(\(examConfig\.selectedLessons \|\| \[\]\)\.map\(normalizeExamPoolLesson\)\)/);
+  assert.match(lesson, /const isSelected = selectedLessonKeys\.has\(normalizeExamPoolLesson\(lesson\)\)/);
   assert.match(lesson, /if \(!questionsLoaded\)/);
 });
