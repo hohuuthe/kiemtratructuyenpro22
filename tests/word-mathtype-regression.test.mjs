@@ -143,3 +143,46 @@ test('Complex-script w:bCs-only text retains its explicit verification warning',
     zip.file('word/document.xml','<w:document xmlns:w="'+wordNs+'"><w:body><w:p><w:r><w:rPr><w:bCs/></w:rPr><w:t>'+text+'</w:t></w:r></w:p></w:body></w:document>');
     const report=await inspectScientificDocx(await zip.generateAsync({type:'uint8array'}));assert.equal(report.lines[0].text,text);assert.ok(report.issues.some(i=>i.kind==='style'&&i.reason.includes('w:bCs')));
 });
+
+
+test('Recover valid WMF MTEF when native OLE is unreadable, but require teacher approval',async()=>{
+    const source=corpus[0],z=await JSZip.loadAsync(await docx([source]));
+    z.file('word/embeddings/ole1.bin',Buffer.from([0,1,2,3]));
+    const report=await inspectScientificDocx(await z.generateAsync({type:'uint8array'}));
+    assert.equal(report.formulas.length,1);
+    assert.equal(report.formulas[0].status,'review');
+    assert.equal(report.formulas[0].sourceType,'mathtype');
+    assert.equal(report.formulas[0].sourcePreference,'wmf-recovery');
+    assert.equal(report.formulas[0].latex,source.expected);
+    assert.ok(report.issues.some(i=>i.kind==='formula-notice'&&/cần giáo viên/.test(i.reason)));
+    const {verifyImportedWordQuestions,checkWordImportBeforeSave,correctImportedWordEquation,
+        validateWordFormulaSourceForImport}=await import('../src/word-import-verification.js');
+    const raw={id:'wmf-recovered-review',type:'TL',level:'NB',
+        content:'Câu hỏi '+report.formulas[0].token,answer:'1',options:{}};
+    const review=verifyImportedWordQuestions([raw],report);
+    assert.equal(review.stats.pendingQuestions,1);
+    assert.equal(checkWordImportBeforeSave(review.questions,review.documentIssues).ok,false);
+    const approved=correctImportedWordEquation(review.questions[0],report.formulas[0].token,source.expected);
+    assert.equal(approved.__wordFormulaSources[0].status,'manual_verified');
+    assert.equal(validateWordFormulaSourceForImport(approved.__wordFormulaSources[0]).ok,true);
+    assert.equal(checkWordImportBeforeSave([approved],review.documentIssues).ok,true);
+});
+test('Broken WMF preview cannot mask a valid OLE equation',async()=>{
+    const z=await JSZip.loadAsync(await docx([corpus[0]]));
+    z.file('word/media/preview1.wmf',Buffer.from([0,1,2,3]));
+    const report=await inspectScientificDocx(await z.generateAsync({type:'uint8array'}));
+    assert.equal(report.formulas.length,1);
+    assert.equal(report.formulas[0].status,'parsed');
+    assert.equal(report.formulas[0].sourcePreference,'ole');
+    assert.equal(report.formulas[0].latex,corpus[0].expected);
+    assert.equal(report.issues.filter(i=>i.kind==='formula').length,0);
+});
+test('Unambiguous standard Unicode MTCode symbols decode even with MathType symbol face',()=>{
+    for(const [code,command] of [[0x2220,'\\angle{}'],[0x221d,'\\propto{}'],
+        [0x2261,'\\equiv{}'],[0x2234,'\\therefore{}'],[0x03c2,'\\varsigma{}']]){
+        const b=Uint8Array.from([5,1,0,4,0,0,0,1,0,2,0,150,code&255,code>>8,0,0]);
+        assert.equal(convertMtefV5ToLatex(b),command);
+    }
+    const arbitraryPrivate=Uint8Array.from([5,1,0,4,0,0,0,1,0,2,0,150,0x01,0xe0,0,0]);
+    assert.throws(()=>convertMtefV5ToLatex(arbitraryPrivate),/unmapped MTCode/);
+});
