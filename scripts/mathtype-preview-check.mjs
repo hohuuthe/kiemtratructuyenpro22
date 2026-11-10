@@ -7,7 +7,7 @@ const started=Date.now();
 // Run only on the dedicated review branch; do not block Preview for findings
 // on a document that has not been fully supported yet.
 if(process.env.CF_PAGES_BRANCH==='fix/word-mathtype-safe-recovery-20261110'){
-  const caseRun=spawnSync(process.execPath,['scripts/check-on-tap-toan10-omml.mjs'],
+  const caseRun=spawnSync(process.execPath,['--import','tsx','scripts/check-on-tap-toan10-omml.mjs'],
     {encoding:'utf8',maxBuffer:1024*1024,timeout:120000,env:process.env});
   fs.mkdirSync('public',{recursive:true});
   fs.writeFileSync('public/qa-on-tap-toan10-execution.json',JSON.stringify({
