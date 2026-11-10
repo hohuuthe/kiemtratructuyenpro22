@@ -6,6 +6,8 @@ import {generateExamDocx} from '../src/exam-docx-generator.ts';
 import {convertExamExportZipToMathType} from '../src/word-mathtype-export/exam-zip-converter.js';
 import {selectExactExamWordQuestions} from '../src/exam-word-export-selection.js';
 import {NS,parseXml} from '../src/word-mathtype-export/omml-ast.js';
+import {readMathTypeOleStream} from '../src/word-mathtype-reader.js';
+import {convertMtefV5ToLatex} from '../src/word-mtef-v5-reader.js';
 
 const header={soGiaoDuc:'SO',truongHoc:'TRUONG',deThiTitle:'KIEM TRA',monHoc:'TOAN',maDe:'1001'};
 const questions=[{
@@ -45,6 +47,13 @@ test('MathType preserves server-selected Word content and unchanged Excel answer
     assert.ok(count>=2);
     assert.equal(newXml.getElementsByTagNameNS(NS.m,'oMath').length,0);
     assert.equal(newXml.getElementsByTagNameNS(NS.o,'OLEObject').length,count);
+    const embedded=Object.keys(newZip.files).filter(p=>/^word\/embeddings\/.*\.bin$/.test(p));
+    assert.equal(embedded.length,count,'Every Word math object must have editable native bytes');
+    for(const olePath of embedded) {
+      const native=readMathTypeOleStream(await newZip.file(olePath).async('uint8array'));
+      const latex=convertMtefV5ToLatex(native);
+      assert.ok(typeof latex==='string'&&latex.trim(),'Exported native MathType must be readable by the Word importer');
+    }
     assert.match(Array.from(newXml.getElementsByTagNameNS(NS.w,'t'))
       .map(n=>n.textContent).join(''),/Tinh/);
   }
