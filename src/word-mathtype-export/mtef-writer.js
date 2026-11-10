@@ -99,9 +99,10 @@ export function astToMtef(ast,{fontSizePt=13,display=false}={}) {
         const framed=tmpl(37,variation,[line(n.body,depth)]);
         const strikes=(n.strikeH?1:0)|(n.strikeBLTR?2:0)|(n.strikeTLBR?4:0);
         if(!strikes)return framed;
-        // StrikeBoxClass has one main slot. Put the already encoded box inside
-        // a one-slot line, retaining the editable box and its independent edges.
-        return [3,0,36,strikes,0,1,0,...framed,0];
+        if((strikes&1)&&(strikes&6))fail('UNSUPPORTED_BORDER_STRIKE','Horizontal and diagonal strikes cannot be combined in MTEF.');
+        // StrikeBoxClass contains exactly one LINE, itself containing the box.
+        // Close the inner box, the line, and the outer strike independently.
+        return [3,0,36,strikes,0,1,0,...framed,0,0];
       }
       case 'matrix':{
         const rows=n.rows.length,cols=n.rows[0]?.length;
