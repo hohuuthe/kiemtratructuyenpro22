@@ -6834,7 +6834,11 @@ if (contentType && contentType.includes("application/json")) {
                             console.warn('[ExamExport] Server returned', response.status, errorText);
                             useClientFallback = true;
                         } else {
-                            updateProgress(90, `📦 Đang tải về gói đề thi Word và file Excel bảng đáp án...`, `${soLuongDe} / ${soLuongDe} đề`);
+                            updateProgress(equationFormat === 'mathtype' ? 60 : 90,
+                                equationFormat === 'mathtype'
+                                    ? 'Đã nhận bản đề thi từ máy chủ, chuẩn bị chuyển MathType...'
+                                    : '📦 Đang tải về gói đề thi Word và file Excel bảng đáp án...',
+                                `${soLuongDe} / ${soLuongDe} đề`);
                             let zipBlob = await response.blob();
                             if (zipBlob.size < 100 || !(await zipBlob.slice(0, 4).arrayBuffer()).byteLength) {
                                 throw new Error('Gói đề thi Word trả về trống hoặc không hợp lệ');
@@ -6863,8 +6867,8 @@ if (contentType && contentType.includes("application/json")) {
                             }
                             const safeTitle = deThiTitle.replace(/[^a-zA-Z0-9_\u00C0-\u1EF9]/g, '_');
                             const zipFileName = soLuongDe === 1
-                                ? `De_Thi_kem_Dap_An_${safeTitle}_MaDe_${baseMaDe}.zip`
-                                : `Bo_De_Thi_${safeTitle}_Gom_${soLuongDe}_MaDe_kem_Dap_An.zip`;
+                                ? `De_Thi_kem_Dap_An_${safeTitle}_MaDe_${baseMaDe}${equationFormat === 'mathtype' ? '_MathType' : ''}.zip`
+                                : `Bo_De_Thi_${safeTitle}_Gom_${soLuongDe}_MaDe_kem_Dap_An${equationFormat === 'mathtype' ? '_MathType' : ''}.zip`;
 
                             if (typeof saveAs === 'function') {
                                 saveAs(zipBlob, zipFileName);
@@ -6883,8 +6887,8 @@ if (contentType && contentType.includes("application/json")) {
                                 }, 500);
                             }
 
-                            updateProgress(100, `🎉 Hoàn tất! Đã xuất thành công ${soLuongDe} mã đề thi kèm file Excel đáp án`, `${soLuongDe} / ${soLuongDe} đề`);
-                            showToast(`✅ Đã xuất thành công ${soLuongDe} mã đề thi kèm file Excel đáp án (.zip)!`, 'success');
+                            updateProgress(100, `Đã tạo gói ${soLuongDe} mã đề thi kèm Excel đáp án. Kiểm tra thư mục tải xuống.`, `${soLuongDe} / ${soLuongDe} đề`);
+                            showToast(`Đã gửi gói ${soLuongDe} mã đề thi kèm Excel đáp án tới trình duyệt. Vui lòng kiểm tra tệp tải xuống.`, 'info');
                             downloaded = true;
                         }
                     } catch (serverErr) {
