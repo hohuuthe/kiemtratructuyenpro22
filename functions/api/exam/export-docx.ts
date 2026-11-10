@@ -2,6 +2,7 @@ import { getDatabase, getDynamicSecret, verifyAuthSession, checkIsTeacherOrAdmin
 import { generateExamDocx } from '../../../src/exam-docx-generator';
 import { generateExamAnswerExcel, ExamAnswerDoc } from '../../../src/exam-excel-generator';
 import JSZip from 'jszip';
+import {selectExactExamWordQuestions} from '../../../src/exam-word-export-selection.js';
 
 interface Env {
   NEON_DATABASE_URL?: string;
@@ -99,16 +100,29 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     const authHeader = request.headers.get('Authorization');
     let tokenUser: any = null;
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      const token = authHeader.substring(7);
-      try {
-        tokenUser = await verifyAuthSession(token, SECRET, db);
-      } catch (e) {}
+    if (authHeader?.startsWith('Bearer ')) {
+      try { tokenUser = await verifyAuthSession(authHeader.substring(7), SECRET, db); }
+      catch (_) { /* Unverified sessions must never export answer keys. */ }
     }
-
-    if (!teacherId && tokenUser) {
-      teacherId = tokenUser.id || tokenUser.user_id;
+    if (!tokenUser) {
+      return new Response(JSON.stringify({error:'Phiên đăng nhập không hợp lệ hoặc hết hạn.'}),{
+        status:401,headers:{...corsHeaders,'Content-Type':'application/json'}
+      });
     }
+    if (!checkIsTeacherOrAdmin(tokenUser)) {
+      return new Response(JSON.stringify({error:'Chỉ giáo viên và quản trị viên được xuất đề và đáp án.'}),{
+        status:403,headers:{...corsHeaders,'Content-Type':'application/json'}
+      });
+    }
+    const isAdmin=checkIsAdmin(tokenUser);
+    const ownerIds=[...new Set([tokenUser.id,tokenUser.user_id].map((v:any)=>String(v||'').trim()).filter(Boolean))];
+    const requestedTeacher=String(teacherId||'').trim();
+    if (!isAdmin && requestedTeacher && !ownerIds.includes(requestedTeacher)) {
+      return new Response(JSON.stringify({error:'Không có quyền xuất đề của giáo viên khác.'}),{
+        status:403,headers:{...corsHeaders,'Content-Type':'application/json'}
+      });
+    }
+    teacherId=isAdmin?(requestedTeacher||ownerIds[0]):(ownerIds.at(-1)||ownerIds[0]);
 
     if (!examId && !params.examConfig && !params.examName) {
       return new Response(JSON.stringify({ error: 'Thiếu thông tin mã đề thi (examId)' }), {
@@ -134,7 +148,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
             const { results } = await db.prepare("SELECT * FROM exam_configs WHERE creator_id = ? ORDER BY updated_at DESC, created_at DESC").bind(String(teacherId)).all();
             rows = results || [];
           }
-          if (!rows || rows.length === 0) {
+          if ((!rows || rows.length === 0) && isAdmin) {
             const { results } = await db.prepare("SELECT * FROM exam_configs ORDER BY updated_at DESC, created_at DESC").all();
             rows = results || [];
           }
@@ -150,6 +164,16 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       console.error("Lỗi khi tìm cấu hình đề thi từ DB:", dbErr);
     }
 
+    if (dbExam && !isAdmin && !ownerIds.includes(String(dbExam.creator_id||'').trim())) {
+      return new Response(JSON.stringify({error:'Không có quyền xuất đề thi này.'}),{
+        status:403,headers:{...corsHeaders,'Content-Type':'application/json'}
+      });
+    }
+    if (examId && !dbExam) {
+      return new Response(JSON.stringify({error:'Đề thi không tồn tại hoặc không thể truy cập.'}),{
+        status:404,headers:{...corsHeaders,'Content-Type':'application/json'}
+      });
+    }
     const mapRowRead = (row: any) => {
       const mapped: any = {};
       for (const [key, val] of Object.entries(row)) {
@@ -200,7 +224,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     } else if (params.examConfig) {
       const cfg = typeof params.examConfig === 'object' ? params.examConfig : JSON.parse(params.examConfig);
       examName = cfg.name || 'Đề thi';
-      effectiveTeacherId = cfg.creatorId || teacherId;
+      effectiveTeacherId = isAdmin ? (cfg.creatorId || teacherId) : teacherId;
       timeLimit = Number(cfg.timeLimit || 45);
       finalSelectedLessons = Array.isArray(cfg.selectedLessons) ? cfg.selectedLessons : (Array.isArray(cfg.selected_lessons) ? cfg.selected_lessons : []);
       finalCountsDetail = cfg.countsDetail || cfg.counts_detail || {};
@@ -242,7 +266,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         ).bind(String(effectiveTeacherId), String(effectiveTeacherId), String(effectiveTeacherId)).all();
         allQuestions = results || [];
       }
-      if (!allQuestions || allQuestions.length === 0) {
+      if ((!allQuestions || allQuestions.length === 0) && isAdmin && !effectiveTeacherId) {
         const { results } = await db.prepare('SELECT * FROM questions').all();
         allQuestions = results || [];
       }
@@ -372,40 +396,11 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
       const pickCategory = (type: string, typeLabel: string, targetCount: number, nbTarget: number, thTarget: number, vdTarget: number) => {
         if (targetCount <= 0) return;
-
-        const pool = validPool.filter(q => q.type === type);
-        if (pool.length < targetCount) {
-          throw new Error(`Ngân hàng đề không đủ câu hỏi [${typeLabel}] trong các bài học đã chọn (${finalSelectedLessons.join(', ')})! Yêu cầu: ${targetCount} câu, nhưng chỉ có sẵn ${pool.length} câu.`);
-        }
-
-        const sumSub = (nbTarget || 0) + (thTarget || 0) + (vdTarget || 0);
-        if (sumSub > 0) {
-          const nbPool = shuffle(pool.filter(q => q.level === 'NB'));
-          const thPool = shuffle(pool.filter(q => q.level === 'TH'));
-          const vdPool = shuffle(pool.filter(q => q.level === 'VD'));
-
-          const pickedNB = nbPool.slice(0, nbTarget || 0);
-          const pickedTH = thPool.slice(0, thTarget || 0);
-          const pickedVD = vdPool.slice(0, vdTarget || 0);
-
-          const pickedSoFar = [...pickedNB, ...pickedTH, ...pickedVD];
-          const pickedIds = new Set(pickedSoFar.map(q => q.id));
-
-          // Tự động bù từ các câu hỏi còn lại của cùng dạng bài và cùng bài học đã chọn
-          if (pickedSoFar.length < targetCount) {
-            const remaining = shuffle(pool.filter(q => !pickedIds.has(q.id)));
-            const needed = targetCount - pickedSoFar.length;
-            pickedSoFar.push(...remaining.slice(0, needed));
-          }
-
-          if (pickedSoFar.length < targetCount) {
-            throw new Error(`Không đủ câu hỏi [${typeLabel}] để đáp ứng cấu hình đề! Cần ${targetCount} câu, chỉ bốc được ${pickedSoFar.length} câu.`);
-          }
-
-          selectedQuestions.push(...pickedSoFar);
-        } else {
-          selectedQuestions.push(...shuffle(pool).slice(0, targetCount));
-        }
+        selectedQuestions.push(...selectExactExamWordQuestions(
+          validPool.filter(q => q.type === type),
+          {typeLabel,targetCount,nbTarget,thTarget,vdTarget},
+          shuffle
+        ));
       };
 
       const cDetail = finalCountsDetail;
