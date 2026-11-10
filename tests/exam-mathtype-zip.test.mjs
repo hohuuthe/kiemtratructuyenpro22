@@ -61,7 +61,7 @@ test('Malformed server ZIP, missing answers, and formula failures are rejected a
     expectedDocCount:1,renderPreview:preview
   }),{code:'INVALID_EXAM_ZIP'});
   await assert.rejects(convertExamExportZipToMathType(input,{
-    expectedDocCount:1,renderPreview:async()=>{throw new Error('preview failure');}
+    expectedDocCount:1,renderPreviewBatch:async()=>{throw new Error('preview failure');}
   }),/preview failure/);
   assert.deepEqual(new Uint8Array(await input.arrayBuffer()),unchanged);
 });
