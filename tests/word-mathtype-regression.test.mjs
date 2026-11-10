@@ -194,15 +194,18 @@ test('Recover valid WMF MTEF when native OLE is unreadable, but require teacher 
     assert.equal(validateWordFormulaSourceForImport(approved.__wordFormulaSources[0]).ok,true);
     assert.equal(checkWordImportBeforeSave([approved],review.documentIssues).ok,true);
 });
-test('Broken WMF preview cannot mask a valid OLE equation',async()=>{
+test('Broken WMF preview preserves valid native OLE but requires teacher verification',async()=>{
     const z=await JSZip.loadAsync(await docx([corpus[0]]));
     z.file('word/media/preview1.wmf',Buffer.from([0,1,2,3]));
     const report=await inspectScientificDocx(await z.generateAsync({type:'uint8array'}));
     assert.equal(report.formulas.length,1);
-    assert.equal(report.formulas[0].status,'parsed');
+    assert.equal(report.formulas[0].status,'review');
     assert.equal(report.formulas[0].sourcePreference,'ole');
     assert.equal(report.formulas[0].latex,corpus[0].expected);
-    assert.equal(report.issues.filter(i=>i.kind==='formula').length,0);
+    assert.match(report.formulas[0].originalOmml,/ole-unverified-preview/);
+    assert.throws(()=>verifyMathTypeSource(report.formulas[0].originalOmml,corpus[0].expected,'verified'),/xác nhận/);
+    assert.equal(verifyMathTypeSource(report.formulas[0].originalOmml,corpus[0].expected,'manual_verified'),true);
+    assert.ok(report.issues.some(i=>i.kind==='formula-notice'));
 });
 test('Unambiguous standard Unicode MTCode symbols decode even with MathType symbol face',()=>{
     for(const [code,command] of [[0x2220,'\\angle{}'],[0x221d,'\\propto{}'],
