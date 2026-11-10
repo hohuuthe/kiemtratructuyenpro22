@@ -6,6 +6,15 @@ import {convertMtefV5ToLatex} from '../src/word-mtef-v5-reader.js';
 const seq=(...items)=>({k:'seq',items});
 const word=text=>({k:'text',text,style:'auto'});
 const cases=[
+    ['left subscripts and superscripts',
+        {k:'script',pre:true,base:word('U'),sub:word('92'),sup:word('235')},
+        '{}_{92}^{235}U'],
+    ['left superscript',
+        {k:'script',pre:true,base:word('A'),sub:seq(),sup:word('2')},
+        '{}^{2}A'],
+    ['left subscript',
+        {k:'script',pre:true,base:word('A'),sub:word('3'),sup:seq()},
+        '{}_{3}A'],
     ['boxed expression',{k:'borderBox',body:word('x+1'),
         hideTop:false,hideBottom:false,hideLeft:false,hideRight:false,
         strikeH:false,strikeV:false,strikeBLTR:false,strikeTLBR:false},
