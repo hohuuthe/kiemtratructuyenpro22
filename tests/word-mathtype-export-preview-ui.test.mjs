@@ -36,7 +36,9 @@ test('Equation finalize path is an object-identity no-op',async()=>{
 
 test('Exam MathType selection bypasses the existing server Equation ZIP and post-processes only client DOCX',()=>{
   assert.match(exam,/const equationFormat = document\.querySelector\('input\[name="docx-equation-format"\]:checked'\)\?\.value \|\| 'equation'/);
-  assert.match(exam,/let useClientFallback = equationFormat === 'mathtype'/);
+  assert.match(exam,/let useClientFallback = false/);
+  assert.match(exam,/convertExamExportZipToMathType\(zipBlob/);
+  assert.match(exam,/if \(equationFormat === 'mathtype' \|\| serverErr\?\.stopClientFallback\) throw serverErr/);
   assert.match(exam,/if \(!useClientFallback\) try \{/);
   assert.match(exam,/generateDocxClientSide\(targetExamId, headerOpts, soLuongDe, updateProgress, equationFormat, mathTypeController\?\.signal\)/);
   assert.match(exam,/const equationBlob = await generateExamDocx\(currentHeader, selectedQuestions\)/);
