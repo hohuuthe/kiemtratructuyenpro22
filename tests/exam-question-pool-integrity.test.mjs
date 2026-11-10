@@ -85,7 +85,8 @@ test('normalizers keep editor availability counts aligned with server-era aliase
 
 test('load flow verifies authoritative bank total and pool before applyExamConfig', () => {
   const app = readFileSync('src/main.js', 'utf8');
-  const fetchStart = app.indexOf('async function fetchAllQuestionsChunked(onProgress)');
+  const fetchStart = app.indexOf('async function fetchAllQuestionsChunked(onProgress, teacherId = null)');
+  assert.ok(fetchStart >= 0, 'Question pagination must remain implemented and scoped');
   const fetchEnd = app.indexOf('window.fetchAllQuestionsChunked = fetchAllQuestionsChunked', fetchStart);
   const fetchPart = app.slice(fetchStart, fetchEnd);
   assert.match(fetchPart, /fetchAuthoritativeTotal/);
