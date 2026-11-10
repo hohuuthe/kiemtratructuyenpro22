@@ -249,11 +249,15 @@ export async function readMathTypeRelationship(zip,id,previewPath=null) {
                     previewLatex.slice(0,140)+'). Nguồn OLE gốc: '+latex.slice(0,140)+'.'
             };
         }
+        // Word may display PNG/EMF instead of WMF. An opaque picture
+        // cannot prove agreement with the native editable equation.
+        const unverifiedPreview=Boolean(previewPath) && previewLatex===null;
         return {mtef:native,latex,
-            sourceXml:encodeMathTypeSource(native,null,false,!!previewError),
-            sourcePreference:'ole',requiresReview:!!previewError,
-            notice:previewError
-                ? 'MathType: bản xem trước WMF bị lỗi, không đối chiếu được nội dung đang hiển thị với OLE gốc; cần giáo viên kiểm tra trước khi lưu.'
+            sourceXml:encodeMathTypeSource(native,null,false,unverifiedPreview),
+            sourcePreference:'ole',requiresReview:unverifiedPreview,
+            notice:unverifiedPreview
+                ? 'MathType: không đối chiếu được nội dung ảnh hiển thị ('+
+                    String(previewPath).slice(-90)+') với công thức OLE; cần giáo viên xác nhận trước khi lưu.'
                 : ''};
     }
     if(preview && previewLatex!==null) {
