@@ -48,8 +48,6 @@ const report={
 fs.mkdirSync('public',{recursive:true});
 fs.writeFileSync('public/mathtype-121-diagnostics.json',JSON.stringify(report,null,2)+'\n');
 if(!report.releaseReady){
-  console.error('WORD/MATHTYPE RELEASE GATE FAILED.'+
-    (diagnosticPreview ? ' Publishing diagnostic-only Preview; NOT qualified for production.'
-                       : ' Build stopped because a mandatory gate failed.'));
-  if(!diagnosticPreview)process.exit(1);
+  console.error('WORD/MATHTYPE RELEASE GATE FAILED. Build blocked in every environment.');
+  process.exit(1);
 }
