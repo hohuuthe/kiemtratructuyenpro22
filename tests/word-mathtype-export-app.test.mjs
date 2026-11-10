@@ -90,3 +90,26 @@ for(const id of ['MAT-022','MAT-079','MAT-086','MAT-088','STR-003','STR-022','ST
     assert.equal(report.converted,before.math);
   });
 }
+
+
+test('Diagnostic: browser Question Bank formula math runs contain no unsupported control characters',async()=>{
+  const questions=[
+    {...q,id:'CTRL-1',type:'4-1',content:'Tính $\\frac{a}{b}$',
+      options:{A:'$\\sqrt{2}$',B:'$x^2$',C:'3',D:'4'},answer:'A'},
+    {...q,id:'CTRL-2',type:'TF4',content:'Hóa học $\\ce{H2O}$',
+      options:{A:'$\\ce{SO4^{2-}}$',B:'x',C:'y',D:'z'},answer:'A&C'},
+    {...q,id:'CTRL-3',type:'TL',content:'Tính $\\int_0^1 x^2\\,dx$',options:{},
+      answer:'$\\frac{1}{3}$'}
+  ];
+  const plan={questions,ids:questions.map(v=>v.id),totalSelected:3,requestedCount:3,selectedLessons:1};
+  const blob=await generateQuestionBankDocx(plan);
+  const zip=await JSZip.loadAsync(blob);
+  const xml=parseXml(await zip.file('word/document.xml').async('string'));
+  const tokens=Array.from(xml.getElementsByTagNameNS(NS.m,'t'));
+  const controls=tokens.map((node,index)=>({
+    index, chars:Array.from(node.textContent).filter(c=>c!==' '&&/\\s/u.test(c))
+      .map(c=>'U+'+c.codePointAt(0).toString(16).padStart(4,'0')),
+    nearby:node.textContent.slice(0,22)
+  })).filter(v=>v.chars.length);
+  assert.deepEqual(controls,[], 'Unsupported control math tokens: '+JSON.stringify(controls));
+});
