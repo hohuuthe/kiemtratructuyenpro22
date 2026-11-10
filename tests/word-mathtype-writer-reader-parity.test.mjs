@@ -60,7 +60,7 @@ test('MathType crossed diagonals survive MTEF writer-reader parity',()=>{
 test('Contradictory horizontal and diagonal strike flags are rejected',()=>{
     const box={...cases.find(([name])=>name==='boxed expression')[1],
         strikeH:true,strikeTLBR:true};
-    assert.throws(()=>astToMtef(box),/UNSUPPORTED_BORDER_STRIKE/);
+    assert.throws(()=>astToMtef(box),{name:'MathTypeExportError',code:'UNSUPPORTED_BORDER_STRIKE'});
 });
 test('A box with selectively hidden borders remains unsupported rather than silently gaining edges',()=>{
     const box={...cases.find(([name])=>name==='boxed expression')[1],hideTop:true};
