@@ -98,10 +98,18 @@ test('load flow verifies authoritative bank total and pool before applyExamConfi
   const loadStart = app.indexOf('window.loadExamConfigById = async function loadExamConfigById');
   const loadEnd = app.indexOf('window.openExportDocxModal', loadStart);
   const loadPart = app.slice(loadStart, loadEnd);
-  const verifyIndex = loadPart.indexOf('await ensureExamConfigQuestionPoolLoaded(draftToLoad)');
+  const cachedVerification = loadPart.indexOf('verification = verifyExamConfigQuestionPool(draft, questions)');
+  const cacheScope = loadPart.indexOf('if (isQuestionBankLoadedFor(ownerTeacherId))');
+  const reloadVerification = loadPart.lastIndexOf('verification = verifyExamConfigQuestionPool(draft, questions)');
+  const rejectMissing = loadPart.indexOf('if (!verification.ok) throw new Error(examQuestionPoolFailureMessage(verification))');
   const applyIndex = loadPart.indexOf('applyExamConfig(resJson.data)');
-  assert.ok(verifyIndex >= 0, 'must verify pool before loading exam');
-  assert.ok(applyIndex > verifyIndex, 'applyExamConfig must happen only after verified pool');
+  assert.ok(cacheScope >= 0 && cachedVerification > cacheScope,
+    'cached bank must be verified for the same teacher and exact configured levels');
+  assert.ok(reloadVerification > cachedVerification && rejectMissing > reloadVerification,
+    'newly loaded bank must fail closed if any configured type/level is missing');
+  assert.ok(applyIndex > rejectMissing, 'applyExamConfig must happen only after verified pool');
+  assert.ok(loadPart.includes('if (!reusedQuestionBank)'),
+    'an invalid cache must trigger fresh verification instead of silent acceptance');
 
   const countStart = app.indexOf('function updateAvailableCounts()');
   const countEnd = app.indexOf('function restoreExamConfig()', countStart);
