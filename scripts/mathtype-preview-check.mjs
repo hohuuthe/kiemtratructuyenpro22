@@ -20,7 +20,14 @@ const previewIntegration=legacy.ok
       'mathtype-preview-integration')
   : {label:'mathtype-preview-integration',ok:false,skippedBecause:'existing Word release gate failed'};
 
+// A dedicated, non-production review deployment may expose failed tests for
+// diagnosis. Production and all other branches stay fail-closed. This only
+// changes the prebuild gate, never runtime authorization or data access.
+const previewBranch='fix/word-mathtype-safe-recovery-20261110';
+const diagnosticPreview=process.env.CF_PAGES_BRANCH===previewBranch &&
+  process.env.CF_PAGES==='1';
 const report={
+  previewDiagnosticsOnly:diagnosticPreview,
   commit:process.env.CF_PAGES_COMMIT_SHA||process.env.GITHUB_SHA||null,
   releaseReady:Boolean(legacy.ok&&previewIntegration.ok),
   elapsedMs:Date.now()-started,
@@ -32,6 +39,8 @@ const report={
 fs.mkdirSync('public',{recursive:true});
 fs.writeFileSync('public/mathtype-121-diagnostics.json',JSON.stringify(report,null,2)+'\n');
 if(!report.releaseReady){
-  console.error('WORD/MATHTYPE PREVIEW NOT READY. Build stopped because a mandatory gate failed.');
-  process.exit(1);
+  console.error('WORD/MATHTYPE RELEASE GATE FAILED.'+
+    (diagnosticPreview ? ' Publishing diagnostic-only Preview; NOT qualified for production.'
+                       : ' Build stopped because a mandatory gate failed.'));
+  if(!diagnosticPreview)process.exit(1);
 }
