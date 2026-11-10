@@ -42,6 +42,26 @@ for(const [name,ast,expected] of cases){
         assert.equal(convertMtefV5ToLatex(encoded),expected);
     });
 }
+for(const [flag,expected] of [
+    ['strikeH','\\sout{\\boxed{x+1}}'],
+    ['strikeBLTR','\\cancel{\\boxed{x+1}}'],
+    ['strikeTLBR','\\bcancel{\\boxed{x+1}}']
+]){
+    test('MathType strike retains orientation: '+flag,()=>{
+        const box={...cases.find(([name])=>name==='boxed expression')[1],[flag]:true};
+        assert.equal(convertMtefV5ToLatex(astToMtef(box)),expected);
+    });
+}
+test('MathType crossed diagonals survive MTEF writer-reader parity',()=>{
+    const box={...cases.find(([name])=>name==='boxed expression')[1],
+        strikeBLTR:true,strikeTLBR:true};
+    assert.equal(convertMtefV5ToLatex(astToMtef(box)),'\\xcancel{\\boxed{x+1}}');
+});
+test('Contradictory horizontal and diagonal strike flags are rejected',()=>{
+    const box={...cases.find(([name])=>name==='boxed expression')[1],
+        strikeH:true,strikeTLBR:true};
+    assert.throws(()=>astToMtef(box),/UNSUPPORTED_BORDER_STRIKE/);
+});
 test('A box with selectively hidden borders remains unsupported rather than silently gaining edges',()=>{
     const box={...cases.find(([name])=>name==='boxed expression')[1],hideTop:true};
     const encoded=astToMtef(box);
