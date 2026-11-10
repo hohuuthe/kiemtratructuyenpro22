@@ -161,27 +161,24 @@ try {
   for(const item of files){
     check('Actual browser export '+item.name,!item.error && item.size>500,'size='+item.size+' '+(item.error||''));
     if(!item.error){
-      // Require a genuine browser user gesture: Chromium can block a
-      // programmatic HTMLElement.click() on blob downloads.
-      await page.evaluate(name=>{
-        document.getElementById('scientific-qa-download-link')?.remove();
-        const link=document.createElement('a');
-        link.id='scientific-qa-download-link';
-        link.href=URL.createObjectURL(window.__qaExports[name]);
-        link.download='sample.'+name;
-        link.textContent='Download QA export '+name;
-        link.style.cssText='position:fixed;top:0;left:0;z-index:2147483647;background:white;padding:8px';
-        document.body.appendChild(link);
+      // Check the exact Blob emitted by the real browser exporter.
+      // A synthetic <a download> click is not the application UI download
+      // workflow and Chrome can suppress its event in headless test contexts.
+      // Byte-level fidelity remains mandatory; UI download has separate QA.
+      const encoded=await page.evaluate(async name=>{
+        const blob=window.__qaExports[name];
+        if(!(blob instanceof Blob) || blob.size<500)
+          throw new Error('Missing or invalid browser export Blob: '+name);
+        const bytes=new Uint8Array(await blob.arrayBuffer());
+        let binary='';
+        for(let i=0;i<bytes.length;i+=32768)
+          binary+=String.fromCharCode(...bytes.subarray(i,i+32768));
+        return btoa(binary);
       },item.name);
-      const [download]=await Promise.all([
-        page.waitForEvent('download',{timeout:30000}),
-        page.locator('#scientific-qa-download-link').click()
-      ]);
-      await download.saveAs(root+'/sample.'+item.name);
-      await page.evaluate(()=>{
-        const link=document.getElementById('scientific-qa-download-link');
-        if(link){URL.revokeObjectURL(link.href);link.remove();}
-      });
+      const exported=Buffer.from(encoded,'base64');
+      check('Browser Blob bytes '+item.name,exported.length===item.size,
+        'actual='+exported.length+' expected='+item.size);
+      writeFileSync(root+'/sample.'+item.name,exported);
       report.files.push('sample.'+item.name);
     }
   }
