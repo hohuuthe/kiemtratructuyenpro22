@@ -65,7 +65,8 @@ test('A conflicting WMF equation imports the displayed source and retains both s
     const r=await inspectScientificDocx(await docx([native],{previewOverride:visual}));
     assert.equal(r.formulas[0].status,'review');assert.equal(r.formulas[0].latex,'0,05.');assert.equal(r.formulas[0].sourcePreference,'wmf');
     assert.ok(r.issues.some(i=>i.kind==='formula-notice'&&i.token===r.formulas[0].token));assert.equal(r.lines[0].text,r.formulas[0].token);
-    assert.equal(verifyMathTypeSource(r.formulas[0].originalOmml,'0,05.','verified'),true);
+    assert.throws(()=>verifyMathTypeSource(r.formulas[0].originalOmml,'0,05.','verified'),/xác nhận/);
+    assert.equal(verifyMathTypeSource(r.formulas[0].originalOmml,'0,05.','manual_verified'),true);
     assert.throws(()=>verifyMathTypeSource(r.formulas[0].originalOmml,'(-1;5).','verified'));assert.ok(r.formulas[0].originalOmml.includes('originalOle='));
 });
 test('All 41 equations import together with the conflicting preview at its actual index',async()=>{
@@ -170,6 +171,7 @@ test('Recover valid WMF MTEF when native OLE is unreadable, but require teacher 
     assert.equal(checkWordImportBeforeSave(review.questions,review.documentIssues).ok,false);
     const approved=correctImportedWordEquation(review.questions[0],report.formulas[0].token,source.expected);
     assert.equal(approved.__wordFormulaSources[0].status,'manual_verified');
+    assert.throws(()=>verifyMathTypeSource(approved.__wordFormulaSources[0].sourceOmml,source.expected,'verified'),/xác nhận/);
     assert.equal(validateWordFormulaSourceForImport(approved.__wordFormulaSources[0]).ok,true);
     assert.equal(checkWordImportBeforeSave([approved],review.documentIssues).ok,true);
 });
