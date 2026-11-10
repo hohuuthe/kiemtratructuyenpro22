@@ -669,7 +669,7 @@ export async function inspectScientificDocx(arrayBuffer) {
             return addUnsupported('Đối tượng OLE MathType có nhiều cấu trúc chưa xác minh',xml);
         }
         const progId=attr(ole,'ProgID')||'';
-        if(!/^(?:Equation\.(?:3|DSMT4)|MathType\..*)$/i.test(progId)){
+        if(!/^(?:Equation\.(?:3|DSMT[4-9][0-9]*)|MathType\.[A-Za-z0-9_.-]+)$/i.test(progId)){
             return addUnsupported('Đối tượng OLE không phải MathType được hỗ trợ',xml);
         }
         try {
