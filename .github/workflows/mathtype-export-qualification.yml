@@ -5,6 +5,7 @@ on:
       - 'src/word-export-format.js'
       - 'src/word-mathtype-export/**'
       - 'tests/word-mathtype-export*'
+      - 'tests/question-bank-mathtype-browser-acceptance.mjs'
       - 'tests/helpers/*export*'
       - 'qualification/mathtype-export/**'
       - '.github/workflows/mathtype-export-qualification.yml'
@@ -26,6 +27,10 @@ jobs:
         run: node --test tests/word-mathtype-export.test.mjs
       - name: Actual app generators and established 121-source corpus
         run: node --import tsx --test tests/word-mathtype-export-app.test.mjs
+      - name: Install browser for real Question Bank MathType preview
+        run: npx playwright install --with-deps chromium
+      - name: Real browser Question Bank MathType download and preview
+        run: node --test tests/question-bank-mathtype-browser-acceptance.mjs
       - name: Existing import and Equation regression gate remains mandatory
         run: npm run test:word-import-release
       - run: npm run lint
