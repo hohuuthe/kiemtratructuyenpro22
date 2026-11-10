@@ -9,7 +9,16 @@ function run(args,label,timeout=660000){
   const output=r.stdout||'';
   const failures=[...output.matchAll(/^not ok[^\n]*\n(?:.*\n){0,45}/gm)].map(m=>m[0].slice(0,4500)).slice(0,8);
   return {label,ok:r.status===0&&!r.error,exitCode:r.status,error:r.error?.message||null,
-    failures,summary:output.split('\n').filter(l=>/^# (tests|pass|fail|skipped|cancelled|duration_ms)/.test(l))};
+    failures,
+    // Bounded failure excerpt is generated only for the dedicated diagnostic
+    // Preview. No environment variables, secrets or success logs are printed.
+    failureDetail:r.status===0?undefined:{
+      stderr:String(r.stderr||'').slice(-5000),
+      firstFailedTap:output.includes('not ok ')
+        ? output.slice(output.indexOf('not ok '),output.indexOf('not ok ')+7500)
+        : output.slice(-4000)
+    },
+    summary:output.split('\n').filter(l=>/^# (tests|pass|fail|skipped|cancelled|duration_ms)/.test(l))};
 }
 
 const legacy=run(['scripts/check-word-import-release.mjs'],'existing-word-release-gate');
