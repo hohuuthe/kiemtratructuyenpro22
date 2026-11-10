@@ -3,23 +3,6 @@ import fs from 'node:fs';
 import {spawnSync} from 'node:child_process';
 
 const started=Date.now();
-// Additional read-only diagnostic using the supplied classroom DOCX formulas.
-// Run only on the dedicated review branch; do not block Preview for findings
-// on a document that has not been fully supported yet.
-if(process.env.CF_PAGES_BRANCH==='fix/word-mathtype-safe-recovery-20261110'){
-  const caseRun=spawnSync(process.execPath,['--import','tsx','scripts/check-on-tap-toan10-omml.mjs'],
-    {encoding:'utf8',maxBuffer:1024*1024,timeout:120000,env:process.env});
-  fs.mkdirSync('public',{recursive:true});
-  fs.writeFileSync('public/qa-on-tap-toan10-execution.json',JSON.stringify({
-    exitCode:caseRun.status,passed:caseRun.status===0,
-    statusLine:String(caseRun.stdout||'').split('\\n').find(x=>x.includes('math objects:'))||'',
-    exception:(caseRun.status===0?'':String(caseRun.stderr||caseRun.error?.message||'').split('\\n').slice(0,5).join('\\n').slice(0,750))
-  },null,2)+'\\n');
-  console.log('[math10-omml-check] exit='+caseRun.status);
-  if(caseRun.stdout)console.log(caseRun.stdout.slice(0,3000));
-  if(caseRun.error||caseRun.status!==0)console.error('[math10-omml-check] diagnostic failed: '+String(caseRun.error?.message||caseRun.stderr||'exit '+caseRun.status).slice(0,500));
-}
-
 function run(args,label,timeout=660000){
   const r=spawnSync(process.execPath,args,{encoding:'utf8',maxBuffer:48*1024*1024,timeout,env:process.env});
   process.stdout.write(r.stdout||'');process.stderr.write(r.stderr||'');
