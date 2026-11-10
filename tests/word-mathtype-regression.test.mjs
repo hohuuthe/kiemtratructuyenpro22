@@ -69,18 +69,22 @@ test('A conflicting WMF equation imports the displayed source and retains both s
     assert.equal(verifyMathTypeSource(r.formulas[0].originalOmml,'0,05.','manual_verified'),true);
     assert.throws(()=>verifyMathTypeSource(r.formulas[0].originalOmml,'(-1;5).','verified'));assert.ok(r.formulas[0].originalOmml.includes('originalOle='));
 });
-test('All 41 equations import together with the conflicting preview at its actual index',async()=>{
+test('All 41 equations preserve the one conflicting source for teacher review',async()=>{
     const r=await inspectScientificDocx(await docx(corpus,{previewOverride:Buffer.from(packed.conflictingPreviewMtefBase64,'base64'),previewOverrideIndex:10}));
-    assert.equal(r.formulas.length,41);assert.equal(r.formulas.filter(f=>f.status==='parsed').length,40);assert.equal(r.formulas[10].latex,'0,05.');
-    assert.equal(r.formulas.filter(f=>f.sourcePreference==='wmf').length,1);assert.equal(r.issues.filter(i=>i.kind==='formula-notice').length,1);
+    assert.equal(r.formulas.length,41);
+    assert.equal(r.formulas.filter(f=>f.status==='parsed').length,40);
+    assert.equal(r.formulas[10].status,'review');
+    assert.equal(r.formulas[10].latex,'0,05.');
+    assert.equal(r.issues.filter(i=>i.kind==='formula-notice').length,1);
     const {verifyImportedWordQuestions,checkWordImportBeforeSave,correctImportedWordEquation}=await import('../src/word-import-verification.js');
     const q=r.formulas.map((f,i)=>({id:'import-all-'+i,type:'TL',level:'NB',content:f.token,answer:'1',options:{}}));
-    const report=verifyImportedWordQuestions(q,r);assert.equal(report.stats.verifiedFormulaObjects,40);assert.equal(report.stats.pendingQuestions,1);
-    assert.equal(report.documentIssues.length,0);assert.equal(checkWordImportBeforeSave(report.questions,report.documentIssues).ok,false);
-    assert.equal(report.questions[10].content,r.formulas[10].token);
+    const report=verifyImportedWordQuestions(q,r);
+    assert.equal(report.stats.verifiedFormulaObjects,40);
+    assert.equal(report.stats.pendingQuestions,1);
+    assert.equal(checkWordImportBeforeSave(report.questions,report.documentIssues).ok,false);
     correctImportedWordEquation(report.questions[10],r.formulas[10].token,'0,05.');
     assert.equal(checkWordImportBeforeSave(report.questions,report.documentIssues).ok,true);
-    assert.equal(report.questions[10].content,'$0,05.
+    assert.equal(report.questions[10].content,'$0,05.$');
 });
 test('Other embedded application objects remain unsupported even with a readable MTEF payload',async()=>{
     const r=await inspectScientificDocx(await docx([corpus[0]],{progId:'Excel.Sheet.12'}));assert.equal(r.formulas[0].status,'review');
@@ -129,15 +133,17 @@ if(process.env.WORD_IMPORT_FULL_TESTS==='1'){
         assert.equal(checkWordImportBeforeSave(result.questions,result.documentIssues).ok,true);
         for(const q of result.questions)for(const s of q.__wordFormulaSources)assert.equal(validateWordFormulaSourceForImport(s).ok,true);
     });
-    test('Conflicting option uses displayed source without a bogus KaTeX underscore error',async()=>{
+    test('Conflicting option cannot auto-save without source review',async()=>{
         const r=await inspectScientificDocx(await docx([corpus[10]],{previewOverride:Buffer.from(packed.conflictingPreviewMtefBase64,'base64')}));
         const q={id:'mathtype-source-conflict',type:'4-1',level:'NB',content:'Source review',answer:'A',options:{A:'1',B:'2',C:r.formulas[0].token,D:'4'}};
         const result=verifyImportedWordQuestions([q],r);
-        assert.equal(result.stats.verifiedFormulaObjects,0);assert.equal(result.stats.pendingQuestions,1);
+        assert.equal(result.stats.verifiedFormulaObjects,0);
+        assert.equal(result.stats.pendingQuestions,1);
         assert.equal(checkWordImportBeforeSave(result.questions,result.documentIssues).ok,false);
         correctImportedWordEquation(result.questions[0],r.formulas[0].token,'0,05.');
-        assert.equal(result.questions[0].options.C,'$0,05.
-        assert.ok(r.issues.some(i=>i.kind==='formula-notice'&&i.reason.includes('OLE')));assert.equal(validateWordFormulaSourceForImport(result.questions[0].__wordFormulaSources[0]).ok,true);
+        assert.equal(result.questions[0].options.C,'$0,05.$');
+        assert.equal(checkWordImportBeforeSave(result.questions,result.documentIssues).ok,true);
+        assert.equal(validateWordFormulaSourceForImport(result.questions[0].__wordFormulaSources[0]).ok,true);
     });
 }
 test('Latin text with w:bCs only does not invent bold or block import',async()=>{
