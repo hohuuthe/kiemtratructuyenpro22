@@ -107,7 +107,7 @@ test('Diagnostic: browser Question Bank formula math runs contain no unsupported
   const xml=parseXml(await zip.file('word/document.xml').async('string'));
   const tokens=Array.from(xml.getElementsByTagNameNS(NS.m,'t'));
   const controls=tokens.map((node,index)=>({
-    index, chars:Array.from(node.textContent).filter(c=>c!==' '&&/\\s/u.test(c))
+    index, chars:Array.from(node.textContent).filter(c=>c!==' ' && (c.codePointAt(0)<33 || c.codePointAt(0)===127))
       .map(c=>'U+'+c.codePointAt(0).toString(16).padStart(4,'0')),
     nearby:node.textContent.slice(0,22)
   })).filter(v=>v.chars.length);
