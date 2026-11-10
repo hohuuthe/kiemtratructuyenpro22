@@ -86,6 +86,19 @@ test('All 41 equations preserve the one conflicting source for teacher review',a
     assert.equal(checkWordImportBeforeSave(report.questions,report.documentIssues).ok,true);
     assert.equal(report.questions[10].content,'$0,05.$');
 });
+test('DSMT7 and newer MathType OLE ProgIDs are decoded without relaxing non-MathType validation',async()=>{
+    for(const progId of ['Equation.DSMT7','Equation.DSMT8','MathType.7']) {
+        const report=await inspectScientificDocx(await docx([corpus[0]],{progId}));
+        assert.equal(report.formulas.length,1,progId);
+        assert.equal(report.formulas[0].sourceType,'mathtype',progId);
+        assert.equal(report.formulas[0].status,'parsed',progId);
+        assert.equal(report.formulas[0].latex,corpus[0].expected,progId);
+    }
+    for(const progId of ['Excel.Sheet.12','Equation.DSMT7.evil','MathType.']) {
+        const report=await inspectScientificDocx(await docx([corpus[0]],{progId}));
+        assert.equal(report.formulas[0].status,'review',progId);
+    }
+});
 test('Other embedded application objects remain unsupported even with a readable MTEF payload',async()=>{
     const r=await inspectScientificDocx(await docx([corpus[0]],{progId:'Excel.Sheet.12'}));assert.equal(r.formulas[0].status,'review');
 });
