@@ -79,6 +79,19 @@ const symbols = new Map([
     [0x03a0, '\\Pi{}'], [0x03a6, '\\Phi{}'], [0x03a8, '\\Psi{}'],
     [0x2026, '\\ldots{}'], [0x22ef, '\\cdots{}'], [0x22ee, '\\vdots{}'],
     [0x22f1, '\\ddots{}'],
+    // Unicode MTCode symbols encountered in MathType science/math questions.
+    // These are literal documented Unicode values, never legacy font-position
+    // guesses (which could silently turn a different glyph into an answer).
+    [0x2220, '\\angle{}'], [0x2221, '\\measuredangle{}'],
+    [0x221d, '\\propto{}'], [0x2261, '\\equiv{}'], [0x223c, '\\sim{}'],
+    [0x2245, '\\cong{}'], [0x2234, '\\therefore{}'], [0x2235, '\\because{}'],
+    [0x2295, '\\oplus{}'], [0x2297, '\\otimes{}'], [0x2299, '\\odot{}'],
+    [0x2218, '\\circ{}'], [0x2217, '\\ast{}'], [0x2201, '\\complement{}'],
+    [0x2216, '\\setminus{}'], [0x2223, '\\mid{}'], [0x2224, '\\nmid{}'],
+    [0x22a2, '\\vdash{}'], [0x22a8, '\\models{}'],
+    [0x03c2, '\\varsigma{}'], [0x03d1, '\\vartheta{}'],
+    [0x03f0, '\\varkappa{}'], [0x03f1, '\\varrho{}'],
+    [0x03d6, '\\varpi{}'],
     // Letterlike symbols emitted by MathType's MT Extra face. These are real
     // MTCode/Unicode values (not font-position guesses) and are common in
     // set notation in Vietnamese high-school mathematics.
@@ -282,7 +295,8 @@ function decodeMtef(input, allowNullSlotEnd) {
             // Narrow compatibility: actual MathType spacing record, not arbitrary PUA text.
             if (face === 24 && code === 0xef02 && node.options === 0 && !node.embellishments.length) return '\\,';
             if (code < 32 || (code >= 0xd800 && code <= 0xdfff) || (code >= 0xe000 && code <= 0xf8ff)) fail('unmapped MTCode U+' + code.toString(16));
-            if (!contentTypefaces.has(face)) fail('unsupported typeface ' + face);
+            if (!contentTypefaces.has(face) && !(face === 22 && symbols.has(code)))
+                fail('unsupported typeface ' + face);
             const char = String.fromCharCode(code);
             if (code === 0x00b0 && script) value = '\\circ{}';
             else if (symbols.has(code)) value = symbols.get(code);
