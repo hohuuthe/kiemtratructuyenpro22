@@ -9,6 +9,12 @@ const started=Date.now();
 if(process.env.CF_PAGES_BRANCH==='fix/word-mathtype-safe-recovery-20261110'){
   const caseRun=spawnSync(process.execPath,['scripts/check-on-tap-toan10-omml.mjs'],
     {encoding:'utf8',maxBuffer:1024*1024,timeout:120000,env:process.env});
+  fs.mkdirSync('public',{recursive:true});
+  fs.writeFileSync('public/qa-on-tap-toan10-execution.json',JSON.stringify({
+    exitCode:caseRun.status,passed:caseRun.status===0,
+    statusLine:String(caseRun.stdout||'').split('\\n').find(x=>x.includes('math objects:'))||'',
+    exception:(caseRun.status===0?'':String(caseRun.stderr||caseRun.error?.message||'').split('\\n').slice(0,5).join('\\n').slice(0,750))
+  },null,2)+'\\n');
   console.log('[math10-omml-check] exit='+caseRun.status);
   if(caseRun.stdout)console.log(caseRun.stdout.slice(0,3000));
   if(caseRun.error||caseRun.status!==0)console.error('[math10-omml-check] diagnostic failed: '+String(caseRun.error?.message||caseRun.stderr||'exit '+caseRun.status).slice(0,500));
