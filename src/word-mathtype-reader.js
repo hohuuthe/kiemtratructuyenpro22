@@ -246,9 +246,9 @@ export async function readMathTypeRelationship(zip,id,previewPath=null) {
             };
         }
         return {mtef:native,latex,sourceXml:encodeMathTypeSource(native),
-            sourcePreference:'ole',
+            sourcePreference:'ole',requiresReview:!!previewError,
             notice:previewError
-                ? 'MathType: bản xem trước WMF không đọc được; đã kiểm chứng công thức từ OLE gốc.'
+                ? 'MathType: bản xem trước WMF bị lỗi, không đối chiếu được nội dung đang hiển thị với OLE gốc; cần giáo viên kiểm tra trước khi lưu.'
                 : ''};
     }
     if(preview && previewLatex!==null) {
