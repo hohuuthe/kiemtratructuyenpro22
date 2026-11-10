@@ -343,6 +343,37 @@ function decodeMtef(input, allowNullSlotEnd) {
                 (upper ? '^{' + upper + '}' : '') + ' ' + body);
         }
         if (flags !== 0) fail('unsupported template flags');
+        // MTEF LimBoxClass: MAIN, LOWER, UPPER. Do not infer missing
+        // limits: variation flags must agree with the actual slot contents.
+        if (s === 23 && (v & ~3) === 0 && c.length === 3 &&
+            c.every(n => n.kind === 'line')) {
+            const body = lineValue(c[0]), lower = lineValue(c[1]), upper = lineValue(c[2]);
+            if (!body || Boolean(v & 1) !== Boolean(lower) ||
+                Boolean(v & 2) !== Boolean(upper)) fail('invalid limit slots');
+            if (!lower && !upper) return bounded(body);
+            const withLower = lower ? '\\underset{' + lower + '}{' + body + '}' : body;
+            return bounded(upper ? '\\overset{' + upper + '}{' + withLower + '}' : withLower);
+        }
+        // Horizontal braces/brackets carry BODY, LABEL, then a fixed MTCode
+        // glyph. Validate the latter explicitly; U+FE37 etc. must not be
+        // accepted as arbitrary content-font characters.
+        if ((s === 24 || s === 25) && (v === 0 || v === 1) &&
+            c.length === 3 && c[0].kind === 'line' && c[1].kind === 'line') {
+            const expected = s === 24 ? (v ? 0xfe37 : 0xfe38) :
+                (v ? 0xfe47 : 0xfe48);
+            if (!glyph(c[2], expected)) fail('horizontal group glyph mismatch');
+            const body = lineValue(c[0]), label = lineValue(c[1]);
+            if (!body) fail('empty horizontal group');
+            const command = s === 24 ? (v ? 'overbrace' : 'underbrace') :
+                (v ? 'overbracket' : 'underbracket');
+            const annotation = label ? (v ? '^{' + label + '}' : '_{' + label + '}') : '';
+            return bounded('\\' + command + '{' + body + '}' + annotation);
+        }
+        if (s === 37 && v === 0 && c.length === 1 && c[0].kind === 'line') {
+            const body = lineValue(c[0]);
+            if (!body) fail('empty border box');
+            return bounded('\\boxed{' + body + '}');
+        }
         if ([12, 13, 32, 33].includes(s) && c.length === 1 && c[0].kind === 'line') {
             if (v !== 0 && !(s <= 13 && v === 1)) fail('unsupported accent variation');
             const command = { 12:'underline', 13:'overline', 32:'widetilde', 33:'widehat' }[s];
