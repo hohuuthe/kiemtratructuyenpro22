@@ -204,28 +204,57 @@ export async function readMathTypeRelationship(zip,id,previewPath=null) {
     const entry=zip.file(target);
     if(!entry)invalid('thiếu tệp nhúng MathType: '+target);
     if(Number(entry._data?.uncompressedSize||0)>MAX_OLE_BYTES)invalid('OLE nhúng quá lớn');
-    const bytes=await entry.async('uint8array');
-    const mtef=readMathTypeOleStream(bytes);
-    const latex=convertMtefV5ToLatex(mtef);
+    // Decode OLE and the optional displayed WMF independently: failure in an
+    // obsolete or stale preview must not reject a valid editable OLE equation.
+    let native=null,latex=null,nativeError=null;
+    try {
+        native=readMathTypeOleStream(await entry.async('uint8array'));
+        latex=convertMtefV5ToLatex(native);
+    } catch(error) { nativeError=error; }
+    let preview=null,previewLatex=null,previewError=null;
     if(previewPath && /^word\/media\/[^/]+\.wmf$/i.test(previewPath)) {
-        const previewEntry=zip.file(previewPath);
-        if(!previewEntry)invalid('MathType preview source is missing');
-        if(Number(previewEntry._data?.uncompressedSize||0)>MAX_OLE_BYTES)invalid('MathType preview is too large');
-        const preview=readMathTypeWmfSource(await previewEntry.async('uint8array'));
-        const previewLatex=preview ? convertMtefV5ToLatex(preview) : null;
+        try {
+            const previewEntry=zip.file(previewPath);
+            if(!previewEntry)throw new Error('thiếu tệp hiển thị MathType');
+            if(Number(previewEntry._data?.uncompressedSize||0)>MAX_OLE_BYTES)
+                throw new Error('tệp hiển thị MathType vượt giới hạn');
+            preview=readMathTypeWmfSource(await previewEntry.async('uint8array'));
+            if(preview)previewLatex=convertMtefV5ToLatex(preview);
+        } catch(error) { previewError=error; }
+    }
+    if(native && latex) {
         if(previewLatex!==null && previewLatex!==latex) {
-            // A DOCX displays the WMF, not the editable native OLE stream.
-            // When the two disagree, import exactly the source of the visible
-            // equation, retain the OLE bytes for server-side verification and
-            // report a non-blocking notice. Never guess from pixels / OCR.
+            // Preserve the established behavior: visible WMF wins when both
+            // independently decoded sources disagree. Keep the native bytes
+            // for independent server-side provenance verification.
             return {
-                mtef:preview, latex:previewLatex,
-                sourceXml:encodeMathTypeSource(preview,mtef),
+                mtef:preview,latex:previewLatex,
+                sourceXml:encodeMathTypeSource(preview,native),
                 sourcePreference:'wmf',
                 notice:'MathType có hai nguồn khác nhau; đã nhập theo phần hiển thị Word (WMF: '+
-                   previewLatex.slice(0,140)+'). Nguồn OLE gốc: '+latex.slice(0,140)+'.'
+                    previewLatex.slice(0,140)+'). Nguồn OLE gốc: '+latex.slice(0,140)+'.'
             };
         }
+        return {mtef:native,latex,sourceXml:encodeMathTypeSource(native),
+            sourcePreference:'ole',
+            notice:previewError
+                ? 'MathType: bản xem trước WMF không đọc được; đã kiểm chứng công thức từ OLE gốc.'
+                : ''};
     }
-    return {mtef,latex,sourceXml:encodeMathTypeSource(mtef),sourcePreference:'ole',notice:''};
+    if(preview && previewLatex!==null) {
+        // A valid MTEF comment is recoverable from the displayed WMF, but
+        // without independently verifiable OLE its correctness must be
+        // explicitly approved by the teacher before a question can be saved.
+        return {
+            mtef:preview,latex:previewLatex,sourceXml:encodeMathTypeSource(preview),
+            sourcePreference:'wmf-recovery',requiresReview:true,
+            notice:'Nguồn MathType OLE không đọc được ('+
+                String(nativeError?.message||'không rõ lỗi').slice(0,140)+
+                '). Đã khôi phục công thức từ dữ liệu WMF; cần giáo viên kiểm tra và xác nhận.'
+        };
+    }
+    // No trustworthy source: retain the existing fail-closed behavior.
+    invalid('không giải mã được MathType OLE ('+
+        String(nativeError?.message||'không rõ lỗi').slice(0,140)+
+        (previewError ? '); WMF ('+String(previewError?.message).slice(0,140)+')' : ')'));
 }
