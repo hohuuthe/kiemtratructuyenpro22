@@ -525,3 +525,31 @@ test('An isolated or inconsistent partial cell border cannot be inferred as a fu
     assert.throws(()=>convertOmmlToLatex(parsedMath(literalSeparator)),/xác minh/,
         'A literal ampersand cannot be mistaken for an extra array column');
 });
+
+
+test('Legacy OMML literal numeric roots retain their radicand and division precedence',()=>{
+    for(const [source,expected] of [
+        ['8√3', '8\\sqrt{3}'],
+        ['sin α = 0,5; cos α = √3/2; tan α = √3/3; cot α = √3',
+         'sin \\alpha{} = 0,5; cos \\alpha{} = \\sqrt{3}/2; tan \\alpha{} = \\sqrt{3}/3; cot \\alpha{} = \\sqrt{3}'],
+        ['√25+√3/2', '\\sqrt{25}+\\sqrt{3}/2']
+    ]) {
+        const latex=convertOmmlToLatex(parsedMath(mathRun(source)));
+        assert.equal(latex,expected);
+        assert.equal(validateScientificLatexForImport(latex).ok,true,
+            'Word export and KaTeX must accept the exact root: '+latex);
+    }
+});
+test('OMML P with combining overline preserves the bar before quantifier and set typography',()=>{
+    const eq=parsedMath('<m:r><m:t>P̅: ∃x</m:t></m:r>'+
+        '<m:r><m:rPr><m:scr m:val="double-struck"/></m:rPr><m:t> ∈ R: </m:t></m:r>'+
+        '<m:r><m:t>x² &lt; x</m:t></m:r>');
+    const latex=convertOmmlToLatex(eq);
+    assert.equal(latex,'\\overline{P}: \\exists{}x \\in{} \\mathbb{R}: x² < x');
+    assert.equal(validateScientificLatexForImport(latex).ok,true);
+});
+test('Ambiguous Unicode roots/combining bars cannot be silently guessed',()=>{
+    for(const raw of ['√x','√(x+1)','√3.5','√','\u0305P','a\u0305\u0305']) {
+        assert.throws(()=>convertOmmlToLatex(parsedMath(mathRun(raw))),/xác minh|chưa rõ|gạch phủ định/);
+    }
+});

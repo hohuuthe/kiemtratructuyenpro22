@@ -103,3 +103,31 @@ test('MTEF function-start metadata no longer rejects ordinary function text',()=
 test('MTEF version 5 requires a valid producer version in header',()=>{
   assert.throws(()=>convertMtefV5ToLatex(Uint8Array.from([5,1,0,0,0,0,0,1,0,2,0,133,120,0,0,0])),/header MTEF/);
 });
+
+test('Invalid displayed preview cannot be auto-approved by changing the status field',()=>{
+  const input=line(['x','+','1']);
+  const unverified=encodeMathTypeSource(input,null,false,true);
+  assert.match(unverified,/source="ole-unverified-preview"/);
+  assert.throws(()=>verifyMathTypeSource(unverified,'x+1','verified'),/xác nhận/);
+  assert.equal(verifyMathTypeSource(unverified,'x+1','manual_verified'),true);
+  assert.equal(validateWordFormulaSourceForImport({
+    sourceType:'mathtype',sourceOmml:unverified,latex:'x+1',status:'verified'
+  }).ok,false);
+  assert.equal(validateWordFormulaSourceForImport({
+    sourceType:'mathtype',sourceOmml:unverified,latex:'x+1',status:'manual_verified'
+  }).ok,true);
+});
+test('Recovered WMF provenance cannot masquerade as an ordinary auto-verified native source',()=>{
+  const input=line(['x','+','1']);
+  const recovery=encodeMathTypeSource(input,null,true);
+  assert.match(recovery,/source="wmf-recovery"/);
+  assert.throws(()=>verifyMathTypeSource(recovery,'x+1','verified'),/xác nhận/);
+  assert.equal(verifyMathTypeSource(recovery,'x+1','manual_verified'),true);
+  assert.equal(validateWordFormulaSourceForImport({
+    sourceType:'mathtype',sourceOmml:recovery,latex:'x+1',status:'verified'
+  }).ok,false);
+  assert.equal(validateWordFormulaSourceForImport({
+    sourceType:'mathtype',sourceOmml:recovery,latex:'x+1',status:'manual_verified'
+  }).ok,true);
+  assert.throws(()=>encodeMathTypeSource(input,input,true),/giả mạo/);
+});

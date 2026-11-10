@@ -18,15 +18,29 @@ test('Admin role aliases and owner profile IDs are honored; unknown users fail c
 test('Postgres deletes orphan legacy exams only for authorized admin and leaves historical result rows',async()=>{
  const db=new PGlite();
  try{
-  await db.exec('CREATE TABLE exam_configs(id TEXT PRIMARY KEY,creator_id TEXT);CREATE TABLE results(id TEXT PRIMARY KEY,exam_id TEXT);');
-  await db.exec("INSERT INTO exam_configs VALUES ('old',NULL),('teacher-old','profile-A'),('has-results','profile-A');INSERT INTO results VALUES ('r1','has-results');");
-  const run=async (id,owner)=>{const stmt=examConfigGuardedDeleteStatement(id,owner);return db.query(convertSqliteToPostgres(stmt.sql),stmt.params);};
+  // Mirror the session table that the DELETE endpoint initializes before
+  // executing its guarded statement. Tests must not omit a required guard.
+  await db.exec('CREATE TABLE exam_configs(id TEXT PRIMARY KEY,creator_id TEXT);'+
+    'CREATE TABLE results(id TEXT PRIMARY KEY,exam_id TEXT);'+
+    'CREATE TABLE _exam_grade_sessions(session_id TEXT PRIMARY KEY,exam_id TEXT,expires_at TEXT NOT NULL);');
+  await db.exec("INSERT INTO exam_configs VALUES ('old',NULL),('teacher-old','profile-A'),"+
+    "('has-results','profile-A'),('live-session','profile-A'),('expired-session','profile-A');"+
+    "INSERT INTO results VALUES ('r1','has-results');"+
+    "INSERT INTO _exam_grade_sessions VALUES ('ready-1','live-session','2026-11-10T09:00:00.000Z'),"+
+    "('expired-1','expired-session','2026-11-10T07:00:00.000Z');");
+  const run=async (id,owner)=>{
+    const stmt=examConfigGuardedDeleteStatement(id,owner,'2026-11-10T08:00:00.000Z');
+    return db.query(convertSqliteToPostgres(stmt.sql),stmt.params);
+  };
   assert.equal((await run('old',null)).affectedRows,1);
   assert.equal((await run('teacher-old','wrong-owner')).affectedRows,0);
   assert.equal((await run('teacher-old','profile-A')).affectedRows,1);
   assert.equal((await run('has-results','profile-A')).affectedRows,0);
+  assert.equal((await run('live-session','profile-A')).affectedRows,0,'Never delete an exam with a READY/ACTIVE session');
+  assert.equal((await run('expired-session','profile-A')).affectedRows,1);
   assert.deepEqual((await db.query('SELECT id FROM results')).rows.map(x=>x.id),['r1']);
-  assert.deepEqual((await db.query('SELECT id FROM exam_configs')).rows.map(x=>x.id),['has-results']);
+  assert.deepEqual((await db.query('SELECT id FROM exam_configs ORDER BY id')).rows.map(x=>x.id),
+    ['has-results','live-session']);
  } finally {await db.close();}
 });
 test('Both backends use shared guard and never bypass result history',()=>{

@@ -109,7 +109,25 @@ try {
     typeof window.importQuestions==='function',{timeout:30000});
   check('Word import modal available',true);
   async function openAndImport(buffer){
-    await page.evaluate(()=>window.showImportModal());
+    // A live version gate can replace the modal immediately after DOM ready.
+    // Retry only the opening gesture, never the import or any database write.
+    let opened=false;
+    for(let attempt=0;attempt<3;attempt++){
+      await page.evaluate(()=>window.showImportModal());
+      opened=await page.locator('#import-file').count()>0;
+      if(opened)break;
+      await page.waitForLoadState('domcontentloaded');
+      await sleep(250);
+    }
+    if(!opened){
+      const state=await page.evaluate(()=>({
+        modalCount:document.querySelectorAll('#modal-container').length,
+        contentCount:document.querySelectorAll('#modal-content').length,
+        modalText:document.querySelector('#modal-content')?.textContent?.slice(0,180)||'',
+        ready:document.readyState
+      }));
+      throw new Error('Word import modal has no file input: '+JSON.stringify(state));
+    }
     await page.locator('#import-file').setInputFiles({
       name:'CongThucToan.docx',
       mimeType:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',

@@ -1,0 +1,35 @@
+name: Word MathType import qualification
+
+on:
+  pull_request:
+    paths:
+      - 'src/word-mathtype-reader.js'
+      - 'src/word-mtef-v5-reader.js'
+      - 'src/word-omml-reader.js'
+      - 'src/word-mathtype-preview.js'
+      - 'src/word-import-verification.js'
+      - 'tests/word-mathtype-*.test.mjs'
+      - 'scripts/check-word-import-release.mjs'
+      - '.github/workflows/word-mathtype-import-qualification.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qualification:
+    name: Strict MathType source and Word import qualification
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Full MathType import release gate (verified sources and 121-corpus)
+        run: npm run test:word-import-release
+      - name: Build production bundle
+        run: npm run build

@@ -79,6 +79,19 @@ const symbols = new Map([
     [0x03a0, '\\Pi{}'], [0x03a6, '\\Phi{}'], [0x03a8, '\\Psi{}'],
     [0x2026, '\\ldots{}'], [0x22ef, '\\cdots{}'], [0x22ee, '\\vdots{}'],
     [0x22f1, '\\ddots{}'],
+    // Unicode MTCode symbols encountered in MathType science/math questions.
+    // These are literal documented Unicode values, never legacy font-position
+    // guesses (which could silently turn a different glyph into an answer).
+    [0x2220, '\\angle{}'], [0x2221, '\\measuredangle{}'],
+    [0x221d, '\\propto{}'], [0x2261, '\\equiv{}'], [0x223c, '\\sim{}'],
+    [0x2245, '\\cong{}'], [0x2234, '\\therefore{}'], [0x2235, '\\because{}'],
+    [0x2295, '\\oplus{}'], [0x2297, '\\otimes{}'], [0x2299, '\\odot{}'],
+    [0x2218, '\\circ{}'], [0x2217, '\\ast{}'], [0x2201, '\\complement{}'],
+    [0x2216, '\\setminus{}'], [0x2223, '\\mid{}'], [0x2224, '\\nmid{}'],
+    [0x22a2, '\\vdash{}'], [0x22a8, '\\models{}'],
+    [0x03c2, '\\varsigma{}'], [0x03d1, '\\vartheta{}'],
+    [0x03f0, '\\varkappa{}'], [0x03f1, '\\varrho{}'],
+    [0x03d6, '\\varpi{}'],
     // Letterlike symbols emitted by MathType's MT Extra face. These are real
     // MTCode/Unicode values (not font-position guesses) and are common in
     // set notation in Vietnamese high-school mathematics.
@@ -282,7 +295,8 @@ function decodeMtef(input, allowNullSlotEnd) {
             // Narrow compatibility: actual MathType spacing record, not arbitrary PUA text.
             if (face === 24 && code === 0xef02 && node.options === 0 && !node.embellishments.length) return '\\,';
             if (code < 32 || (code >= 0xd800 && code <= 0xdfff) || (code >= 0xe000 && code <= 0xf8ff)) fail('unmapped MTCode U+' + code.toString(16));
-            if (!contentTypefaces.has(face)) fail('unsupported typeface ' + face);
+            if (!contentTypefaces.has(face) && !(face === 22 && symbols.has(code)))
+                fail('unsupported typeface ' + face);
             const char = String.fromCharCode(code);
             if (code === 0x00b0 && script) value = '\\circ{}';
             else if (symbols.has(code)) value = symbols.get(code);
@@ -329,6 +343,49 @@ function decodeMtef(input, allowNullSlotEnd) {
                 (upper ? '^{' + upper + '}' : '') + ' ' + body);
         }
         if (flags !== 0) fail('unsupported template flags');
+        // MTEF LimBoxClass: MAIN, LOWER, UPPER. Do not infer missing
+        // limits: variation flags must agree with the actual slot contents.
+        if (s === 23 && (v & ~3) === 0 && c.length === 3 &&
+            c.every(n => n.kind === 'line')) {
+            const body = lineValue(c[0]), lower = lineValue(c[1]), upper = lineValue(c[2]);
+            if (!body || Boolean(v & 1) !== Boolean(lower) ||
+                Boolean(v & 2) !== Boolean(upper)) fail('invalid limit slots');
+            if (!lower && !upper) return bounded(body);
+            const withLower = lower ? '\\underset{' + lower + '}{' + body + '}' : body;
+            return bounded(upper ? '\\overset{' + upper + '}{' + withLower + '}' : withLower);
+        }
+        // Horizontal braces/brackets carry BODY, LABEL, then a fixed MTCode
+        // glyph. Validate the latter explicitly; U+FE37 etc. must not be
+        // accepted as arbitrary content-font characters.
+        if ((s === 24 || s === 25) && (v === 0 || v === 1) &&
+            c.length === 3 && c[0].kind === 'line' && c[1].kind === 'line') {
+            const expected = s === 24 ? (v ? 0xfe37 : 0xfe38) :
+                (v ? 0xfe47 : 0xfe48);
+            if (!glyph(c[2], expected)) fail('horizontal group glyph mismatch');
+            const body = lineValue(c[0]), label = lineValue(c[1]);
+            if (!body) fail('empty horizontal group');
+            const command = s === 24 ? (v ? 'overbrace' : 'underbrace') :
+                (v ? 'overbracket' : 'underbracket');
+            const annotation = label ? (v ? '^{' + label + '}' : '_{' + label + '}') : '';
+            return bounded('\\' + command + '{' + body + '}' + annotation);
+        }
+        // MTEF tmSTRIKE, documented variation bits: horizontal (1),
+        // upward slash (2), downward slash (4), both diagonals (6).
+        // The object slot must be present and horizontal may not mix
+        // with diagonals. Keep visual orientation during TeX conversion.
+        if (s === 36) {
+            if (![1,2,4,6].includes(v) || c.length !== 1 ||
+                c[0].kind !== 'line') fail('invalid strike template');
+            const body=lineValue(c[0]);
+            if (!body) fail('empty strike template');
+            const command={1:'sout',2:'cancel',4:'bcancel',6:'xcancel'}[v];
+            return bounded('\\' + command + '{' + body + '}');
+        }
+        if (s === 37 && v === 0 && c.length === 1 && c[0].kind === 'line') {
+            const body = lineValue(c[0]);
+            if (!body) fail('empty border box');
+            return bounded('\\boxed{' + body + '}');
+        }
         if ([12, 13, 32, 33].includes(s) && c.length === 1 && c[0].kind === 'line') {
             if (v !== 0 && !(s <= 13 && v === 1)) fail('unsupported accent variation');
             const command = { 12:'underline', 13:'overline', 32:'widetilde', 33:'widehat' }[s];
@@ -349,15 +406,17 @@ function decodeMtef(input, allowNullSlotEnd) {
         if (s === 11 && v === 0 && a.length === 2 && a.every(Boolean)) return bounded('\\frac{' + a[0] + '}{' + a[1] + '}');
         if (s === 10 && v === 0 && a[0] && (a.length === 1 || (a.length === 2 && c[1].empty))) return '\\sqrt{' + a[0] + '}';
         if (s === 10 && v === 1 && a.length === 2 && a.every(Boolean)) return '\\sqrt[' + a[1] + ']{' + a[0] + '}';
-        if (v === 0 && [27, 28, 29].includes(s)) {
-            // MathType writes sub THEN sup, retaining NULL slots. Keep the legacy
-            // one-slot subset accepted by the original importer, without dropping other data.
-            if (s === 27 && a.length === 1 && a[0]) return '_{' + a[0] + '}';
-            if (s === 28 && a.length === 1 && a[0]) return '^{' + a[0] + '}';
+        if ((v === 0 || v === 1) && [27, 28, 29].includes(s)) {
+            // A variation-1 script is attached on the LEFT of its following
+            // base; {} prevents TeX from attaching a prescript to prior text.
+            // Only emit it for internally consistent template slots.
+            const prefix = v === 1 ? '{}' : '';
+            if (s === 27 && a.length === 1 && a[0]) return prefix + '_{' + a[0] + '}';
+            if (s === 28 && a.length === 1 && a[0]) return prefix + '^{' + a[0] + '}';
             if (a.length === 2) {
-                if (s === 27 && a[0] && c[1].empty) return '_{' + a[0] + '}';
-                if (s === 28 && c[0].empty && a[1]) return '^{' + a[1] + '}';
-                if (s === 29 && a.every(Boolean)) return '_{' + a[0] + '}^{' + a[1] + '}';
+                if (s === 27 && a[0] && c[1].empty) return prefix + '_{' + a[0] + '}';
+                if (s === 28 && c[0].empty && a[1]) return prefix + '^{' + a[1] + '}';
+                if (s === 29 && a.every(Boolean)) return prefix + '_{' + a[0] + '}^{' + a[1] + '}';
             }
         }
         fail('unsupported template ' + s + '/' + v);

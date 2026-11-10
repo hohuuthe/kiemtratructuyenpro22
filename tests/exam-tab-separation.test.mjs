@@ -29,7 +29,9 @@ test('Nav, authorization and load flow target new editor tab',()=>{
  assert.ok(index.includes('id="tab-exam-editor"'));
  assert.ok(app.includes("tab === 'questions' || tab === 'exams' || tab === 'exam-editor' || tab === 'qr-cards'"));
  assert.ok(app.includes("visible = isTeacher || isAdmin"));
- assert.ok(app.includes('await openExamEditorTab({newExam:false});'));
+ assert.ok(app.includes('window.openExamEditorTab = openExamEditorTab;'));
+ assert.ok(app.includes("switchTab('exam-editor');"));
+ assert.ok(app.includes("await ensureTabComponent('exam-editor')"));
  assert.ok(app.includes('window.startNewExamConfig = async function startNewExamConfig()'));
  const openEditor = app.slice(app.indexOf('async function openExamEditorTab('), app.indexOf('window.startNewExamConfig = async function'));
  assert.match(openEditor, /if\s*\(newExam\)\s*\{[^}]*\+\+examConfigLoadSeq;[^}]*resetExamPanelToDefault\(\);/s,
@@ -54,7 +56,7 @@ test('Late private fetches cannot overwrite state after teacher switches or new 
    'generation !== authDataGeneration || !(isAdminLoggedIn || isTeacherLoggedIn)',
    'requestSeq !== examNamesRequestSeq',
    'requestSeq !== examConfigLoadSeq',
-   'if (generation !== authDataGeneration) return;',
+   'if (generation !== authDataGeneration || requestSeq !== examNamesRequestSeq || !currentUser) return;',
    '++examConfigLoadSeq; // Cancel any in-flight Nạp/selection response.'
  ]) assert.ok(app.includes(guard), guard);
 });

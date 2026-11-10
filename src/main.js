@@ -6789,7 +6789,7 @@ if (contentType && contentType.includes("application/json")) {
 
             try {
                 const token = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
-                let useClientFallback = equationFormat === 'mathtype';
+                let useClientFallback = false;
                 let downloaded = false;
 
                     // Equation keeps the existing server route byte-for-byte.
@@ -6826,18 +6826,49 @@ if (contentType && contentType.includes("application/json")) {
 
                             // Server errors must not make export permanently unavailable:
                             // use the same selected exam and the browser-side generator.
+                            if ((response.status >= 400 && response.status < 500) || equationFormat === 'mathtype') {
+                                const stop = new Error('Máy chủ từ chối xuất đề: ' + (errorText || 'HTTP ' + response.status) + '. Không được bốc lại câu hỏi ở trình duyệt.');
+                                stop.stopClientFallback = true;
+                                throw stop;
+                            }
                             console.warn('[ExamExport] Server returned', response.status, errorText);
                             useClientFallback = true;
                         } else {
-                            updateProgress(90, `📦 Đang tải về gói đề thi Word và file Excel bảng đáp án...`, `${soLuongDe} / ${soLuongDe} đề`);
-                            const zipBlob = await response.blob();
+                            updateProgress(equationFormat === 'mathtype' ? 60 : 90,
+                                equationFormat === 'mathtype'
+                                    ? 'Đã nhận bản đề thi từ máy chủ, chuẩn bị chuyển MathType...'
+                                    : '📦 Đang tải về gói đề thi Word và file Excel bảng đáp án...',
+                                `${soLuongDe} / ${soLuongDe} đề`);
+                            let zipBlob = await response.blob();
                             if (zipBlob.size < 100 || !(await zipBlob.slice(0, 4).arrayBuffer()).byteLength) {
                                 throw new Error('Gói đề thi Word trả về trống hoặc không hợp lệ');
                             }
+                            if (equationFormat === 'mathtype') {
+                                updateProgress(65, 'Đã nhận đề và đáp án từ máy chủ. Đang chuyển công thức MathType...', '0 / ' + soLuongDe + ' đề');
+                                const {convertExamExportZipToMathType} = await import('./word-mathtype-export/exam-zip-converter.js');
+                                zipBlob = await convertExamExportZipToMathType(zipBlob, {
+                                    expectedDocCount:soLuongDe,
+                                    hostname:window.location.hostname,
+                                    signal:mathTypeController?.signal,
+                                    previewTimeoutMs:15000,
+                                    previewBatchTimeoutMs:180000,
+                                    onPreviewProgress:({completed,total,fileIndex})=>{
+                                        if (!total) return;
+                                        updateProgress(65 + Math.round(25 * (fileIndex - 1 + completed / total) / soLuongDe),
+                                            'Đang dựng MathType: đề ' + fileIndex + '/' + soLuongDe + ', công thức ' + completed + '/' + total,
+                                            fileIndex + ' / ' + soLuongDe + ' đề');
+                                    },
+                                    onFileProgress:({completed,total})=>{
+                                        updateProgress(65 + Math.round(25 * completed / total),
+                                            'Đã chuyển MathType ' + completed + '/' + total + ' đề',
+                                            completed + ' / ' + total + ' đề');
+                                    }
+                                });
+                            }
                             const safeTitle = deThiTitle.replace(/[^a-zA-Z0-9_\u00C0-\u1EF9]/g, '_');
                             const zipFileName = soLuongDe === 1
-                                ? `De_Thi_kem_Dap_An_${safeTitle}_MaDe_${baseMaDe}.zip`
-                                : `Bo_De_Thi_${safeTitle}_Gom_${soLuongDe}_MaDe_kem_Dap_An.zip`;
+                                ? `De_Thi_kem_Dap_An_${safeTitle}_MaDe_${baseMaDe}${equationFormat === 'mathtype' ? '_MathType' : ''}.zip`
+                                : `Bo_De_Thi_${safeTitle}_Gom_${soLuongDe}_MaDe_kem_Dap_An${equationFormat === 'mathtype' ? '_MathType' : ''}.zip`;
 
                             if (typeof saveAs === 'function') {
                                 saveAs(zipBlob, zipFileName);
@@ -6856,11 +6887,12 @@ if (contentType && contentType.includes("application/json")) {
                                 }, 500);
                             }
 
-                            updateProgress(100, `🎉 Hoàn tất! Đã xuất thành công ${soLuongDe} mã đề thi kèm file Excel đáp án`, `${soLuongDe} / ${soLuongDe} đề`);
-                            showToast(`✅ Đã xuất thành công ${soLuongDe} mã đề thi kèm file Excel đáp án (.zip)!`, 'success');
+                            updateProgress(100, `Đã tạo gói ${soLuongDe} mã đề thi kèm Excel đáp án. Kiểm tra thư mục tải xuống.`, `${soLuongDe} / ${soLuongDe} đề`);
+                            showToast(`Đã gửi gói ${soLuongDe} mã đề thi kèm Excel đáp án tới trình duyệt. Vui lòng kiểm tra tệp tải xuống.`, 'info');
                             downloaded = true;
                         }
                     } catch (serverErr) {
+                        if (equationFormat === 'mathtype' || serverErr?.stopClientFallback) throw serverErr;
                         console.warn("Server API export failed, switching to client-side generator:", serverErr);
                         useClientFallback = true;
                     }
@@ -15176,6 +15208,11 @@ D. Phát biểu SAI</pre>
                 });
                 if (!(blob instanceof Blob) || blob.size < 1000) {
                     throw new Error('File Word không được tạo đúng định dạng.');
+                }
+                if (equationFormat === 'mathtype' && wordFormulaWarnings.length) {
+                    const first = wordFormulaWarnings[0];
+                    throw new Error('Có ' + wordFormulaWarnings.length + ' công thức chưa xác minh tại ' +
+                        first.location + ': ' + first.reason + '. Hãy sửa nguồn trước khi xuất MathType.');
                 }
                 const outputBlob = await finalizeWordExport(blob, {
                     equationFormat,

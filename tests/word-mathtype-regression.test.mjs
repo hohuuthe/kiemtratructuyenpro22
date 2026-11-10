@@ -63,20 +63,41 @@ test('A conflicting WMF equation imports the displayed source and retains both s
     const native=corpus[10],visual=Buffer.from(packed.conflictingPreviewMtefBase64,'base64');
     assert.equal(convertMtefV5ToLatex(bytes(native)),'(-1;5).');assert.equal(convertMtefV5ToLatex(visual),'0,05.');
     const r=await inspectScientificDocx(await docx([native],{previewOverride:visual}));
-    assert.equal(r.formulas[0].status,'parsed');assert.equal(r.formulas[0].latex,'0,05.');assert.equal(r.formulas[0].sourcePreference,'wmf');
+    assert.equal(r.formulas[0].status,'review');assert.equal(r.formulas[0].latex,'0,05.');assert.equal(r.formulas[0].sourcePreference,'wmf');
     assert.ok(r.issues.some(i=>i.kind==='formula-notice'&&i.token===r.formulas[0].token));assert.equal(r.lines[0].text,r.formulas[0].token);
-    assert.equal(verifyMathTypeSource(r.formulas[0].originalOmml,'0,05.','verified'),true);
+    assert.throws(()=>verifyMathTypeSource(r.formulas[0].originalOmml,'0,05.','verified'),/xác nhận/);
+    assert.equal(verifyMathTypeSource(r.formulas[0].originalOmml,'0,05.','manual_verified'),true);
     assert.throws(()=>verifyMathTypeSource(r.formulas[0].originalOmml,'(-1;5).','verified'));assert.ok(r.formulas[0].originalOmml.includes('originalOle='));
 });
-test('All 41 equations import together with the conflicting preview at its actual index',async()=>{
+test('All 41 equations preserve the one conflicting source for teacher review',async()=>{
     const r=await inspectScientificDocx(await docx(corpus,{previewOverride:Buffer.from(packed.conflictingPreviewMtefBase64,'base64'),previewOverrideIndex:10}));
-    assert.equal(r.formulas.length,41);assert.equal(r.formulas.filter(f=>f.status==='parsed').length,41);assert.equal(r.formulas[10].latex,'0,05.');
-    assert.equal(r.formulas.filter(f=>f.sourcePreference==='wmf').length,1);assert.equal(r.issues.filter(i=>i.kind==='formula-notice').length,1);
-    const {verifyImportedWordQuestions,checkWordImportBeforeSave}=await import('../src/word-import-verification.js');
+    assert.equal(r.formulas.length,41);
+    assert.equal(r.formulas.filter(f=>f.status==='parsed').length,40);
+    assert.equal(r.formulas[10].status,'review');
+    assert.equal(r.formulas[10].latex,'0,05.');
+    assert.equal(r.issues.filter(i=>i.kind==='formula-notice').length,1);
+    const {verifyImportedWordQuestions,checkWordImportBeforeSave,correctImportedWordEquation}=await import('../src/word-import-verification.js');
     const q=r.formulas.map((f,i)=>({id:'import-all-'+i,type:'TL',level:'NB',content:f.token,answer:'1',options:{}}));
-    const report=verifyImportedWordQuestions(q,r);assert.equal(report.stats.verifiedFormulaObjects,41);assert.equal(report.stats.pendingQuestions,0);
-    assert.equal(report.documentIssues.length,0);assert.equal(checkWordImportBeforeSave(report.questions,report.documentIssues).ok,true);
+    const report=verifyImportedWordQuestions(q,r);
+    assert.equal(report.stats.verifiedFormulaObjects,40);
+    assert.equal(report.stats.pendingQuestions,1);
+    assert.equal(checkWordImportBeforeSave(report.questions,report.documentIssues).ok,false);
+    correctImportedWordEquation(report.questions[10],r.formulas[10].token,'0,05.');
+    assert.equal(checkWordImportBeforeSave(report.questions,report.documentIssues).ok,true);
     assert.equal(report.questions[10].content,'$0,05.$');
+});
+test('DSMT7 and newer MathType OLE ProgIDs are decoded without relaxing non-MathType validation',async()=>{
+    for(const progId of ['Equation.DSMT7','Equation.DSMT8','MathType.7']) {
+        const report=await inspectScientificDocx(await docx([corpus[0]],{progId}));
+        assert.equal(report.formulas.length,1,progId);
+        assert.equal(report.formulas[0].sourceType,'mathtype',progId);
+        assert.equal(report.formulas[0].status,'parsed',progId);
+        assert.equal(report.formulas[0].latex,corpus[0].expected,progId);
+    }
+    for(const progId of ['Excel.Sheet.12','Equation.DSMT7.evil','MathType.']) {
+        const report=await inspectScientificDocx(await docx([corpus[0]],{progId}));
+        assert.equal(report.formulas[0].status,'review',progId);
+    }
 });
 test('Other embedded application objects remain unsupported even with a readable MTEF payload',async()=>{
     const r=await inspectScientificDocx(await docx([corpus[0]],{progId:'Excel.Sheet.12'}));assert.equal(r.formulas[0].status,'review');
@@ -118,19 +139,24 @@ test('Unknown records, trailing data, fake WMF chunks and resource excess fail c
     const invalid=Buffer.from(raw);invalid[0]=3;assert.throws(()=>convertMtefV5ToLatex(invalid),/phi\u00ean b\u1ea3n 5/);
 });
 if(process.env.WORD_IMPORT_FULL_TESTS==='1'){
-    const {verifyImportedWordQuestions,validateWordFormulaSourceForImport,checkWordImportBeforeSave}=await import('../src/word-import-verification.js');
+    const {verifyImportedWordQuestions,validateWordFormulaSourceForImport,checkWordImportBeforeSave,correctImportedWordEquation}=await import('../src/word-import-verification.js');
     test('All 41 native equations pass the actual KaTeX, editable Word and server-source gates',async()=>{
         const r=await inspectScientificDocx(await docx(corpus));const q=r.formulas.map((f,i)=>({id:'mathtype-regression-'+i,type:'TL',level:'NB',content:f.token,answer:'1',options:{}}));
         const result=verifyImportedWordQuestions(q,r);assert.equal(result.stats.verifiedFormulaObjects,41,JSON.stringify(result.questions.map(q=>q.__wordImportIssues)));
         assert.equal(checkWordImportBeforeSave(result.questions,result.documentIssues).ok,true);
         for(const q of result.questions)for(const s of q.__wordFormulaSources)assert.equal(validateWordFormulaSourceForImport(s).ok,true);
     });
-    test('Conflicting option uses displayed source without a bogus KaTeX underscore error',async()=>{
+    test('Conflicting option cannot auto-save without source review',async()=>{
         const r=await inspectScientificDocx(await docx([corpus[10]],{previewOverride:Buffer.from(packed.conflictingPreviewMtefBase64,'base64')}));
         const q={id:'mathtype-source-conflict',type:'4-1',level:'NB',content:'Source review',answer:'A',options:{A:'1',B:'2',C:r.formulas[0].token,D:'4'}};
-        const result=verifyImportedWordQuestions([q],r);assert.deepEqual(result.questions[0].__wordImportIssues,[]);assert.equal(result.questions[0].options.C,'$0,05.$');
-        assert.equal(result.stats.verifiedFormulaObjects,1);assert.equal(checkWordImportBeforeSave(result.questions,result.documentIssues).ok,true);
-        assert.ok(r.issues.some(i=>i.kind==='formula-notice'&&i.reason.includes('OLE')));assert.equal(validateWordFormulaSourceForImport(result.questions[0].__wordFormulaSources[0]).ok,true);
+        const result=verifyImportedWordQuestions([q],r);
+        assert.equal(result.stats.verifiedFormulaObjects,0);
+        assert.equal(result.stats.pendingQuestions,1);
+        assert.equal(checkWordImportBeforeSave(result.questions,result.documentIssues).ok,false);
+        correctImportedWordEquation(result.questions[0],r.formulas[0].token,'0,05.');
+        assert.equal(result.questions[0].options.C,'$0,05.$');
+        assert.equal(checkWordImportBeforeSave(result.questions,result.documentIssues).ok,true);
+        assert.equal(validateWordFormulaSourceForImport(result.questions[0].__wordFormulaSources[0]).ok,true);
     });
 }
 test('Latin text with w:bCs only does not invent bold or block import',async()=>{
@@ -142,4 +168,67 @@ test('Complex-script w:bCs-only text retains its explicit verification warning',
     const zip=new JSZip(),text='\u0627\u0644\u0639\u0631\u0628\u064a\u0629';
     zip.file('word/document.xml','<w:document xmlns:w="'+wordNs+'"><w:body><w:p><w:r><w:rPr><w:bCs/></w:rPr><w:t>'+text+'</w:t></w:r></w:p></w:body></w:document>');
     const report=await inspectScientificDocx(await zip.generateAsync({type:'uint8array'}));assert.equal(report.lines[0].text,text);assert.ok(report.issues.some(i=>i.kind==='style'&&i.reason.includes('w:bCs')));
+});
+
+
+test('Recover valid WMF MTEF when native OLE is unreadable, but require teacher approval',async()=>{
+    const source=corpus[0],z=await JSZip.loadAsync(await docx([source]));
+    z.file('word/embeddings/ole1.bin',Buffer.from([0,1,2,3]));
+    const report=await inspectScientificDocx(await z.generateAsync({type:'uint8array'}));
+    assert.equal(report.formulas.length,1);
+    assert.equal(report.formulas[0].status,'review');
+    assert.equal(report.formulas[0].sourceType,'mathtype');
+    assert.equal(report.formulas[0].sourcePreference,'wmf-recovery');
+    assert.equal(report.formulas[0].latex,source.expected);
+    assert.ok(report.issues.some(i=>i.kind==='formula-notice'&&/cần giáo viên/.test(i.reason)));
+    const {verifyImportedWordQuestions,checkWordImportBeforeSave,correctImportedWordEquation,
+        validateWordFormulaSourceForImport}=await import('../src/word-import-verification.js');
+    const raw={id:'wmf-recovered-review',type:'TL',level:'NB',
+        content:'Câu hỏi '+report.formulas[0].token,answer:'1',options:{}};
+    const review=verifyImportedWordQuestions([raw],report);
+    assert.equal(review.stats.pendingQuestions,1);
+    assert.equal(checkWordImportBeforeSave(review.questions,review.documentIssues).ok,false);
+    const approved=correctImportedWordEquation(review.questions[0],report.formulas[0].token,source.expected);
+    assert.equal(approved.__wordFormulaSources[0].status,'manual_verified');
+    assert.throws(()=>verifyMathTypeSource(approved.__wordFormulaSources[0].sourceOmml,source.expected,'verified'),/xác nhận/);
+    assert.equal(validateWordFormulaSourceForImport(approved.__wordFormulaSources[0]).ok,true);
+    assert.equal(checkWordImportBeforeSave([approved],review.documentIssues).ok,true);
+});
+test('Opaque PNG preview cannot be assumed to match valid native MathType OLE',async()=>{
+    const z=await JSZip.loadAsync(await docx([corpus[0]]));
+    const relPath='word/_rels/document.xml.rels';
+    const rels=await z.file(relPath).async('string');
+    assert.match(rels,/preview1\.wmf/);
+    z.file(relPath,rels.replace('preview1.wmf','preview1.png'));
+    z.file('word/media/preview1.png',Buffer.from([137,80,78,71,13,10,26,10,0,0]));
+    z.remove('word/media/preview1.wmf');
+    const report=await inspectScientificDocx(await z.generateAsync({type:'uint8array'}));
+    assert.equal(report.formulas[0].sourceType,'mathtype');
+    assert.equal(report.formulas[0].status,'review');
+    assert.equal(report.formulas[0].latex,corpus[0].expected);
+    assert.match(report.formulas[0].originalOmml,/ole-unverified-preview/);
+    assert.throws(()=>verifyMathTypeSource(report.formulas[0].originalOmml,corpus[0].expected,'verified'),/xác nhận/);
+    assert.equal(verifyMathTypeSource(report.formulas[0].originalOmml,corpus[0].expected,'manual_verified'),true);
+});
+test('Broken WMF preview preserves valid native OLE but requires teacher verification',async()=>{
+    const z=await JSZip.loadAsync(await docx([corpus[0]]));
+    z.file('word/media/preview1.wmf',Buffer.from([0,1,2,3]));
+    const report=await inspectScientificDocx(await z.generateAsync({type:'uint8array'}));
+    assert.equal(report.formulas.length,1);
+    assert.equal(report.formulas[0].status,'review');
+    assert.equal(report.formulas[0].sourcePreference,'ole');
+    assert.equal(report.formulas[0].latex,corpus[0].expected);
+    assert.match(report.formulas[0].originalOmml,/ole-unverified-preview/);
+    assert.throws(()=>verifyMathTypeSource(report.formulas[0].originalOmml,corpus[0].expected,'verified'),/xác nhận/);
+    assert.equal(verifyMathTypeSource(report.formulas[0].originalOmml,corpus[0].expected,'manual_verified'),true);
+    assert.ok(report.issues.some(i=>i.kind==='formula-notice'));
+});
+test('Unambiguous standard Unicode MTCode symbols decode even with MathType symbol face',()=>{
+    for(const [code,command] of [[0x2220,'\\angle{}'],[0x221d,'\\propto{}'],
+        [0x2261,'\\equiv{}'],[0x2234,'\\therefore{}'],[0x03c2,'\\varsigma{}']]){
+        const b=Uint8Array.from([5,1,0,4,0,0,0,1,0,2,0,150,code&255,code>>8,0,0]);
+        assert.equal(convertMtefV5ToLatex(b),command);
+    }
+    const arbitraryPrivate=Uint8Array.from([5,1,0,4,0,0,0,1,0,2,0,150,0x01,0xe0,0,0]);
+    assert.throws(()=>convertMtefV5ToLatex(arbitraryPrivate),/unmapped MTCode/);
 });

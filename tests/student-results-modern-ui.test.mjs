@@ -115,7 +115,9 @@ test('Student attempt button has standalone controller wiring without changing t
     const index=readFileSync('index.html','utf8');
     assert.match(ui,/student-result-attempts-request/);
     assert.match(ui,/detail: \{ examId:/);
-    assert.match(index,/student-attempt-history-controller\.js/);
+    const bootstrap=readFileSync('src/bootstrap.js','utf8');
+    assert.match(index,/\/src\/bootstrap\.js/);
+    assert.match(bootstrap,/import\('\.\/student-attempt-history-controller\.js'\)/);
 });
 
 test('Student result cards always show the recorded violation count',()=>{

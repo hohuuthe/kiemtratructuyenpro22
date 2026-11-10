@@ -43,3 +43,73 @@ test('All 121 established source equations pass the NEW structural writer using 
   for(const entry of result.report.equations)readMtef(inspectOle(await z.file(entry.olePath).async('uint8array')).mtef);
   assert.equal(result.report.nativeEditorVerified,false,'Structural gate must not claim native-editor testing.');
 });
+
+
+// Real Question Bank -> DOCX -> native MathType OLE -> reader regression.
+// Existing tests cover a single essay question; user-facing export also needs
+// all four question types, answer strings, chemistry and imported structures.
+test('Question Bank MathType keeps all four question types, options and answer lines', async()=>{
+  const questions=[
+    {...q,id:'QB-1',content:'Phân số $\\frac{a}{b}$',answer:'A'},
+    {...q,id:'QB-2',type:'TF4',content:'Hóa học $\\ce{H2SO4}$',
+      options:{A:'$\\ce{H2O}$',B:'$\\ce{SO4^{2-}}$',C:'$x^2$',D:'$\\sqrt{2}$'},answer:'A&C'},
+    {...q,id:'QB-3',type:'SQ',content:'Nghiệm $\\sqrt{3}$',options:{},answer:'$\\frac{1}{2}$'},
+    {...q,id:'QB-4',type:'TL',content:'Hệ $\\begin{cases}x+y=3\\\\x-y=1\\end{cases}$',
+      options:{},answer:'$x=2$'}
+  ];
+  const plan={questions,ids:questions.map(v=>v.id),requestedCount:questions.length,
+    totalSelected:questions.length,selectedLessons:1};
+  const original=await generateQuestionBankDocx(plan);
+  const before=await count(original);
+  assert.ok(before.math>=10,'Actual question bank must generate editable OMML');
+  const {blob,report}=await convertDocxToMathType(original,{renderPreview:stub});
+  const after=await count(blob);
+  assert.equal(after.math,0);
+  assert.equal(after.ole,before.math);
+  assert.equal(report.converted,before.math);
+  const xml=await after.z.file('word/document.xml').async('string');
+  for(const id of ['Phân số','Hóa học','Nghiệm','Hệ','Đáp án:'])
+    assert.ok(xml.includes(id),'Missing question content: '+id);
+  for(const item of report.equations)readMtef(inspectOle(await after.z.file(item.olePath).async('uint8array')).mtef);
+});
+
+const knownWordBankCases=JSON.parse(fs.readFileSync(new URL('./fixtures/scientific-formulas-516.json',import.meta.url),'utf8')).cases;
+for(const id of ['MAT-022','MAT-079','MAT-086','MAT-088','STR-003','STR-022','STR-030']){
+  test('Question Bank MathType imports existing scientific regression '+id,async()=>{
+    const sample=knownWordBankCases.find(row=>row.id===id);
+    assert.ok(sample,'Missing corpus ID '+id);
+    const question={...q,id,type:'TL',content:'Công thức $'+sample.latex+'$',options:{},answer:'Đúng'};
+    const plan={questions:[question],ids:[id],requestedCount:1,totalSelected:1,selectedLessons:1};
+    const original=await generateQuestionBankDocx(plan);
+    const before=await count(original);
+    assert.ok(before.math>=1,'Formula did not become Word OMML: '+id);
+    const {blob,report}=await convertDocxToMathType(original,{renderPreview:stub});
+    const after=await count(blob);
+    assert.equal(after.ole,before.math);
+    assert.equal(after.math,0);
+    assert.equal(report.converted,before.math);
+  });
+}
+
+
+test('Diagnostic: browser Question Bank formula math runs contain no unsupported control characters',async()=>{
+  const questions=[
+    {...q,id:'CTRL-1',type:'4-1',content:'Tính $\\frac{a}{b}$',
+      options:{A:'$\\sqrt{2}$',B:'$x^2$',C:'3',D:'4'},answer:'A'},
+    {...q,id:'CTRL-2',type:'TF4',content:'Hóa học $\\ce{H2O}$',
+      options:{A:'$\\ce{SO4^{2-}}$',B:'x',C:'y',D:'z'},answer:'A&C'},
+    {...q,id:'CTRL-3',type:'TL',content:'Tính $\\int_0^1 x^2\\,dx$',options:{},
+      answer:'$\\frac{1}{3}$'}
+  ];
+  const plan={questions,ids:questions.map(v=>v.id),totalSelected:3,requestedCount:3,selectedLessons:1};
+  const blob=await generateQuestionBankDocx(plan);
+  const zip=await JSZip.loadAsync(blob);
+  const xml=parseXml(await zip.file('word/document.xml').async('string'));
+  const tokens=Array.from(xml.getElementsByTagNameNS(NS.m,'t'));
+  const controls=tokens.map((node,index)=>({
+    index, chars:Array.from(node.textContent).filter(c=>c!==' ' && (c.codePointAt(0)<33 || c.codePointAt(0)===127))
+      .map(c=>'U+'+c.codePointAt(0).toString(16).padStart(4,'0')),
+    nearby:node.textContent.slice(0,22)
+  })).filter(v=>v.chars.length);
+  assert.deepEqual(controls,[], 'Unsupported control math tokens: '+JSON.stringify(controls));
+});

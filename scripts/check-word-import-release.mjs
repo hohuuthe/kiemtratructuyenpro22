@@ -16,6 +16,7 @@ run(process.platform==='win32'?'npm.cmd':'npm',['run','lint']);
 const tests=[
     'tests/word-mathtype-121.test.mjs',
     'tests/word-mathtype-regression.test.mjs',
+    'tests/word-mathtype-writer-reader-parity.test.mjs',
     'tests/word-mathtype-import.test.mjs',
     'tests/word-import-omml.test.mjs',
     'tests/scientific-formula-tokenizer.test.mjs'

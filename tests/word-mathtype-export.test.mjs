@@ -86,7 +86,7 @@ test('Fraction variants bar, noBar, skewed and linear retain their distinct sema
 });
 
 test('groupChr top/bottom braces and brackets preserve position and editable template selectors',()=>{
-  for(const [chr,pos,selector,variation] of [['\\u23de','top',24,1],['\\u23df','bot',24,0],['\\u23b4','top',25,1],['\\u23b5','bot',25,0]]){
+  for(const [chr,pos,selector,variation] of [['\u23de','top',24,1],['\u23df','bot',24,0],['\u23b4','top',25,1],['\u23b5','bot',25,0]]){
     const tree=ast('<m:groupChr><m:groupChrPr><m:chr m:val="'+chr+'"/><m:pos m:val="'+pos+'"/></m:groupChrPr>'+arg('e',run('BODY'))+'</m:groupChr>');
     const encoded=readMtef(astToMtef(tree));
     const group=flatten(encoded).find(n=>n.selector===selector);
@@ -197,4 +197,15 @@ test('Existing relationship IDs and media file names are never overwritten',asyn
   const out=await load(blob),rels=parseXml(await out.file('word/_rels/document.xml.rels').async('string'));
   const ids=Array.from(rels.getElementsByTagNameNS(NS.rel,'Relationship')).map(r=>r.getAttribute('Id'));assert.equal(ids.length,3);assert.equal(new Set(ids).size,3);
   assert.deepEqual(await out.file('word/media/kttt-mathtype-1.png').async('uint8array'),png);
+});
+
+
+test('MathType keeps nonbreaking/thin Unicode spacing without guessing tab/newline semantics',()=>{
+  const text='x\u00a0y\u2009z\u202fw';
+  const source=ast(run(text));
+  const bytes=astToMtef(source);
+  const tree=readMtef(bytes);
+  assert.equal(glyphs(tree),text,'Unicode separator character widths/codepoints must be retained');
+  assert.throws(()=>astToMtef(ast(run('x'+String.fromCharCode(9)+'y'))),{code:'UNSUPPORTED_WHITESPACE'});
+  assert.throws(()=>astToMtef(ast(run('x'+String.fromCharCode(10)+'y'))),{code:'UNSUPPORTED_WHITESPACE'});
 });
