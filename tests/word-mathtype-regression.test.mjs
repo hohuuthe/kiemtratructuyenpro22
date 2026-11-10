@@ -194,6 +194,22 @@ test('Recover valid WMF MTEF when native OLE is unreadable, but require teacher 
     assert.equal(validateWordFormulaSourceForImport(approved.__wordFormulaSources[0]).ok,true);
     assert.equal(checkWordImportBeforeSave([approved],review.documentIssues).ok,true);
 });
+test('Opaque PNG preview cannot be assumed to match valid native MathType OLE',async()=>{
+    const z=await JSZip.loadAsync(await docx([corpus[0]]));
+    const relPath='word/_rels/document.xml.rels';
+    const rels=await z.file(relPath).async('string');
+    assert.match(rels,/preview1\.wmf/);
+    z.file(relPath,rels.replace('preview1.wmf','preview1.png'));
+    z.file('word/media/preview1.png',Buffer.from([137,80,78,71,13,10,26,10,0,0]));
+    z.remove('word/media/preview1.wmf');
+    const report=await inspectScientificDocx(await z.generateAsync({type:'uint8array'}));
+    assert.equal(report.formulas[0].sourceType,'mathtype');
+    assert.equal(report.formulas[0].status,'review');
+    assert.equal(report.formulas[0].latex,corpus[0].expected);
+    assert.match(report.formulas[0].originalOmml,/ole-unverified-preview/);
+    assert.throws(()=>verifyMathTypeSource(report.formulas[0].originalOmml,corpus[0].expected,'verified'),/xác nhận/);
+    assert.equal(verifyMathTypeSource(report.formulas[0].originalOmml,corpus[0].expected,'manual_verified'),true);
+});
 test('Broken WMF preview preserves valid native OLE but requires teacher verification',async()=>{
     const z=await JSZip.loadAsync(await docx([corpus[0]]));
     z.file('word/media/preview1.wmf',Buffer.from([0,1,2,3]));
