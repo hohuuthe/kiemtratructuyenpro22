@@ -43,12 +43,12 @@ for(const [name,ast,expected] of cases){
     });
 }
 test('A box with selectively hidden borders remains unsupported rather than silently gaining edges',()=>{
-    const box={...cases[0][1],hideTop:true};
+    const box={...cases.find(([name])=>name==='boxed expression')[1],hideTop:true};
     const encoded=astToMtef(box);
     assert.throws(()=>convertMtefV5ToLatex(encoded),/unsupported template/);
 });
 test('A damaged group-ornament glyph is rejected instead of guessed',()=>{
-    const encoded=astToMtef(cases[1][1]);
+    const encoded=astToMtef(cases.find(([name])=>name==='top brace')[1]);
     const altered=Uint8Array.from(encoded);
     const location=altered.findIndex((v,i)=>i>35 && v===0x37 && altered[i+1]===0xfe);
     assert.ok(location>0,'Expected fixed horizontal-brace ornament glyph');
