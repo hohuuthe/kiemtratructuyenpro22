@@ -230,8 +230,8 @@ export async function readMathTypeRelationship(zip,id,previewPath=null) {
             return {
                 mtef:preview,latex:previewLatex,
                 sourceXml:encodeMathTypeSource(preview,native),
-                sourcePreference:'wmf',
-                notice:'MathType có hai nguồn khác nhau; đã nhập theo phần hiển thị Word (WMF: '+
+                sourcePreference:'wmf',requiresReview:true,
+                notice:'MathType có hai nguồn khác nhau; cần giáo viên đối chiếu và xác nhận. Nguồn hiển thị Word (WMF: '+
                     previewLatex.slice(0,140)+'). Nguồn OLE gốc: '+latex.slice(0,140)+'.'
             };
         }
