@@ -15,6 +15,8 @@ const cases=[
     ['left subscript',
         {k:'script',pre:true,base:word('A'),sub:word('3'),sup:seq()},
         '{}_{3}A'],
+    ['fraction without bar',{k:'frac',style:'noBar',num:word('a'),den:word('b')},
+        '\\begin{array}{c}a\\\\b\\end{array}'],
     ['boxed expression',{k:'borderBox',body:word('x+1'),
         hideTop:false,hideBottom:false,hideLeft:false,hideRight:false,
         strikeH:false,strikeV:false,strikeBLTR:false,strikeTLBR:false},
