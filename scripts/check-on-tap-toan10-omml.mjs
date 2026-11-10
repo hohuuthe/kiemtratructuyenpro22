@@ -48,8 +48,7 @@ formulas.forEach(([question,runs],i)=>{
     ? validateScientificLatexForImport(record.latex)
     : {ok:false,reason:record.reason||'OMML converter rejected the formula'};
   if(verdict.ok)formulasVerified++;
-  else errors.push({question,index:i+1,sourceText:runs.map(x=>x[0]).join('').slice(0,140),
-    conversionStatus:record.status,reason:verdict.reason,latex:record.latex.slice(0,180)});
+  else errors.push({question,index:i+1,conversionStatus:record.status,reasonClass:record.status==='review'?'OMML_REVIEW':'LATEX_OR_WORD_VALIDATION'});
 });
 const byQuestion=[...grouped].map(([question,tokens])=>({
   question,formulaCount:tokens.length,
@@ -70,4 +69,4 @@ writeFileSync('public/qa-on-tap-toan10-omml.json',JSON.stringify(out,null,2)+'\n
 console.log('ON_TAP_TOAN_10_LAN_1 math objects:',out.formulasFound,
   'parsed:',parsed,'verified:',formulasVerified,'pending:',errors.length);
 for(const e of errors.slice(0,40))
-  console.log('Q'+e.question+' formula '+e.index+': '+e.reason+' ['+e.sourceText.slice(0,65)+']');
+  console.log('Q'+e.question+' formula '+e.index+': '+e.reasonClass);
