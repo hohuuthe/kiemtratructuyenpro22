@@ -369,6 +369,18 @@ function decodeMtef(input, allowNullSlotEnd) {
             const annotation = label ? (v ? '^{' + label + '}' : '_{' + label + '}') : '';
             return bounded('\\' + command + '{' + body + '}' + annotation);
         }
+        // MTEF tmSTRIKE, documented variation bits: horizontal (1),
+        // upward slash (2), downward slash (4), both diagonals (6).
+        // The object slot must be present and horizontal may not mix
+        // with diagonals. Keep visual orientation during TeX conversion.
+        if (s === 36) {
+            if (![1,2,4,6].includes(v) || c.length !== 1 ||
+                c[0].kind !== 'line') fail('invalid strike template');
+            const body=lineValue(c[0]);
+            if (!body) fail('empty strike template');
+            const command={1:'sout',2:'cancel',4:'bcancel',6:'xcancel'}[v];
+            return bounded('\\' + command + '{' + body + '}');
+        }
         if (s === 37 && v === 0 && c.length === 1 && c[0].kind === 'line') {
             const body = lineValue(c[0]);
             if (!body) fail('empty border box');
