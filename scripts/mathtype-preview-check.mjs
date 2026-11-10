@@ -25,7 +25,8 @@ const legacy=run(['scripts/check-word-import-release.mjs'],'existing-word-releas
 const previewIntegration=legacy.ok
   ? run(['--import','tsx','--test','--test-reporter=tap',
       'tests/word-mathtype-export-app.test.mjs',
-      'tests/word-mathtype-export-preview-ui.test.mjs'],
+      'tests/word-mathtype-export-preview-ui.test.mjs',
+      'tests/exam-mathtype-zip.test.mjs'],
       'mathtype-preview-integration')
   : {label:'mathtype-preview-integration',ok:false,skippedBecause:'existing Word release gate failed'};
 
