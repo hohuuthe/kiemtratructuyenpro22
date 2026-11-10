@@ -676,7 +676,9 @@ export async function inspectScientificDocx(arrayBuffer) {
             const id=attr(ole,'id');
             const converted=await readMathTypeRelationship(zip,id,rels.get(attr(firstDesc(node,'imagedata'),'id')));
             formulas.push({token,sourceType:'mathtype',originalOmml:converted.sourceXml,
-                latex:converted.latex,status:'parsed',reason:'',
+                latex:converted.latex,
+                status:converted.requiresReview?'review':'parsed',
+                reason:converted.requiresReview?converted.notice:'',
                 sourcePreference:converted.sourcePreference||'ole',
                 engineVersion:WORD_IMPORT_ENGINE_VERSION});
             if(converted.notice)issues.push({kind:'formula-notice',token,reason:converted.notice});
