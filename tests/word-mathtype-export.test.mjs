@@ -198,3 +198,14 @@ test('Existing relationship IDs and media file names are never overwritten',asyn
   const ids=Array.from(rels.getElementsByTagNameNS(NS.rel,'Relationship')).map(r=>r.getAttribute('Id'));assert.equal(ids.length,3);assert.equal(new Set(ids).size,3);
   assert.deepEqual(await out.file('word/media/kttt-mathtype-1.png').async('uint8array'),png);
 });
+
+
+test('MathType keeps nonbreaking/thin Unicode spacing without guessing tab/newline semantics',()=>{
+  const text='x\u00a0y\u2009z\u202fw';
+  const source=ast(run(text));
+  const bytes=astToMtef(source);
+  const tree=readMtef(bytes);
+  assert.equal(glyphs(tree),text,'Unicode separator character widths/codepoints must be retained');
+  assert.throws(()=>astToMtef(ast(run('x'+String.fromCharCode(9)+'y'))),{code:'UNSUPPORTED_WHITESPACE'});
+  assert.throws(()=>astToMtef(ast(run('x'+String.fromCharCode(10)+'y'))),{code:'UNSUPPORTED_WHITESPACE'});
+});

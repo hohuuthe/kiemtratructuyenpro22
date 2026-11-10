@@ -42,10 +42,12 @@ export function astToMtef(ast,{fontSizePt=13,display=false}={}) {
       case 'seq':return n.items.flatMap(c=>emit(c,depth));
       case 'text':return Array.from(n.text,c=>{
         const cp=c.codePointAt(0);let face;
-        if(/^\s$/.test(c)){
-          if(c!==' ')fail('UNSUPPORTED_WHITESPACE','Tabs/newlines inside a math run need structural rows.');
-          return char(32,1);
-        }
+        // Office Math may use U+00A0 (nonbreaking), U+2009 (thin), etc.
+        // These are horizontal separator characters, NOT tab/newline. Keep
+        // their exact Unicode MTCode; do not collapse spacing to U+0020.
+        if(/^\p{Zs}$/u.test(c))return char(cp,TYPES.text);
+        if(/^\s$/u.test(c))
+          fail('UNSUPPORTED_WHITESPACE','Tabs/newlines inside a math run need structural rows.');
         if(n.style==='p')face=TYPES.text;
         else if(n.style==='b'||n.style==='bi')face=TYPES.vector;
         else if(/[0-9]/.test(c))face=n.style==='i'?TYPES.variable:TYPES.number;
