@@ -72,6 +72,40 @@ const escapeMathRun = value => String(value).replace(/[\\{}%#$&_~^∞∑∏∫�
         char === '{' ? '\\{' : char === '}' ? '\\}' :
         char === '^' ? '\\hat{}' : char === '_' ? '\\_' :
         char === '~' ? '\\sim ' : '\\' + char));
+/**
+ * Import only UNAMBIGUOUS inline Unicode math, as actually stored in legacy
+ * OMML m:t runs. Do not translate a bare root into \sqrt{} (loses its
+ * radicand). In this subset, √3/2 is sqrt(3)/2, not sqrt(3/2).
+ * Complex roots must be represented by m:rad or explicitly teacher-reviewed.
+ */
+function escapeVerifiedLinearMathRun(raw) {
+    if (!/[√\u0305]/u.test(raw)) return escapeMathRun(raw);
+    let text='',result='';
+    const flush=()=>{if(text){result+=escapeMathRun(text);text='';}};
+    for(let i=0;i<raw.length;i++){
+        const c=raw[i];
+        if(c==='√') {
+            const match=raw.slice(i+1).match(/^([0-9]+)(?=$|[\s;:()=<>+*/-])/u);
+            if(!match) throw new Error('Dấu căn tuyến tính Word chưa rõ phạm vi; cần kiểm tra công thức gốc');
+            flush();
+            result+='\\sqrt{'+match[1]+'}';
+            i+=match[1].length;
+        } else if(i+1<raw.length && raw[i+1]==='\u0305') {
+            if(!/^[A-Za-z]$/.test(c))
+                throw new Error('Dấu gạch phủ định Word chưa rõ ký hiệu được phủ');
+            flush();
+            result+='\\overline{'+c+'}';
+            i++;
+        } else if(c==='\u0305') {
+            throw new Error('Dấu gạch phủ định Word không có ký tự nền cần xác minh');
+        } else {
+            text+=c;
+        }
+    }
+    flush();
+    return result;
+}
+
 const mathScriptCommands = Object.freeze({
     'double-struck':'\\mathbb',
     script:'\\mathcal',
@@ -358,8 +392,8 @@ function omml(node, depth = 0) {
                 return '\\text{'+escapeTextRun(raw)+'}';
             }
             if(raw.includes('\\'))throw new Error('Equation chứa backslash dạng ký tự, không được tự hiểu là lệnh LaTeX');
-            if(/[\^√]/u.test(raw))throw new Error('Equation chứa ký hiệu tuyến tính cần xác minh, không tự đổi thành cấu trúc toán');
-            const escaped=escapeMathRun(raw);
+            if(raw.includes('^'))throw new Error('Equation chứa lũy thừa tuyến tính chưa xác minh; không tự đổi cấu trúc');
+            const escaped=escapeVerifiedLinearMathRun(raw);
             if(script!=='roman') {
                 return renderMathScriptRun(raw,script,style);
             }
