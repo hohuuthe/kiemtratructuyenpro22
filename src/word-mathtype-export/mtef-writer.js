@@ -64,7 +64,7 @@ export function astToMtef(ast,{fontSizePt=13,display=false}={}) {
         if(n.style==='noBar'){
           // MTEF has no dedicated no-bar fraction variation. Preserve numerator /
           // denominator as two editable, centered lines without inventing a bar.
-          return [4,0,2,1,line(n.num,depth),line(n.den,depth),0];
+          return [4,0,2,1,...line(n.num,depth),...line(n.den,depth),0];
         }
         return tmpl(11,0,[line(n.num,depth),line(n.den,depth)]);
       }
@@ -88,9 +88,9 @@ export function astToMtef(ast,{fontSizePt=13,display=false}={}) {
         return tmpl(def[0],v,[line(n.body,depth),line(n.sup,depth+1),line(n.sub,depth+1),char(def[1],22)]);
       }
       case 'groupChar':{
-        const selector=n.chr==='\\u23b4'||n.chr==='\\u23b5'?25:24;
+        const selector=n.chr==='\u23b4'||n.chr==='\u23b5'?25:24;
         const top=n.pos==='top';
-        const glyph=n.chr==='\\u23b4'?0xfe47:n.chr==='\\u23b5'?0xfe48:top?0xfe37:0xfe38;
+        const glyph=n.chr==='\u23b4'?0xfe47:n.chr==='\u23b5'?0xfe48:top?0xfe37:0xfe38;
         return tmpl(selector,top?1:0,[line(n.body,depth),[1,1],char(glyph,22)]);
       }
       case 'borderBox':{
@@ -105,7 +105,7 @@ export function astToMtef(ast,{fontSizePt=13,display=false}={}) {
         if(!strikes)return framed;
         // StrikeBoxClass has one main slot. Put the already encoded box inside
         // a one-slot line, retaining the editable box and its independent edges.
-        return [3,0,36,strikes,0,1,0,...framed,0];
+        return [3,0,36,strikes,0,1,0,...framed,0,0];
       }
       case 'matrix':{
         const rows=n.rows.length,cols=n.rows[0]?.length;
