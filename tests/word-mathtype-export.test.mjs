@@ -146,7 +146,7 @@ test('Postprocess all occurrences atomically with unique native objects and matc
   assert.equal((xml.match(/Answer A\./g)||[]).length,corpus.length);
   assert.equal(report.nativeEditorVerified,false);
 });
-test('Batch preview path renders many formulas in one renderer pass and never falls back per formula',async()=>{
+test('Batch preview path processes bounded windows and never falls back per formula',async()=>{
   const repeated=Array.from({length:48},(_,i)=>['repeat-'+i,fraction(run('a+b'),run('c-d'))]);
   const input=await makeDocx(repeated);
   let batchCalls=0,singleCalls=0,batchItems=0;
@@ -159,12 +159,53 @@ test('Batch preview path renders many formulas in one renderer pass and never fa
     renderPreviewBatch
   });
   assert.equal(result.report.converted,48);
-  assert.equal(batchCalls,1);
+  assert.equal(batchCalls,3,'48 formulas are processed as three windows of at most 16');
   assert.equal(batchItems,48);
   assert.equal(singleCalls,0);
   const after=await load(result.blob);
   const xml=parseXml(await after.file('word/document.xml').async('string'));
   assert.equal(xml.getElementsByTagNameNS(NS.o,'OLEObject').length,48);
+});
+
+test('Heavy MathType export streams bounded previews and reports monotonic global progress',async()=>{
+  const source=Array.from({length:160},(_,i)=>['heavy-'+i,fraction(run(String(i+1)),run('x+1'))]);
+  const input=await makeDocx(source),original=await sha256(new Uint8Array(await input.arrayBuffer()));
+  const sizes=[],progress=[],packaged=[];
+  const {blob,report}=await convertDocxToMathType(input,{
+    previewWindowSize:12,previewBatchTimeoutMs:15000,
+    renderPreview:stubPreview,
+    renderPreviewBatch:async (items,{onProgress})=>{
+      sizes.push(items.length);
+      onProgress({completed:items.length,total:items.length,cached:0});
+      return items.map(()=>({png,widthPt:20,heightPt:10,baselinePt:2}));
+    },
+    onPreviewProgress:p=>progress.push(p.completed),
+    onProgress:p=>packaged.push(p.completed)
+  });
+  assert.equal(report.converted,160);
+  assert.ok(sizes.length>=14);
+  assert.ok(sizes.every(n=>n>0&&n<=12));
+  assert.equal(sizes.reduce((a,b)=>a+b,0),160);
+  assert.equal(progress.at(-1),160);
+  assert.ok(progress.every((v,i)=>i===0||v>=progress[i-1]));
+  assert.equal(packaged.at(-1),160);
+  assert.equal(packaged.length,160);
+  assert.equal(await sha256(new Uint8Array(await input.arrayBuffer())),original);
+  const doc=parseXml(await (await load(blob)).file('word/document.xml').async('string'));
+  assert.equal(doc.getElementsByTagNameNS(NS.o,'OLEObject').length,160);
+});
+
+test('Late preview-window failure is atomic and aborts the export without a partial DOCX',async()=>{
+  const input=await makeDocx(Array.from({length:38},(_,i)=>['failure-'+i,run('x'+i)]));
+  let calls=0;
+  await assert.rejects(convertDocxToMathType(input,{
+    previewWindowSize:12,renderPreview:stubPreview,
+    renderPreviewBatch:async items=>{
+      if(++calls===3)throw new Error('Simulated preview failure after two packaged windows');
+      return items.map(()=>({png,widthPt:20,heightPt:10,baselinePt:2}));
+    }
+  }),/Simulated preview failure/);
+  assert.equal(calls,3);
 });
 
 test('Preflight checks all formulas before any output/renderer work; formula errors include location',async()=>{

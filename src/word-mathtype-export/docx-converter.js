@@ -119,32 +119,68 @@ export async function convertDocxToMathType(input,options={}){
   const renderPreview=options.renderPreview;
   if(typeof renderPreview!=='function')fail('PREVIEW_REQUIRED','A qualified formula preview renderer is required.');
   const renderPreviewBatch=options.renderPreviewBatch;
-  let preparedPreviews=null;
-  if(typeof renderPreviewBatch==='function'){
-    const batchTimeoutMs=Math.max(15000,Math.min(180000,Number(options.previewBatchTimeoutMs||Math.max(30000,work.length*900))));
+  // Bound live PNG previews instead of retaining every preview until all
+  // images are ready. The former 180s deadline covered the *entire* export:
+  // a healthy export with hundreds of equations could time out mid-progress.
+  const previewWindowSize=Math.max(1,Math.min(32,Math.floor(Number(options.previewWindowSize)||16)));
+  let previewWindow=[],previewWindowEnd=0,previewCached=0;
+  async function loadPreviewWindow(start){
+    const pending=work.slice(start,start+previewWindowSize);
+    const controller=new AbortController();
+    const stop=()=>controller.abort(options.signal?.reason);
+    if(options.signal?.aborted)aborted(options.signal);
+    options.signal?.addEventListener('abort',stop,{once:true});
+    const timeoutMs=Math.max(15000,Math.min(180000,
+      Number(options.previewBatchTimeoutMs)||Math.max(45000,pending.length*4000)));
+    let timeout,windowCached=0,rejectStall,settled=false;
+    // This is a NO-PROGRESS watchdog, not an elapsed-time deadline.
+    // Successful activity renews the timer; a huge but healthy export cannot
+    // be rejected solely because it has been running for over 180 seconds.
+    const stallPromise=new Promise((_,reject)=>{rejectStall=reject;});
+    const armWatchdog=()=>{
+      if(settled)return;
+      clearTimeout(timeout);
+      timeout=setTimeout(()=>{
+        controller.abort();
+        rejectStall(new MathTypeExportError('PREVIEW_BATCH_TIMEOUT',
+          'Nhóm MathType '+(start+1)+'-'+(start+pending.length)+' ngừng phản hồi.',
+          {total:work.length,index:start+1,windowSize:pending.length}));
+      },timeoutMs);
+    };
     try{
-      preparedPreviews=await Promise.race([
-        renderPreviewBatch(work.map(item=>({
-          ast:item.ast,
-          fontSizePt:item.fontSizePt,
-          display:item.display,
-          index:item.index
+      armWatchdog();
+      const previews=await Promise.race([
+        Promise.resolve().then(()=>renderPreviewBatch(pending.map(item=>({
+          ast:item.ast,fontSizePt:item.fontSizePt,display:item.display,index:item.index
         })),{
-          signal:options.signal,
-          onProgress:info=>options.onPreviewProgress?.(info)
-        }),
-        new Promise((_,reject)=>setTimeout(()=>reject(new MathTypeExportError(
-          'PREVIEW_BATCH_TIMEOUT',
-          'Quá thời gian tạo ảnh xem trước MathType theo lô.',
-          {total:work.length}
-        )),batchTimeoutMs))
+          signal:controller.signal,
+          onProgress:({completed=0,cached=0}={})=>{
+            if(settled||controller.signal.aborted)return;
+            armWatchdog();
+            windowCached=Math.max(windowCached,cached);
+            options.onPreviewProgress?.({
+              completed:start+Math.max(0,Math.min(pending.length,completed)),
+              total:work.length,cached:previewCached+windowCached
+            });
+          }
+        })),
+        stallPromise
       ]);
-      if(!Array.isArray(preparedPreviews)||preparedPreviews.length!==work.length)
-        fail('PREVIEW_FAILED','Số ảnh xem trước MathType theo lô không khớp số công thức.');
-      for(const preview of preparedPreviews)pngCheck(preview);
+      aborted(options.signal);
+      if(!Array.isArray(previews)||previews.length!==pending.length)
+        fail('PREVIEW_FAILED','Số ảnh xem trước MathType trong nhóm không khớp số công thức.');
+      for(const preview of previews)pngCheck(preview);
+      previewCached+=windowCached;
+      options.onPreviewProgress?.({completed:start+pending.length,total:work.length,cached:previewCached});
+      return previews;
     }catch(e){
-      if(e instanceof MathTypeExportError)e.details={...e.details,total:work.length};
+      if(e instanceof MathTypeExportError)
+        e.details={...e.details,total:work.length,index:e.details?.index||start+1};
       throw e;
+    }finally{
+      settled=true;
+      clearTimeout(timeout);
+      options.signal?.removeEventListener('abort',stop);
     }
   }
   const originalHash=await sha256(source),manifest=[];
@@ -152,7 +188,12 @@ export async function convertDocxToMathType(input,options={}){
     aborted(options.signal);
     if(i===0||i%4===0)await yieldMainThread(options.signal);
     const item=work[i];const {doc,rels}=item.partData;
-    let preview=preparedPreviews?.[i]||null;
+    if(typeof renderPreviewBatch==='function' && i>=previewWindowEnd){
+      previewWindow=await loadPreviewWindow(i);
+      previewWindowEnd=i+previewWindow.length;
+    }
+    let preview=typeof renderPreviewBatch==='function'
+      ? previewWindow[i-(previewWindowEnd-previewWindow.length)] : null;
     if(!preview){
       try {
         const timeoutMs=Math.max(3000,Math.min(30000,Number(options.previewTimeoutMs||12000)));
@@ -205,6 +246,8 @@ export async function convertDocxToMathType(input,options={}){
     ]);
     manifest.push({index:item.index,part:item.partData.part,sourceSha256,mtefSha256,oleSha256,previewSha256,olePath,imagePath});
     options.onProgress?.({completed:i+1,total:work.length});
+    // Release this entire window after its objects are packaged into ZIP.
+    if(i+1===previewWindowEnd){previewWindow=[];previewWindowEnd=0;}
   }
   for(const data of partData){
     if(data.doc.getElementsByTagNameNS(NS.m,'oMath').length)fail('INCOMPLETE_CONVERSION','Unconverted Equation remains in output.');
