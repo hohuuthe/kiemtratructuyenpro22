@@ -68,10 +68,16 @@ export function createQuestionBankWordDownload(blob, filename, options = {}) {
   // preceding async DOCX generation action. Without this browser API, the
   // native <a download> action remains the regular user-initiated fallback.
   const picker = options.picker;
-  if (typeof picker === 'function' && typeof link.addEventListener === 'function') {
+  if (typeof link.addEventListener === 'function') {
+    if (typeof picker !== 'function') {
+      link.addEventListener('click', () => options.onBrowserDownload?.());
+    } else {
     let saving = false, pickerAvailable = true;
     link.addEventListener('click', event => {
-      if (!pickerAvailable) return; // Allow the browser's regular download.
+      if (!pickerAvailable) {
+        options.onBrowserDownload?.();
+        return; // Allow the browser's regular download.
+      }
       event.preventDefault();
       if (saving || released) return;
       saving = true;
@@ -93,6 +99,7 @@ export function createQuestionBankWordDownload(blob, filename, options = {}) {
         options.onError?.(error);
       }).finally(() => { saving = false; });
     });
+    }
   }
 
   return {
