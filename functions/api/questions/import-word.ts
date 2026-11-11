@@ -65,16 +65,11 @@ export function validateBatchPayload(body:any) {
                 errors.push(label+': metadata công thức chưa được xác minh');
                 continue;
             }
-            const location=src.field==='content'?q.content:
-                src.field==='answer'?q.answer:
-                (typeof opts[src.field.slice(-1)]==='string'
-                    ?opts[src.field.slice(-1)]
-                    :opts[src.field.slice(-1)]?.text)||'';
+            // A MathType object can be inside a pre-existing $...$ block.
+            // The shared preview/server gate verifies source occurrences,
+            // positions and provenance without requiring standalone $latex$.
             if(seenTokens.has(src.token))errors.push(label+': mã công thức gốc bị lặp: '+src.token);
             seenTokens.add(src.token);
-            if(!String(location).includes('$'+src.latex+'$')) {
-                errors.push(label+': công thức đã xác minh không có trong trường '+src.field);
-            }
         }
         if(errors.length>25)break;
     }

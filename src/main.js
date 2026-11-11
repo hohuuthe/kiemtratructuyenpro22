@@ -5265,6 +5265,12 @@ if (contentType && contentType.includes("application/json")) {
                     : 'fixed top-4 right-4 z-[9999999] flex flex-col gap-2 max-w-sm pointer-events-none';
                 (document.body || document.documentElement).appendChild(container);
             }
+            // Toasts must be above the modal/backdrop and outside its stacking
+            // context. Keep a fullscreen toast within the fullscreen root.
+            const toastParent = document.fullscreenElement || document.body;
+            if (container.parentElement !== toastParent) toastParent.appendChild(container);
+            container.style.zIndex = '2147483647';
+            container.style.pointerEvents = 'none';
             const toast = document.createElement('div');
             const bgColor = {
                 'success': 'bg-emerald-600 border border-emerald-500/50',
@@ -5282,6 +5288,7 @@ if (contentType && contentType.includes("application/json")) {
                 toast.textContent = trimmedMsg;
             } else {
                 toast.className = `toast ${sizeClasses} ${bgColor} text-white pointer-events-auto group relative`;
+                toast.style.pointerEvents = 'auto';
                 
                 const textSpan = document.createElement('span');
                 textSpan.textContent = trimmedMsg;
@@ -5290,34 +5297,48 @@ if (contentType && contentType.includes("application/json")) {
 
                 const copyBtn = document.createElement('button');
                 copyBtn.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>`;
-                copyBtn.className = "hover:text-white/80 focus:outline-none flex-shrink-0 cursor-pointer p-1 rounded hover:bg-white/20 transition";
+                copyBtn.className = "hover:text-white/80 focus:outline-none flex-shrink-0 cursor-pointer min-w-10 min-h-10 inline-flex items-center justify-center p-2 rounded hover:bg-white/20 transition pointer-events-auto";
+                copyBtn.type = 'button';
+                copyBtn.style.pointerEvents = 'auto';
+                copyBtn.setAttribute('aria-label', 'Sao chép nội dung thông báo');
                 copyBtn.title = "Sao chép thông báo";
-                copyBtn.onclick = async () => {
+                copyBtn.onclick = async (event) => {
+                    event.stopPropagation();
+                    event.preventDefault();
                     const originalHtml = copyBtn.innerHTML;
                     let copied = false;
+                    // A synchronous fallback MUST run before any await: browsers
+                    // may revoke transient user activation after a rejected
+                    // Clipboard promise, making execCommand('copy') fail.
+                    const priorFocus = document.activeElement;
+                    let ta;
                     try {
-                        if (navigator.clipboard && navigator.clipboard.writeText) {
-                            await navigator.clipboard.writeText(trimmedMsg);
-                            copied = true;
-                        }
+                        ta = document.createElement('textarea');
+                        ta.value = trimmedMsg;
+                        ta.setAttribute('readonly', '');
+                        ta.style.position = 'fixed';
+                        ta.style.top = '0';
+                        ta.style.left = '0';
+                        ta.style.opacity = '0';
+                        ta.style.pointerEvents = 'none';
+                        document.body.appendChild(ta);
+                        ta.focus();
+                        ta.select();
+                        copied = document.execCommand('copy') === true;
                     } catch (error) {
-                        console.warn('[Toast] Clipboard API unavailable, using fallback copy.', error);
+                        console.warn('[Toast] Synchronous fallback copy failed.', error);
+                    } finally {
+                        ta?.remove();
+                        try { priorFocus?.focus?.({preventScroll:true}); } catch {}
                     }
                     if (!copied) {
                         try {
-                            const ta = document.createElement('textarea');
-                            ta.value = trimmedMsg;
-                            ta.setAttribute('readonly', '');
-                            ta.style.position = 'fixed';
-                            ta.style.opacity = '0';
-                            ta.style.pointerEvents = 'none';
-                            document.body.appendChild(ta);
-                            ta.focus();
-                            ta.select();
-                            copied = document.execCommand('copy') === true;
-                            ta.remove();
+                            if (navigator.clipboard && navigator.clipboard.writeText) {
+                                await navigator.clipboard.writeText(trimmedMsg);
+                                copied = true;
+                            }
                         } catch (error) {
-                            console.warn('[Toast] Fallback copy failed.', error);
+                            console.warn('[Toast] Clipboard API unavailable.', error);
                         }
                     }
                     if (copied) {
@@ -5340,7 +5361,7 @@ if (contentType && contentType.includes("application/json")) {
                     toast.style.transform = 'translateY(-6px)';
                     toast.style.transition = 'opacity 0.25s, transform 0.25s';
                     setTimeout(() => toast.remove(), 260);
-                }, size === 'large' ? 3000 : 4000);
+                }, size === 'large' ? 3000 : (type === 'error' ? 15000 : type === 'warning' ? 9000 : 4000));
             };
 
             const clearTimer = () => {
@@ -14036,7 +14057,11 @@ D. Phát biểu SAI</pre>
                 pendingImportQuestions,wordImportVerification?.documentIssues||[]
             );
             if(!check.ok){
-                showToast('Chưa thể lưu: '+check.errors.slice(0,3).join('; '),'error');
+                // Show a stable, actionable error summary before any request:
+                // never silently discard all but three source-verification failures.
+                const reason=check.errors.slice(0,3).join('; ');
+                showToast('Chưa thể lưu ('+check.errors.length+' lỗi): '+reason+
+                    (check.errors.length>3?'… Kiểm tra thêm lỗi trong từng câu.':''),'error');
                 return;
             }
             if(!wordImportFileMeta?.fileName||!currentUser?.id){
@@ -14124,8 +14149,10 @@ D. Phát biểu SAI</pre>
                 const receipt=await response.json();
                 if(!response.ok||!receipt.success||
                     receipt.count!==records.length||receipt.expected!==records.length){
-                    const detail=(receipt.issues||[]).slice(0,3).join('; ');
-                    throw new Error(receipt.error||detail||'CSDL không xác nhận đủ số câu');
+                    const detail=(Array.isArray(receipt.issues)?receipt.issues:[])
+                        .slice(0,3).join('; ');
+                    throw new Error([receipt.error,detail].filter(Boolean).join(': ')||
+                        'CSDL không xác nhận đủ số câu');
                 }
                 const count=records.length;
                 pendingImportQuestions=[];
