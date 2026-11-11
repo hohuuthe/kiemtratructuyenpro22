@@ -54,6 +54,16 @@ test('Matrices preserve row-major order and real dimensions, not a flattened tex
   const tree=readMtef(astToMtef(ast(matrix([[run('1'),run('2')],[run('3'),run('4')]]))));
   const m=flatten(tree).find(n=>n.k==='matrix');assert.equal(m.rows,2);assert.equal(m.cols,2);assert.deepEqual(m.cells.map(glyphs),['1','2','3','4']);
 });
+test('Embedded Equation Native OLE header uses MathType EF clipboard format for complex sums',()=>{
+  const formula=ast(nary('\u2211',run('k'),run('k=1'),run('n')));
+  const native=astToMtef(formula);
+  const ole=inspectOle(createMathTypeOle(native));
+  assert.equal(ole.streams['Equation Native'].readUInt16LE(6),0xc1c6);
+  assert.deepEqual(ole.mtef,Buffer.from(native));
+  const sum=flatten(readMtef(ole.mtef)).find(record=>record.selector===16);
+  assert.ok(sum,'sum template must remain present in native equation stream');
+  assert.equal(glyphs(sum.children[0]),'k');
+});
 test('CFB regular FAT and MiniFAT both round-trip bounded native streams',()=>{
   for(const size of [1,80,900,3000,8000]){
     const source=astToMtef(ast(run('x'.repeat(size))));const ole=createMathTypeOle(source);
