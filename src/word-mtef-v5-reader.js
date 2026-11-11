@@ -352,6 +352,13 @@ function decodeMtef(input, allowNullSlotEnd) {
         }
         if (c.some(n => n.kind !== 'line')) fail('unexpected template payload');
         const a = c.map(n => lineValue(n, [27, 28, 29].includes(s)));
+        if (producerKey === 'KTTTMT1' && s === 23 && v >= 0 && v <= 3 && a.length === 3 && a[0] &&
+            (!!a[1] === !!(v & 1)) && (!!a[2] === !!(v & 2))) {
+            // Preserve the centered lower/upper limits that the native OMML
+            // exporter writes for lim, min/max and other operator-like bases.
+            return bounded('\\\\mathop{' + a[0] + '}\\\\limits' +
+                (a[1] ? '_{' + a[1] + '}' : '') + (a[2] ? '^{' + a[2] + '}' : ''));
+        }
         if (s === 11 && v === 0 && a.length === 2 && a.every(Boolean)) return bounded('\\frac{' + a[0] + '}{' + a[1] + '}');
         if (s === 10 && v === 0 && a[0] && (a.length === 1 || (a.length === 2 && c[1].empty))) return '\\sqrt{' + a[0] + '}';
         if (s === 10 && v === 1 && a.length === 2 && a.every(Boolean)) return '\\sqrt[' + a[1] + ']{' + a[0] + '}';
