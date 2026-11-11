@@ -41,6 +41,10 @@ export function astToMtef(ast,{fontSizePt=13,display=false}={}) {
     switch(n.k){
       case 'seq':return n.items.flatMap(c=>emit(c,depth));
       case 'text':return Array.from(n.text,c=>{
+        // Word's OMML often inserts U+200B as a zero-width layout separator
+        // (not mathematical content). Never encode it as an MTEF CHAR: the
+        // importer rejects that code point and exported Word cannot reimport.
+        if(c==='\u200b')return [];
         const cp=c.codePointAt(0);let face;
         if(/^\s$/.test(c)){
           if(c!==' ')fail('UNSUPPORTED_WHITESPACE','Tabs/newlines inside a math run need structural rows.');
