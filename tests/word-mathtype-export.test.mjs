@@ -107,7 +107,7 @@ test('Fraction variants bar, noBar, skewed and linear retain their distinct sema
 });
 
 test('groupChr top/bottom braces and brackets preserve position and editable template selectors',()=>{
-  for(const [chr,pos,selector,variation] of [['\\u23de','top',24,1],['\\u23df','bot',24,0],['\\u23b4','top',25,1],['\\u23b5','bot',25,0]]){
+  for(const [chr,pos,selector,variation] of [['\u23de','top',24,1],['\u23df','bot',24,0],['\u23b4','top',25,1],['\u23b5','bot',25,0]]){
     const tree=ast('<m:groupChr><m:groupChrPr><m:chr m:val="'+chr+'"/><m:pos m:val="'+pos+'"/></m:groupChrPr>'+arg('e',run('BODY'))+'</m:groupChr>');
     const encoded=readMtef(astToMtef(tree));
     const group=flatten(encoded).find(n=>n.selector===selector);
