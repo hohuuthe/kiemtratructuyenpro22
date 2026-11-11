@@ -9,6 +9,7 @@ import {convertDocxToMathType,sha256} from '../src/word-mathtype-export/docx-con
 import {renderFormulaSvg} from '../qualification/mathtype-export/renderer.mjs';
 import {corpus,math,run,arg,fraction,nary,matrix,makeDocx} from './helpers/math-export-fixtures.mjs';
 import {inspectOle,readMtef,glyphs} from './helpers/read-exported-ole.mjs';
+import {convertMtefV5ToLatex} from '../src/word-mtef-v5-reader.js';
 const ast=body=>ommlToAst(parseXml(math(body)).documentElement);
 const load=async blob=>JSZip.loadAsync(await blob.arrayBuffer());
 const flatten=n=>[n,...(n.children||n.cells||[]).flatMap(flatten)];
@@ -41,6 +42,26 @@ for(const [id,body] of corpus){
     assert.doesNotMatch(preview.svg,/<(?:text|image|script|foreignObject)\b/);
   });
 }
+test('Word U+200B layout separators export as re-importable MathType and old KTTT files remain readable',()=>{
+  const source=ast(run('x\\u200by'));
+  const generated=astToMtef(source);
+  assert.equal(convertMtefV5ToLatex(generated),'xy');
+  const chars=Array.from(generated);
+  const marker=[2,0,0x86,0x79,0];
+  const at=chars.findIndex((_,i)=>marker.every((v,k)=>chars[i+k]===v));
+  assert.ok(at>=0,'locate encoded y character');
+  // Recreate the exact obsolete KTTT encoding: CHAR face=6, MTCode=U+200B.
+  const legacy=Uint8Array.from([...chars.slice(0,at),2,0,0x86,0x0b,0x20,...chars.slice(at)]);
+  assert.equal(convertMtefV5ToLatex(legacy),'xy');
+  const modifiedKey=Uint8Array.from(legacy);
+  modifiedKey[8]='Z'.charCodeAt(0);
+  assert.throws(()=>convertMtefV5ToLatex(modifiedKey),/unmapped MTCode U\\+200b/);
+  const foreignFace=Uint8Array.from(legacy);
+  foreignFace[at+2]=0x83;
+  assert.throws(()=>convertMtefV5ToLatex(foreignFace),/unmapped MTCode U\\+200b/);
+  assert.throws(()=>astToMtef(ast(run('x\\u200cy'))),/UNSUPPORTED_CODEPOINT|Unsupported MTCode/);
+});
+
 test('Numerator/denominator and lower/upper operator limits preserve source order',()=>{
   const fractionTree=readMtef(astToMtef(ast(fraction(run('NUM'),run('DEN')))));
   const f=flatten(fractionTree).find(n=>n.selector===11);assert.equal(glyphs(f.children[0]),'NUM');assert.equal(glyphs(f.children[1]),'DEN');
