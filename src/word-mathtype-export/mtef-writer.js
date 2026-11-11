@@ -41,6 +41,10 @@ export function astToMtef(ast,{fontSizePt=13,display=false}={}) {
     switch(n.k){
       case 'seq':return n.items.flatMap(c=>emit(c,depth));
       case 'text':return Array.from(n.text,c=>{
+        // OMML can contain U+200B only as a zero-width layout separator.
+        // It is not equation content and must not be emitted as MTEF CHAR:
+        // previous exported Word files could not be imported back by KTTT.
+        if(c==='\u200b')return [];
         const cp=c.codePointAt(0);let face;
         if(/^\s$/.test(c)){
           if(c!==' ')fail('UNSUPPORTED_WHITESPACE','Tabs/newlines inside a math run need structural rows.');
