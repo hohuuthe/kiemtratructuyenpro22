@@ -23,6 +23,12 @@ test('Toast attempts synchronous copy while click activation is valid and retain
    'The fallback must execute before the first await while transient user activation exists');
  assert.match(handler,/ta\?\.remove\(\)/);
  assert.match(source,/type === 'error' \? 15000/);
+ assert.match(source,/container\.style\.zIndex = '2147483647'/);
+ assert.match(source,/container\.parentElement !== toastParent/);
+ assert.match(source,/copyBtn\.style\.pointerEvents = 'auto'/);
+ assert.match(source,/copyBtn\.type = 'button'/);
+ assert.match(source,/event\.stopPropagation\(\)/);
+ assert.match(source,/min-w-10 min-h-10/);
 });
 
 test('Word import toast distinguishes safe-copy save and safe-copy retry',()=>{
