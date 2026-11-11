@@ -54,6 +54,16 @@ test('Matrices preserve row-major order and real dimensions, not a flattened tex
   const tree=readMtef(astToMtef(ast(matrix([[run('1'),run('2')],[run('3'),run('4')]]))));
   const m=flatten(tree).find(n=>n.k==='matrix');assert.equal(m.rows,2);assert.equal(m.cols,2);assert.deepEqual(m.cells.map(glyphs),['1','2','3','4']);
 });
+test('Embedded Equation Native OLE header uses MathType EF clipboard format for complex sums',()=>{
+  const formula=ast(nary('\u2211',run('k'),run('k=1'),run('n')));
+  const native=astToMtef(formula);
+  const ole=inspectOle(createMathTypeOle(native));
+  assert.equal(ole.streams['Equation Native'].readUInt16LE(6),0xc1c6);
+  assert.deepEqual(ole.mtef,Buffer.from(native));
+  const sum=flatten(readMtef(ole.mtef)).find(record=>record.selector===16);
+  assert.ok(sum,'sum template must remain present in native equation stream');
+  assert.equal(glyphs(sum.children[0]),'k');
+});
 test('CFB regular FAT and MiniFAT both round-trip bounded native streams',()=>{
   for(const size of [1,80,900,3000,8000]){
     const source=astToMtef(ast(run('x'.repeat(size))));const ole=createMathTypeOle(source);
@@ -146,7 +156,42 @@ test('Postprocess all occurrences atomically with unique native objects and matc
   assert.equal((xml.match(/Answer A\./g)||[]).length,corpus.length);
   assert.equal(report.nativeEditorVerified,false);
 });
-test('Batch preview path renders many formulas in one renderer pass and never falls back per formula',async()=>{
+test('Every generated MathType OLE remains selectable with no shifted Word run or VML hit box',async()=>{
+  const preview=async()=>({png,widthPt:20,heightPt:14.5,baselinePt:10.5});
+  for(const [label,body,display] of [
+    ['inline-variable',run('x'),false],
+    ['inline-exponent',run('10'),false],
+    ['inline-fraction',fraction(run('a'),run('b')),false],
+    ['display-fraction',fraction(run('x'),run('y')),true]
+  ]){
+    const input=await makeDocx([[label,body]],{display});
+    const {blob,report}=await convertDocxToMathType(input,{renderPreview:preview});
+    const zip=await load(blob),doc=parseXml(await zip.file('word/document.xml').async('string'));
+    assert.equal(report.converted,1,label);
+    const objects=Array.from(doc.getElementsByTagNameNS(NS.w,'object'));
+    assert.equal(objects.length,1,label);
+    const wr=objects[0].parentNode;
+    assert.equal(wr.localName,'r',label);
+    assert.equal(wr.parentNode.localName,'p','OLE must remain a native inline run');
+    assert.equal(wr.getElementsByTagNameNS(NS.w,'position').length,0,'Run position must not move clickable OLE');
+    const shape=objects[0].getElementsByTagNameNS(NS.v,'shape')[0];
+    assert.match(shape.getAttribute('style'),/width:20\.0000pt;height:14\.5000pt/,label);
+    assert.doesNotMatch(shape.getAttribute('style'),/vertical-align|position:|margin-top|margin-bottom/,label);
+    const ole=objects[0].getElementsByTagNameNS(NS.o,'OLEObject')[0];
+    assert.equal(ole.getAttribute('ProgID'),'Equation.DSMT4');
+    assert.equal(ole.getAttribute('Type'),'Embed');
+    assert.equal(ole.getAttribute('ShapeID'),shape.getAttribute('id'));
+    assert.ok(ole.getAttributeNS(NS.r,'id'),'Embedded OLE relationship must remain intact');
+    const rel=zip.file('word/_rels/document.xml.rels');
+    assert.ok(rel);
+    const relText=await rel.async('string');
+    assert.ok(relText.includes(ole.getAttributeNS(NS.r,'id')));
+    const embedded=await zip.file(report.equations[0].olePath).async('uint8array');
+    readMtef(inspectOle(embedded).mtef);
+  }
+});
+
+test('Batch preview path processes bounded windows and never falls back per formula',async()=>{
   const repeated=Array.from({length:48},(_,i)=>['repeat-'+i,fraction(run('a+b'),run('c-d'))]);
   const input=await makeDocx(repeated);
   let batchCalls=0,singleCalls=0,batchItems=0;
@@ -159,12 +204,53 @@ test('Batch preview path renders many formulas in one renderer pass and never fa
     renderPreviewBatch
   });
   assert.equal(result.report.converted,48);
-  assert.equal(batchCalls,1);
+  assert.equal(batchCalls,3,'48 formulas are processed as three windows of at most 16');
   assert.equal(batchItems,48);
   assert.equal(singleCalls,0);
   const after=await load(result.blob);
   const xml=parseXml(await after.file('word/document.xml').async('string'));
   assert.equal(xml.getElementsByTagNameNS(NS.o,'OLEObject').length,48);
+});
+
+test('Heavy MathType export streams bounded previews and reports monotonic global progress',async()=>{
+  const source=Array.from({length:160},(_,i)=>['heavy-'+i,fraction(run(String(i+1)),run('x+1'))]);
+  const input=await makeDocx(source),original=await sha256(new Uint8Array(await input.arrayBuffer()));
+  const sizes=[],progress=[],packaged=[];
+  const {blob,report}=await convertDocxToMathType(input,{
+    previewWindowSize:12,previewBatchTimeoutMs:15000,
+    renderPreview:stubPreview,
+    renderPreviewBatch:async (items,{onProgress})=>{
+      sizes.push(items.length);
+      onProgress({completed:items.length,total:items.length,cached:0});
+      return items.map(()=>({png,widthPt:20,heightPt:10,baselinePt:2}));
+    },
+    onPreviewProgress:p=>progress.push(p.completed),
+    onProgress:p=>packaged.push(p.completed)
+  });
+  assert.equal(report.converted,160);
+  assert.ok(sizes.length>=14);
+  assert.ok(sizes.every(n=>n>0&&n<=12));
+  assert.equal(sizes.reduce((a,b)=>a+b,0),160);
+  assert.equal(progress.at(-1),160);
+  assert.ok(progress.every((v,i)=>i===0||v>=progress[i-1]));
+  assert.equal(packaged.at(-1),160);
+  assert.equal(packaged.length,160);
+  assert.equal(await sha256(new Uint8Array(await input.arrayBuffer())),original);
+  const doc=parseXml(await (await load(blob)).file('word/document.xml').async('string'));
+  assert.equal(doc.getElementsByTagNameNS(NS.o,'OLEObject').length,160);
+});
+
+test('Late preview-window failure is atomic and aborts the export without a partial DOCX',async()=>{
+  const input=await makeDocx(Array.from({length:38},(_,i)=>['failure-'+i,run('x'+i)]));
+  let calls=0;
+  await assert.rejects(convertDocxToMathType(input,{
+    previewWindowSize:12,renderPreview:stubPreview,
+    renderPreviewBatch:async items=>{
+      if(++calls===3)throw new Error('Simulated preview failure after two packaged windows');
+      return items.map(()=>({png,widthPt:20,heightPt:10,baselinePt:2}));
+    }
+  }),/Simulated preview failure/);
+  assert.equal(calls,3);
 });
 
 test('Preflight checks all formulas before any output/renderer work; formula errors include location',async()=>{
