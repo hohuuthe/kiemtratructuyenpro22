@@ -132,14 +132,29 @@ export async function convertDocxToMathType(input,options={}){
     options.signal?.addEventListener('abort',stop,{once:true});
     const timeoutMs=Math.max(15000,Math.min(180000,
       Number(options.previewBatchTimeoutMs)||Math.max(45000,pending.length*4000)));
-    let timeout,windowCached=0;
+    let timeout,windowCached=0,rejectStall;
+    // This is a NO-PROGRESS watchdog, not an elapsed-time deadline.
+    // Successful activity renews the timer; a huge but healthy export cannot
+    // be rejected solely because it has been running for over 180 seconds.
+    const stallPromise=new Promise((_,reject)=>{rejectStall=reject;});
+    const armWatchdog=()=>{
+      clearTimeout(timeout);
+      timeout=setTimeout(()=>{
+        controller.abort();
+        rejectStall(new MathTypeExportError('PREVIEW_BATCH_TIMEOUT',
+          'Nhóm MathType '+(start+1)+'-'+(start+pending.length)+' ngừng phản hồi.',
+          {total:work.length,index:start+1,windowSize:pending.length}));
+      },timeoutMs);
+    };
     try{
+      armWatchdog();
       const previews=await Promise.race([
         Promise.resolve().then(()=>renderPreviewBatch(pending.map(item=>({
           ast:item.ast,fontSizePt:item.fontSizePt,display:item.display,index:item.index
         })),{
           signal:controller.signal,
           onProgress:({completed=0,cached=0}={})=>{
+            armWatchdog();
             windowCached=Math.max(windowCached,cached);
             options.onPreviewProgress?.({
               completed:start+Math.max(0,Math.min(pending.length,completed)),
@@ -147,12 +162,7 @@ export async function convertDocxToMathType(input,options={}){
             });
           }
         })),
-        new Promise((_,reject)=>{timeout=setTimeout(()=>{
-          controller.abort();
-          reject(new MathTypeExportError('PREVIEW_BATCH_TIMEOUT',
-            'Quá thời gian tạo ảnh xem trước nhóm MathType '+(start+1)+'-'+(start+pending.length)+'.',
-            {total:work.length,index:start+1,windowSize:pending.length}));
-        },timeoutMs);})
+        stallPromise
       ]);
       aborted(options.signal);
       if(!Array.isArray(previews)||previews.length!==pending.length)
