@@ -146,6 +146,28 @@ test('Postprocess all occurrences atomically with unique native objects and matc
   assert.equal((xml.match(/Answer A\./g)||[]).length,corpus.length);
   assert.equal(report.nativeEditorVerified,false);
 });
+test('MathType OLE remains inline and uses glyph descent, not ascent, for Word baseline alignment',async()=>{
+  const input=await makeDocx([['inline-exponent',run('10')]],{display:false});
+  const preview=async()=>({png,widthPt:20,heightPt:14.5,baselinePt:10.5});
+  const {blob}=await convertDocxToMathType(input,{renderPreview:preview});
+  const zip=await load(blob),doc=parseXml(await zip.file('word/document.xml').async('string'));
+  const objects=Array.from(doc.getElementsByTagNameNS(NS.w,'object'));
+  assert.equal(objects.length,1);
+  const wr=objects[0].parentNode;
+  assert.equal(wr.localName,'r');
+  assert.equal(wr.parentNode.localName,'p','inline object must remain inside its text paragraph');
+  const pos=wr.getElementsByTagNameNS(NS.w,'position')[0];
+  assert.equal(pos.getAttributeNS(NS.w,'val'),'-8',
+      '14.5pt preview with 10.5pt ascent has 4pt descent, not 10.5pt displacement');
+  const shape=objects[0].getElementsByTagNameNS(NS.v,'shape')[0];
+  assert.match(shape.getAttribute('style'),/height:14\.5000pt/);
+  const displaySource=await makeDocx([['display-fraction',fraction(run('x'),run('y'))]],{display:true});
+  const displayOut=await convertDocxToMathType(displaySource,{renderPreview:preview});
+  const displayDoc=parseXml(await (await load(displayOut.blob)).file('word/document.xml').async('string'));
+  assert.equal(displayDoc.getElementsByTagNameNS(NS.w,'position')[0].getAttributeNS(NS.w,'val'),'-8');
+  assert.equal(displayDoc.getElementsByTagNameNS(NS.o,'OLEObject').length,1);
+});
+
 test('Batch preview path renders many formulas in one renderer pass and never falls back per formula',async()=>{
   const repeated=Array.from({length:48},(_,i)=>['repeat-'+i,fraction(run('a+b'),run('c-d'))]);
   const input=await makeDocx(repeated);
