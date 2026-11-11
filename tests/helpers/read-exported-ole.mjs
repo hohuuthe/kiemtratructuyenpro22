@@ -21,7 +21,9 @@ export function inspectOle(bytes){
     assert.ok(raw.length>=e.size);streams[e.name]=raw.subarray(0,e.size);
   }
   assert.deepEqual(Object.keys(streams).sort(),['\x01CompObj','\x01Ole','\x03ObjInfo','Equation Native'].sort());
-  const native=streams['Equation Native'];assert.equal(native.readUInt16LE(0),28);assert.equal(native.readUInt32LE(2),0x00020000);assert.equal(native.readUInt32LE(8)+28,native.length);
+  const native=streams['Equation Native'];assert.equal(native.readUInt16LE(0),28);assert.equal(native.readUInt32LE(2),0x00020000);
+  assert.equal(native.readUInt16LE(6),0xc1c6,'MathType EF clipboard format must be present (EQNOLEFILEHDR.cf)');
+  assert.equal(native.readUInt32LE(8)+28,native.length);
   return {streams,mtef:native.subarray(28),entries,fat};
 }
 /** Parse MTEF records separately to validate slot order and encoded glyphs. */
