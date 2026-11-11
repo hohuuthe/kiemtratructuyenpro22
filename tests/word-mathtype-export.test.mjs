@@ -164,7 +164,8 @@ test('MathType OLE remains inline and uses glyph descent, not ascent, for Word b
   const displaySource=await makeDocx([['display-fraction',fraction(run('x'),run('y'))]],{display:true});
   const displayOut=await convertDocxToMathType(displaySource,{renderPreview:preview});
   const displayDoc=parseXml(await (await load(displayOut.blob)).file('word/document.xml').async('string'));
-  assert.equal(displayDoc.getElementsByTagNameNS(NS.w,'position')[0].getAttributeNS(NS.w,'val'),'-8');
+  assert.equal(displayDoc.getElementsByTagNameNS(NS.w,'position')[0].getAttributeNS(NS.w,'val'),'-21',
+      'Display equations retain their existing standalone positioning');
   assert.equal(displayDoc.getElementsByTagNameNS(NS.o,'OLEObject').length,1);
 });
 
