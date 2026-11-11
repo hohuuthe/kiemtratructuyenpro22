@@ -132,12 +132,13 @@ export async function convertDocxToMathType(input,options={}){
     options.signal?.addEventListener('abort',stop,{once:true});
     const timeoutMs=Math.max(15000,Math.min(180000,
       Number(options.previewBatchTimeoutMs)||Math.max(45000,pending.length*4000)));
-    let timeout,windowCached=0,rejectStall;
+    let timeout,windowCached=0,rejectStall,settled=false;
     // This is a NO-PROGRESS watchdog, not an elapsed-time deadline.
     // Successful activity renews the timer; a huge but healthy export cannot
     // be rejected solely because it has been running for over 180 seconds.
     const stallPromise=new Promise((_,reject)=>{rejectStall=reject;});
     const armWatchdog=()=>{
+      if(settled)return;
       clearTimeout(timeout);
       timeout=setTimeout(()=>{
         controller.abort();
@@ -176,6 +177,7 @@ export async function convertDocxToMathType(input,options={}){
         e.details={...e.details,total:work.length,index:e.details?.index||start+1};
       throw e;
     }finally{
+      settled=true;
       clearTimeout(timeout);
       options.signal?.removeEventListener('abort',stop);
     }
