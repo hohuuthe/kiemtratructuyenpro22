@@ -67,7 +67,7 @@ export function astToMtef(ast,{fontSizePt=13,display=false}={}) {
         if(n.style==='noBar'){
           // MTEF has no dedicated no-bar fraction variation. Preserve numerator /
           // denominator as two editable, centered lines without inventing a bar.
-          return [4,0,2,1,line(n.num,depth),line(n.den,depth),0];
+          return [4,0,2,1,...line(n.num,depth),...line(n.den,depth),0];
         }
         return tmpl(11,0,[line(n.num,depth),line(n.den,depth)]);
       }
@@ -108,7 +108,7 @@ export function astToMtef(ast,{fontSizePt=13,display=false}={}) {
         if(!strikes)return framed;
         // StrikeBoxClass has one main slot. Put the already encoded box inside
         // a one-slot line, retaining the editable box and its independent edges.
-        return [3,0,36,strikes,0,1,0,...framed,0];
+        return [3,0,36,strikes,0,1,0,...framed,0,0];
       }
       case 'matrix':{
         const rows=n.rows.length,cols=n.rows[0]?.length;
