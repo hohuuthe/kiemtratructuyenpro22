@@ -230,8 +230,13 @@ export function verifyImportedWordQuestions(rawQuestions, documentReport) {
                     issues.push({field,reason:'Không tìm thấy công thức trong dữ liệu Word gốc',token});
                     return token;
                 }
-                const verdict=record.status==='parsed' ? validateScientificLatexForImport(record.latex)
-                    : {ok:false,reason:record.reason||'Nguồn Equation chưa hỗ trợ'};
+                // Do the same provenance check used by the API at the time
+                // of import, not only at Save. A pretty preview is not proof
+                // that the editable Word source will pass server validation.
+                const verdict=record.status==='parsed' ? validateWordFormulaSourceForImport({
+                    status:'verified',sourceType:record.sourceType||'omml',
+                    sourceOmml:record.originalOmml||'',latex:record.latex||''
+                }) : {ok:false,reason:record.reason||'Nguồn Equation chưa hỗ trợ'};
                 sources.push({
                     token,field,sourceType:record.sourceType||'omml',
                     sourceOmml:record.originalOmml||'',latex:record.latex||'',
