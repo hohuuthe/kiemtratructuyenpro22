@@ -99,7 +99,7 @@ function delimitedWordMathSpans(text) {
             delimiter=text.startsWith('$$',i)?'$$':'$';
             opening=i+delimiter.length;i=opening;
         }else if(text.startsWith(delimiter,i)){
-            spans.push({start:opening,end:i,value:text.slice(opening,i)});
+            spans.push({start:opening,end:i,value:text.slice(opening,i),mark:delimiter});
             i+=delimiter.length;opening=-1;delimiter='';
         }else i++;
     }
@@ -112,7 +112,8 @@ function sourceFormulaSpans(text, latexValues) {
     for(const span of delimitedWordMathSpans(text))for(const latex of expected) {
         for(const pos of exactOccurrences(span.value,latex)){
             if(/\\[A-Za-z]+$/.test(latex)&&/[A-Za-z]/.test(span.value[pos+latex.length]||''))continue;
-            candidates.push({value:latex,start:span.start+pos,end:span.start+pos+latex.length});
+            candidates.push({value:latex,start:span.start+pos,end:span.start+pos+latex.length,
+                mark:span.value===latex?span.mark:''});
         }
     }
     candidates.sort((a,b)=>(b.end-b.start)-(a.end-a.start)||a.start-b.start);
