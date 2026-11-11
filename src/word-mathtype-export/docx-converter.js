@@ -51,7 +51,18 @@ function newRelationship(doc,id,type,target){
 function findRootText(root){return toArray(root.getElementsByTagNameNS(NS.w,'t')).map(n=>n.textContent);}
 function makeObjectRun(doc,{oleId,imageId,shapeId,objectId,widthPt,heightPt,baselinePt}){
   const wr=doc.createElementNS(NS.w,'w:r'),rp=doc.createElementNS(NS.w,'w:rPr');
-  const pos=doc.createElementNS(NS.w,'w:position');pos.setAttributeNS(NS.w,'w:val',String(-Math.round(baselinePt*2)));rp.appendChild(pos);wr.appendChild(rp);
+  // The inline VML object's bottom normally sits on the text baseline.
+  // Its visible glyph baseline is baselinePt BELOW the image top, so lower
+  // the object by the DESCENDER (heightPt - baselinePt), not by baselinePt.
+  // The old offset pushed nearly every short formula below the text line.
+  const descentPt=Math.max(0,Math.min(heightPt,heightPt-baselinePt));
+  const halfPoints=-Math.round(descentPt*2);
+  if(halfPoints!==0){
+    const pos=doc.createElementNS(NS.w,'w:position');
+    pos.setAttributeNS(NS.w,'w:val',String(halfPoints));
+    rp.appendChild(pos);
+  }
+  wr.appendChild(rp);
   const object=doc.createElementNS(NS.w,'w:object');object.setAttributeNS(NS.w,'w:dxaOrig',String(Math.round(widthPt*20)));object.setAttributeNS(NS.w,'w:dyaOrig',String(Math.round(heightPt*20)));
   const shape=doc.createElementNS(NS.v,'v:shape');shape.setAttribute('id',shapeId);shape.setAttribute('type','#_x0000_t75');
   shape.setAttribute('style','width:'+widthPt.toFixed(4)+'pt;height:'+heightPt.toFixed(4)+'pt');shape.setAttributeNS(NS.o,'o:ole','');
