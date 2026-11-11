@@ -19,7 +19,12 @@ export function createMathTypeOle(mtef) {
   if(!(mtef instanceof Uint8Array)||mtef.length<7||mtef.length>96*1024||mtef[0]!==5)
     fail('INVALID_MTEF','A bounded MTEF v5 equation is required.');
   const native=new Uint8Array(28+mtef.length),nv=dataView(native);
-  nv.setUint16(0,28,true);nv.setUint32(2,0x00020000,true);nv.setUint16(6,0,true);nv.setUint32(8,mtef.length,true);
+  nv.setUint16(0,28,true);nv.setUint32(2,0x00020000,true);
+  // EQNOLEFILEHDR.cf identifies the registered "MathType EF" clipboard
+  // format. Zero denotes no format and produces a malformed OLE native stream.
+  // 0xC1C6 is the MathType EF value used by LibreOffice's native EqnOLE writer.
+  // This is not a Word/MathType desktop acceptance substitute.
+  nv.setUint16(6,0xc1c6,true);nv.setUint32(8,mtef.length,true);
   // Reserved header values specified by the WIRIS Equation Native format.
   nv.setUint32(16,0x0014f690,true);nv.setUint32(20,0x0014ebb4,true);native.set(mtef,28);
   const oleHeader=new Uint8Array(20);dataView(oleHeader).setUint32(0,0x02000001,true);
