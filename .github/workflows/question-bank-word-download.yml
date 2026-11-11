@@ -1,0 +1,36 @@
+name: Question bank Word explicit download qualification
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/main.js'
+      - 'src/question-bank-word-download.js'
+      - 'src/question-bank-docx-generator.ts'
+      - 'src/question-bank-word-selection.js'
+      - 'tests/question-bank-word-download.test.mjs'
+      - 'tests/question-bank-word-export.test.mjs'
+      - '.github/workflows/question-bank-word-download.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Syntax check
+        run: node --check src/main.js && node --check src/question-bank-word-download.js
+      - name: Question bank Word generation and explicit download regressions
+        run: node --import tsx --test tests/question-bank-word-download.test.mjs tests/question-bank-word-export.test.mjs
+      - name: TypeScript check
+        run: npm run lint
+      - name: Production build
+        run: npm run build
