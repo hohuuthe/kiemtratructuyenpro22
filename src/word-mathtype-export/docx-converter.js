@@ -155,6 +155,7 @@ export async function convertDocxToMathType(input,options={}){
         })),{
           signal:controller.signal,
           onProgress:({completed=0,cached=0}={})=>{
+            if(settled||controller.signal.aborted)return;
             armWatchdog();
             windowCached=Math.max(windowCached,cached);
             options.onPreviewProgress?.({
