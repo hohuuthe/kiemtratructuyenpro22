@@ -122,7 +122,7 @@ function decodeMtef(input, allowNullSlotEnd) {
     if (r.byte() !== 5) fail('hi\u1ec7n h\u1ed7 tr\u1ee3 t\u1ef1 \u0111\u1ed9ng MTEF phi\u00ean b\u1ea3n 5');
     const platform = r.byte(), product = r.byte(), version = r.byte(), revision = r.byte();
     if (platform > 1 || product > 1 || version < 4 || version > 100 || revision > 100) fail('header MTEF kh\u00f4ng h\u1ee3p l\u1ec7');
-    r.string();
+    const producerKey = r.string();
     if (r.byte() & ~1) fail('unsupported equation options');
     const fonts = [null], explicitStyles = [null];
     let styles = [], count = 0, nullSlotEnds = 0;
@@ -281,6 +281,12 @@ function decodeMtef(input, allowNullSlotEnd) {
             let value;
             // Narrow compatibility: actual MathType spacing record, not arbitrary PUA text.
             if (face === 24 && code === 0xef02 && node.options === 0 && !node.embellishments.length) return '\\,';
+            // Earlier KTTT exports encoded Word's invisible OMML layout separator
+            // as a symbol CHAR. Accept only that known producer/record combination
+            // so Word files already exported can be re-imported without changing
+            // the meaning of the equation or relaxing the general MTEF whitelist.
+            if (producerKey === 'KTTTMT1' && face === 6 && code === 0x200b &&
+                node.options === 0 && !node.embellishments.length) return '';
             if (code < 32 || (code >= 0xd800 && code <= 0xdfff) || (code >= 0xe000 && code <= 0xf8ff)) fail('unmapped MTCode U+' + code.toString(16));
             if (!contentTypefaces.has(face)) fail('unsupported typeface ' + face);
             const char = String.fromCharCode(code);
