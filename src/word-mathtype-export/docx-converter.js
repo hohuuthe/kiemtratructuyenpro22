@@ -49,16 +49,31 @@ function newRelationship(doc,id,type,target){
   doc.documentElement.appendChild(r);
 }
 function findRootText(root){return toArray(root.getElementsByTagNameNS(NS.w,'t')).map(n=>n.textContent);}
-function makeObjectRun(doc,{oleId,imageId,shapeId,objectId,widthPt,heightPt,baselinePt}){
-  const wr=doc.createElementNS(NS.w,'w:r'),rp=doc.createElementNS(NS.w,'w:rPr');
-  const pos=doc.createElementNS(NS.w,'w:position');pos.setAttributeNS(NS.w,'w:val',String(-Math.round(baselinePt*2)));rp.appendChild(pos);wr.appendChild(rp);
-  const object=doc.createElementNS(NS.w,'w:object');object.setAttributeNS(NS.w,'w:dxaOrig',String(Math.round(widthPt*20)));object.setAttributeNS(NS.w,'w:dyaOrig',String(Math.round(heightPt*20)));
-  const shape=doc.createElementNS(NS.v,'v:shape');shape.setAttribute('id',shapeId);shape.setAttribute('type','#_x0000_t75');
-  shape.setAttribute('style','width:'+widthPt.toFixed(4)+'pt;height:'+heightPt.toFixed(4)+'pt');shape.setAttributeNS(NS.o,'o:ole','');
-  const image=doc.createElementNS(NS.v,'v:imagedata');image.setAttributeNS(NS.r,'r:id',imageId);image.setAttributeNS(NS.o,'o:title','');shape.appendChild(image);object.appendChild(shape);
+function makeObjectRun(doc,{oleId,imageId,shapeId,objectId,widthPt,heightPt,baselinePt,display=false}){
+  // Do not shift an embedded MathType OLE through Word's run position OR VML
+  // vertical-align. Those transforms can cause the visual glyph to diverge
+  // from Word's embedded-object hit target, especially for tiny symbols.
+  // Keep the full, inline OLE shape and its clickable box in the native flow.
+  const wr=doc.createElementNS(NS.w,'w:r');
+  const object=doc.createElementNS(NS.w,'w:object');
+  object.setAttributeNS(NS.w,'w:dxaOrig',String(Math.round(widthPt*20)));
+  object.setAttributeNS(NS.w,'w:dyaOrig',String(Math.round(heightPt*20)));
+  const shape=doc.createElementNS(NS.v,'v:shape');
+  shape.setAttribute('id',shapeId);
+  shape.setAttribute('type','#_x0000_t75');
+  shape.setAttribute('style','width:'+widthPt.toFixed(4)+'pt;height:'+heightPt.toFixed(4)+'pt');
+  shape.setAttributeNS(NS.o,'o:ole','');
+  const image=doc.createElementNS(NS.v,'v:imagedata');
+  image.setAttributeNS(NS.r,'r:id',imageId);
+  image.setAttributeNS(NS.o,'o:title','');
+  shape.appendChild(image);object.appendChild(shape);
   const ole=doc.createElementNS(NS.o,'o:OLEObject');
-  for(const [key,value] of Object.entries({Type:'Embed',ProgID:'Equation.DSMT4',ShapeID:shapeId,DrawAspect:'Content',ObjectID:objectId}))ole.setAttribute(key,value);
-  ole.setAttributeNS(NS.r,'r:id',oleId);object.appendChild(ole);wr.appendChild(object);
+  for(const [key,value] of Object.entries({
+    Type:'Embed',ProgID:'Equation.DSMT4',ShapeID:shapeId,
+    DrawAspect:'Content',ObjectID:objectId
+  }))ole.setAttribute(key,value);
+  ole.setAttributeNS(NS.r,'r:id',oleId);
+  object.appendChild(ole);wr.appendChild(object);
   return wr;
 }
 const shapeTypeXml=`<v:shapetype xmlns:v="${NS.v}" xmlns:o="${NS.o}" id="_x0000_t75" coordsize="21600,21600" o:spt="75" o:preferrelative="t" path="m@4@5l@4@11@9@11@9@5xe" filled="f" stroked="f"><v:stroke joinstyle="miter"/><v:formulas><v:f eqn="if lineDrawn pixelLineWidth 0"/><v:f eqn="sum @0 1 0"/><v:f eqn="sum 0 0 @1"/><v:f eqn="prod @2 1 2"/><v:f eqn="prod @3 21600 pixelWidth"/><v:f eqn="prod @3 21600 pixelHeight"/><v:f eqn="sum @0 0 1"/><v:f eqn="prod @6 1 2"/><v:f eqn="prod @7 21600 pixelWidth"/><v:f eqn="sum @8 21600 0"/><v:f eqn="prod @7 21600 pixelHeight"/><v:f eqn="sum @10 21600 0"/></v:formulas><v:path o:extrusionok="f" gradientshapeok="t" o:connecttype="rect"/><o:lock v:ext="edit" aspectratio="t"/></v:shapetype>`;
@@ -180,7 +195,7 @@ export async function convertDocxToMathType(input,options={}){
     const shapeId=freeId(doc,'shape','id','_x0000_i',10000+item.index),objectId=freeId(doc,'OLEObject','ObjectID','_KTTT_MT_',item.index);
     const maxWidth=options.maxWidthPt??450,scale=Math.min(1,maxWidth/preview.widthPt);
     if(!Number.isFinite(maxWidth)||maxWidth<50||maxWidth>1000)fail('INVALID_SIZE','Invalid maximum formula width.');
-    const run=makeObjectRun(doc,{oleId,imageId,shapeId,objectId,widthPt:preview.widthPt*scale,heightPt:preview.heightPt*scale,baselinePt:preview.baselinePt*scale});
+    const run=makeObjectRun(doc,{oleId,imageId,shapeId,objectId,widthPt:preview.widthPt*scale,heightPt:preview.heightPt*scale,baselinePt:preview.baselinePt*scale,display:item.display});
     if(!item.partData.hasShapeType){
       run.lastChild.insertBefore(doc.importNode(parseXml(shapeTypeXml).documentElement,true),run.lastChild.firstChild);
       item.partData.hasShapeType=true;

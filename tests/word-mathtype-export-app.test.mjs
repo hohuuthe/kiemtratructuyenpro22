@@ -40,6 +40,29 @@ test('All 121 established source equations pass the NEW structural writer using 
   const original=await Packer.toBuffer(new Document({sections:[{children}]}));
   const result=await convertDocxToMathType(original,{renderPreview:stub});assert.equal(result.report.converted,121);
   const {z,math,ole}=await count(result.blob);assert.equal(math,0);assert.equal(ole,121);
-  for(const entry of result.report.equations)readMtef(inspectOle(await z.file(entry.olePath).async('uint8array')).mtef);
+  const xml=parseXml(await z.file('word/document.xml').async('string'));
+  const objects=Array.from(xml.getElementsByTagNameNS(NS.w,'object'));
+  assert.equal(objects.length,121);
+  const oleIds=new Set(),shapeIds=new Set();
+  for(let i=0;i<objects.length;i++){
+    const entry=result.report.equations[i],object=objects[i],run=object.parentNode;
+    assert.equal(run.localName,'r');
+    assert.equal(run.parentNode.localName,'p');
+    assert.equal(run.getElementsByTagNameNS(NS.w,'position').length,0,
+      'No MathType run should be displaced outside its native Word hit box');
+    const shape=object.getElementsByTagNameNS(NS.v,'shape')[0];
+    const oleNode=object.getElementsByTagNameNS(NS.o,'OLEObject')[0];
+    assert.ok(shape&&oleNode);
+    assert.doesNotMatch(shape.getAttribute('style'),/vertical-align|position:|margin-top|margin-bottom/);
+    assert.equal(oleNode.getAttribute('ProgID'),'Equation.DSMT4');
+    assert.equal(oleNode.getAttribute('Type'),'Embed');
+    assert.equal(oleNode.getAttribute('ShapeID'),shape.getAttribute('id'));
+    assert.ok(!oleIds.has(oleNode.getAttributeNS(NS.r,'id')));
+    assert.ok(!shapeIds.has(shape.getAttribute('id')));
+    oleIds.add(oleNode.getAttributeNS(NS.r,'id'));shapeIds.add(shape.getAttribute('id'));
+    readMtef(inspectOle(await z.file(entry.olePath).async('uint8array')).mtef);
+  }
+  assert.equal(oleIds.size,121);
+  assert.equal(shapeIds.size,121);
   assert.equal(result.report.nativeEditorVerified,false,'Structural gate must not claim native-editor testing.');
 });

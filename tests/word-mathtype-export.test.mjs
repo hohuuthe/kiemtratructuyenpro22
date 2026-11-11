@@ -54,6 +54,16 @@ test('Matrices preserve row-major order and real dimensions, not a flattened tex
   const tree=readMtef(astToMtef(ast(matrix([[run('1'),run('2')],[run('3'),run('4')]]))));
   const m=flatten(tree).find(n=>n.k==='matrix');assert.equal(m.rows,2);assert.equal(m.cols,2);assert.deepEqual(m.cells.map(glyphs),['1','2','3','4']);
 });
+test('Embedded Equation Native OLE header uses MathType EF clipboard format for complex sums',()=>{
+  const formula=ast(nary('\u2211',run('k'),run('k=1'),run('n')));
+  const native=astToMtef(formula);
+  const ole=inspectOle(createMathTypeOle(native));
+  assert.equal(ole.streams['Equation Native'].readUInt16LE(6),0xc1c6);
+  assert.deepEqual(ole.mtef,Buffer.from(native));
+  const sum=flatten(readMtef(ole.mtef)).find(record=>record.selector===16);
+  assert.ok(sum,'sum template must remain present in native equation stream');
+  assert.equal(glyphs(sum.children[0]),'k');
+});
 test('CFB regular FAT and MiniFAT both round-trip bounded native streams',()=>{
   for(const size of [1,80,900,3000,8000]){
     const source=astToMtef(ast(run('x'.repeat(size))));const ole=createMathTypeOle(source);
@@ -86,7 +96,7 @@ test('Fraction variants bar, noBar, skewed and linear retain their distinct sema
 });
 
 test('groupChr top/bottom braces and brackets preserve position and editable template selectors',()=>{
-  for(const [chr,pos,selector,variation] of [['\\u23de','top',24,1],['\\u23df','bot',24,0],['\\u23b4','top',25,1],['\\u23b5','bot',25,0]]){
+  for(const [chr,pos,selector,variation] of [['\u23de','top',24,1],['\u23df','bot',24,0],['\u23b4','top',25,1],['\u23b5','bot',25,0]]){
     const tree=ast('<m:groupChr><m:groupChrPr><m:chr m:val="'+chr+'"/><m:pos m:val="'+pos+'"/></m:groupChrPr>'+arg('e',run('BODY'))+'</m:groupChr>');
     const encoded=readMtef(astToMtef(tree));
     const group=flatten(encoded).find(n=>n.selector===selector);
@@ -146,6 +156,41 @@ test('Postprocess all occurrences atomically with unique native objects and matc
   assert.equal((xml.match(/Answer A\./g)||[]).length,corpus.length);
   assert.equal(report.nativeEditorVerified,false);
 });
+test('Every generated MathType OLE remains selectable with no shifted Word run or VML hit box',async()=>{
+  const preview=async()=>({png,widthPt:20,heightPt:14.5,baselinePt:10.5});
+  for(const [label,body,display] of [
+    ['inline-variable',run('x'),false],
+    ['inline-exponent',run('10'),false],
+    ['inline-fraction',fraction(run('a'),run('b')),false],
+    ['display-fraction',fraction(run('x'),run('y')),true]
+  ]){
+    const input=await makeDocx([[label,body]],{display});
+    const {blob,report}=await convertDocxToMathType(input,{renderPreview:preview});
+    const zip=await load(blob),doc=parseXml(await zip.file('word/document.xml').async('string'));
+    assert.equal(report.converted,1,label);
+    const objects=Array.from(doc.getElementsByTagNameNS(NS.w,'object'));
+    assert.equal(objects.length,1,label);
+    const wr=objects[0].parentNode;
+    assert.equal(wr.localName,'r',label);
+    assert.equal(wr.parentNode.localName,'p','OLE must remain a native inline run');
+    assert.equal(wr.getElementsByTagNameNS(NS.w,'position').length,0,'Run position must not move clickable OLE');
+    const shape=objects[0].getElementsByTagNameNS(NS.v,'shape')[0];
+    assert.match(shape.getAttribute('style'),/width:20\.0000pt;height:14\.5000pt/,label);
+    assert.doesNotMatch(shape.getAttribute('style'),/vertical-align|position:|margin-top|margin-bottom/,label);
+    const ole=objects[0].getElementsByTagNameNS(NS.o,'OLEObject')[0];
+    assert.equal(ole.getAttribute('ProgID'),'Equation.DSMT4');
+    assert.equal(ole.getAttribute('Type'),'Embed');
+    assert.equal(ole.getAttribute('ShapeID'),shape.getAttribute('id'));
+    assert.ok(ole.getAttributeNS(NS.r,'id'),'Embedded OLE relationship must remain intact');
+    const rel=zip.file('word/_rels/document.xml.rels');
+    assert.ok(rel);
+    const relText=await rel.async('string');
+    assert.ok(relText.includes(ole.getAttributeNS(NS.r,'id')));
+    const embedded=await zip.file(report.equations[0].olePath).async('uint8array');
+    readMtef(inspectOle(embedded).mtef);
+  }
+});
+
 test('Batch preview path renders many formulas in one renderer pass and never falls back per formula',async()=>{
   const repeated=Array.from({length:48},(_,i)=>['repeat-'+i,fraction(run('a+b'),run('c-d'))]);
   const input=await makeDocx(repeated);
