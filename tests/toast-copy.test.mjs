@@ -5,7 +5,7 @@ import {readFileSync} from 'node:fs';
 const source=readFileSync('src/main.js','utf8');
 
 test('Toast copy button supports Clipboard API and fallback copy',()=>{
- assert.match(source,/copyBtn\.onclick = async \(\) =>/);
+ assert.match(source,/copyBtn\.onclick = async \(event\) =>/);
  assert.match(source,/navigator\.clipboard && navigator\.clipboard\.writeText/);
  assert.match(source,/await navigator\.clipboard\.writeText\(trimmedMsg\)/);
  assert.match(source,/document\.createElement\('textarea'\)/);
@@ -15,7 +15,7 @@ test('Toast copy button supports Clipboard API and fallback copy',()=>{
 });
 
 test('Toast attempts synchronous copy while click activation is valid and retains errors for inspection',()=>{
- const begin=source.indexOf('copyBtn.onclick = async () =>');
+ const begin=source.indexOf('copyBtn.onclick = async (event) =>');
  const end=source.indexOf('toast.appendChild(copyBtn)',begin);
  assert.ok(begin>=0 && end>begin);
  const handler=source.slice(begin,end);
