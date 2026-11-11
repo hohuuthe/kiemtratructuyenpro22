@@ -49,14 +49,15 @@ function newRelationship(doc,id,type,target){
   doc.documentElement.appendChild(r);
 }
 function findRootText(root){return toArray(root.getElementsByTagNameNS(NS.w,'t')).map(n=>n.textContent);}
-function makeObjectRun(doc,{oleId,imageId,shapeId,objectId,widthPt,heightPt,baselinePt}){
+function makeObjectRun(doc,{oleId,imageId,shapeId,objectId,widthPt,heightPt,baselinePt,display=false}){
   const wr=doc.createElementNS(NS.w,'w:r'),rp=doc.createElementNS(NS.w,'w:rPr');
   // The inline VML object's bottom normally sits on the text baseline.
   // Its visible glyph baseline is baselinePt BELOW the image top, so lower
   // the object by the DESCENDER (heightPt - baselinePt), not by baselinePt.
   // The old offset pushed nearly every short formula below the text line.
   const descentPt=Math.max(0,Math.min(heightPt,heightPt-baselinePt));
-  const halfPoints=-Math.round(descentPt*2);
+  // Keep standalone display-math positioning unchanged in this focused fix.
+  const halfPoints=-Math.round((display?baselinePt:descentPt)*2);
   if(halfPoints!==0){
     const pos=doc.createElementNS(NS.w,'w:position');
     pos.setAttributeNS(NS.w,'w:val',String(halfPoints));
@@ -191,7 +192,7 @@ export async function convertDocxToMathType(input,options={}){
     const shapeId=freeId(doc,'shape','id','_x0000_i',10000+item.index),objectId=freeId(doc,'OLEObject','ObjectID','_KTTT_MT_',item.index);
     const maxWidth=options.maxWidthPt??450,scale=Math.min(1,maxWidth/preview.widthPt);
     if(!Number.isFinite(maxWidth)||maxWidth<50||maxWidth>1000)fail('INVALID_SIZE','Invalid maximum formula width.');
-    const run=makeObjectRun(doc,{oleId,imageId,shapeId,objectId,widthPt:preview.widthPt*scale,heightPt:preview.heightPt*scale,baselinePt:preview.baselinePt*scale});
+    const run=makeObjectRun(doc,{oleId,imageId,shapeId,objectId,widthPt:preview.widthPt*scale,heightPt:preview.heightPt*scale,baselinePt:preview.baselinePt*scale,display:item.display});
     if(!item.partData.hasShapeType){
       run.lastChild.insertBefore(doc.importNode(parseXml(shapeTypeXml).documentElement,true),run.lastChild.firstChild);
       item.partData.hasShapeType=true;
