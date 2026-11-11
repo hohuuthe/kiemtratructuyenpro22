@@ -50,7 +50,7 @@ class Reader {
 
 // MTCode Unicode mappings; private-use glyphs are NOT treated as Unicode letters.
 const symbols = new Map([
-    [0x2212, '-'], [0x00b1, '\\pm{}'], [0x2213, '\\mp{}'],
+    [0x2212, '-'], [0x2218, '\\circ{}'], [0x00b1, '\\pm{}'], [0x2213, '\\mp{}'],
     [0x00d7, '\\times{}'], [0x00f7, '\\div{}'], [0x00b7, '\\cdot{}'],
     [0x221e, '\\infty{}'], [0x2264, '\\leq{}'], [0x2265, '\\geq{}'],
     [0x2260, '\\neq{}'], [0x2248, '\\approx{}'], [0x2208, '\\in{}'],
