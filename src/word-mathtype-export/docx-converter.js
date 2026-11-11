@@ -6,6 +6,7 @@ import JSZip from 'jszip';
 import {XMLSerializer} from '@xmldom/xmldom';
 import {NS,parseXml,ommlToAst,elements,local} from './omml-ast.js';
 import {astToMtef} from './mtef-writer.js';
+import {convertMtefV5ToLatex} from '../word-mtef-v5-reader.js';
 import {createMathTypeOle} from './cfb-writer.js';
 import {fail,aborted,MathTypeExportError} from './errors.js';
 const serialize=n=>new XMLSerializer().serializeToString(n);
@@ -110,6 +111,11 @@ export async function convertDocxToMathType(input,options={}){
         if(unique.length>1)fail('UNSUPPORTED_STYLE','Mixed explicit point sizes inside a formula are not supported.');
         const fontSizePt=unique[0]??defaultSize;
         const mtef=astToMtef(ast,{fontSizePt,display});
+        // Every exported editable OLE must be readable through the SAME MTEF
+        // decoder used on Word import. Reject atomically before writing DOCX
+        // rather than shipping a pretty preview with unreadable native bytes.
+        try{convertMtefV5ToLatex(mtef);}
+        catch(error){fail('ROUNDTRIP_REJECTED','MathType không thể nhập lại từ Word: '+String(error?.message||error).slice(0,180));}
         work.push({partData:data,eq,replace,parent,display,ast,mtef,fontSizePt,index:occurrence,sourceXml:serialize(eq)});
       }catch(e){if(e instanceof MathTypeExportError){e.details={...e.details,part,equation:occurrence};}throw e;}
     }
