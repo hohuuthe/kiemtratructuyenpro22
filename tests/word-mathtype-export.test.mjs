@@ -47,7 +47,7 @@ test('Word U+200B layout separators export as re-importable MathType and old KTT
   const generated=astToMtef(source);
   assert.equal(convertMtefV5ToLatex(generated),'xy');
   const chars=Array.from(generated);
-  const marker=[2,0,0x86,0x79,0];
+  const marker=[2,0,0x83,0x79,0];
   const at=chars.findIndex((_,i)=>marker.every((v,k)=>chars[i+k]===v));
   assert.ok(at>=0,'locate encoded y character');
   // Recreate the exact obsolete KTTT encoding: CHAR face=6, MTCode=U+200B.
