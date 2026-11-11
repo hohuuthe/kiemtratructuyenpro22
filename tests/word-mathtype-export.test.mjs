@@ -59,7 +59,7 @@ test('Word U+200B layout separators export as re-importable MathType and old KTT
   const foreignFace=Uint8Array.from(legacy);
   foreignFace[at+2]=0x83;
   assert.throws(()=>convertMtefV5ToLatex(foreignFace),/unmapped MTCode/);
-  assert.throws(()=>astToMtef(ast(run('x'+String.fromCharCode(0x200c)+'y'))),/UNSUPPORTED_CODEPOINT|Unsupported MTCode/);
+  assert.throws(()=>astToMtef(ast(run('x'+String.fromCharCode(0x200c)+'y'))),/Unsupported invisible math character/);
 });
 
 test('Numerator/denominator and lower/upper operator limits preserve source order',()=>{
@@ -90,7 +90,7 @@ test('Unsupported semantic properties fail closed, without unsupported-as-image 
     '<m:box><m:boxPr><m:opEmu/></m:boxPr>'+arg('e',run('mod'))+'</m:box>'
   ];
   for(const body of bad)assert.throws(()=>ast(body),{code:'UNSUPPORTED_OMML'});
-  assert.throws(()=>astToMtef(ast(run('x'+String.fromCharCode(0x200c)+'y'))),/UNSUPPORTED_CODEPOINT|Unsupported MTCode/);
+  assert.throws(()=>astToMtef(ast(run('x','b')+run('y','bi'))),{code:'UNSUPPORTED_STYLE'});
 });
 test('Fraction variants bar, noBar, skewed and linear retain their distinct semantics',()=>{
   const make=type=>ast('<m:f><m:fPr><m:type m:val="'+type+'"/></m:fPr>'+arg('num',run('NUM'))+arg('den',run('DEN'))+'</m:f>');
