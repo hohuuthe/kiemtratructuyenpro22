@@ -112,8 +112,16 @@ function sourceFormulaSpans(text, latexValues) {
     for(const span of delimitedWordMathSpans(text))for(const latex of expected) {
         for(const pos of exactOccurrences(span.value,latex)){
             if(/\\[A-Za-z]+$/.test(latex)&&/[A-Za-z]/.test(span.value[pos+latex.length]||''))continue;
-            candidates.push({value:latex,start:span.start+pos,end:span.start+pos+latex.length,
-                mark:span.value===latex?span.mark:''});
+            const ownsDelimiter=span.value===latex;
+            candidates.push({
+                value:latex,
+                // A standalone math span is replaced WITH its original $...$
+                // delimiters. Composite OLE fragments replace only the inner
+                // source text and retain their shared enclosing delimiter.
+                start:ownsDelimiter?span.start-span.mark.length:span.start+pos,
+                end:ownsDelimiter?span.end+span.mark.length:span.start+pos+latex.length,
+                mark:ownsDelimiter?span.mark:''
+            });
         }
     }
     candidates.sort((a,b)=>(b.end-b.start)-(a.end-a.start)||a.start-b.start);
