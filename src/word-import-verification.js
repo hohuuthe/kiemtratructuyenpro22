@@ -82,37 +82,45 @@ function exactOccurrences(text, value) {
     }
     return positions;
 }
-function sourceFormulaSpans(text, latexValues) {
-    const expected=new Set(latexValues),spans=[];
-    const escaped=at=>{
-        let count=0;
-        for(let i=at-1;i>=0 && text[i]==='\\';i--)count++;
-        return count%2===1;
-    };
+// A Word paragraph may contain OLE formulas inside literal $...$ math.
+function delimitedWordMathSpans(text) {
+    const spans=[],tick=String.fromCharCode(96);
+    const escaped=at=>{let n=0;for(let p=at-1;p>=0&&text[p]==='\\';p--)n++;return n%2===1;};
+    let opening=-1,delimiter='';
     for(let i=0;i<text.length;) {
         if(escaped(i)){i++;continue;}
-        if(text[i]==='`') {
-            const mark=text.startsWith('```',i)?'```':'`';
+        if(text[i]===tick) {
+            const mark=text.startsWith(tick.repeat(3),i)?tick.repeat(3):tick;
             const end=text.indexOf(mark,i+mark.length);
             if(end>=0){i=end+mark.length;continue;}
         }
-        if(text[i]==='$') {
-            const mark=text.startsWith('$$',i)?'$$':'$';
-            let end=i+mark.length;
-            while(end<text.length && (!text.startsWith(mark,end)||escaped(end)))end++;
-            if(end<text.length && end>i+mark.length) {
-                const value=text.slice(i+mark.length,end),after=end+mark.length;
-                // A known Equation such as 3,14159 is math even when the
-                // general prose tokenizer's currency heuristic says text.
-                if(expected.has(value))spans.push({value,start:i,end:after,mark});
-                if(expected.has(value) || splitScientificContent(text.slice(i,after)).some(part=>part.type==='math')) {
-                    i=after;continue;
-                }
-            }
-        }
-        i++;
+        if(text[i]!=='$'){i++;continue;}
+        if(opening<0){
+            delimiter=text.startsWith('$$',i)?'$$':'$';
+            opening=i+delimiter.length;i=opening;
+        }else if(text.startsWith(delimiter,i)){
+            spans.push({start:opening,end:i,value:text.slice(opening,i)});
+            i+=delimiter.length;opening=-1;delimiter='';
+        }else i++;
     }
     return spans;
+}
+function sourceFormulaSpans(text, latexValues) {
+    const expected=[...new Set(latexValues.filter(value=>typeof value==='string'&&value.length))]
+        .sort((a,b)=>b.length-a.length);
+    const candidates=[];
+    for(const span of delimitedWordMathSpans(text))for(const latex of expected) {
+        for(const pos of exactOccurrences(span.value,latex)){
+            if(/\\[A-Za-z]+$/.test(latex)&&/[A-Za-z]/.test(span.value[pos+latex.length]||''))continue;
+            candidates.push({value:latex,start:span.start+pos,end:span.start+pos+latex.length});
+        }
+    }
+    candidates.sort((a,b)=>(b.end-b.start)-(a.end-a.start)||a.start-b.start);
+    const chosen=[];
+    for(const candidate of candidates){
+        if(!chosen.some(x=>candidate.start<x.end && candidate.end>x.start))chosen.push(candidate);
+    }
+    return chosen.sort((a,b)=>a.start-b.start);
 }
 export function validateScientificLatexForImport(latex) {
     const value=String(latex ?? '').trim();
@@ -222,7 +230,8 @@ export function verifyImportedWordQuestions(rawQuestions, documentReport) {
         if(!allowedTypes.has(q.type)) issues.push({field:'type',reason:'Loại câu hỏi không hợp lệ: '+q.type});
         if(!allowedLevels.has(q.level)) issues.push({field:'level',reason:'Mức độ không hợp lệ: '+q.level});
         forEachField(q,(field,text,write)=>{
-            let normalized=text.replace(new RegExp(WORD_FORMULA_TOKEN.source,'g'), token=>{
+            const existingMath=delimitedWordMathSpans(text);
+            let normalized=text.replace(new RegExp(WORD_FORMULA_TOKEN.source,'g'), (token,at)=>{
                 const record=originalRecords.get(token);
                 usedTokens.add(token);
                 tokenUseCounts.set(token,(tokenUseCounts.get(token)||0)+1);
@@ -248,7 +257,8 @@ export function verifyImportedWordQuestions(rawQuestions, documentReport) {
                     issues.push({field,token,reason:verdict.reason,original:record.originalOmml});
                     return token;
                 }
-                return '$'+record.latex+'$';
+                const inside=existingMath.some(span=>at>=span.start && at+token.length<=span.end);
+                return inside ? record.latex : '$'+record.latex+'$';
             });
             for(const expr of findIncompleteWordFractions(normalized)) {
                 issues.push({field,reason:'Công thức LaTeX thiếu đối số; không tự điền',original:expr});
@@ -402,7 +412,7 @@ export function checkWordImportBeforeSave(questions, documentIssues = []) {
                 : source.field === 'answer' ? String(q.answer||'')
                 : /^option\.[A-D]$/.test(source.field) ? optionText(q.options?.[source.field.split('.')[1]]) : '';
             const counts=formulaCounts.get(source.field),remaining=counts?.get(source.latex)||0;
-            if (!source.latex || !location.includes('$'+source.latex+'$') || remaining<1) {
+            if (!source.latex || remaining<1) {
                 errors.push(where+': công thức Equation khác nội dung đã được kiểm chứng '+source.token);
             } else counts.set(source.latex,remaining-1);
             const valid=validateWordFormulaSourceForImport(source);
