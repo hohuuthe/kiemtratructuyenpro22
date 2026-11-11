@@ -29,6 +29,19 @@ test('Payload validation rejects ambiguous/broken/duplicate imports before trans
  const huge=validBatch();huge.questions=Array.from({length:MAX_WORD_IMPORT_QUESTIONS+1},(_,i)=>question('question'+i));
  assert.ok(validateBatchPayload(huge).some(x=>x.includes('400')));
 });
+test('Verified preview and save reject the same tampered Word Equation source',()=>{
+ const good=validBatch();
+ const q=good.questions[0];
+ const client={...q,__wordFormulaSources:q.formulaSources,__wordImportIssues:[],__wordReviewed:false};
+ assert.equal(checkWordImportBeforeSave([client]).ok,true);
+ assert.deepEqual(validateBatchPayload(good),[]);
+ const bad=validBatch();
+ bad.questions[0].formulaSources[0].sourceOmml=bad.questions[0].formulaSources[0].sourceOmml.replace('<m:t>a</m:t>','<m:t>x</m:t>');
+ const preview={...bad.questions[0],__wordFormulaSources:bad.questions[0].formulaSources,__wordImportIssues:[],__wordReviewed:false};
+ assert.ok(checkWordImportBeforeSave([preview]).errors.some(msg=>msg.includes('không khớp')));
+ assert.ok(validateBatchPayload(bad).some(msg=>msg.includes('không khớp')));
+});
+
 test('No new table or DDL; deterministic ID source always derived server-side',async()=>{
  const b=validBatch(),id=await deriveWordImportIds('teacher-1',b.sourceSha256,1);
  assert.match(id[0],/^wi-[a-f0-9]{40}-0001$/);
