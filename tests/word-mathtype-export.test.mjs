@@ -86,7 +86,7 @@ test('Fraction variants bar, noBar, skewed and linear retain their distinct sema
 });
 
 test('groupChr top/bottom braces and brackets preserve position and editable template selectors',()=>{
-  for(const [chr,pos,selector,variation] of [['\\u23de','top',24,1],['\\u23df','bot',24,0],['\\u23b4','top',25,1],['\\u23b5','bot',25,0]]){
+  for(const [chr,pos,selector,variation] of [['\u23de','top',24,1],['\u23df','bot',24,0],['\u23b4','top',25,1],['\u23b5','bot',25,0]]){
     const tree=ast('<m:groupChr><m:groupChrPr><m:chr m:val="'+chr+'"/><m:pos m:val="'+pos+'"/></m:groupChrPr>'+arg('e',run('BODY'))+'</m:groupChr>');
     const encoded=readMtef(astToMtef(tree));
     const group=flatten(encoded).find(n=>n.selector===selector);
@@ -146,34 +146,39 @@ test('Postprocess all occurrences atomically with unique native objects and matc
   assert.equal((xml.match(/Answer A\./g)||[]).length,corpus.length);
   assert.equal(report.nativeEditorVerified,false);
 });
-test('MathType OLE remains inline and uses glyph descent, not ascent, for Word baseline alignment',async()=>{
-  const input=await makeDocx([['inline-exponent',run('10')]],{display:false});
+test('Every generated MathType OLE remains selectable with no shifted Word run or VML hit box',async()=>{
   const preview=async()=>({png,widthPt:20,heightPt:14.5,baselinePt:10.5});
-  const {blob}=await convertDocxToMathType(input,{renderPreview:preview});
-  const zip=await load(blob),doc=parseXml(await zip.file('word/document.xml').async('string'));
-  const objects=Array.from(doc.getElementsByTagNameNS(NS.w,'object'));
-  assert.equal(objects.length,1);
-  const wr=objects[0].parentNode;
-  assert.equal(wr.localName,'r');
-  assert.equal(wr.parentNode.localName,'p','inline object must remain inside its text paragraph');
-  // Word must hit-test/activate the OLE from an unshifted character run;
-  // visual baseline correction lives on the shape instead of w:position.
-  assert.equal(wr.getElementsByTagNameNS(NS.w,'position').length,0,
-      'Inline object must not move the surrounding Word character/run hit target');
-  const shape=objects[0].getElementsByTagNameNS(NS.v,'shape')[0];
-  assert.match(shape.getAttribute('style'),/height:14\.5000pt/);
-  assert.match(shape.getAttribute('style'),/vertical-align:-4\.0000pt/,
-      '14.5pt preview with 10.5pt ascent uses exactly 4pt shape descent');
-  const ole=objects[0].getElementsByTagNameNS(NS.o,'OLEObject')[0];
-  assert.equal(ole.getAttribute('ProgID'),'Equation.DSMT4');
-  assert.equal(ole.getAttribute('ShapeID'),shape.getAttribute('id'));
-  assert.ok(ole.getAttributeNS(NS.r,'id'),'Embedded OLE relationship must remain intact');
-  const displaySource=await makeDocx([['display-fraction',fraction(run('x'),run('y'))]],{display:true});
-  const displayOut=await convertDocxToMathType(displaySource,{renderPreview:preview});
-  const displayDoc=parseXml(await (await load(displayOut.blob)).file('word/document.xml').async('string'));
-  assert.equal(displayDoc.getElementsByTagNameNS(NS.w,'position')[0].getAttributeNS(NS.w,'val'),'-21',
-      'Display equations retain their existing standalone positioning');
-  assert.equal(displayDoc.getElementsByTagNameNS(NS.o,'OLEObject').length,1);
+  for(const [label,body,display] of [
+    ['inline-variable',run('x'),false],
+    ['inline-exponent',run('10'),false],
+    ['inline-fraction',fraction(run('a'),run('b')),false],
+    ['display-fraction',fraction(run('x'),run('y')),true]
+  ]){
+    const input=await makeDocx([[label,body]],{display});
+    const {blob,report}=await convertDocxToMathType(input,{renderPreview:preview});
+    const zip=await load(blob),doc=parseXml(await zip.file('word/document.xml').async('string'));
+    assert.equal(report.converted,1,label);
+    const objects=Array.from(doc.getElementsByTagNameNS(NS.w,'object'));
+    assert.equal(objects.length,1,label);
+    const wr=objects[0].parentNode;
+    assert.equal(wr.localName,'r',label);
+    assert.equal(wr.parentNode.localName,'p','OLE must remain a native inline run');
+    assert.equal(wr.getElementsByTagNameNS(NS.w,'position').length,0,'Run position must not move clickable OLE');
+    const shape=objects[0].getElementsByTagNameNS(NS.v,'shape')[0];
+    assert.match(shape.getAttribute('style'),/width:20\.0000pt;height:14\.5000pt/,label);
+    assert.doesNotMatch(shape.getAttribute('style'),/vertical-align|position:|margin-top|margin-bottom/,label);
+    const ole=objects[0].getElementsByTagNameNS(NS.o,'OLEObject')[0];
+    assert.equal(ole.getAttribute('ProgID'),'Equation.DSMT4');
+    assert.equal(ole.getAttribute('Type'),'Embed');
+    assert.equal(ole.getAttribute('ShapeID'),shape.getAttribute('id'));
+    assert.ok(ole.getAttributeNS(NS.r,'id'),'Embedded OLE relationship must remain intact');
+    const rel=zip.file('word/_rels/document.xml.rels');
+    assert.ok(rel);
+    const relText=await rel.async('string');
+    assert.ok(relText.includes(ole.getAttributeNS(NS.r,'id')));
+    const embedded=await zip.file(report.equations[0].olePath).async('uint8array');
+    readMtef(inspectOle(embedded).mtef);
+  }
 });
 
 test('Batch preview path renders many formulas in one renderer pass and never falls back per formula',async()=>{
