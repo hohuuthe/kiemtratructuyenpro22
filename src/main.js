@@ -5295,29 +5295,38 @@ if (contentType && contentType.includes("application/json")) {
                 copyBtn.onclick = async () => {
                     const originalHtml = copyBtn.innerHTML;
                     let copied = false;
+                    // A synchronous fallback MUST run before any await: browsers
+                    // may revoke transient user activation after a rejected
+                    // Clipboard promise, making execCommand('copy') fail.
+                    const priorFocus = document.activeElement;
+                    let ta;
                     try {
-                        if (navigator.clipboard && navigator.clipboard.writeText) {
-                            await navigator.clipboard.writeText(trimmedMsg);
-                            copied = true;
-                        }
+                        ta = document.createElement('textarea');
+                        ta.value = trimmedMsg;
+                        ta.setAttribute('readonly', '');
+                        ta.style.position = 'fixed';
+                        ta.style.top = '0';
+                        ta.style.left = '0';
+                        ta.style.opacity = '0';
+                        ta.style.pointerEvents = 'none';
+                        document.body.appendChild(ta);
+                        ta.focus();
+                        ta.select();
+                        copied = document.execCommand('copy') === true;
                     } catch (error) {
-                        console.warn('[Toast] Clipboard API unavailable, using fallback copy.', error);
+                        console.warn('[Toast] Synchronous fallback copy failed.', error);
+                    } finally {
+                        ta?.remove();
+                        try { priorFocus?.focus?.({preventScroll:true}); } catch {}
                     }
                     if (!copied) {
                         try {
-                            const ta = document.createElement('textarea');
-                            ta.value = trimmedMsg;
-                            ta.setAttribute('readonly', '');
-                            ta.style.position = 'fixed';
-                            ta.style.opacity = '0';
-                            ta.style.pointerEvents = 'none';
-                            document.body.appendChild(ta);
-                            ta.focus();
-                            ta.select();
-                            copied = document.execCommand('copy') === true;
-                            ta.remove();
+                            if (navigator.clipboard && navigator.clipboard.writeText) {
+                                await navigator.clipboard.writeText(trimmedMsg);
+                                copied = true;
+                            }
                         } catch (error) {
-                            console.warn('[Toast] Fallback copy failed.', error);
+                            console.warn('[Toast] Clipboard API unavailable.', error);
                         }
                     }
                     if (copied) {
@@ -5340,7 +5349,7 @@ if (contentType && contentType.includes("application/json")) {
                     toast.style.transform = 'translateY(-6px)';
                     toast.style.transition = 'opacity 0.25s, transform 0.25s';
                     setTimeout(() => toast.remove(), 260);
-                }, size === 'large' ? 3000 : 4000);
+                }, size === 'large' ? 3000 : (type === 'error' ? 15000 : type === 'warning' ? 9000 : 4000));
             };
 
             const clearTimer = () => {
@@ -14036,7 +14045,11 @@ D. Phát biểu SAI</pre>
                 pendingImportQuestions,wordImportVerification?.documentIssues||[]
             );
             if(!check.ok){
-                showToast('Chưa thể lưu: '+check.errors.slice(0,3).join('; '),'error');
+                // Show a stable, actionable error summary before any request:
+                // never silently discard all but three source-verification failures.
+                const reason=check.errors.slice(0,3).join('; ');
+                showToast('Chưa thể lưu ('+check.errors.length+' lỗi): '+reason+
+                    (check.errors.length>3?'… Kiểm tra thêm lỗi trong từng câu.':''),'error');
                 return;
             }
             if(!wordImportFileMeta?.fileName||!currentUser?.id){
@@ -14124,8 +14137,10 @@ D. Phát biểu SAI</pre>
                 const receipt=await response.json();
                 if(!response.ok||!receipt.success||
                     receipt.count!==records.length||receipt.expected!==records.length){
-                    const detail=(receipt.issues||[]).slice(0,3).join('; ');
-                    throw new Error(receipt.error||detail||'CSDL không xác nhận đủ số câu');
+                    const detail=(Array.isArray(receipt.issues)?receipt.issues:[])
+                        .slice(0,3).join('; ');
+                    throw new Error([receipt.error,detail].filter(Boolean).join(': ')||
+                        'CSDL không xác nhận đủ số câu');
                 }
                 const count=records.length;
                 pendingImportQuestions=[];
