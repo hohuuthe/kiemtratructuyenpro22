@@ -50,23 +50,29 @@ function newRelationship(doc,id,type,target){
 }
 function findRootText(root){return toArray(root.getElementsByTagNameNS(NS.w,'t')).map(n=>n.textContent);}
 function makeObjectRun(doc,{oleId,imageId,shapeId,objectId,widthPt,heightPt,baselinePt,display=false}){
-  const wr=doc.createElementNS(NS.w,'w:r'),rp=doc.createElementNS(NS.w,'w:rPr');
-  // The inline VML object's bottom normally sits on the text baseline.
-  // Its visible glyph baseline is baselinePt BELOW the image top, so lower
-  // the object by the DESCENDER (heightPt - baselinePt), not by baselinePt.
-  // The old offset pushed nearly every short formula below the text line.
+  const wr=doc.createElementNS(NS.w,'w:r');
   const descentPt=Math.max(0,Math.min(heightPt,heightPt-baselinePt));
-  // Keep standalone display-math positioning unchanged in this focused fix.
-  const halfPoints=-Math.round((display?baselinePt:descentPt)*2);
-  if(halfPoints!==0){
-    const pos=doc.createElementNS(NS.w,'w:position');
-    pos.setAttributeNS(NS.w,'w:val',String(halfPoints));
-    rp.appendChild(pos);
+  // An inline OLE must keep Word's character run at its NORMAL position.
+  // Shifting the entire run by w:position changes the selection/activation
+  // target independently of the VML shape, making double-click edit unreliable.
+  // Preserve the existing display-math behavior separately.
+  if(display){
+    const halfPoints=-Math.round(baselinePt*2);
+    if(halfPoints!==0){
+      const rp=doc.createElementNS(NS.w,'w:rPr');
+      const pos=doc.createElementNS(NS.w,'w:position');
+      pos.setAttributeNS(NS.w,'w:val',String(halfPoints));
+      rp.appendChild(pos);wr.appendChild(rp);
+    }
   }
-  wr.appendChild(rp);
   const object=doc.createElementNS(NS.w,'w:object');object.setAttributeNS(NS.w,'w:dxaOrig',String(Math.round(widthPt*20)));object.setAttributeNS(NS.w,'w:dyaOrig',String(Math.round(heightPt*20)));
   const shape=doc.createElementNS(NS.v,'v:shape');shape.setAttribute('id',shapeId);shape.setAttribute('type','#_x0000_t75');
-  shape.setAttribute('style','width:'+widthPt.toFixed(4)+'pt;height:'+heightPt.toFixed(4)+'pt');shape.setAttributeNS(NS.o,'o:ole','');
+  // Align the visible INLINE shape itself, not the OLE run that Word uses
+  // for selecting and activating the embedded editor. Keep the VML position
+  // in normal inline flow (no floating anchor or hidden overlay).
+  const shapeStyle='width:'+widthPt.toFixed(4)+'pt;height:'+heightPt.toFixed(4)+'pt'+
+    (!display&&descentPt>0.01?';vertical-align:-'+descentPt.toFixed(4)+'pt':'');
+  shape.setAttribute('style',shapeStyle);shape.setAttributeNS(NS.o,'o:ole','');
   const image=doc.createElementNS(NS.v,'v:imagedata');image.setAttributeNS(NS.r,'r:id',imageId);image.setAttributeNS(NS.o,'o:title','');shape.appendChild(image);object.appendChild(shape);
   const ole=doc.createElementNS(NS.o,'o:OLEObject');
   for(const [key,value] of Object.entries({Type:'Embed',ProgID:'Equation.DSMT4',ShapeID:shapeId,DrawAspect:'Content',ObjectID:objectId}))ole.setAttribute(key,value);
