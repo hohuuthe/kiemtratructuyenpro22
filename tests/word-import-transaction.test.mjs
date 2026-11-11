@@ -46,22 +46,26 @@ test('MathType objects embedded in one literal LaTeX span save without changing 
  const {astToMtef}=await import('../src/word-mathtype-export/mtef-writer.js');
  const {encodeMathTypeSource}=await import('../src/word-mathtype-reader.js');
  const {verifyImportedWordQuestions}=await import('../src/word-import-verification.js');
- const source=latex=>encodeMathTypeSource(astToMtef({k:'seq',items:[{k:'text',text:latex}]}));
+ const {convertMtefV5ToLatex}=await import('../src/word-mtef-v5-reader.js');
+ const native=unicode=>astToMtef({k:'seq',items:[{k:'text',text:unicode}]});
+ const source=unicode=>encodeMathTypeSource(native(unicode));
+ const almost=convertMtefV5ToLatex(native('≈'));
+ const pi=convertMtefV5ToLatex(native('π'));
  const input=validBatch().questions[0];
  input.content='Giá trị $3.14159__WMATH_000028__{}__WMATH_000029__{}$';
  const report={issues:[],formulas:[
-  {token:'__WMATH_000028__',status:'parsed',latex:'x',sourceType:'mathtype',originalOmml:source('x')},
-  {token:'__WMATH_000029__',status:'parsed',latex:'y',sourceType:'mathtype',originalOmml:source('y')}
+  {token:'__WMATH_000028__',status:'parsed',latex:almost,sourceType:'mathtype',originalOmml:source('≈')},
+  {token:'__WMATH_000029__',status:'parsed',latex:pi,sourceType:'mathtype',originalOmml:source('π')}
  ]};
  const preview=verifyImportedWordQuestions([input],report);
  assert.deepEqual(preview.documentIssues,[]);
  assert.deepEqual(preview.questions[0].__wordImportIssues,[]);
- assert.equal(preview.questions[0].content,'Giá trị $3.14159x{}y{}$');
+ assert.equal(preview.questions[0].content,'Giá trị $3.14159'+almost+'{}'+pi+'{}$');
  assert.equal(checkWordImportBeforeSave(preview.questions).ok,true);
  const save=validBatch();
  save.questions=[{...preview.questions[0],formulaSources:preview.questions[0].__wordFormulaSources}];
  assert.deepEqual(validateBatchPayload(save),[],'server must accept exactly what was verified in preview');
- save.questions[0].content='Giá trị $3.14159x{}z{}$';
+ save.questions[0].content='Giá trị $3.14159'+almost+'{}z{}$';
  assert.ok(validateBatchPayload(save).some(message=>message.includes('khác nội dung')),
   'changing one source after preview must still be rejected');
 });
