@@ -45,7 +45,7 @@ function describeMathTypeExportFailure(error) {
 }
 import { buildQuestionBankExportInventory, buildQuestionBankExportPlan } from './question-bank-word-selection.js';
 import { generateQuestionBankDocx } from './question-bank-docx-generator.ts';
-import { beginQuestionBankWordSavePicker, writeQuestionBankWordFile, createQuestionBankWordDownload } from './question-bank-word-download.js';
+import { createQuestionBankWordDownload } from './question-bank-word-download.js';
 import { inspectScientificDocx, WORD_IMPORT_ENGINE_VERSION } from './word-omml-reader.js';
 import { parseWordUnderlinedOptionLines, parseWordBoldOptionLines } from './word-underline-answers.js';
 import { verifyImportedWordQuestions, checkWordImportBeforeSave, correctImportedWordEquation, normalizeWordImportAnswer, collectWordImportAnswerContinuation } from './word-import-verification.js';
@@ -14818,6 +14818,16 @@ D. Phát biểu SAI</pre>
                 try { release(); } catch (error) { console.warn('[WordBank] Cannot release download URL:', error); }
             }
         }
+        function resetQuestionBankWordReady(modal) {
+            releaseQuestionBankWordDownloads();
+            if (!modal) return;
+            modal._wordDownloadSignature = null;
+            const ready = modal.querySelector('#exp-download-ready');
+            if (ready) {
+                ready.replaceChildren();
+                ready.classList.add('hidden');
+            }
+        }
         window.closeQuestionBankWordModal = function closeQuestionBankWordModal() {
             const currentModal = document.getElementById('export-word-modal');
             try { currentModal?._mathTypeAbortController?.abort(); } catch {}
@@ -14886,6 +14896,14 @@ D. Phát biểu SAI</pre>
                 const plan = buildQuestionBankExportPlan(
                     bankWordExportInventory, currentBankWordExportChoices(), currentBankWordSortMode()
                 );
+                // Never offer a DOCX built for an earlier selection or formula format.
+                if (modal._wordDownloadSignature && !button?.dataset.exporting) {
+                    const currentSignature = JSON.stringify([
+                        plan.ids, currentBankWordSortMode(),
+                        modal.querySelector('input[name="bank-word-equation-format"]:checked')?.value || 'equation'
+                    ]);
+                    if (currentSignature !== modal._wordDownloadSignature) resetQuestionBankWordReady(modal);
+                }
                 if (lessonCount) lessonCount.textContent = String(plan.selectedLessons);
                 if (questionCount) questionCount.textContent = String(plan.totalSelected);
                 if (typeSummary) {
@@ -14905,6 +14923,7 @@ D. Phát biểu SAI</pre>
                 if (button && !button.dataset.exporting) button.disabled = plan.totalSelected === 0;
                 return plan;
             } catch (error) {
+                if (modal._wordDownloadSignature && !button?.dataset.exporting) resetQuestionBankWordReady(modal);
                 if (lessonCount) lessonCount.textContent = '—';
                 if (questionCount) questionCount.textContent = '—';
                 if (typeSummary) typeSummary.textContent = 'Vui lòng sửa lại số lượng câu hỏi.';
@@ -15086,9 +15105,9 @@ D. Phát biểu SAI</pre>
                           '</fieldset>' +
                           '<fieldset class="rounded-xl border border-violet-200 bg-violet-50 p-3 space-y-2">' +
                             '<legend class="text-xs font-bold text-violet-950 px-1">∑ Kiểu công thức trong file Word</legend>' +
-                            '<label class="flex items-start gap-2 cursor-pointer text-xs sm:text-sm"><input type="radio" name="bank-word-equation-format" value="equation" checked class="mt-0.5"> <span><strong>Equation Word</strong> — mặc định, giữ nguyên cơ chế hiện tại.</span></label>' +
+                            '<label class="flex items-start gap-2 cursor-pointer text-xs sm:text-sm"><input type="radio" name="bank-word-equation-format" value="equation" checked onchange="updateWordExportSelectionStats()" class="mt-0.5"> <span><strong>Equation Word</strong> — mặc định, giữ nguyên cơ chế hiện tại.</span></label>' +
                             (mathTypePreviewAvailable
-                              ? '<label class="flex items-start gap-2 cursor-pointer text-xs sm:text-sm"><input type="radio" name="bank-word-equation-format" value="mathtype" class="mt-0.5"> <span><strong>MathType OLE</strong> — chỉ chạy khi người dùng chủ động chọn.</span></label><div class="text-[11px] text-violet-800">Nếu chuyển đổi MathType không đạt kiểm tra, hệ thống không phát hành file dở dang.</div>'
+                              ? '<label class="flex items-start gap-2 cursor-pointer text-xs sm:text-sm"><input type="radio" name="bank-word-equation-format" value="mathtype" onchange="updateWordExportSelectionStats()" class="mt-0.5"> <span><strong>MathType OLE</strong> — chỉ chạy khi người dùng chủ động chọn.</span></label><div class="text-[11px] text-violet-800">Nếu chuyển đổi MathType không đạt kiểm tra, hệ thống không phát hành file dở dang.</div>'
                               : '<label class="flex items-start gap-2 opacity-60 cursor-not-allowed text-xs sm:text-sm"><input type="radio" name="bank-word-equation-format" value="mathtype" disabled class="mt-0.5"> <span><strong>MathType OLE</strong> — hiện đang tạm khóa.</span></label>') +
                           '</fieldset>' +
                           '<div class="text-xs font-bold text-gray-700">Chi tiết bài học và số lượng câu hỏi hiện có</div>' +
@@ -15135,12 +15154,10 @@ D. Phát biểu SAI</pre>
             const formatSuffix = equationFormat === 'mathtype' ? '_MathType' : '';
             const downloadName = 'NganHangCauHoi_' + new Date().toISOString().slice(0, 10) + formatSuffix + '.docx';
             const ownerAtStart = String(currentUser?.id ?? '');
-            // Start the native file picker NOW, inside the real click gesture.
-            // Awaiting the database or DOCX generation first would lose activation.
-            const saveRequest = beginQuestionBankWordSavePicker(
-                downloadName,
-                typeof window.showSaveFilePicker === 'function' ? window.showSaveFilePicker.bind(window) : null
-            );
+            const exportSignature = JSON.stringify([initialPlan.ids, currentBankWordSortMode(), equationFormat]);
+            // "Thực hiện Xuất Word" ONLY builds a DOCX. There is no file to
+            // save yet; discard any older ready link before starting a new job.
+            resetQuestionBankWordReady(modal);
             try {
                 const selectedChoices = currentBankWordExportChoices();
                 const sortMode = currentBankWordSortMode();
@@ -15213,52 +15230,60 @@ D. Phát biểu SAI</pre>
                     throw new Error('Phiên xuất Word đã đóng hoặc tài khoản đã thay đổi. Vui lòng xuất lại.');
                 }
 
-                // Only a completed file-system write + close proves that a file
-                // has been saved. Synthetic anchor clicks have no success API.
-                let savedWithPicker = false;
-                let pickerCancelled = false;
-                let pickerError = null;
-                if (saveRequest) {
-                    const choice = await saveRequest;
-                    if (choice?.handle) {
-                        try {
-                            savedWithPicker = await writeQuestionBankWordFile(choice.handle, outputBlob);
-                        } catch (error) {
-                            pickerError = error;
-                            console.warn('[WordBank] Native save failed, keeping manual download:', error);
-                        }
-                    } else if (choice?.error?.name === 'AbortError') {
-                        pickerCancelled = true;
-                    } else if (choice?.error) {
-                        pickerError = choice.error;
-                    }
-                }
-                if (!modal.isConnected || document.getElementById('export-word-modal') !== modal ||
-                    String(currentUser?.id ?? '') !== ownerAtStart) {
-                    throw new Error('Phiên xuất Word không còn hiệu lực. Vui lòng mở lại form.');
+                // A user may edit the form while the async export is running.
+                // Never present the old snapshot as if it matched the new one.
+                const currentPlan = buildQuestionBankExportPlan(
+                    bankWordExportInventory, currentBankWordExportChoices(), currentBankWordSortMode()
+                );
+                if (JSON.stringify([currentPlan.ids, currentBankWordSortMode(),
+                    modal.querySelector('input[name="bank-word-equation-format"]:checked')?.value || 'equation'
+                ]) !== exportSignature) {
+                    throw new Error('Bạn đã thay đổi lựa chọn trong lúc tạo Word. Hãy bấm Thực hiện Xuất Word lại.');
                 }
 
                 const downloadPanel = modal.querySelector('#exp-download-ready');
                 if (!downloadPanel) throw new Error('Không tìm thấy khu vực tải file Word.');
-                releaseQuestionBankWordDownloads();
                 downloadPanel.replaceChildren();
                 downloadPanel.classList.remove('hidden');
                 const downloadNote = document.createElement('p');
                 downloadNote.className = 'text-xs sm:text-sm font-semibold text-blue-900';
                 downloadPanel.appendChild(downloadNote);
 
-                // Do not remove this anchor or revoke the Blob URL until the
-                // user closes the modal: async click() may be browser-blocked.
-                const wordDownload = createQuestionBankWordDownload(outputBlob, downloadName);
+                // The real Download click (not the Generate click) is the ONLY
+                // place allowed to open the save picker or start a download.
+                const stillHere = () => modal.isConnected &&
+                    document.getElementById('export-word-modal') === modal &&
+                    String(currentUser?.id ?? '') === ownerAtStart;
+                const contentSummary = freshPlan.totalSelected + ' câu từ ' +
+                    freshPlan.selectedLessons + ' bài';
+                const wordDownload = createQuestionBankWordDownload(outputBlob, downloadName, {
+                    picker: typeof window.showSaveFilePicker === 'function'
+                        ? window.showSaveFilePicker.bind(window) : null,
+                    onSaved: () => {
+                        if (!stillHere()) return;
+                        downloadNote.textContent = 'Đã lưu thành công file Word (' + contentSummary + ').';
+                        showToast('Đã lưu Word với đúng ' + contentSummary + '.', 'success');
+                    },
+                    onCancelled: () => {
+                        if (stillHere()) showToast('Đã hủy lưu file Word. Tệp vẫn sẵn sàng để tải.', 'info');
+                    },
+                    onBrowserDownload: () => {
+                        if (!stillHere()) return;
+                        downloadNote.textContent = 'Đã gửi yêu cầu tải file Word (' + contentSummary +
+                            ') cho trình duyệt. Vui lòng kiểm tra mục Tải xuống.';
+                    },
+                    onError: error => {
+                        console.warn('[WordBank] Native save failed:', error);
+                        if (!stillHere()) return;
+                        downloadNote.textContent = 'Không mở được hộp thoại lưu: ' +
+                            (error?.message || String(error)) +
+                            '. Nhấn Tải file Word lần nữa để dùng cơ chế tải của trình duyệt.';
+                        showToast('Chưa lưu được file Word. Nhấn Tải file Word lần nữa để tải về.', 'warning');
+                    }
+                });
                 bankWordDownloadReleases.push(wordDownload.release);
                 downloadPanel.appendChild(wordDownload.link);
-
-                if (!savedWithPicker && !pickerCancelled) {
-                    // Best-effort automatic download; the persistent user-click
-                    // link above is the reliable fallback for all browsers.
-                    try { wordDownload.link.click(); }
-                    catch (error) { console.warn('[WordBank] Browser rejected auto-download:', error); }
-                }
+                modal._wordDownloadSignature = exportSignature;
 
                 if (wordFormulaWarnings.length) {
                     const details = wordFormulaWarnings.map(issue =>
@@ -15278,23 +15303,10 @@ D. Phát biểu SAI</pre>
                     downloadPanel.appendChild(warningLink);
                 }
 
-                const contentSummary = freshPlan.totalSelected + ' câu từ ' +
-                    freshPlan.selectedLessons + ' bài';
-                if (savedWithPicker) {
-                    downloadNote.textContent = 'Đã lưu thành công file Word (' + contentSummary +
-                        '). Bạn có thể nhấn nút bên dưới để tải thêm một bản.';
-                    showToast('Đã lưu thành công Word với đúng ' + contentSummary + '.', 'success');
-                } else if (pickerCancelled) {
-                    downloadNote.textContent = 'Bạn đã hủy hộp thoại lưu. File Word (' +
-                        contentSummary + ') đã tạo xong. Hãy nhấn nút Tải file Word bên dưới để lưu.';
-                    showToast('Đã hủy lưu tự động. Nhấn Tải file Word trong form nếu cần tải về.', 'warning');
-                } else {
-                    downloadNote.textContent = 'File Word (' + contentSummary +
-                        ') đã tạo xong. Nếu trình duyệt chưa tải tự động, hãy nhấn nút Tải file Word bên dưới.';
-                    showToast('Đã tạo Word với đúng ' + contentSummary +
-                        '. Nếu chưa thấy file, nhấn Tải file Word trong form.', 'info');
-                }
-                if (pickerError) console.warn('[WordBank] Save picker unavailable:', pickerError);
+                downloadNote.textContent = 'File Word (' + contentSummary +
+                    ') đã tạo xong, chưa lưu hoặc tải về. Nhấn Tải file Word để chọn nơi lưu hoặc tải xuống.';
+                showToast('Đã tạo Word với đúng ' + contentSummary +
+                    '. Nhấn Tải file Word để lưu.', 'success');
             } catch (error) {
                 console.error('[WordBank] Export failed:', error);
                 const detail = equationFormat === 'mathtype' ? describeMathTypeExportFailure(error) : (error.message || String(error));
