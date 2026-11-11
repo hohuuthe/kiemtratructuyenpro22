@@ -400,8 +400,9 @@ export function checkWordImportBeforeSave(questions, documentIssues = []) {
             if (!source.latex || !location.includes('$'+source.latex+'$') || remaining<1) {
                 errors.push(where+': công thức Equation khác nội dung đã được kiểm chứng '+source.token);
             } else counts.set(source.latex,remaining-1);
-            const valid=validateScientificLatexForImport(source.latex);
-            if (!valid.ok) errors.push(where+': công thức '+source.token+' không đạt kiểm tra: '+valid.reason);
+            const valid=validateWordFormulaSourceForImport(source);
+            if (!valid.ok) errors.push(where+': công thức '+source.token+
+                ' ('+source.field+') không đạt kiểm tra nguồn Word: '+valid.reason);
         }
     });
     return {ok:errors.length===0,errors,questionCount:questions.length};
