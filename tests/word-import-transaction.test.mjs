@@ -29,6 +29,34 @@ test('Payload validation rejects ambiguous/broken/duplicate imports before trans
  const huge=validBatch();huge.questions=Array.from({length:MAX_WORD_IMPORT_QUESTIONS+1},(_,i)=>question('question'+i));
  assert.ok(validateBatchPayload(huge).some(x=>x.includes('400')));
 });
+test('MathType objects embedded in one literal LaTeX span save without changing source identity',async()=>{
+ const {astToMtef}=await import('../src/word-mathtype-export/mtef-writer.js');
+ const {encodeMathTypeSource}=await import('../src/word-mathtype-reader.js');
+ const {verifyImportedWordQuestions}=await import('../src/word-import-verification.js');
+ const {convertMtefV5ToLatex}=await import('../src/word-mtef-v5-reader.js');
+ const native=unicode=>astToMtef({k:'seq',items:[{k:'text',text:unicode}]});
+ const source=unicode=>encodeMathTypeSource(native(unicode));
+ const almost=convertMtefV5ToLatex(native('≈'));
+ const pi=convertMtefV5ToLatex(native('π'));
+ const input=validBatch().questions[0];
+ input.content='Giá trị $3.14159__WMATH_000028__{}__WMATH_000029__{}$';
+ const report={issues:[],formulas:[
+  {token:'__WMATH_000028__',status:'parsed',latex:almost,sourceType:'mathtype',originalOmml:source('≈')},
+  {token:'__WMATH_000029__',status:'parsed',latex:pi,sourceType:'mathtype',originalOmml:source('π')}
+ ]};
+ const preview=verifyImportedWordQuestions([input],report);
+ assert.deepEqual(preview.documentIssues,[]);
+ assert.deepEqual(preview.questions[0].__wordImportIssues,[]);
+ assert.equal(preview.questions[0].content,'Giá trị $3.14159'+almost+'{}'+pi+'{}$');
+ assert.equal(checkWordImportBeforeSave(preview.questions).ok,true);
+ const save=validBatch();
+ save.questions=[{...preview.questions[0],formulaSources:preview.questions[0].__wordFormulaSources}];
+ assert.deepEqual(validateBatchPayload(save),[],'server must accept exactly what was verified in preview');
+ save.questions[0].content='Giá trị $3.14159'+almost+'{}z{}$';
+ assert.ok(validateBatchPayload(save).some(message=>message.includes('khác nội dung')),
+  'changing one source after preview must still be rejected');
+});
+
 test('No new table or DDL; deterministic ID source always derived server-side',async()=>{
  const b=validBatch(),id=await deriveWordImportIds('teacher-1',b.sourceSha256,1);
  assert.match(id[0],/^wi-[a-f0-9]{40}-0001$/);
