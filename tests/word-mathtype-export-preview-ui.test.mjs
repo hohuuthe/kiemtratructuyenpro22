@@ -43,13 +43,15 @@ test('Exam MathType selection bypasses the existing server Equation ZIP and post
   assert.match(exam,/const docBlob = await finalizeWordExport\(equationBlob,/);
 });
 
-test('Question-bank MathType selection post-processes the generated copy and saves outputBlob',()=>{
+test('Question-bank MathType generates a verified outputBlob; only Download can save it',()=>{
   assert.match(bank,/const equationFormat = modal\.querySelector\('input\[name="bank-word-equation-format"\]:checked'\)\?\.value \|\| 'equation'/);
   assert.match(bank,/const outputBlob = await finalizeWordExport\(blob,/);
-  assert.match(bank,/writeQuestionBankWordFile\(choice\.handle, outputBlob\)/);
-  assert.match(bank,/createQuestionBankWordDownload\(outputBlob, downloadName\)/);
-  assert.doesNotMatch(bank,/writeQuestionBankWordFile\(choice\.handle, blob\)/);
-  assert.doesNotMatch(bank,/createQuestionBankWordDownload\(blob, downloadName\)/);
+  assert.match(bank,/createQuestionBankWordDownload\(outputBlob, downloadName,/);
+  assert.match(bank,/downloadPanel\.appendChild\(wordDownload\.link\)/);
+  assert.doesNotMatch(bank,/writeQuestionBankWordFile\s*\(/);
+  assert.doesNotMatch(bank,/beginQuestionBankWordSavePicker\s*\(/);
+  assert.doesNotMatch(bank,/wordDownload\.link\.click\s*\(/);
+  assert.doesNotMatch(bank,/createQuestionBankWordDownload\(blob, downloadName/);
 });
 
 

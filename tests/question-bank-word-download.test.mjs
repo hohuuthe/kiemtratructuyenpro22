@@ -72,26 +72,105 @@ test('fallback link remains available for a genuine user click and releases only
     assert.throws(() => createQuestionBankWordDownload(new Blob(['bad']), filename, {document:doc,urlApi}), /hợp lệ/);
 });
 
-test('Export Word UI keeps download reachable after async generation and avoids false success', () => {
+test('ready download is inert until user explicitly clicks it', async () => {
+    let opened = 0, wrote = 0, saved = 0, cancelled = 0, browserDownloads = 0;
+    const listeners = new Map();
+    const link = {
+        setAttribute() {},
+        addEventListener(name, fn) { listeners.set(name, fn); },
+        click() {
+            const event = { defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } };
+            listeners.get('click')?.(event);
+            if (!event.defaultPrevented) browserDownloads++;
+            return event;
+        }
+    };
+    const doc = { createElement(type) { assert.equal(type, 'a'); return link; } };
+    const urls = { createObjectURL() { return 'blob:generated'; }, revokeObjectURL() {} };
+    const download = createQuestionBankWordDownload(docx, filename, {
+        document: doc, urlApi: urls,
+        picker: () => { opened++; return { createWritable: async () => ({
+            write: async data => { assert.equal(data, docx); wrote++; },
+            close: async () => {}
+        }) }; },
+        onSaved: () => { saved++; },
+        onCancelled: () => { cancelled++; }
+    });
+    assert.deepEqual([opened, wrote, saved, browserDownloads], [0, 0, 0, 0],
+        'Creating DOCX/link must not open Save As or download anything');
+    assert.equal(download.link.click().defaultPrevented, true);
+    assert.equal(opened, 1, 'Picker opens from the real download click only');
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual([wrote, saved, cancelled, browserDownloads], [1, 1, 0, 0]);
+    download.release();
+});
+
+test('user cancelling Save As keeps the generated DOCX ready; unsupported picker falls back on a later click', async () => {
+    const links = [];
+    const doc = { createElement() {
+        const listeners = new Map();
+        const link = {
+            setAttribute() {}, addEventListener(name, fn) { listeners.set(name, fn); },
+            click() { let prevented = false; listeners.get('click')?.({preventDefault(){ prevented=true; }}); return prevented; }
+        };
+        links.push(link); return link;
+    } };
+    const urls = {createObjectURL(){return 'blob:ready';},revokeObjectURL(){}};
+    let cancelled = 0, errors = 0, browser = 0, opens = 0;
+    const cancelledDownload = createQuestionBankWordDownload(docx, filename, {
+        document:doc,urlApi:urls,
+        picker: () => { opens++; return Promise.reject(Object.assign(new Error('cancelled'),{name:'AbortError'})); },
+        onCancelled: () => { cancelled++; }
+    });
+    assert.equal(cancelledDownload.link.click(),true);
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(cancelled,1);
+    assert.equal(cancelledDownload.link.click(),true);
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(opens,2,'Cancel must not invalidate the ready file');
+
+    const fallback = createQuestionBankWordDownload(docx, filename, {
+        document:doc,urlApi:urls,picker:()=>{throw new Error('unavailable');},
+        onError:()=>{errors++;},onBrowserDownload:()=>{browser++;}
+    });
+    assert.equal(fallback.link.click(),true,'first click tries native picker');
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(errors,1);
+    assert.equal(fallback.link.click(),false,'second user click uses native browser download');
+    assert.equal(browser,1);
+
+    const basic = createQuestionBankWordDownload(docx, filename, {
+        document:doc,urlApi:urls,onBrowserDownload:()=>{browser++;}
+    });
+    assert.equal(basic.link.click(),false);
+    assert.equal(browser,2,'No picker means only manual anchor download');
+});
+
+test('Export Word UI keeps the file ready and never launches Save As/download while generating', () => {
     const source = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
     const start = source.indexOf('window.executeExportWord = async');
     const end = source.indexOf('window.exportStatsToExcel = async', start);
     assert.ok(start >= 0 && end > start, 'Cannot locate the Word export handler');
     const handler = source.slice(start, end);
-    const picker = handler.indexOf('beginQuestionBankWordSavePicker(');
-    const firstAwait = handler.indexOf('await loadVerifiedQuestionBankWordInventory()');
-    assert.ok(picker >= 0 && picker < firstAwait, 'Save picker must start inside the click gesture');
+    const helper = readFileSync(new URL('../src/question-bank-word-download.js', import.meta.url), 'utf8');
+    assert.doesNotMatch(handler, /beginQuestionBankWordSavePicker\s*\(/);
+    assert.doesNotMatch(handler, /writeQuestionBankWordFile\s*\(/);
+    assert.doesNotMatch(handler, /\.link\.click\s*\(/);
+    assert.doesNotMatch(handler, /showSaveFilePicker\s*\(/);
+    assert.ok(helper.includes("link.addEventListener('click'"), 'Save picker is owned by the final link');
+    assert.ok(helper.includes('event.preventDefault()'));
     for (const expected of [
-        'await writeQuestionBankWordFile(choice.handle, outputBlob)',
         'downloadPanel.appendChild(wordDownload.link)',
         'bankWordDownloadReleases.push(wordDownload.release)',
         'signature[0] !== 0x50',
-        'pickerCancelled'
+        'modal._wordDownloadSignature = exportSignature',
+        'resetQuestionBankWordReady(modal)',
+        'Đã tạo Word'
     ]) assert.ok(handler.includes(expected), 'Missing download safeguard: ' + expected);
-    assert.ok(handler.includes('Nếu trình duyệt chưa tải tự động'));
-    assert.ok(!handler.includes('modal.remove();'), 'Do not close a modal while manual retry is needed');
-    assert.ok(!handler.includes('download.remove();'), 'Do not detach the only download link');
+    assert.ok(!handler.includes('modal.remove();'), 'Keep the modal for an explicit download');
     assert.ok(source.includes('id="exp-download-ready"'));
     assert.ok(source.includes('window.closeQuestionBankWordModal'));
     assert.ok(source.includes('bankWordDownloadReleases.splice(0)'));
+    assert.ok(source.includes('currentSignature !== modal._wordDownloadSignature'),
+        'Changing selection/formula type must invalidate a previously generated file');
 });
