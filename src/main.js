@@ -5265,6 +5265,12 @@ if (contentType && contentType.includes("application/json")) {
                     : 'fixed top-4 right-4 z-[9999999] flex flex-col gap-2 max-w-sm pointer-events-none';
                 (document.body || document.documentElement).appendChild(container);
             }
+            // Toasts must be above the modal/backdrop and outside its stacking
+            // context. Keep a fullscreen toast within the fullscreen root.
+            const toastParent = document.fullscreenElement || document.body;
+            if (container.parentElement !== toastParent) toastParent.appendChild(container);
+            container.style.zIndex = '2147483647';
+            container.style.pointerEvents = 'none';
             const toast = document.createElement('div');
             const bgColor = {
                 'success': 'bg-emerald-600 border border-emerald-500/50',
@@ -5282,6 +5288,7 @@ if (contentType && contentType.includes("application/json")) {
                 toast.textContent = trimmedMsg;
             } else {
                 toast.className = `toast ${sizeClasses} ${bgColor} text-white pointer-events-auto group relative`;
+                toast.style.pointerEvents = 'auto';
                 
                 const textSpan = document.createElement('span');
                 textSpan.textContent = trimmedMsg;
@@ -5290,9 +5297,14 @@ if (contentType && contentType.includes("application/json")) {
 
                 const copyBtn = document.createElement('button');
                 copyBtn.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>`;
-                copyBtn.className = "hover:text-white/80 focus:outline-none flex-shrink-0 cursor-pointer p-1 rounded hover:bg-white/20 transition";
+                copyBtn.className = "hover:text-white/80 focus:outline-none flex-shrink-0 cursor-pointer min-w-10 min-h-10 inline-flex items-center justify-center p-2 rounded hover:bg-white/20 transition pointer-events-auto";
+                copyBtn.type = 'button';
+                copyBtn.style.pointerEvents = 'auto';
+                copyBtn.setAttribute('aria-label', 'Sao chép nội dung thông báo');
                 copyBtn.title = "Sao chép thông báo";
-                copyBtn.onclick = async () => {
+                copyBtn.onclick = async (event) => {
+                    event.stopPropagation();
+                    event.preventDefault();
                     const originalHtml = copyBtn.innerHTML;
                     let copied = false;
                     // A synchronous fallback MUST run before any await: browsers
