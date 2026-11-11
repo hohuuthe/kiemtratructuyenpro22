@@ -156,11 +156,18 @@ test('MathType OLE remains inline and uses glyph descent, not ascent, for Word b
   const wr=objects[0].parentNode;
   assert.equal(wr.localName,'r');
   assert.equal(wr.parentNode.localName,'p','inline object must remain inside its text paragraph');
-  const pos=wr.getElementsByTagNameNS(NS.w,'position')[0];
-  assert.equal(pos.getAttributeNS(NS.w,'val'),'-8',
-      '14.5pt preview with 10.5pt ascent has 4pt descent, not 10.5pt displacement');
+  // Word must hit-test/activate the OLE from an unshifted character run;
+  // visual baseline correction lives on the shape instead of w:position.
+  assert.equal(wr.getElementsByTagNameNS(NS.w,'position').length,0,
+      'Inline object must not move the surrounding Word character/run hit target');
   const shape=objects[0].getElementsByTagNameNS(NS.v,'shape')[0];
   assert.match(shape.getAttribute('style'),/height:14\.5000pt/);
+  assert.match(shape.getAttribute('style'),/vertical-align:-4\.0000pt/,
+      '14.5pt preview with 10.5pt ascent uses exactly 4pt shape descent');
+  const ole=objects[0].getElementsByTagNameNS(NS.o,'OLEObject')[0];
+  assert.equal(ole.getAttribute('ProgID'),'Equation.DSMT4');
+  assert.equal(ole.getAttribute('ShapeID'),shape.getAttribute('id'));
+  assert.ok(ole.getAttributeNS(NS.r,'id'),'Embedded OLE relationship must remain intact');
   const displaySource=await makeDocx([['display-fraction',fraction(run('x'),run('y'))]],{display:true});
   const displayOut=await convertDocxToMathType(displaySource,{renderPreview:preview});
   const displayDoc=parseXml(await (await load(displayOut.blob)).file('word/document.xml').async('string'));
