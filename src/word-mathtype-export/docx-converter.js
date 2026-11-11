@@ -50,33 +50,30 @@ function newRelationship(doc,id,type,target){
 }
 function findRootText(root){return toArray(root.getElementsByTagNameNS(NS.w,'t')).map(n=>n.textContent);}
 function makeObjectRun(doc,{oleId,imageId,shapeId,objectId,widthPt,heightPt,baselinePt,display=false}){
+  // Do not shift an embedded MathType OLE through Word's run position OR VML
+  // vertical-align. Those transforms can cause the visual glyph to diverge
+  // from Word's embedded-object hit target, especially for tiny symbols.
+  // Keep the full, inline OLE shape and its clickable box in the native flow.
   const wr=doc.createElementNS(NS.w,'w:r');
-  const descentPt=Math.max(0,Math.min(heightPt,heightPt-baselinePt));
-  // An inline OLE must keep Word's character run at its NORMAL position.
-  // Shifting the entire run by w:position changes the selection/activation
-  // target independently of the VML shape, making double-click edit unreliable.
-  // Preserve the existing display-math behavior separately.
-  if(display){
-    const halfPoints=-Math.round(baselinePt*2);
-    if(halfPoints!==0){
-      const rp=doc.createElementNS(NS.w,'w:rPr');
-      const pos=doc.createElementNS(NS.w,'w:position');
-      pos.setAttributeNS(NS.w,'w:val',String(halfPoints));
-      rp.appendChild(pos);wr.appendChild(rp);
-    }
-  }
-  const object=doc.createElementNS(NS.w,'w:object');object.setAttributeNS(NS.w,'w:dxaOrig',String(Math.round(widthPt*20)));object.setAttributeNS(NS.w,'w:dyaOrig',String(Math.round(heightPt*20)));
-  const shape=doc.createElementNS(NS.v,'v:shape');shape.setAttribute('id',shapeId);shape.setAttribute('type','#_x0000_t75');
-  // Align the visible INLINE shape itself, not the OLE run that Word uses
-  // for selecting and activating the embedded editor. Keep the VML position
-  // in normal inline flow (no floating anchor or hidden overlay).
-  const shapeStyle='width:'+widthPt.toFixed(4)+'pt;height:'+heightPt.toFixed(4)+'pt'+
-    (!display&&descentPt>0.01?';vertical-align:-'+descentPt.toFixed(4)+'pt':'');
-  shape.setAttribute('style',shapeStyle);shape.setAttributeNS(NS.o,'o:ole','');
-  const image=doc.createElementNS(NS.v,'v:imagedata');image.setAttributeNS(NS.r,'r:id',imageId);image.setAttributeNS(NS.o,'o:title','');shape.appendChild(image);object.appendChild(shape);
+  const object=doc.createElementNS(NS.w,'w:object');
+  object.setAttributeNS(NS.w,'w:dxaOrig',String(Math.round(widthPt*20)));
+  object.setAttributeNS(NS.w,'w:dyaOrig',String(Math.round(heightPt*20)));
+  const shape=doc.createElementNS(NS.v,'v:shape');
+  shape.setAttribute('id',shapeId);
+  shape.setAttribute('type','#_x0000_t75');
+  shape.setAttribute('style','width:'+widthPt.toFixed(4)+'pt;height:'+heightPt.toFixed(4)+'pt');
+  shape.setAttributeNS(NS.o,'o:ole','');
+  const image=doc.createElementNS(NS.v,'v:imagedata');
+  image.setAttributeNS(NS.r,'r:id',imageId);
+  image.setAttributeNS(NS.o,'o:title','');
+  shape.appendChild(image);object.appendChild(shape);
   const ole=doc.createElementNS(NS.o,'o:OLEObject');
-  for(const [key,value] of Object.entries({Type:'Embed',ProgID:'Equation.DSMT4',ShapeID:shapeId,DrawAspect:'Content',ObjectID:objectId}))ole.setAttribute(key,value);
-  ole.setAttributeNS(NS.r,'r:id',oleId);object.appendChild(ole);wr.appendChild(object);
+  for(const [key,value] of Object.entries({
+    Type:'Embed',ProgID:'Equation.DSMT4',ShapeID:shapeId,
+    DrawAspect:'Content',ObjectID:objectId
+  }))ole.setAttribute(key,value);
+  ole.setAttributeNS(NS.r,'r:id',oleId);
+  object.appendChild(ole);wr.appendChild(object);
   return wr;
 }
 const shapeTypeXml=`<v:shapetype xmlns:v="${NS.v}" xmlns:o="${NS.o}" id="_x0000_t75" coordsize="21600,21600" o:spt="75" o:preferrelative="t" path="m@4@5l@4@11@9@11@9@5xe" filled="f" stroked="f"><v:stroke joinstyle="miter"/><v:formulas><v:f eqn="if lineDrawn pixelLineWidth 0"/><v:f eqn="sum @0 1 0"/><v:f eqn="sum 0 0 @1"/><v:f eqn="prod @2 1 2"/><v:f eqn="prod @3 21600 pixelWidth"/><v:f eqn="prod @3 21600 pixelHeight"/><v:f eqn="sum @0 0 1"/><v:f eqn="prod @6 1 2"/><v:f eqn="prod @7 21600 pixelWidth"/><v:f eqn="sum @8 21600 0"/><v:f eqn="prod @7 21600 pixelHeight"/><v:f eqn="sum @10 21600 0"/></v:formulas><v:path o:extrusionok="f" gradientshapeok="t" o:connecttype="rect"/><o:lock v:ext="edit" aspectratio="t"/></v:shapetype>`;
