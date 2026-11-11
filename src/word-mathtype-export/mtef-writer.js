@@ -46,6 +46,9 @@ export function astToMtef(ast,{fontSizePt=13,display=false}={}) {
         // importer rejects that code point and exported Word cannot reimport.
         if(c==='\u200b')return [];
         const cp=c.codePointAt(0);let face;
+        // Other invisible format controls have no qualified mathematical meaning.
+        if(cp===0x200c||cp===0x200d||cp===0x2060||cp===0xfeff)
+          fail('UNSUPPORTED_CODEPOINT','Unsupported invisible math character.');
         if(/^\s$/.test(c)){
           if(c!==' ')fail('UNSUPPORTED_WHITESPACE','Tabs/newlines inside a math run need structural rows.');
           return char(32,1);
