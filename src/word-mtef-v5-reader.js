@@ -356,7 +356,7 @@ function decodeMtef(input, allowNullSlotEnd) {
             (!!a[1] === !!(v & 1)) && (!!a[2] === !!(v & 2))) {
             // Preserve the centered lower/upper limits that the native OMML
             // exporter writes for lim, min/max and other operator-like bases.
-            return bounded('\\\\mathop{' + a[0] + '}\\\\limits' +
+            return bounded('\\mathop{' + a[0] + '}\\limits' +
                 (a[1] ? '_{' + a[1] + '}' : '') + (a[2] ? '^{' + a[2] + '}' : ''));
         }
         if (s === 11 && v === 0 && a.length === 2 && a.every(Boolean)) return bounded('\\frac{' + a[0] + '}{' + a[1] + '}');
