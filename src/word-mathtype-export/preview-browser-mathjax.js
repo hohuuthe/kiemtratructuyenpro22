@@ -220,12 +220,17 @@ async function renderChunk(items,scale,signal){
 export function createBrowserMathTypePreviewBatchRenderer(){
   return async function renderMathTypePreviewBatch(items,{signal,onProgress}={}){
     if(!Array.isArray(items)||items.length>2000)fail('RESOURCE_LIMIT','Số lượng công thức MathType không hợp lệ.');
-    const scale=rasterScale(),out=new Array(items.length),misses=[];
+    const scale=rasterScale(),out=new Array(items.length),misses=[],unique=new Map();
     let completed=0,cached=0;
     for(let i=0;i<items.length;i++){
+      aborted(signal);
       const key=cacheKey(items[i],scale),hit=cacheGet(key);
-      if(hit){out[i]=hit;completed++;cached++;}
-      else misses.push({index:i,key,item:items[i]});
+      if(hit){out[i]=hit;completed++;cached++;continue;}
+      // Deduplicate formulas *within the active window* too. Previously
+      // repeated expressions were drawn many times before reaching cachePut.
+      if(unique.has(key)){unique.get(key).indices.push(i);continue;}
+      const entry={indices:[i],key,item:items[i]};
+      unique.set(key,entry);misses.push(entry);
     }
     onProgress?.({completed,total:items.length,cached});
 
@@ -237,11 +242,15 @@ export function createBrowserMathTypePreviewBatchRenderer(){
       if(rendered.length!==chunk.length)fail('PREVIEW_FAILED','Số ảnh xem trước MathType không khớp số công thức.');
       for(let i=0;i<chunk.length;i++){
         const target=chunk[i],preview=rendered[i];
-        cachePut(target.key,preview);out[target.index]=preview;completed++;
+        cachePut(target.key,preview);
+        for(const index of target.indices){out[index]=preview;completed++;}
+        cached+=target.indices.length-1;
       }
       onProgress?.({completed,total:items.length,cached});
       await cooperativeYield(signal);
     }
+    if(completed!==items.length||out.some(preview=>!preview))
+      fail('PREVIEW_FAILED','Có công thức MathType chưa được tạo ảnh xem trước.');
     return out;
   };
 }

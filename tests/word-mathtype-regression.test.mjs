@@ -54,6 +54,40 @@ for(const entry of corpus)test('Real MathType native source #'+entry.number,()=>
     assert.equal(verifyMathTypeSource(encodeMathTypeSource(raw),latex,'verified'),true);
     assert.throws(()=>verifyMathTypeSource(encodeMathTypeSource(raw),latex+'+1','verified'),/kh/);
 });
+test('Regression: actual KTTT Word export MTEF with U+200B and U+2218 reimports safely',async()=>{
+    // Four UNIQUE native MTEF payloads extracted from the user's 48-question
+    // 244-OLE export (the other six affected OLEs repeat these 4 payloads).
+    // No student's identity, question contents, answer key or Word binary.
+    const cases=[
+      {index:21,raw:'BQEABwBLVFRUTVQxAAERAVRpbWVzIE5ldyBSb21hbgARA1N5bWJvbAASAAUhP0cKf0UPQVD0EA8ACAEAAQABAgICAgACAAEDAQAJZWD+AQAKAgCEsQMCAIYLIAMAHAAAAQEBAAsCAIgyAAAACgIAhisAAgCEsgMCAIYLIAMAHAAAAQEBAAsCAIgyAAAACgIAhj0AAgCEswMCAIYLIAMAHAAAAQEBAAsCAIgyAAAACgAA',symbol:'200b'},
+      {index:24,raw:'BQEABwBLVFRUTVQxAAERAVRpbWVzIE5ldyBSb21hbgARA1N5bWJvbAASAAUhP0cKf0UPQVD0EA8ACAEAAQABAgICAgACAAEDAQAJZWD+AQAKAgCEsQMCAIYLIAMAHAAAAQEBAAsCAIgyAAAACgIAhhIiAgCEsgMCAIYLIAMAHAAAAQEBAAsCAIgyAAAACgIAhj0AAgCEswMCAIYLIAMAHAAAAQEBAAsCAIgyAAAACgAA',symbol:'200b'},
+      {index:88,raw:'BQEABwBLVFRUTVQxAAERAVRpbWVzIE5ldyBSb21hbgARA1N5bWJvbAASAAUhP0cKf0UPQVD0EA8ACAEAAQABAgICAgACAAEDAQAJZWD+AQAKAgCDdAADABwAAAEBAQALAgCGGCIAAAoAAA==',symbol:'2218'},
+      {index:102,raw:'BQEABwBLVFRUTVQxAAERAVRpbWVzIE5ldyBSb21hbgARA1N5bWJvbAASAAUhP0cKf0UPQVD0EA8ACAEAAQABAgICAgACAAEDAQAJZWD+AQAKAgCBlAMCAIY9AAIAhLIDAgCGCyADABwAAAEBAQALAgCIMgAAAAoCAIYSIgIAiDQAAgCEsQMCAISzAwAA',symbol:'200b'}
+    ];
+    for(const item of cases){
+        const raw=Buffer.from(item.raw,'base64');
+        const latex=convertMtefV5ToLatex(raw);
+        assert.ok(latex.length>0,'OLE '+item.index+' must decode to a nonempty expression');
+        assert.doesNotMatch(latex,/\u200b/,'Invisible Word layout separators have no math meaning');
+        if(item.symbol==='2218')assert.match(latex,/\\circ\{\}/);
+        assert.equal(verifyMathTypeSource(encodeMathTypeSource(raw),latex,'verified'),true);
+        assert.throws(()=>verifyMathTypeSource(encodeMathTypeSource(raw),latex+'+1','verified'));
+    }
+    const {astToMtef}=await import('../src/word-mathtype-export/mtef-writer.js');
+    const original='a'+String.fromCharCode(0x200b)+'b';
+    const exported=astToMtef({k:'seq',items:[{k:'text',text:original}]});
+    assert.equal(convertMtefV5ToLatex(exported),'ab');
+    assert.equal(Buffer.from(exported).includes(Buffer.from([2,0,0x86,0x0b,0x20])),false);
+    // Compatibility exception is intentionally limited to KTTTMT1, face=6.
+    const foreign=Buffer.from(cases[0].raw,'base64');foreign[5]='X'.charCodeAt(0);
+    assert.throws(()=>convertMtefV5ToLatex(foreign),/unmapped MTCode U\+200b/);
+    const mismatchedFace=Buffer.from(cases[0].raw,'base64');
+    const loc=mismatchedFace.indexOf(Buffer.from([2,0,0x86,0x0b,0x20]));
+    assert.ok(loc>=0);
+    mismatchedFace[loc+2]=0x83;
+    assert.throws(()=>convertMtefV5ToLatex(mismatchedFace),/unmapped MTCode U\+200b/);
+});
+
 test('DSMT4 integrates all 41 native sources exactly once, without importing previews as images',async()=>{
     const r=await inspectScientificDocx(await docx(corpus));assert.equal(r.formulas.length,41);assert.equal(r.imageCount,0);assert.deepEqual(r.issues,[]);
     assert.deepEqual(r.formulas.map(f=>f.latex),corpus.map(f=>f.expected));assert.ok(r.formulas.every(f=>f.sourceType==='mathtype'&&f.status==='parsed'));

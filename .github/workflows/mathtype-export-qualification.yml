@@ -28,5 +28,7 @@ jobs:
         run: node --import tsx --test tests/word-mathtype-export-app.test.mjs
       - name: Existing import and Equation regression gate remains mandatory
         run: npm run test:word-import-release
+      - name: Student exam submission guard (P0 release regression)
+        run: node --test tests/student-exam-auto-submit-guard.test.mjs
       - run: npm run lint
       - run: npm run build

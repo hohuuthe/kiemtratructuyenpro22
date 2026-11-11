@@ -84,11 +84,13 @@ test('MathType renderer batches MathJax/html2canvas work and keeps a bounded dup
   assert.match(renderer,/cropPng\(sheet/);
 });
 
-test('DOCX converter prepares batch previews before packaging and retains per-formula fallback',()=>{
+test('DOCX converter streams bounded MathType preview windows and retains per-formula fallback',()=>{
   const converter=fs.readFileSync(new URL('../src/word-mathtype-export/docx-converter.js',import.meta.url),'utf8');
   assert.match(converter,/const renderPreviewBatch=options\.renderPreviewBatch/);
-  assert.match(converter,/preparedPreviews=await Promise\.race/);
-  assert.match(converter,/renderPreviewBatch\(work\.map/);
-  assert.match(converter,/let preview=preparedPreviews\?\.\[i\]\|\|null/);
+  assert.match(converter,/previewWindowSize/);
+  assert.match(converter,/loadPreviewWindow\(i\)/);
+  assert.match(converter,/previewWindow=\[\]/);
+  assert.match(converter,/renderPreviewBatch\(pending\.map/);
   assert.match(converter,/renderPreview\(item\.ast/);
+  assert.doesNotMatch(converter,/preparedPreviews=await Promise\.race/);
 });

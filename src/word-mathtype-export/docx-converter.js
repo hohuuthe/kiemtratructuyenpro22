@@ -6,6 +6,7 @@ import JSZip from 'jszip';
 import {XMLSerializer} from '@xmldom/xmldom';
 import {NS,parseXml,ommlToAst,elements,local} from './omml-ast.js';
 import {astToMtef} from './mtef-writer.js';
+import {convertMtefV5ToLatex} from '../word-mtef-v5-reader.js';
 import {createMathTypeOle} from './cfb-writer.js';
 import {fail,aborted,MathTypeExportError} from './errors.js';
 const serialize=n=>new XMLSerializer().serializeToString(n);
@@ -49,16 +50,31 @@ function newRelationship(doc,id,type,target){
   doc.documentElement.appendChild(r);
 }
 function findRootText(root){return toArray(root.getElementsByTagNameNS(NS.w,'t')).map(n=>n.textContent);}
-function makeObjectRun(doc,{oleId,imageId,shapeId,objectId,widthPt,heightPt,baselinePt}){
-  const wr=doc.createElementNS(NS.w,'w:r'),rp=doc.createElementNS(NS.w,'w:rPr');
-  const pos=doc.createElementNS(NS.w,'w:position');pos.setAttributeNS(NS.w,'w:val',String(-Math.round(baselinePt*2)));rp.appendChild(pos);wr.appendChild(rp);
-  const object=doc.createElementNS(NS.w,'w:object');object.setAttributeNS(NS.w,'w:dxaOrig',String(Math.round(widthPt*20)));object.setAttributeNS(NS.w,'w:dyaOrig',String(Math.round(heightPt*20)));
-  const shape=doc.createElementNS(NS.v,'v:shape');shape.setAttribute('id',shapeId);shape.setAttribute('type','#_x0000_t75');
-  shape.setAttribute('style','width:'+widthPt.toFixed(4)+'pt;height:'+heightPt.toFixed(4)+'pt');shape.setAttributeNS(NS.o,'o:ole','');
-  const image=doc.createElementNS(NS.v,'v:imagedata');image.setAttributeNS(NS.r,'r:id',imageId);image.setAttributeNS(NS.o,'o:title','');shape.appendChild(image);object.appendChild(shape);
+function makeObjectRun(doc,{oleId,imageId,shapeId,objectId,widthPt,heightPt,baselinePt,display=false}){
+  // Do not shift an embedded MathType OLE through Word's run position OR VML
+  // vertical-align. Those transforms can cause the visual glyph to diverge
+  // from Word's embedded-object hit target, especially for tiny symbols.
+  // Keep the full, inline OLE shape and its clickable box in the native flow.
+  const wr=doc.createElementNS(NS.w,'w:r');
+  const object=doc.createElementNS(NS.w,'w:object');
+  object.setAttributeNS(NS.w,'w:dxaOrig',String(Math.round(widthPt*20)));
+  object.setAttributeNS(NS.w,'w:dyaOrig',String(Math.round(heightPt*20)));
+  const shape=doc.createElementNS(NS.v,'v:shape');
+  shape.setAttribute('id',shapeId);
+  shape.setAttribute('type','#_x0000_t75');
+  shape.setAttribute('style','width:'+widthPt.toFixed(4)+'pt;height:'+heightPt.toFixed(4)+'pt');
+  shape.setAttributeNS(NS.o,'o:ole','');
+  const image=doc.createElementNS(NS.v,'v:imagedata');
+  image.setAttributeNS(NS.r,'r:id',imageId);
+  image.setAttributeNS(NS.o,'o:title','');
+  shape.appendChild(image);object.appendChild(shape);
   const ole=doc.createElementNS(NS.o,'o:OLEObject');
-  for(const [key,value] of Object.entries({Type:'Embed',ProgID:'Equation.DSMT4',ShapeID:shapeId,DrawAspect:'Content',ObjectID:objectId}))ole.setAttribute(key,value);
-  ole.setAttributeNS(NS.r,'r:id',oleId);object.appendChild(ole);wr.appendChild(object);
+  for(const [key,value] of Object.entries({
+    Type:'Embed',ProgID:'Equation.DSMT4',ShapeID:shapeId,
+    DrawAspect:'Content',ObjectID:objectId
+  }))ole.setAttribute(key,value);
+  ole.setAttributeNS(NS.r,'r:id',oleId);
+  object.appendChild(ole);wr.appendChild(object);
   return wr;
 }
 const shapeTypeXml=`<v:shapetype xmlns:v="${NS.v}" xmlns:o="${NS.o}" id="_x0000_t75" coordsize="21600,21600" o:spt="75" o:preferrelative="t" path="m@4@5l@4@11@9@11@9@5xe" filled="f" stroked="f"><v:stroke joinstyle="miter"/><v:formulas><v:f eqn="if lineDrawn pixelLineWidth 0"/><v:f eqn="sum @0 1 0"/><v:f eqn="sum 0 0 @1"/><v:f eqn="prod @2 1 2"/><v:f eqn="prod @3 21600 pixelWidth"/><v:f eqn="prod @3 21600 pixelHeight"/><v:f eqn="sum @0 0 1"/><v:f eqn="prod @6 1 2"/><v:f eqn="prod @7 21600 pixelWidth"/><v:f eqn="sum @8 21600 0"/><v:f eqn="prod @7 21600 pixelHeight"/><v:f eqn="sum @10 21600 0"/></v:formulas><v:path o:extrusionok="f" gradientshapeok="t" o:connecttype="rect"/><o:lock v:ext="edit" aspectratio="t"/></v:shapetype>`;
@@ -110,6 +126,11 @@ export async function convertDocxToMathType(input,options={}){
         if(unique.length>1)fail('UNSUPPORTED_STYLE','Mixed explicit point sizes inside a formula are not supported.');
         const fontSizePt=unique[0]??defaultSize;
         const mtef=astToMtef(ast,{fontSizePt,display});
+        // Every exported editable OLE must be readable through the SAME MTEF
+        // decoder used on Word import. Reject atomically before writing DOCX
+        // rather than shipping a pretty preview with unreadable native bytes.
+        try{convertMtefV5ToLatex(mtef);}
+        catch(error){fail('ROUNDTRIP_REJECTED','MathType không thể nhập lại từ Word: '+String(error?.message||error).slice(0,180));}
         work.push({partData:data,eq,replace,parent,display,ast,mtef,fontSizePt,index:occurrence,sourceXml:serialize(eq)});
       }catch(e){if(e instanceof MathTypeExportError){e.details={...e.details,part,equation:occurrence};}throw e;}
     }
@@ -119,32 +140,68 @@ export async function convertDocxToMathType(input,options={}){
   const renderPreview=options.renderPreview;
   if(typeof renderPreview!=='function')fail('PREVIEW_REQUIRED','A qualified formula preview renderer is required.');
   const renderPreviewBatch=options.renderPreviewBatch;
-  let preparedPreviews=null;
-  if(typeof renderPreviewBatch==='function'){
-    const batchTimeoutMs=Math.max(15000,Math.min(180000,Number(options.previewBatchTimeoutMs||Math.max(30000,work.length*900))));
+  // Bound live PNG previews instead of retaining every preview until all
+  // images are ready. The former 180s deadline covered the *entire* export:
+  // a healthy export with hundreds of equations could time out mid-progress.
+  const previewWindowSize=Math.max(1,Math.min(32,Math.floor(Number(options.previewWindowSize)||16)));
+  let previewWindow=[],previewWindowEnd=0,previewCached=0;
+  async function loadPreviewWindow(start){
+    const pending=work.slice(start,start+previewWindowSize);
+    const controller=new AbortController();
+    const stop=()=>controller.abort(options.signal?.reason);
+    if(options.signal?.aborted)aborted(options.signal);
+    options.signal?.addEventListener('abort',stop,{once:true});
+    const timeoutMs=Math.max(15000,Math.min(180000,
+      Number(options.previewBatchTimeoutMs)||Math.max(45000,pending.length*4000)));
+    let timeout,windowCached=0,rejectStall,settled=false;
+    // This is a NO-PROGRESS watchdog, not an elapsed-time deadline.
+    // Successful activity renews the timer; a huge but healthy export cannot
+    // be rejected solely because it has been running for over 180 seconds.
+    const stallPromise=new Promise((_,reject)=>{rejectStall=reject;});
+    const armWatchdog=()=>{
+      if(settled)return;
+      clearTimeout(timeout);
+      timeout=setTimeout(()=>{
+        controller.abort();
+        rejectStall(new MathTypeExportError('PREVIEW_BATCH_TIMEOUT',
+          'Nhóm MathType '+(start+1)+'-'+(start+pending.length)+' ngừng phản hồi.',
+          {total:work.length,index:start+1,windowSize:pending.length}));
+      },timeoutMs);
+    };
     try{
-      preparedPreviews=await Promise.race([
-        renderPreviewBatch(work.map(item=>({
-          ast:item.ast,
-          fontSizePt:item.fontSizePt,
-          display:item.display,
-          index:item.index
+      armWatchdog();
+      const previews=await Promise.race([
+        Promise.resolve().then(()=>renderPreviewBatch(pending.map(item=>({
+          ast:item.ast,fontSizePt:item.fontSizePt,display:item.display,index:item.index
         })),{
-          signal:options.signal,
-          onProgress:info=>options.onPreviewProgress?.(info)
-        }),
-        new Promise((_,reject)=>setTimeout(()=>reject(new MathTypeExportError(
-          'PREVIEW_BATCH_TIMEOUT',
-          'Quá thời gian tạo ảnh xem trước MathType theo lô.',
-          {total:work.length}
-        )),batchTimeoutMs))
+          signal:controller.signal,
+          onProgress:({completed=0,cached=0}={})=>{
+            if(settled||controller.signal.aborted)return;
+            armWatchdog();
+            windowCached=Math.max(windowCached,cached);
+            options.onPreviewProgress?.({
+              completed:start+Math.max(0,Math.min(pending.length,completed)),
+              total:work.length,cached:previewCached+windowCached
+            });
+          }
+        })),
+        stallPromise
       ]);
-      if(!Array.isArray(preparedPreviews)||preparedPreviews.length!==work.length)
-        fail('PREVIEW_FAILED','Số ảnh xem trước MathType theo lô không khớp số công thức.');
-      for(const preview of preparedPreviews)pngCheck(preview);
+      aborted(options.signal);
+      if(!Array.isArray(previews)||previews.length!==pending.length)
+        fail('PREVIEW_FAILED','Số ảnh xem trước MathType trong nhóm không khớp số công thức.');
+      for(const preview of previews)pngCheck(preview);
+      previewCached+=windowCached;
+      options.onPreviewProgress?.({completed:start+pending.length,total:work.length,cached:previewCached});
+      return previews;
     }catch(e){
-      if(e instanceof MathTypeExportError)e.details={...e.details,total:work.length};
+      if(e instanceof MathTypeExportError)
+        e.details={...e.details,total:work.length,index:e.details?.index||start+1};
       throw e;
+    }finally{
+      settled=true;
+      clearTimeout(timeout);
+      options.signal?.removeEventListener('abort',stop);
     }
   }
   const originalHash=await sha256(source),manifest=[];
@@ -152,7 +209,12 @@ export async function convertDocxToMathType(input,options={}){
     aborted(options.signal);
     if(i===0||i%4===0)await yieldMainThread(options.signal);
     const item=work[i];const {doc,rels}=item.partData;
-    let preview=preparedPreviews?.[i]||null;
+    if(typeof renderPreviewBatch==='function' && i>=previewWindowEnd){
+      previewWindow=await loadPreviewWindow(i);
+      previewWindowEnd=i+previewWindow.length;
+    }
+    let preview=typeof renderPreviewBatch==='function'
+      ? previewWindow[i-(previewWindowEnd-previewWindow.length)] : null;
     if(!preview){
       try {
         const timeoutMs=Math.max(3000,Math.min(30000,Number(options.previewTimeoutMs||12000)));
@@ -180,7 +242,7 @@ export async function convertDocxToMathType(input,options={}){
     const shapeId=freeId(doc,'shape','id','_x0000_i',10000+item.index),objectId=freeId(doc,'OLEObject','ObjectID','_KTTT_MT_',item.index);
     const maxWidth=options.maxWidthPt??450,scale=Math.min(1,maxWidth/preview.widthPt);
     if(!Number.isFinite(maxWidth)||maxWidth<50||maxWidth>1000)fail('INVALID_SIZE','Invalid maximum formula width.');
-    const run=makeObjectRun(doc,{oleId,imageId,shapeId,objectId,widthPt:preview.widthPt*scale,heightPt:preview.heightPt*scale,baselinePt:preview.baselinePt*scale});
+    const run=makeObjectRun(doc,{oleId,imageId,shapeId,objectId,widthPt:preview.widthPt*scale,heightPt:preview.heightPt*scale,baselinePt:preview.baselinePt*scale,display:item.display});
     if(!item.partData.hasShapeType){
       run.lastChild.insertBefore(doc.importNode(parseXml(shapeTypeXml).documentElement,true),run.lastChild.firstChild);
       item.partData.hasShapeType=true;
@@ -205,6 +267,8 @@ export async function convertDocxToMathType(input,options={}){
     ]);
     manifest.push({index:item.index,part:item.partData.part,sourceSha256,mtefSha256,oleSha256,previewSha256,olePath,imagePath});
     options.onProgress?.({completed:i+1,total:work.length});
+    // Release this entire window after its objects are packaged into ZIP.
+    if(i+1===previewWindowEnd){previewWindow=[];previewWindowEnd=0;}
   }
   for(const data of partData){
     if(data.doc.getElementsByTagNameNS(NS.m,'oMath').length)fail('INCOMPLETE_CONVERSION','Unconverted Equation remains in output.');
