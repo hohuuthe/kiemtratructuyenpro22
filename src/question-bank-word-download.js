@@ -1,16 +1,16 @@
 /**
  * Question bank DOCX download delivery.
  *
- * Packer.toBlob() completing does NOT prove the browser accepted a synthetic
- * anchor click. Prefer a native user-activated save picker when supported; in
- * other browsers keep a REAL clickable download link visible after generation.
- * Never report a browser download as confirmed just because link.click() ran.
+ * Generation and saving are separate user actions. Never invoke the save
+ * picker or click a download link while building the DOCX. Only a genuine
+ * click on the ready download link may open the native save picker, or
+ * download directly in browsers without File System Access support.
  */
 
 export const QUESTION_BANK_WORD_MIME =
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
-/** Must be invoked synchronously from the user's Export Word click. */
+/** Must be invoked synchronously from the user's Download Word click, after generation. */
 export function beginQuestionBankWordSavePicker(filename, picker) {
   if (typeof picker !== 'function') return null;
   try {
@@ -63,6 +63,38 @@ export function createQuestionBankWordDownload(blob, filename, options = {}) {
     'hover:bg-emerald-700 text-white px-5 py-3 text-sm font-bold ' +
     'shadow-md cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2';
   link.setAttribute('aria-label', 'Tải tệp Word ' + filename);
+
+  // Native "Save As" must be opened by the DOWNLOAD gesture, never by the
+  // preceding async DOCX generation action. Without this browser API, the
+  // native <a download> action remains the regular user-initiated fallback.
+  const picker = options.picker;
+  if (typeof picker === 'function' && typeof link.addEventListener === 'function') {
+    let saving = false, pickerAvailable = true;
+    link.addEventListener('click', event => {
+      if (!pickerAvailable) return; // Allow the browser's regular download.
+      event.preventDefault();
+      if (saving || released) return;
+      saving = true;
+      // The picker must start synchronously, before the first await.
+      const saveRequest = beginQuestionBankWordSavePicker(filename, picker);
+      Promise.resolve(saveRequest).then(async choice => {
+        if (choice?.error?.name === 'AbortError') {
+          options.onCancelled?.();
+          return;
+        }
+        if (choice?.error) throw choice.error;
+        if (!choice?.handle) throw new Error('Không mở được hộp thoại lưu Word.');
+        await writeQuestionBankWordFile(choice.handle, blob);
+        options.onSaved?.();
+      }).catch(error => {
+        // On the NEXT real click, use the browser's built-in download path.
+        // Do not synthesize another click: that could download unexpectedly.
+        pickerAvailable = false;
+        options.onError?.(error);
+      }).finally(() => { saving = false; });
+    });
+  }
+
   return {
     link,
     objectUrl,
