@@ -36,7 +36,7 @@ test('Synchronous fallback succeeds on clipboard-restricted Electron/browser',as
   assert.equal(await copyToastMessage('[ROUNDTRIP_REJECTED] ∼ — công thức 143',{doc,clipboard}),true);
   assert.equal(doc.textarea.value,'[ROUNDTRIP_REJECTED] ∼ — công thức 143');
   assert.deepEqual(events,[]);
-  assert.deepEqual(doc.calls,['append','focus','select','range','copy','remove','restore']);
+  assert.deepEqual(doc.calls,['append','focus','select','copy','remove','restore']);
 });
 
 test('Modern Clipboard API is fallback when execCommand fails',async()=>{
