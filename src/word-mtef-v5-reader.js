@@ -79,6 +79,37 @@ const symbols = new Map([
     [0x03a0, '\\Pi{}'], [0x03a6, '\\Phi{}'], [0x03a8, '\\Psi{}'],
     [0x2026, '\\ldots{}'], [0x22ef, '\\cdots{}'], [0x22ee, '\\vdots{}'],
     [0x22f1, '\\ddots{}'],
+    // Keep Word's native Unicode math glyphs semantically editable on re-import.
+    // These codes are emitted by normalizeWordMathAliases and common OMML runs.
+    [0x223c, '\\sim{}'], [0x223d, '\\backsim{}'],
+    [0x221d, '\\propto{}'], [0x2216, '\\setminus{}'],
+    [0x2295, '\\oplus{}'], [0x2297, '\\otimes{}'], [0x2299, '\\odot{}'],
+    [0x226a, '\\ll{}'], [0x226b, '\\gg{}'], [0x2261, '\\equiv{}'],
+    [0x2243, '\\simeq{}'], [0x2245, '\\cong{}'], [0x224d, '\\asymp{}'],
+    [0x25b3, '\\triangle{}'], [0x25bd, '\\triangledown{}'],
+    [0x2217, '\\ast{}'], [0x22c5, '\\cdot{}'], [0x22c6, '\\star{}'],
+    [0x22c4, '\\diamond{}'], [0x22c8, '\\bowtie{}'],
+    [0x22c0, '\\bigwedge{}'], [0x22c1, '\\bigvee{}'],
+    [0x220b, '\\ni{}'], [0x221a, '\\surd{}'],
+    [0x2220, '\\angle{}'], [0x2221, '\\measuredangle{}'],
+    [0x2223, '\\mid{}'], [0x2224, '\\nmid{}'], [0x2226, '\\nparallel{}'],
+    [0x00ac, '\\neg{}'], [0x00b5, '\\mu{}'],
+    [0x210f, '\\hbar{}'], [0x2113, '\\ell{}'], [0x2118, '\\wp{}'],
+    [0x211c, '\\Re{}'], [0x2111, '\\Im{}'], [0x2135, '\\aleph{}'],
+    [0x03c2, '\\varsigma{}'], [0x03d1, '\\vartheta{}'],
+    [0x03f1, '\\varrho{}'], [0x03d6, '\\varpi{}'],
+    [0x2032, '\\prime{}'], [0x2033, '{\\prime\\prime}'],
+    [0x2191, '\\uparrow{}'], [0x2193, '\\downarrow{}'],
+    [0x2195, '\\updownarrow{}'], [0x21a6, '\\mapsto{}'],
+    [0x21d1, '\\Uparrow{}'], [0x21d3, '\\Downarrow{}'],
+    [0x21d5, '\\Updownarrow{}'], [0x21cc, '\\rightleftharpoons{}'],
+    [0x27f5, '\\longleftarrow{}'], [0x27f6, '\\longrightarrow{}'],
+    [0x27f7, '\\longleftrightarrow{}'],
+    [0x27f8, '\\Longleftarrow{}'], [0x27f9, '\\Longrightarrow{}'],
+    [0x27fa, '\\Longleftrightarrow{}'],
+    [0x2016, '\\Vert{}'], [0x27e8, '\\langle{}'], [0x27e9, '\\rangle{}'],
+    [0x2308, '\\lceil{}'], [0x2309, '\\rceil{}'],
+    [0x230a, '\\lfloor{}'], [0x230b, '\\rfloor{}'],
     // Letterlike symbols emitted by MathType's MT Extra face. These are real
     // MTCode/Unicode values (not font-position guesses) and are common in
     // set notation in Vietnamese high-school mathematics.
@@ -294,6 +325,17 @@ function decodeMtef(input, allowNullSlotEnd) {
             else if (symbols.has(code)) value = symbols.get(code);
             else if (/^[A-Za-z0-9+\-=.,:;()[\]<>|/*!?]$/.test(char)) value = char;
             else if (char === ' ' && face === 1) value = '\\ ';
+            // Our own writer stores the real Unicode MTCode rather than an
+            // arbitrary legacy font-position glyph. Preserve still-unmapped
+            // mathematical Unicode as literal editable text, never guess a
+            // different operator. Third-party MTEF stays on the strict list.
+            else if (producerKey === 'KTTTMT1' && face === 6 &&
+                ((code >= 0x2190 && code <= 0x22ff) ||
+                 (code >= 0x27c0 && code <= 0x27ff) ||
+                 (code >= 0x2a00 && code <= 0x2aff)) &&
+                /^[\\p{Sm}\\p{So}]$/u.test(char)) value = '\\text{' + char + '}';
+            else if (producerKey === 'KTTTMT1' && face === 1 &&
+                /^[\\p{L}\\p{N}]$/u.test(char)) value = '\\text{' + char + '}';
             else fail('unmapped MTCode U+' + code.toString(16));
             if (romanTextTypefaces.has(face) && /^[A-Za-z]$/.test(char)) value = '\\mathrm{' + value + '}';
             if (face === 7 || ((node.style ?? 0) & 1)) value = '\\boldsymbol{' + value + '}';
