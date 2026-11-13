@@ -5,6 +5,7 @@ import {runInNewContext} from 'node:vm';
 import {getExamAttemptCount, parseExamAttemptCount} from '../src/exam-attempt-counts-ui.js';
 import {formatExamCreatedAtVN} from '../src/exam-created-at-vn.js';
 import {sortExamConfigs,DEFAULT_EXAM_CONFIG_SORT} from '../src/exam-config-sorting.js';
+import {examCreatorDisplayName} from '../src/exam-creator-identity.js';
 
 test('Counts use immutable exam ID, not duplicated names or student identity', () => {
   const rows = [{id:'exam-A',name:'Kiểm tra',attempt_count:3},
@@ -59,6 +60,7 @@ test('Main table renderer creates twelve cells including creation date and attem
     formatExamCreatedAtVN,
     sortExamConfigs,
     DEFAULT_EXAM_CONFIG_SORT,
+    examCreatorDisplayName,
     escapeHTML(value){return String(value).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('"','&quot;');}
   };
   runInNewContext(renderer,context);
@@ -113,7 +115,9 @@ test('Both API implementations count via exam_id and guard unauthorized counts',
   }
   assert.match(readFileSync('create_all_indexes.sql','utf8'),/idx_results_exam_id ON results\(exam_id\)/);
   const index=readFileSync('index.html','utf8');
-  assert.ok(index.includes('src="/src/main.js"'));
+  const bootstrap=readFileSync('src/bootstrap.js','utf8');
+  assert.ok(index.includes('src="/src/bootstrap.js"'));
+  assert.match(bootstrap,/await import\('\.\/main\.js'\)/);
   assert.ok(!index.includes('src="/src/exam-attempt-counts-ui.js"'));
 });
 
