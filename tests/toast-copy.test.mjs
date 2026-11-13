@@ -52,6 +52,10 @@ test('Both APIs failing reports failure without a false success',async()=>{
   assert.equal(await copyToastMessage('',{doc}),false);
 });
 
+test('Error toasts remain visible long enough to click Copy',()=>{
+  assert.match(source,/type === 'error' \? 12000 : 4000/);
+});
+
 test('Word import toast distinguishes safe-copy save and safe-copy retry',()=>{
   assert.match(source,/receipt\.safeCopy/);
   assert.match(source,/Đã lưu bản nhập an toàn/);
