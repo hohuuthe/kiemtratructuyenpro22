@@ -333,7 +333,7 @@ function decodeMtef(input, allowNullSlotEnd) {
                 ((code >= 0x2190 && code <= 0x22ff) ||
                  (code >= 0x27c0 && code <= 0x27ff) ||
                  (code >= 0x2a00 && code <= 0x2aff)) &&
-                /^[\\p{Sm}\\p{So}]$/u.test(char)) value = '\\text{' + char + '}';
+                /^[\p{Sm}\p{So}]$/u.test(char)) value = '\\text{' + char + '}';
             else if (producerKey === 'KTTTMT1' && face === 1 &&
                 /^[\\p{L}\\p{N}]$/u.test(char)) value = '\\text{' + char + '}';
             else fail('unmapped MTCode U+' + code.toString(16));
