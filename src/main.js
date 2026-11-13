@@ -1,3 +1,4 @@
+import { copyToastMessage } from './toast-copy.js';
 import {canDeleteRankingResult} from './ranking-result-delete-policy.js';
 import { isShortAnswerCorrect, parseTF4CorrectAnswer, examFlagEnabled, clampScore, roundScore } from './exam-grading-core.js';
 import { createExamSessionId, remainingExamSeconds, remainingExamSecondsMonotonic, canAutoSubmitExam, shouldCountExamViolation } from './student-exam-session-guard.js';
@@ -5292,40 +5293,24 @@ if (contentType && contentType.includes("application/json")) {
                 copyBtn.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>`;
                 copyBtn.className = "hover:text-white/80 focus:outline-none flex-shrink-0 cursor-pointer p-1 rounded hover:bg-white/20 transition";
                 copyBtn.title = "Sao chép thông báo";
-                copyBtn.onclick = async () => {
+                copyBtn.type = 'button';
+                copyBtn.setAttribute('aria-label', 'Sao chép thông báo');
+                copyBtn.onclick = async (event) => {
+                    event?.preventDefault?.();
+                    event?.stopPropagation?.();
                     const originalHtml = copyBtn.innerHTML;
-                    let copied = false;
+                    copyBtn.disabled = true;
                     try {
-                        if (navigator.clipboard && navigator.clipboard.writeText) {
-                            await navigator.clipboard.writeText(trimmedMsg);
-                            copied = true;
+                        const copied = await copyToastMessage(trimmedMsg);
+                        if (copied) {
+                            copyBtn.innerHTML = `<svg class="w-4 h-4 text-emerald-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>`;
+                            showToast('Đã sao chép thông báo.', 'success');
+                            setTimeout(() => { if (copyBtn.isConnected) copyBtn.innerHTML = originalHtml; }, 1500);
+                        } else {
+                            showToast('Không thể sao chép thông báo. Vui lòng chọn và sao chép thủ công.', 'warning');
                         }
-                    } catch (error) {
-                        console.warn('[Toast] Clipboard API unavailable, using fallback copy.', error);
-                    }
-                    if (!copied) {
-                        try {
-                            const ta = document.createElement('textarea');
-                            ta.value = trimmedMsg;
-                            ta.setAttribute('readonly', '');
-                            ta.style.position = 'fixed';
-                            ta.style.opacity = '0';
-                            ta.style.pointerEvents = 'none';
-                            document.body.appendChild(ta);
-                            ta.focus();
-                            ta.select();
-                            copied = document.execCommand('copy') === true;
-                            ta.remove();
-                        } catch (error) {
-                            console.warn('[Toast] Fallback copy failed.', error);
-                        }
-                    }
-                    if (copied) {
-                        copyBtn.innerHTML = `<svg class="w-4 h-4 text-emerald-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>`;
-                        showToast('Đã sao chép thông báo.', 'success');
-                        setTimeout(() => { if (copyBtn.isConnected) copyBtn.innerHTML = originalHtml; }, 1500);
-                    } else {
-                        showToast('Không thể sao chép thông báo. Vui lòng chọn và sao chép thủ công.', 'warning');
+                    } finally {
+                        copyBtn.disabled = false;
                     }
                 };
                 toast.appendChild(copyBtn);
