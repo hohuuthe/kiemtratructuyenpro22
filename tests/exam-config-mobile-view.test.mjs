@@ -40,6 +40,28 @@ test('Mobile exam cards show all twelve desktop facts without horizontal scrolli
  assert.match(html,/data-exam-action="delete-exam"/);
  assert.doesNotMatch(html,/SECRET_KEY_DO_NOT_SHOW|EXAM_SECRET_DO_NOT_SHOW/);
 });
+test('Compact mobile cards keep full configuration expandable and preserve all four question totals',()=>{
+ const html=render();
+ const detailsAt=html.indexOf('<details class="exam-mobile-details">');
+ assert.ok(detailsAt>0, 'full configuration remains available');
+ const top=html.slice(0,detailsAt);
+ const expanded=html.slice(detailsAt);
+ assert.match(top, /class="exam-mobile-type-pills"/);
+ assert.equal((top.match(/class="exam-mobile-type-pill"/g)||[]).length,4);
+ for(const count of ['4-1:','TF4:','SQ:','TL:'])assert.ok(top.includes(count),count);
+ assert.doesNotMatch(top, /class="exam-mobile-count-row"/);
+ assert.doesNotMatch(top, /class="exam-mobile-summary"/);
+ assert.match(expanded,/Phân bổ câu hỏi NB \/ TH \/ VD/);
+ assert.equal((expanded.match(/class="exam-mobile-count-row"/g)||[]).length,4);
+ for(const field of ['Ngày, giờ tạo (Việt Nam)','Trường\/Đơn vị áp dụng','Lớp áp dụng',
+   'Điểm\/câu theo từng loại','Bài học\/chuyên đề đã chọn','Giới hạn']) {
+   if(field==='Giới hạn') continue;
+   assert.ok(expanded.includes(field.replaceAll('\\','')),field);
+ }
+ assert.match(css,/\.exam-mobile-type-pills\s*\{[^}]*grid-template-columns:repeat\(4,minmax\(0,1fr\)\)/);
+ assert.match(css,/\.exam-mobile-type-pill\s*\{/);
+});
+
 test('Mobile actions are hidden for unauthorized viewers; empty counts and missing attempts stay honest',()=>{
  const html=render({...sample,count_41:0,count_tf4:0,count_sq:0,count_tl:0,counts_detail:null,chedodethi:'Đề công khai'},
     {attemptCount:null,canDeleteExam:false,canDeleteResults:false});
