@@ -18,11 +18,15 @@ test('Admin role aliases and owner profile IDs are honored; unknown users fail c
 test('Postgres deletes orphan legacy exams only for authorized admin and leaves historical result rows',async()=>{
  const db=new PGlite();
  try{
-  await db.exec('CREATE TABLE exam_configs(id TEXT PRIMARY KEY,creator_id TEXT);CREATE TABLE results(id TEXT PRIMARY KEY,exam_id TEXT);');
+  await db.exec('CREATE TABLE exam_configs(id TEXT PRIMARY KEY,creator_id TEXT);CREATE TABLE results(id TEXT PRIMARY KEY,exam_id TEXT);CREATE TABLE _exam_grade_sessions(exam_id TEXT,expires_at TIMESTAMPTZ);');
   await db.exec("INSERT INTO exam_configs VALUES ('old',NULL),('teacher-old','profile-A'),('has-results','profile-A');INSERT INTO results VALUES ('r1','has-results');");
   const run=async (id,owner)=>{const stmt=examConfigGuardedDeleteStatement(id,owner);return db.query(convertSqliteToPostgres(stmt.sql),stmt.params);};
   assert.equal((await run('old',null)).affectedRows,1);
   assert.equal((await run('teacher-old','wrong-owner')).affectedRows,0);
+  // An exam with a valid grading session must remain undeletable, even to its owner.
+  await db.query("INSERT INTO _exam_grade_sessions(exam_id,expires_at) VALUES ($1,$2)",['teacher-old','2099-01-01T00:00:00.000Z']);
+  assert.equal((await run('teacher-old','profile-A')).affectedRows,0);
+  await db.query("DELETE FROM _exam_grade_sessions WHERE exam_id = $1",['teacher-old']);
   assert.equal((await run('teacher-old','profile-A')).affectedRows,1);
   assert.equal((await run('has-results','profile-A')).affectedRows,0);
   assert.deepEqual((await db.query('SELECT id FROM results')).rows.map(x=>x.id),['r1']);

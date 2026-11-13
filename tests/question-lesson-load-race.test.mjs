@@ -12,8 +12,11 @@ function section(start, end) {
 }
 
 test('loadQuestions deduplicates simultaneous requests, rejects stale sessions and refreshes both lesson selectors', () => {
-  const src = section('async function loadQuestions(force = false, onProgress = null)', 'async function fetchAllResultsChunked');
-  assert.match(src, /if \(questionsLoadPromise\) return questionsLoadPromise/);
+  const src = section('async function loadQuestions(', 'async function fetchAllResultsChunked');
+  assert.match(src, /teacherId = null/);
+  assert.match(src, /questionBankScopeKey\(teacherId\)/);
+  assert.match(src, /questionsLoadPromise && questionsLoadPromiseScope === requestedScope\) return questionsLoadPromise/);
+  assert.match(src, /questionsLoadPromiseScope !== requestedScope/);
   assert.match(src, /generation !== authDataGeneration/);
   assert.match(src, /revision !== questionBankRevision/);
   assert.match(src, /userId !== String\(currentUser\?\.id/);
@@ -25,10 +28,16 @@ test('loadQuestions deduplicates simultaneous requests, rejects stale sessions a
 });
 
 test('question bank pagination rejects malformed/error responses and retries transient errors without treating them as empty data', () => {
-  const src = section('async function fetchAllQuestionsChunked(onProgress)', 'window.fetchAllQuestionsChunked = fetchAllQuestionsChunked');
+  const src = section('async function fetchAllQuestionsChunked(', 'window.fetchAllQuestionsChunked = fetchAllQuestionsChunked');
+  assert.match(src, /teacherId = null/);
+  assert.match(src, /fetchAuthoritativeTotal/);
+  assert.match(src, /const expectedTotal = await fetchAuthoritativeTotal\(\)/);
+  assert.match(src, /const finalTotal = await fetchAuthoritativeTotal\(\)/);
+  assert.match(src, /allQuestions\.length !== expectedTotal/);
+  assert.match(src, /receivedIds\.size !== allQuestions\.length/);
   assert.match(src, /cache: 'no-store'/);
   assert.match(src, /!res\.ok/);
-  assert.match(src, /!Array\.isArray\(json\.data\) \|\| json\.error/);
+  assert.match(src, /!json \|\| !Array\.isArray\(json\.data\) \|\| json\.error/);
   assert.match(src, /err\.status === 401 \|\| err\.status === 403/);
   assert.match(src, /attempt < 3/);
   assert.match(src, /pageNum > 100\) throw new Error/);
@@ -59,6 +68,13 @@ test('guest/student exam filters never wipe teacher bank or editor draft', () =>
 
 test('failure does not permanently mark editor initialized or clear selected lessons', () => {
   const lesson = section('function renderLessonCheckboxes()', 'function toggleAllLessons(checked)');
-  assert.match(lesson, /if \(questionsLoaded && examConfig\.selectedLessons/);
   assert.match(lesson, /if \(!questionsLoaded\)/);
+  assert.match(lesson, /const selectedLessonKeys = new Set\(\(examConfig\.selectedLessons \|\| \[\]\)/);
+  assert.match(lesson, /isSelected = selectedLessonKeys\.has\(normalizeExamPoolLesson\(lesson\)\)/);
+  assert.doesNotMatch(lesson, /examConfig\.selectedLessons\s*=(?!=)/,
+    'Rendering must never overwrite the stored lesson selection');
+  const initializer = section('async function initializeExamEditorOnce(', 'function updateExamGlobalStats()');
+  assert.match(initializer, /if \(!questionsLoaded && !\(await loadQuestions\(\)\)\) return/);
+  assert.ok(initializer.indexOf('if (!questionsLoaded && !(await loadQuestions())) return;') <
+    initializer.indexOf('examEditorInitialized = true'), 'Editor must not initialize on incomplete bank data');
 });

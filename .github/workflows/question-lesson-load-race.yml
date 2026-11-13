@@ -5,6 +5,9 @@ on:
   pull_request:
     paths:
       - 'src/main.js'
+      - 'src/question-bank-level-filter.js'
+      - 'public/components/tab-questions.html'
+      - 'tests/question-bank-level-filter.test.mjs'
       - 'tests/question-lesson-load-race.test.mjs'
       - '.github/workflows/question-lesson-load-race.yml'
 permissions:
@@ -20,6 +23,6 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci --no-audit --no-fund
-      - run: node --test tests/question-lesson-load-race.test.mjs tests/exam-tab-separation.test.mjs tests/question-bank-recent-view.test.mjs
+      - run: node --test tests/question-lesson-load-race.test.mjs tests/exam-tab-separation.test.mjs tests/question-bank-recent-view.test.mjs tests/question-bank-level-filter.test.mjs
       - run: npm run lint
       - run: npm run build

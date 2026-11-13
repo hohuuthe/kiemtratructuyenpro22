@@ -29,11 +29,19 @@ test('Nav, authorization and load flow target new editor tab',()=>{
  assert.ok(index.includes('id="tab-exam-editor"'));
  assert.ok(app.includes("tab === 'questions' || tab === 'exams' || tab === 'exam-editor' || tab === 'qr-cards'"));
  assert.ok(app.includes("visible = isTeacher || isAdmin"));
- assert.ok(app.includes('await openExamEditorTab({newExam:false});'));
+ assert.ok(app.includes('window.openExamEditorTab = openExamEditorTab;'));
+ assert.ok(app.includes('window.loadExamConfigById = async function loadExamConfigById'));
  assert.ok(app.includes('window.startNewExamConfig = async function startNewExamConfig()'));
- const openEditor = app.slice(app.indexOf('async function openExamEditorTab('), app.indexOf('window.startNewExamConfig = async function'));
+ const openEditorStart = app.indexOf('async function openExamEditorTab(');
+ const openEditorEnd = app.indexOf('window.startNewExamConfig = async function', openEditorStart);
+ assert.ok(openEditorStart >= 0 && openEditorEnd > openEditorStart);
+ const openEditor = app.slice(openEditorStart, openEditorEnd);
+ assert.match(openEditor, /await ensureTabComponent\('exam-editor'\)/);
+ assert.match(openEditor, /switchTab\('exam-editor'\)/);
+ assert.match(openEditor, /if \(!\(isAdminLoggedIn \|\| isTeacherLoggedIn\)\)/);
  assert.match(openEditor, /if\s*\(newExam\)\s*\{[^}]*\+\+examConfigLoadSeq;[^}]*resetExamPanelToDefault\(\);/s,
    'Tạo mới must cancel pending requests and reset the configuration');
+ assert.ok(app.includes('return openExamEditorTab({newExam:true});'));
  assert.ok(app.includes('if (examEditorInitialized) {'));
 });
 test('Business save, export and delete functions still exist',()=>{
@@ -54,7 +62,8 @@ test('Late private fetches cannot overwrite state after teacher switches or new 
    'generation !== authDataGeneration || !(isAdminLoggedIn || isTeacherLoggedIn)',
    'requestSeq !== examNamesRequestSeq',
    'requestSeq !== examConfigLoadSeq',
-   'if (generation !== authDataGeneration) return;',
+   'if (generation !== authDataGeneration || requestSeq !== examConfigLoadSeq ||',
+   'userLoadIntent !== examUserLoadIntentSeq',
    '++examConfigLoadSeq; // Cancel any in-flight Nạp/selection response.'
  ]) assert.ok(app.includes(guard), guard);
 });

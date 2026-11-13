@@ -85,9 +85,13 @@ test('normalizers keep editor availability counts aligned with server-era aliase
 
 test('load flow verifies authoritative bank total and pool before applyExamConfig', () => {
   const app = readFileSync('src/main.js', 'utf8');
-  const fetchStart = app.indexOf('async function fetchAllQuestionsChunked(onProgress)');
+  const fetchStart = app.indexOf('async function fetchAllQuestionsChunked(');
   const fetchEnd = app.indexOf('window.fetchAllQuestionsChunked = fetchAllQuestionsChunked', fetchStart);
+  assert.ok(fetchStart >= 0 && fetchEnd > fetchStart, 'bank pagination function must exist');
   const fetchPart = app.slice(fetchStart, fetchEnd);
+  assert.match(fetchPart, /teacherId = null/);
+  assert.match(fetchPart, /teacherQuery = targetTeacherId/);
+  assert.match(fetchPart, /verifySession\(\)/);
   assert.match(fetchPart, /fetchAuthoritativeTotal/);
   assert.match(fetchPart, /const expectedTotal = await fetchAuthoritativeTotal\(\)/);
   assert.match(fetchPart, /const finalTotal = await fetchAuthoritativeTotal\(\)/);
@@ -97,10 +101,22 @@ test('load flow verifies authoritative bank total and pool before applyExamConfi
   const loadStart = app.indexOf('window.loadExamConfigById = async function loadExamConfigById');
   const loadEnd = app.indexOf('window.openExportDocxModal', loadStart);
   const loadPart = app.slice(loadStart, loadEnd);
-  const verifyIndex = loadPart.indexOf('await ensureExamConfigQuestionPoolLoaded(draftToLoad)');
+  assert.ok(loadStart >= 0 && loadEnd > loadStart, 'exam configuration loader must exist');
+  const cacheVerify = loadPart.indexOf('verification = verifyExamConfigQuestionPool(draft, questions)');
+  const cacheGuard = loadPart.indexOf('reusedQuestionBank = Boolean(verification?.ok)');
+  const cacheMiss = loadPart.indexOf('if (!reusedQuestionBank)');
+  const freshVerify = loadPart.indexOf('verification = verifyExamConfigQuestionPool(draft, questions)', cacheMiss);
+  const shortageGuard = loadPart.indexOf('if (!verification.ok) throw new Error(', freshVerify);
+  const initialize = loadPart.indexOf('initializeExamEditorFromVerifiedPool()');
   const applyIndex = loadPart.indexOf('applyExamConfig(resJson.data)');
-  assert.ok(verifyIndex >= 0, 'must verify pool before loading exam');
-  assert.ok(applyIndex > verifyIndex, 'applyExamConfig must happen only after verified pool');
+  assert.ok(cacheVerify >= 0 && cacheVerify < cacheGuard && cacheGuard < cacheMiss,
+    'cached questions must be verified for the correct exam before reuse');
+  assert.ok(cacheMiss < freshVerify && freshVerify < shortageGuard,
+    'fresh question bank must be verified and fail closed on missing questions');
+  assert.ok(shortageGuard < initialize && initialize < applyIndex,
+    'a verified pool and ready editor are required before applying configuration');
+  assert.match(loadPart, /userLoadIntent !== examUserLoadIntentSeq/);
+  assert.match(loadPart, /loadQuestions\(true,[\s\S]*?ownerTeacherId\)/);
 
   const countStart = app.indexOf('function updateAvailableCounts()');
   const countEnd = app.indexOf('function restoreExamConfig()', countStart);
