@@ -54,6 +54,22 @@
             </div>
           </div>
 
+          <div class="exam-mobile-sort-toolbar">
+            <label for="exam-configs-mobile-sort">Sắp xếp đề thi</label>
+            <select id="exam-configs-mobile-sort" onchange="setExamConfigMobileSort(this.value)" aria-label="Sắp xếp danh sách đề thi trên điện thoại">
+              <option value="createdAt:desc">Mới tạo nhất</option>
+              <option value="createdAt:asc">Cũ nhất</option>
+              <option value="name:asc">Tên A → Z</option>
+              <option value="name:desc">Tên Z → A</option>
+              <option value="attempts:desc">Nhiều bài đã làm nhất</option>
+              <option value="questions:desc">Nhiều câu hỏi nhất</option>
+              <option value="duration:asc">Thời gian làm bài ngắn nhất</option>
+              <option value="id:asc">Mã đề A → Z</option>
+            </select>
+          </div>
+          <div id="exam-configs-mobile-list" class="exam-mobile-list" role="region" aria-label="Danh sách đề thi dạng thẻ trên điện thoại" onclick="handleExamConfigMobileAction(event)" aria-live="polite">
+            <p class="exam-mobile-empty">Đang tải danh sách cấu hình đề thi...</p>
+          </div>
           <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
            <div id="exam-configs-table-scroll" class="overflow-x-auto custom-scrollbar" role="region" aria-label="Bảng cấu hình quản lý đề thi, cuộn ngang để xem các cột" tabindex="0">
             <table class="exam-configs-table w-full text-left border-collapse text-sm">
@@ -83,7 +99,7 @@
            </div>
            <div id="exam-configs-pagination-container" class="flex flex-wrap items-center justify-between gap-3 px-3 py-3 text-xs text-slate-600 font-medium border-t border-slate-100"></div>
           </div>
-          <p class="mt-2 text-[11px] text-slate-500 lg:hidden">↔ Trên màn hình nhỏ, vuốt ngang nếu cần để xem đủ các cột.</p>
+          <p class="mt-2 text-[11px] text-slate-500 hidden sm:block lg:hidden">↔ Trên máy tính bảng, vuốt ngang nếu cần để xem đủ các cột.</p>
          </div>
     </div>
   </div>

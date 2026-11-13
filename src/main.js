@@ -22,6 +22,7 @@ import { matchesRankingTeacher, rankingTeacherOptions } from './ranking-teacher-
 import { examManagementCreatorId, examManagementSchool, examManagementClassTokens, matchesExamManagement, examManagementFilterChoices } from './exam-management-filters.js';
 import { parseExamAttemptCount } from './exam-attempt-counts-ui.js';
 import { formatExamCreatedAtVN } from './exam-created-at-vn.js';
+import { renderExamConfigMobileCard } from './exam-config-mobile-view.js';
 import { DEFAULT_EXAM_CONFIG_SORT, nextExamConfigSort, sortExamConfigs } from './exam-config-sorting.js';
 import { resolveRankingDeleteExamTargets } from './ranking-delete-exam-targets.js';
 import './pwa-manager.js';
@@ -6077,6 +6078,42 @@ if (contentType && contentType.includes("application/json")) {
             renderExamConfigsTable();
         };
 
+        window.setExamConfigMobileSort = function(value) {
+            const options = ['createdAt:desc','createdAt:asc','name:asc','name:desc','attempts:desc','questions:desc','duration:asc','id:asc'];
+            if (!options.includes(value)) return;
+            const [key, direction] = value.split(':');
+            window.examConfigSort = {key, direction};
+            window.examConfigCurrentPage = 1;
+            renderExamConfigsTable();
+        };
+        window.handleExamConfigMobileAction = function(event) {
+            const button = event?.target?.closest?.('[data-exam-action]');
+            const container = document.getElementById('exam-configs-mobile-list');
+            if (!button || !container?.contains(button)) return;
+            const id = button.dataset.examId || '';
+            if (!id) return;
+            const exam = (window.allExamConfigsList || []).find(item => String(item.id) === id);
+            if (!exam) return;
+            const own = Boolean(currentUser && (isAdminLoggedIn ||
+                (isTeacherLoggedIn && [currentUser.id,currentUser.user_id].filter(Boolean)
+                    .some(owner => String(exam.creator_id || exam.creatorId) === String(owner)))));
+            switch (button.dataset.examAction) {
+                case 'load':
+                    window.loadExamConfigById(id);
+                    break;
+                case 'export':
+                    window.openExportDocxModal(id);
+                    break;
+                case 'delete-results':
+                    if (isAdminLoggedIn || own) window.deleteExamResultsByExamId(encodeURIComponent(id));
+                    break;
+                case 'delete-exam':
+                    if (own) window.deleteExamConfig(id, button.dataset.examName || '');
+                    break;
+                default: break;
+            }
+        };
+
         function examManagementSelection() {
             const isAdmin=!!(isAdminLoggedIn && currentUser);
             return {
@@ -6165,7 +6202,19 @@ if (contentType && contentType.includes("application/json")) {
                 button.classList.toggle('exam-config-sort-active',active);
             });
 
+            const mobileContainer = document.getElementById('exam-configs-mobile-list');
+            const mobileSort = document.getElementById('exam-configs-mobile-sort');
+            if (mobileSort) {
+                const current = window.examConfigSort || DEFAULT_EXAM_CONFIG_SORT;
+                const value = current.key + ':' + current.direction;
+                mobileSort.value = [...mobileSort.options].some(option => option.value === value) ? value : '';
+            }
             if (list.length === 0) {
+                if (mobileContainer) mobileContainer.innerHTML =
+                    '<p class="exam-mobile-empty">' +
+                    ((searchKw || selections.creatorId || selections.school || selections.className)
+                        ? 'Không tìm thấy đề thi phù hợp với bộ lọc.' : 'Chưa có cấu hình đề thi nào trong danh sách.') +
+                    '</p>';
                 tbody.innerHTML = `
                     <tr>
                         <td colspan="12" class="text-center py-8 text-gray-400 italic">
@@ -6184,6 +6233,21 @@ if (contentType && contentType.includes("application/json")) {
 
             const startIdx = (window.examConfigCurrentPage - 1) * pageSize;
             const pagedList = list.slice(startIdx, startIdx + pageSize);
+            if (mobileContainer) {
+                const mobileCards = pagedList.map((item, idx) => {
+                    const creator = examCreatorDisplayName(item, accountsMap, currentUser);
+                    const creation = formatExamCreatedAtVN(item.created_at ?? item.createdAt);
+                    const attemptCount = parseExamAttemptCount(item.attempt_count);
+                    const isCreator = Boolean(currentUser && (isAdminLoggedIn ||
+                        (isTeacherLoggedIn && [currentUser.id,currentUser.user_id].filter(Boolean)
+                            .some(owner => String(item.creator_id || item.creatorId) === String(owner)))));
+                    return renderExamConfigMobileCard({
+                        exam:item, ordinal:startIdx + idx + 1, creator, creation, attemptCount,
+                        canDeleteExam:isCreator, canDeleteResults:isAdminLoggedIn || isCreator
+                    });
+                });
+                mobileContainer.innerHTML = mobileCards.join('');
+            }
 
             tbody.innerHTML = pagedList.map((item, idx) => {
                 const globalIdx = startIdx + idx + 1;

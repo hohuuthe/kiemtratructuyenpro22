@@ -4,6 +4,8 @@ on:
     paths:
       - 'src/exam-config-sorting.js'
       - 'src/main.js'
+      - 'src/exam-config-mobile-view.js'
+      - 'tests/exam-config-mobile-view.test.mjs'
       - 'src/style.css'
       - 'public/components/tab-exams.html'
       - 'tests/exam-config-sorting.test.mjs'
@@ -12,6 +14,8 @@ on:
     paths:
       - 'src/exam-config-sorting.js'
       - 'src/main.js'
+      - 'src/exam-config-mobile-view.js'
+      - 'tests/exam-config-mobile-view.test.mjs'
       - 'src/style.css'
       - 'public/components/tab-exams.html'
       - 'tests/exam-config-sorting.test.mjs'
@@ -28,6 +32,6 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci --no-audit --no-fund
-      - run: node --test tests/exam-config-sorting.test.mjs tests/exam-config-table-layout.test.mjs tests/exam-management-filters.test.mjs tests/exam-created-at-vn.test.mjs
+      - run: node --test tests/exam-config-sorting.test.mjs tests/exam-config-table-layout.test.mjs tests/exam-management-filters.test.mjs tests/exam-created-at-vn.test.mjs tests/exam-config-mobile-view.test.mjs
       - run: npm run lint
       - run: npm run build
