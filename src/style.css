@@ -2828,23 +2828,28 @@ html.kttt-modal-open, body.kttt-modal-open { overflow: hidden !important; oversc
  .exam-mobile-sort-toolbar{display:flex;align-items:center;gap:10px;margin:4px 0 12px}
  .exam-mobile-sort-toolbar label{color:#475569;font-size:12px;font-weight:700;white-space:nowrap}
  .exam-mobile-sort-toolbar select{min-width:0;flex:1;background:white;color:#4c1d95;border:1px solid #cbd5e1;border-radius:10px;padding:10px 8px;font-size:13px;font-weight:700}
- .exam-mobile-list{display:grid;grid-template-columns:minmax(0,1fr);gap:12px}
- .exam-mobile-card{min-width:0;padding:14px;background:white;border:1px solid #e2e8f0;border-radius:15px;box-shadow:0 3px 12px rgba(15,23,42,.055);overflow-wrap:anywhere}
+ .exam-mobile-list{display:grid;grid-template-columns:minmax(0,1fr);gap:9px}
+ .exam-mobile-card{min-width:0;padding:11px 12px;background:white;border:1px solid #e2e8f0;border-radius:12px;box-shadow:0 2px 8px rgba(15,23,42,.045);overflow-wrap:anywhere}
  .exam-mobile-card-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:7px}
  .exam-mobile-sequence{font-size:11px;color:#64748b;font-weight:750}
  .exam-mobile-mode{max-width:65%;padding:4px 9px;border:1px solid;border-radius:999px;font-size:11px;line-height:1.35;font-weight:750;text-align:center;overflow-wrap:anywhere}
  .exam-mobile-mode.unit{background:#fffbeb;border-color:#fde68a;color:#92400e}
  .exam-mobile-mode.protected{background:#fff1f2;border-color:#fecdd3;color:#9f1239}
  .exam-mobile-mode.public{background:#ecfdf5;border-color:#a7f3d0;color:#065f46}
- .exam-mobile-title{font-size:16px;font-weight:850;line-height:1.4;color:#1e293b;margin:0 0 5px;overflow-wrap:anywhere}
+ .exam-mobile-title{font-size:15px;font-weight:850;line-height:1.35;color:#1e293b;margin:0 0 3px;overflow-wrap:anywhere}
  .exam-mobile-code{font-size:11px;color:#64748b;line-height:1.5}
  .exam-mobile-code span{color:#334155;font-weight:650;word-break:break-all}
  .exam-mobile-creator{font-size:12px;color:#64748b;margin-top:5px}
  .exam-mobile-creator strong{color:#334155}
- .exam-mobile-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:11px 0}
- .exam-mobile-metrics>div{min-width:0;display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 4px;border-radius:10px;background:#f5f3ff;text-align:center}
+ .exam-mobile-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;margin:8px 0}
+ .exam-mobile-metrics>div{min-width:0;display:flex;flex-direction:column;align-items:center;gap:2px;padding:7px 3px;border-radius:8px;background:#f5f3ff;text-align:center}
  .exam-mobile-metrics small{font-size:10px;color:#64748b;font-weight:650}
  .exam-mobile-metrics strong{font-size:13px;font-weight:850;color:#5b21b6;line-height:1.3;overflow-wrap:anywhere}
+ .exam-mobile-scope{font-size:11px;line-height:1.45;color:#475569;margin:4px 0 7px;overflow-wrap:anywhere}
+ .exam-mobile-scope span{color:#94a3b8}
+ .exam-mobile-type-pills{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px}
+ .exam-mobile-type-pill{min-width:0;text-align:center;border:1px solid #e2e8f0;background:#f8fafc;border-radius:7px;padding:6px 2px;font-size:11px;line-height:1.2;color:#475569;white-space:nowrap}
+ .exam-mobile-type-pill strong{font-variant-numeric:tabular-nums;color:#5b21b6;font-weight:800}
  .exam-mobile-summary{display:grid;grid-template-columns:minmax(0,1fr)}
  .exam-mobile-pair{display:flex;align-items:flex-start;justify-content:space-between;gap:9px;padding:7px 0;border-bottom:1px solid #f1f5f9;min-width:0}
  .exam-mobile-pair dt{width:42%;flex:0 0 42%;font-size:11px;color:#64748b;font-weight:650}
@@ -2855,14 +2860,14 @@ html.kttt-modal-open, body.kttt-modal-open { overflow: hidden !important; oversc
  .exam-mobile-count-row strong{min-width:0;font-size:12px;color:#334155;font-weight:700}
  .exam-mobile-count-value{font-size:12px;font-weight:800;color:#6d28d9}
  .exam-mobile-count-row small{grid-column:1/-1;font-size:11px;color:#64748b}
- .exam-mobile-details{margin:12px 0;border:1px solid #ddd6fe;border-radius:10px;background:#faf5ff}
- .exam-mobile-details summary{cursor:pointer;list-style:none;padding:12px;color:#6d28d9;font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:space-between}
+ .exam-mobile-details{margin:8px 0;border:1px solid #ddd6fe;border-radius:9px;background:#faf5ff}
+ .exam-mobile-details summary{cursor:pointer;list-style:none;padding:9px 10px;color:#6d28d9;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:space-between;gap:5px}
  .exam-mobile-details summary::-webkit-details-marker{display:none}
  .exam-mobile-details summary span{font-size:16px}
  .exam-mobile-details[open] summary span{transform:rotate(180deg)}
  .exam-mobile-details-grid{padding:0 12px 10px}
- .exam-mobile-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding-top:4px}
- .exam-mobile-action{min-width:0;min-height:42px;border-radius:9px;padding:9px 8px;font-weight:800;font-size:12px;line-height:1.3}
+ .exam-mobile-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;padding-top:3px}
+ .exam-mobile-action{min-width:0;min-height:42px;border-radius:8px;padding:8px 6px;font-weight:800;font-size:12px;line-height:1.3}
  .exam-mobile-action.primary{color:white;background:#7c3aed}
  .exam-mobile-action.secondary{color:white;background:#2563eb}
  .exam-mobile-action.danger-outline{color:#be123c;background:#fff1f2;border:1px solid #fecdd3}
