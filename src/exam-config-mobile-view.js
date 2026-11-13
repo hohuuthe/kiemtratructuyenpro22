@@ -137,16 +137,18 @@ export function renderExamConfigMobileCard({exam, ordinal, creator, creation, at
     '<div class="exam-mobile-card-head"><span class="exam-mobile-sequence">Đề số ' + Number(ordinal) +
       '</span><span class="' + summaryMode + '">' + escapeHtml(mode) + '</span></div>',
     '<h5 class="exam-mobile-title">' + escapeHtml(title) + '</h5>',
-    '<p class="exam-mobile-code">Mã đề: <span>' + escapeHtml(id || '—') + '</span></p>',
-    '<p class="exam-mobile-creator">Người tạo: <strong>' + escapeHtml(creator || '—') + '</strong></p>',
+    '<p class="exam-mobile-code">Mã đề: <span title="' + escapeHtml(id) + '">' + escapeHtml(id || '—') + '</span></p>',
+    '<p class="exam-mobile-creator"><strong>' + escapeHtml(creator || '—') + '</strong> <span aria-hidden="true">·</span> ' + escapeHtml(created) + '</p>',
     '<div class="exam-mobile-metrics"><div><small>Thời gian</small><strong>' + escapeHtml(duration) +
-      ' phút</strong></div><div><small>Tổng câu hỏi</small><strong>' + total +
-      ' câu</strong></div><div><small>Số bài đã làm</small><strong>' + escapeHtml(countText) + '</strong></div></div>',
-    '<dl class="exam-mobile-summary">',
-    pair('Ngày, giờ tạo',created),pair('Trường / đơn vị',unit),pair('Lớp áp dụng',classroom),
-    '</dl>',
-    '<section class="exam-mobile-questions" aria-label="Cấu trúc câu hỏi"><h6>Cấu trúc câu hỏi</h6>' + questionRows + '</section>',
-    '<details class="exam-mobile-details"><summary>Xem đầy đủ cấu hình <span aria-hidden="true">⌄</span></summary>',
+      ' phút</strong></div><div><small>Câu hỏi</small><strong>' + total +
+      ' câu</strong></div><div><small>Bài đã làm</small><strong>' + escapeHtml(countText) + '</strong></div></div>',
+    '<p class="exam-mobile-scope" title="Phạm vi áp dụng">🏫 ' + escapeHtml(unit) + ' <span aria-hidden="true">·</span> ' + escapeHtml(classroom) + '</p>',
+    '<div class="exam-mobile-type-pills" aria-label="Số câu theo bốn loại">',
+    types.map(type => '<span class="exam-mobile-type-pill">' + escapeHtml(type.short) + ': <strong>' +
+      countOf(exam,type.fields) + '</strong></span>').join(''),
+    '</div>',
+    '<details class="exam-mobile-details"><summary>Xem đầy đủ cấu hình và mức độ NB/TH/VD <span aria-hidden="true">⌄</span></summary>',
+    '<section class="exam-mobile-questions" aria-label="Cấu trúc câu hỏi chi tiết"><h6>Phân bổ câu hỏi NB / TH / VD</h6>' + questionRows + '</section>',
     '<dl class="exam-mobile-details-grid">' + details.join('') + '</dl></details>',
     '<div class="exam-mobile-actions">',
     button('load','⚙️ Nạp / Sửa','primary'),
