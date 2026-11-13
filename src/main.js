@@ -1,4 +1,5 @@
 import { copyToastMessage } from './toast-copy.js';
+import { matchesQuestionBankLevel, countQuestionBankLevels } from './question-bank-level-filter.js';
 import {canDeleteRankingResult} from './ranking-result-delete-policy.js';
 import { isShortAnswerCorrect, parseTF4CorrectAnswer, examFlagEnabled, clampScore, roundScore } from './exam-grading-core.js';
 import { createExamSessionId, remainingExamSeconds, remainingExamSecondsMonotonic, canAutoSubmitExam, shouldCountExamViolation } from './student-exam-session-guard.js';
@@ -1488,6 +1489,7 @@ if (contentTypeConfig && contentTypeConfig.includes("application/json")) {
             pendingViolationEvents: []
         };
         let questionTypeFilter = '4-1';
+        let questionLevelFilter = 'ALL';
         let selectedQuestionIds = new Set();
         let selectedRankingResults = new Set();
 
@@ -11837,16 +11839,10 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             const qSQ = filteredQs.filter(q => matchesQuestionType(q, 'SQ'));
             const qTL = filteredQs.filter(q => matchesQuestionType(q, 'TL'));
 
-            const getLevelStats = (qs) => ({
-                NB: qs.filter(q => q.level === 'NB').length,
-                TH: qs.filter(q => q.level === 'TH').length,
-                VD: qs.filter(q => q.level === 'VD').length
-            });
-
-            const stats41 = getLevelStats(q41);
-            const statsTF4 = getLevelStats(qTF4);
-            const statsSQ = getLevelStats(qSQ);
-            const statsTL = getLevelStats(qTL);
+            const stats41 = countQuestionBankLevels(q41);
+            const statsTF4 = countQuestionBankLevels(qTF4);
+            const statsSQ = countQuestionBankLevels(qSQ);
+            const statsTL = countQuestionBankLevels(qTL);
 
             const lessonDisplay = selectedLesson ? `<span class="text-purple-600 font-bold">${escapeHTML(selectedLesson)}</span>` : 'Tất cả bài';
             const teacherSelect = document.getElementById('question-teacher-filter');
@@ -11856,26 +11852,32 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
 
             const statsEl = document.getElementById('question-type-stats');
             if (statsEl) {
+                const cards = [
+                    { type: '4-1', total: q41.length, stats: stats41, surface: 'bg-blue-50/60 border-blue-100', text: 'text-blue-700', active: 'border-blue-400 ring-blue-100', level: 'bg-blue-100 text-blue-800 border-blue-300' },
+                    { type: 'TF4', total: qTF4.length, stats: statsTF4, surface: 'bg-green-50/60 border-green-100', text: 'text-green-700', active: 'border-green-400 ring-green-100', level: 'bg-green-100 text-green-800 border-green-300' },
+                    { type: 'SQ', total: qSQ.length, stats: statsSQ, surface: 'bg-orange-50/60 border-orange-100', text: 'text-orange-700', active: 'border-orange-400 ring-orange-100', level: 'bg-orange-100 text-orange-800 border-orange-300' },
+                    { type: 'TL', total: qTL.length, stats: statsTL, surface: 'bg-purple-50/60 border-purple-100', text: 'text-purple-700', active: 'border-purple-400 ring-purple-100', level: 'bg-purple-100 text-purple-800 border-purple-300' }
+                ];
                 statsEl.innerHTML = `
-                    <div class="col-span-4 text-base text-gray-600 mb-2 pb-1 border-b border-gray-200 flex items-center gap-2">
-                        <span class="text-lg">📚</span> <span class="font-semibold">Giáo viên:</span> <span class="text-purple-700 font-bold">${teacherDisplay}</span> <span class="font-semibold">· Bài:</span> ${lessonDisplay}
+                    <div class="col-span-2 lg:col-span-4 text-sm text-gray-600 mb-1 pb-2 border-b border-gray-200 flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <span aria-hidden="true">📚</span> <span class="font-semibold">Giáo viên:</span> <span class="text-purple-700 font-bold">${teacherDisplay}</span> <span class="font-semibold">· Bài:</span> ${lessonDisplay}
                     </div>
-                    <div class="text-center p-2 bg-blue-50/50 rounded-lg border border-blue-100">
-                        <p class="font-bold text-blue-700 text-base">[4-1]: ${q41.length}</p>
-                        <p class="text-sm text-gray-700 font-medium">NB: ${stats41.NB} | TH: ${stats41.TH} | VD: ${stats41.VD}</p>
-                    </div>
-                    <div class="text-center p-2 bg-green-50/50 rounded-lg border border-green-100">
-                        <p class="font-bold text-green-700 text-base">[TF4]: ${qTF4.length}</p>
-                        <p class="text-sm text-gray-700 font-medium">NB: ${statsTF4.NB} | TH: ${statsTF4.TH} | VD: ${statsTF4.VD}</p>
-                    </div>
-                    <div class="text-center p-2 bg-orange-50/50 rounded-lg border border-orange-100">
-                        <p class="font-bold text-orange-700 text-base">[SQ]: ${qSQ.length}</p>
-                        <p class="text-sm text-gray-700 font-medium">NB: ${statsSQ.NB} | TH: ${statsSQ.TH} | VD: ${statsSQ.VD}</p>
-                    </div>
-                    <div class="text-center p-2 bg-purple-50/50 rounded-lg border border-red-100">
-                        <p class="font-bold text-purple-700 text-base">[TL]: ${qTL.length}</p>
-                        <p class="text-sm text-gray-700 font-medium">NB: ${statsTL.NB} | TH: ${statsTL.TH} | VD: ${statsTL.VD}</p>
-                    </div>
+                    ${cards.map(card => {
+                        const typeActive = questionTypeFilter === card.type;
+                        return `
+                            <div class="min-w-0 rounded-lg border p-2 ${card.surface} ${typeActive ? `ring-2 ${card.active}` : ''}" role="group" aria-label="Bộ lọc câu hỏi ${card.type}">
+                                <button type="button" onclick="setQuestionTypeFilter('${card.type}')" aria-pressed="${typeActive && questionLevelFilter === 'ALL'}" title="Xem tất cả câu hỏi loại ${card.type}" class="block w-full rounded-md py-1 text-center font-bold text-sm ${card.text} hover:bg-white/70 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
+                                    [${card.type}]: ${card.total}
+                                </button>
+                                <div class="mt-1 grid grid-cols-3 gap-1">
+                                    ${['NB', 'TH', 'VD'].map(level => {
+                                        const levelActive = typeActive && questionLevelFilter === level;
+                                        return `<button type="button" onclick="setQuestionLevelFilter('${card.type}', '${level}')" aria-pressed="${levelActive}" aria-label="Lọc câu hỏi ${card.type} mức độ ${level}" class="min-w-0 rounded-md border px-0.5 py-1 text-[11px] sm:text-xs font-semibold leading-tight whitespace-nowrap transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-blue-600 ${levelActive ? card.level : 'bg-white/80 border-gray-200 text-gray-700 hover:bg-white'}">${level}: ${card.stats[level]}</button>`;
+                                    }).join('')}
+                                </div>
+                            </div>
+                        `;
+                    }).join('')}
                 `;
             }
         }
@@ -12009,14 +12011,20 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
         }
 
         function setQuestionTypeFilter(type) {
+            if (!['4-1', 'TF4', 'SQ', 'TL'].includes(type)) return;
             clearRecentQuestionFocus();
             questionTypeFilter = type;
-            document.querySelectorAll('.q-type-btn').forEach(btn => {
-                btn.classList.remove('ring-2', 'ring-offset-2', 'ring-blue-500');
-                if (btn.dataset.type === type) {
-                    btn.classList.add('ring-2', 'ring-offset-2', 'ring-blue-500');
-                }
-            });
+            questionLevelFilter = 'ALL';
+            updateQuestionStats();
+            renderQuestionsList();
+        }
+
+        function setQuestionLevelFilter(type, level) {
+            if (!['4-1', 'TF4', 'SQ', 'TL'].includes(type) || !['NB', 'TH', 'VD'].includes(level)) return;
+            clearRecentQuestionFocus();
+            questionTypeFilter = type;
+            questionLevelFilter = level;
+            updateQuestionStats();
             renderQuestionsList();
         }
 
@@ -12042,9 +12050,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             const searchEl = document.getElementById('question-search');
             if (searchEl) searchEl.value = '';
             questionTypeFilter = 'ALL';
-            document.querySelectorAll('.q-type-btn').forEach(btn => {
-                btn.classList.remove('ring-2','ring-offset-2','ring-blue-500');
-            });
+            questionLevelFilter = 'ALL';
             window.questionsCurrentPage = 1;
             updateQuestionStats();
             renderQuestionsList();
@@ -12057,6 +12063,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             clearRecentQuestionFocus();
             selectedQuestionIds.clear();
             questionTypeFilter = 'ALL';
+            questionLevelFilter = 'ALL';
             const teacher = document.getElementById('question-teacher-filter');
             if (teacher && isAdminLoggedIn) teacher.value = '';
             updateLessonFilter();
@@ -12081,6 +12088,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
         let lastQuestionsLessonFilter = '';
         let lastQuestionsTeacherFilter = '';
         let lastQuestionsTypeFilter = '';
+        let lastQuestionsLevelFilter = '';
 
         function updateQuestionsSelectionUI() {
             const btnDelete = document.getElementById('btn-delete-selected-questions');
@@ -12258,15 +12266,18 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
 
             // Đồng bộ phân trang khi đổi giáo viên, bài học, loại câu hoặc tìm kiếm.
             if (teacherFilter !== lastQuestionsTeacherFilter || lessonFilter !== lastQuestionsLessonFilter ||
-                searchTerm !== lastQuestionsSearchTerm || questionTypeFilter !== lastQuestionsTypeFilter) {
+                searchTerm !== lastQuestionsSearchTerm || questionTypeFilter !== lastQuestionsTypeFilter ||
+                questionLevelFilter !== lastQuestionsLevelFilter) {
                 window.questionsCurrentPage = 1;
                 lastQuestionsTeacherFilter = teacherFilter;
                 lastQuestionsLessonFilter = lessonFilter;
                 lastQuestionsSearchTerm = searchTerm;
                 lastQuestionsTypeFilter = questionTypeFilter;
+                lastQuestionsLevelFilter = questionLevelFilter;
             }
 
             let filteredQuestions = questions.filter(q => (questionTypeFilter === 'ALL' || matchesQuestionType(q,questionTypeFilter)) &&
+                matchesQuestionBankLevel(q, questionLevelFilter) &&
                 isUserQuestionCreator(q) && matchesQuestionTeacher(q, teacherFilter));
             
             filteredQuestions.sort((a,b) => {
@@ -12395,6 +12406,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             const searchTerm = (document.getElementById('question-search')?.value || '').toLowerCase().trim();
 
             let filteredQuestions = questions.filter(q => (questionTypeFilter === 'ALL' || matchesQuestionType(q, questionTypeFilter)) &&
+                matchesQuestionBankLevel(q, questionLevelFilter) &&
                 isUserQuestionCreator(q) && matchesQuestionTeacher(q, teacherFilter));
             
             if (lessonFilter) {
@@ -25668,6 +25680,7 @@ CẤU TRÚC JSON:
         window.closeAccountModal = closeAccountModal;
         window.userRegister = userRegister;
         window.setQuestionTypeFilter = setQuestionTypeFilter;
+        window.setQuestionLevelFilter = setQuestionLevelFilter;
         window.deleteSelectedRankingResults = deleteSelectedRankingResults;
         window.deleteSingleRankingResult = deleteSingleRankingResult;
         window.clearAllResults = clearAllResults;
