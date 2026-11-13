@@ -20,7 +20,8 @@ export async function copyToastMessage(message, { doc = globalThis.document, cli
         (doc.body || doc.documentElement).appendChild(textarea);
         textarea.focus();
         textarea.select();
-        textarea.setSelectionRange?.(0, textarea.value.length);
+        // Selecting the textarea already covers the whole value. A blocked
+        // setSelectionRange() must not prevent the synchronous copy attempt.
         copied = doc.execCommand?.('copy') === true;
     } catch {
         // Try the modern Clipboard API below instead.
