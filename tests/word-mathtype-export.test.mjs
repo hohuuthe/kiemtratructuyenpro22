@@ -4,6 +4,7 @@ import JSZip from 'jszip';
 import {finalizeWordExport,MATHTYPE_EXPORT_QUALIFICATION} from '../src/word-export-format.js';
 import {NS,parseXml,ommlToAst,astToMathml} from '../src/word-mathtype-export/omml-ast.js';
 import {astToMtef} from '../src/word-mathtype-export/mtef-writer.js';
+import {convertMtefV5ToLatex} from '../src/word-mtef-v5-reader.js';
 import {createMathTypeOle} from '../src/word-mathtype-export/cfb-writer.js';
 import {convertDocxToMathType,sha256} from '../src/word-mathtype-export/docx-converter.js';
 import {renderFormulaSvg} from '../qualification/mathtype-export/renderer.mjs';
@@ -238,6 +239,46 @@ test('Heavy MathType export streams bounded previews and reports monotonic globa
   assert.equal(await sha256(new Uint8Array(await input.arrayBuffer())),original);
   const doc=parseXml(await (await load(blob)).file('word/document.xml').async('string'));
   assert.equal(doc.getElementsByTagNameNS(NS.o,'OLEObject').length,160);
+});
+
+test('MathType exports 503 questions with many editable formulas and previously unsupported math operators',async()=>{
+  // Reproduces a late failure in a large selection, including formula 143.
+  const operators=['∼','∝','∖','⊕','≪','△','≡','⇔','⇒','⋅','∠','∼'];
+  const selected=Array.from({length:503},(_,i)=>{
+    const symbol= i===142?'∼':operators[i%operators.length];
+    const body=fraction(run('x'+(i+1)),run('y+1'))+run(symbol)+run('z');
+    return ['bank-'+(i+1),body];
+  });
+  const original=await makeDocx(selected),beforeHash=await sha256(new Uint8Array(await original.arrayBuffer()));
+  let windows=0;
+  const result=await convertDocxToMathType(original,{
+    previewWindowSize:16,
+    renderPreview:stubPreview,
+    renderPreviewBatch:async items=>{windows++;return items.map(()=>({png,widthPt:20,heightPt:10,baselinePt:2}));}
+  });
+  assert.equal(result.report.converted,503);
+  assert.equal(result.report.equations.length,503);
+  assert.equal(windows,Math.ceil(503/16));
+  assert.equal(await sha256(new Uint8Array(await original.arrayBuffer())),beforeHash);
+  const archive=await load(result.blob),document=parseXml(await archive.file('word/document.xml').async('string'));
+  assert.equal(document.getElementsByTagNameNS(NS.o,'OLEObject').length,503);
+  assert.equal(document.getElementsByTagNameNS(NS.m,'oMath').length,0);
+  for(let i=0;i<503;i++){
+    const ole=await archive.file(result.report.equations[i].olePath).async('uint8array');
+    const latex=convertMtefV5ToLatex(inspectOle(ole).mtef);
+    const expected=i===142?'\\sim{}':({
+      '∼':'\\sim{}','∝':'\\propto{}','∖':'\\setminus{}','⊕':'\\oplus{}',
+      '≪':'\\ll{}','△':'\\triangle{}','≡':'\\equiv{}','⇔':'\\Leftrightarrow{}',
+      '⇒':'\\Rightarrow{}','⋅':'\\cdot{}','∠':'\\angle{}'
+    })[operators[i%operators.length]];
+    assert.ok(latex.includes(expected),'Formula '+(i+1)+' should preserve '+expected+': '+latex);
+  }
+});
+
+test('Unknown and unsafe MathType codes do not bypass structural validation',()=>{
+  assert.equal(convertMtefV5ToLatex(astToMtef(ast(run('x∼y')))),'x\\sim{}y');
+  assert.throws(()=>convertMtefV5ToLatex(astToMtef(ast(run('x☃y')))),/unmapped MTCode/);
+  assert.throws(()=>astToMtef(ast(run('x\ue000y'))),{code:'UNSUPPORTED_OMML'});
 });
 
 test('Late preview-window failure is atomic and aborts the export without a partial DOCX',async()=>{
