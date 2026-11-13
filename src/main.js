@@ -5325,7 +5325,7 @@ if (contentType && contentType.includes("application/json")) {
                     toast.style.transform = 'translateY(-6px)';
                     toast.style.transition = 'opacity 0.25s, transform 0.25s';
                     setTimeout(() => toast.remove(), 260);
-                }, size === 'large' ? 3000 : 4000);
+                }, size === 'large' ? 3000 : (type === 'error' ? 12000 : 4000));
             };
 
             const clearTimer = () => {
