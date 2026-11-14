@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { studentExamHeaderState } from '../src/student-exam-header-branding.js';
+import { studentExamHeaderState, applyStudentExamHeaderBranding } from '../src/student-exam-header-branding.js';
 
 const read = path => readFileSync(new URL('../'+path, import.meta.url),'utf8');
 
@@ -73,4 +73,50 @@ test('exam activates branding after a previous fullscreen entry (race regression
   const startTime = main.indexOf('currentExam.startTime',activate);
   assert.ok(start > -1 && activate > start,'exam start must exist');
   assert.ok(render > activate && render < startTime,'branding must render on exam activation');
+});
+
+
+test('student branding actually appears when fullscreen precedes exam activation', () => {
+  const originalDocument = globalThis.document;
+  const root = { classList: { hidden: true, contains(value) { return value === 'hidden' && this.hidden; } } };
+  const container = { hidden: true };
+  const heading = { hidden: false, textContent: '' };
+  const image = { hidden: true, src: '', complete: false, naturalWidth: 0,
+    getAttribute(name) { return name === 'src' ? this.src : null; },
+    removeAttribute(name) { if (name === 'src') this.src = ''; } };
+  const elements = {
+    'exam-interface': root,
+    'exam-header-branding': container,
+    'exam-header-branding-title': heading,
+    'exam-header-branding-img': image
+  };
+  globalThis.document = { fullscreenElement: root, getElementById: id => elements[id] ?? null };
+  try {
+    const settings = {
+      appTitle: 'TRƯỜNG THPT', examHeaderDisplayMode: 'both',
+      headerBannerUrl: 'https://cdn.example.test/brand.webp'
+    };
+    applyStudentExamHeaderBranding(settings);
+    assert.equal(container.hidden, true, 'branding stays hidden before exam is activated');
+    root.classList.hidden = false;
+    applyStudentExamHeaderBranding(settings);
+    assert.equal(container.hidden, false, 'branding appears immediately on exam activation');
+    assert.equal(heading.hidden, false);
+    assert.equal(heading.textContent, 'TRƯỜNG THPT');
+    assert.equal(image.src, settings.headerBannerUrl);
+    assert.equal(image.hidden, false);
+    image.onload();
+    assert.equal(container.hidden, false);
+    assert.equal(heading.hidden, false);
+    settings.examHeaderDisplayMode = 'banner';
+    image.complete = true; image.naturalWidth = 1000;
+    applyStudentExamHeaderBranding(settings);
+    assert.equal(heading.hidden, true, 'banner-only mode hides the title after image load');
+    image.onerror();
+    assert.equal(heading.hidden, false, 'broken image restores the title');
+    assert.equal(image.hidden, true);
+  } finally {
+    if (originalDocument === undefined) delete globalThis.document;
+    else globalThis.document = originalDocument;
+  }
 });
