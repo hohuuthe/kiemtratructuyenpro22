@@ -37,3 +37,9 @@
 @media (min-width:601px) and (max-width:1024px){.app-header-banner{padding:7px 10px 2px}.app-header-banner-image{max-height:190px}}
 @media(max-width:700px){.header-banner-size-grid{grid-template-columns:1fr}.header-banner-device-inputs{grid-template-columns:1fr}.header-banner-size-guide{padding:11px}.header-banner-preview-viewport[data-device=tablet]{max-width:100%}}
 @media(prefers-reduced-motion:reduce){.header-banner-preview-viewport{transition:none}}
+
+/* Nonblocking visual guidance for recommended banner dimensions. */
+.header-banner-dimension-feedback{padding:8px 10px;border-radius:9px;line-height:1.45;background:#f1f5f9;color:#475569}
+.header-banner-dimension-feedback[data-status=good]{background:#ecfdf5;color:#065f46}
+.header-banner-dimension-feedback[data-status=warning]{background:#fffbeb;color:#92400e}
+.header-banner-dimension-feedback[data-status=invalid]{background:#fef2f2;color:#991b1b}
