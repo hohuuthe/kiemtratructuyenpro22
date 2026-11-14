@@ -1,0 +1,36 @@
+name: Lucky wheel classroom release checks
+on:
+  pull_request:
+    paths:
+      - 'src/lucky-wheel-*.js'
+      - 'src/main.js'
+      - 'index.html'
+      - 'public/lucky-wheel.css'
+      - 'public/components/tab-lucky-wheel.html'
+      - 'tests/lucky-wheel.test.mjs'
+      - '.github/workflows/lucky-wheel.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src/lucky-wheel-*.js'
+      - 'src/main.js'
+      - 'index.html'
+      - 'public/lucky-wheel.css'
+      - 'public/components/tab-lucky-wheel.html'
+      - 'tests/lucky-wheel.test.mjs'
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: node --check src/main.js && node --check src/lucky-wheel-core.js && node --check src/lucky-wheel-ui.js
+      - run: node --test tests/lucky-wheel.test.mjs tests/core-identity-preload.test.mjs tests/lazy-tab-loading.test.mjs
+      - run: npm run lint
+      - run: npm run build
