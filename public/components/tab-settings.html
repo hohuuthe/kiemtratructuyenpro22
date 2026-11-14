@@ -75,19 +75,53 @@
                             </label>
                             <label class="flex flex-col gap-1 text-xs font-bold text-slate-700">Mô tả banner (không bắt buộc)
                               <input id="settings-banner-alt" maxlength="120" type="text" placeholder="Ví dụ: Banner trường học" class="w-full mt-1 px-3 py-2.5 border border-emerald-200 bg-white rounded-xl text-sm">
-                              <span class="font-normal text-slate-500">Khuyến nghị ảnh ngang 1920 × 320 px</span>
+                              <span class="font-normal text-slate-500">Banner máy tính: <strong>1920 × 320 px</strong> (tỷ lệ 6:1)</span>
                             </label>
                           </div>
+                          <div class="header-banner-size-guide" aria-label="Hướng dẫn tạo banner theo thiết bị">
+                            <h5 class="text-sm font-black text-emerald-900">📐 Kích thước banner khuyến nghị</h5>
+                            <p class="text-xs text-slate-600">Bạn có thể dùng một banner duy nhất cho mọi thiết bị; để chữ và logo dễ đọc hơn, hãy thêm ảnh riêng cho máy tính bảng hoặc điện thoại.</p>
+                            <div class="header-banner-size-grid">
+                              <div class="header-banner-size-card"><strong>🖥️ Máy tính</strong><span>1920 × 320 px</span><small>Tỷ lệ 6:1 • Bắt buộc khi dùng banner</small></div>
+                              <div class="header-banner-size-card"><strong>📱 Máy tính bảng</strong><span>1200 × 300 px</span><small>Tỷ lệ 4:1 • Không bắt buộc</small></div>
+                              <div class="header-banner-size-card"><strong>📲 Điện thoại</strong><span>750 × 360 px</span><small>Tỷ lệ gần 2:1 • Không bắt buộc</small></div>
+                            </div>
+                            <p class="text-xs text-slate-600">Ảnh sẽ tự thu/phóng theo chiều rộng màn hình, <strong>không cắt hình, không kéo méo</strong>. Đặt tên trường, logo và nội dung quan trọng ở vùng giữa; tránh chữ quá nhỏ. PNG/JPG/WebP, tối đa 5 MB mỗi ảnh.</p>
+                          </div>
+                          <div class="header-banner-device-inputs">
+                            <label class="flex flex-col gap-1 text-xs font-bold text-slate-700">Banner riêng cho máy tính bảng (không bắt buộc)
+                              <input type="file" id="settings-header-banner-tablet-file" accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp" onchange="previewHeaderBrandingSettings()" class="w-full mt-1 text-xs p-2 rounded-xl bg-white border border-emerald-200">
+                              <span id="settings-tablet-file-name" class="font-normal text-slate-500">Sử dụng ảnh máy tính khi chưa tải</span>
+                              <button type="button" onclick="clearHeaderBrandingVariant('tablet')" class="header-branding-secondary-button">Bỏ ảnh máy tính bảng</button>
+                            </label>
+                            <label class="flex flex-col gap-1 text-xs font-bold text-slate-700">Banner riêng cho điện thoại (không bắt buộc)
+                              <input type="file" id="settings-header-banner-mobile-file" accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp" onchange="previewHeaderBrandingSettings()" class="w-full mt-1 text-xs p-2 rounded-xl bg-white border border-emerald-200">
+                              <span id="settings-mobile-file-name" class="font-normal text-slate-500">Sử dụng ảnh máy tính khi chưa tải</span>
+                              <button type="button" onclick="clearHeaderBrandingVariant('mobile')" class="header-branding-secondary-button">Bỏ ảnh điện thoại</button>
+                            </label>
+                          </div>
+                          <input type="hidden" id="settings-banner-tablet-key">
+                          <input type="hidden" id="settings-banner-tablet-url">
+                          <input type="hidden" id="settings-banner-mobile-key">
+                          <input type="hidden" id="settings-banner-mobile-url">
                           <input type="hidden" id="settings-banner-key">
                           <input type="hidden" id="settings-banner-url">
                           <div class="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
                             <div>
                               <p class="text-xs font-bold text-emerald-900 mb-2">Xem trước giao diện</p>
+                              <div class="header-banner-preview-select" role="group" aria-label="Xem trước theo loại thiết bị">
+                                <button type="button" id="settings-banner-preview-desktop" aria-pressed="true" onclick="selectHeaderBannerPreview('desktop')">🖥️ Máy tính</button>
+                                <button type="button" id="settings-banner-preview-tablet" aria-pressed="false" onclick="selectHeaderBannerPreview('tablet')">📱 Máy tính bảng</button>
+                                <button type="button" id="settings-banner-preview-mobile" aria-pressed="false" onclick="selectHeaderBannerPreview('mobile')">📲 Điện thoại</button>
+                              </div>
+                              <div id="settings-header-preview-viewport" class="header-banner-preview-viewport" data-device="desktop">
                               <div class="header-branding-preview" aria-label="Xem trước tiêu đề và banner">
                                 <div id="settings-header-preview-title" class="header-branding-preview-title">HỆ THỐNG KIỂM TRA TRỰC TUYẾN</div>
                                 <img id="settings-header-preview-img" class="header-branding-preview-image" alt="Xem trước hình ảnh banner" hidden>
                                 <div id="settings-header-preview-empty" class="header-branding-preview-empty">Chưa chọn banner – đang dùng tiêu đề chữ</div>
                               </div>
+                              </div>
+                              <p id="settings-banner-preview-dimensions" class="text-xs text-slate-500 mt-2" aria-live="polite">Chưa có ảnh</p>
                             </div>
                             <div class="flex flex-col gap-3">
                               <p class="text-xs text-slate-600 leading-relaxed">Banner sẽ được lưu trong <strong>luuhinhnh/banner-he-thong/&lt;tenant&gt;/</strong> trên R2, còn đường dẫn được lưu vào bảng cấu hình của tenant hiện tại. Bản cũ chỉ bị thay đổi khi nhấn <strong>Lưu và áp dụng</strong> thành công.</p>

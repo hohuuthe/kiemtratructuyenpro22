@@ -1,5 +1,5 @@
 import { copyToastMessage } from './toast-copy.js';
-import { applyHeaderBranding, populateBrandingSettings, previewHeaderBrandingSettings, clearHeaderBrandingBanner, saveHeaderBrandingSettings } from './header-branding-ui.js';
+import { applyHeaderBranding, populateBrandingSettings, previewHeaderBrandingSettings, clearHeaderBrandingBanner, clearHeaderBrandingVariant, selectHeaderBannerPreview, saveHeaderBrandingSettings } from './header-branding-ui.js';
 import { matchesQuestionBankLevel, countQuestionBankLevels } from './question-bank-level-filter.js';
 import {canDeleteRankingResult} from './ranking-result-delete-policy.js';
 import { isShortAnswerCorrect, parseTF4CorrectAnswer, examFlagEnabled, clampScore, roundScore } from './exam-grading-core.js';
@@ -1451,6 +1451,8 @@ if (contentTypeConfig && contentTypeConfig.includes("application/json")) {
         window.refreshAppHeaderTitle = refreshAppHeaderTitle;
         window.previewHeaderBrandingSettings = previewHeaderBrandingSettings;
         window.clearHeaderBrandingBanner = clearHeaderBrandingBanner;
+        window.clearHeaderBrandingVariant = clearHeaderBrandingVariant;
+        window.selectHeaderBannerPreview = selectHeaderBannerPreview;
         window.saveHeaderBrandingSettings = () => saveHeaderBrandingSettings(appSettings, refreshAppHeaderTitle);
 
         function getExamWriterId() {
@@ -1581,6 +1583,10 @@ Trả về kết quả dưới dạng JSON Array, mỗi phần tử tương ứn
             headerDisplayMode: 'text',
             headerBannerUrl: '',
             headerBannerKey: '',
+            headerBannerTabletUrl: '',
+            headerBannerTabletKey: '',
+            headerBannerMobileUrl: '',
+            headerBannerMobileKey: '',
             headerBannerAlt: '',
             authorInfo: "Phát triển bởi: Hồ Hữu Thế - 0935 078 895",
             aiPrompt: DEFAULT_AI_PROMPT,
@@ -3117,6 +3123,10 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
               headerDisplayMode:d.header_display_mode||'text',
               headerBannerUrl:d.header_banner_url||'',
               headerBannerKey:d.header_banner_key||'',
+              headerBannerTabletUrl:d.header_banner_tablet_url||'',
+              headerBannerTabletKey:d.header_banner_tablet_key||'',
+              headerBannerMobileUrl:d.header_banner_mobile_url||'',
+              headerBannerMobileKey:d.header_banner_mobile_key||'',
               headerBannerAlt:d.header_banner_alt||'',
               authorInfo:d.author_info||appSettings.authorInfo,
               aiPrompt:d.ai_prompt||'',aiAppraisePrompt:d.ai_appraise_prompt||'',
@@ -4136,6 +4146,8 @@ if (contentType && contentType.includes("application/json")) {
                 authorInfo:d.author_info||appSettings.authorInfo,
                 headerDisplayMode:d.header_display_mode||'text',
                 headerBannerUrl:d.header_banner_url||'',
+                headerBannerTabletUrl:d.header_banner_tablet_url||'',
+                headerBannerMobileUrl:d.header_banner_mobile_url||'',
                 headerBannerAlt:d.header_banner_alt||'',
                 questionFontSize:d.question_font_size??appSettings.questionFontSize,
                 answerFontSize:d.answer_font_size??appSettings.answerFontSize,

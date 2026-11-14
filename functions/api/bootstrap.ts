@@ -28,11 +28,24 @@ export const onRequestGet: PagesFunction = async (context) => {
     } catch {
       header = null;
     }
+    // Tenants with only the original desktop banner columns still load safely.
+    if (header) {
+      try {
+        const variants: any = await db.prepare(
+          'SELECT header_banner_tablet_url, header_banner_mobile_url FROM app_settings WHERE id = 1'
+        ).first();
+        header = { ...header, ...variants };
+      } catch {
+        // Optional responsive columns can be added on the first admin save.
+      }
+    }
     const branding = normalizedHeaderBranding(header);
     const data = {
       app_title: row?.app_title || 'HỆ THỐNG KIỂM TRA TRỰC TUYẾN',
       header_display_mode: branding.mode,
       header_banner_url: branding.url,
+      header_banner_tablet_url: branding.tabletUrl,
+      header_banner_mobile_url: branding.mobileUrl,
       header_banner_alt: branding.alt,
       author_info: row?.author_info || 'Phát triển bởi: Hồ Hữu Thế - 0935 078 895',
       question_font_size: Number(row?.question_font_size) || 18,

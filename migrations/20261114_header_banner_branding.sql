@@ -6,6 +6,13 @@ ALTER TABLE public.app_settings
   ADD COLUMN IF NOT EXISTS header_banner_key TEXT NOT NULL DEFAULT '',
   ADD COLUMN IF NOT EXISTS header_banner_alt TEXT NOT NULL DEFAULT '';
 
+-- Optional device-specific assets. Desktop remains mandatory as the fallback.
+ALTER TABLE public.app_settings
+  ADD COLUMN IF NOT EXISTS header_banner_tablet_url TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS header_banner_tablet_key TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS header_banner_mobile_url TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS header_banner_mobile_key TEXT NOT NULL DEFAULT '';
+
 UPDATE public.app_settings
 SET header_display_mode = 'text'
 WHERE header_display_mode IS NULL OR header_display_mode NOT IN ('text', 'banner', 'both');

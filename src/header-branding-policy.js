@@ -35,10 +35,16 @@ export function normalizedHeaderBranding(raw) {
   const url = typeof raw?.header_banner_url === 'string' &&
     /^https:\/\/[^\s"'<>]+$/.test(raw.header_banner_url)
     ? raw.header_banner_url : '';
+  const mediaUrl = value => typeof value === 'string' &&
+    /^https:\/\/[^\s"'<>]+$/.test(value) ? value : '';
   // Fail safe: never hide the header title if a banner is unavailable.
   return {
     mode: mode !== 'text' && !url ? 'text' : mode,
     url,
+    tabletUrl: mediaUrl(raw?.header_banner_tablet_url),
+    tabletKey: typeof raw?.header_banner_tablet_key === 'string' ? raw.header_banner_tablet_key : '',
+    mobileUrl: mediaUrl(raw?.header_banner_mobile_url),
+    mobileKey: typeof raw?.header_banner_mobile_key === 'string' ? raw.header_banner_mobile_key : '',
     alt: typeof raw?.header_banner_alt === 'string'
       ? raw.header_banner_alt.slice(0, 120) : '',
     key: typeof raw?.header_banner_key === 'string' ? raw.header_banner_key : ''
