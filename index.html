@@ -11,6 +11,7 @@
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎓</text></svg>">
   <link rel="stylesheet" href="/src/style.css">
   <link rel="stylesheet" href="/lucky-wheel.css">
+  <link rel="stylesheet" href="/header-branding.css">
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#1e1b4b">
   
@@ -249,7 +250,7 @@
    <div class="flex-1 min-w-0 flex flex-col min-h-screen bg-transparent">
     
     <!-- Top Header Bar -->
-    <header class="sticky top-0 z-30 bg-gradient-to-r from-emerald-950 via-green-900 to-emerald-950 text-white shadow-md border-b border-emerald-800/40 px-3 py-2 sm:px-5 sm:py-2.5 flex items-center justify-between gap-3">
+    <header id="app-header" class="sticky top-0 z-30 bg-gradient-to-r from-emerald-950 via-green-900 to-emerald-950 text-white shadow-md border-b border-emerald-800/40 px-3 py-2 sm:px-5 sm:py-2.5 flex items-center justify-between gap-3">
      <!-- Left: Mobile Menu Toggle + App Title -->
      <div class="flex items-center gap-2.5 min-w-0 flex-1">
       <button onclick="toggleMobileSidebar()" type="button" class="p-2 rounded-xl bg-amber-400/20 hover:bg-amber-400/35 active:scale-95 text-amber-200 border border-amber-300/40 cursor-pointer md:hidden flex-shrink-0" title="Mở danh mục">
@@ -267,6 +268,10 @@
       </div>
      </div>
     </header>
+    <!-- Tenant-specific school identity banner. Non-sticky to preserve exam workspace. -->
+    <section id="app-header-banner" class="app-header-banner" hidden aria-label="Banner thương hiệu hệ thống">
+      <img id="app-header-banner-img" class="app-header-banner-image" alt="Banner hệ thống" decoding="async" loading="eager">
+    </section>
 
     <!-- Main Content Area -->
     <main class="flex-1 p-2 sm:p-4 md:p-6 overflow-x-hidden">
