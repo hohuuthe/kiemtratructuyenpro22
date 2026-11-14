@@ -30,7 +30,15 @@ function ensureImageQueryListeners() {
     window.matchMedia(query).addEventListener?.('change',()=>{ if(renderedSettings) applyHeaderBranding(renderedSettings); });
   }
 }
+const feedback = (message, kind = 'info') => {
+  const status = find('settings-header-save-status');
+  if (status) {
+    status.textContent = message;
+    status.dataset.status = kind;
+  }
+};
 const toast = (message, kind = 'info') => {
+  feedback(message, kind);
   if (typeof window.showToast === 'function') window.showToast(message, kind);
 };
 
@@ -236,7 +244,11 @@ async function readImageAsDataUrl(file) {
 
 export async function saveHeaderBrandingSettings(settings, refreshHeader) {
   const saveButton = find('settings-header-save');
-  if (!saveButton || saveButton.disabled || !find('settings-header-mode')) return;
+  if (!saveButton || saveButton.disabled) return;
+  if (!find('settings-header-mode')) {
+    feedback('Không tìm thấy biểu mẫu banner. Hãy mở lại tab Cấu hình.', 'error');
+    return;
+  }
   const draft = {
     app_title: label(find('settings-app-title')?.value),
     header_display_mode: headerMode(find('settings-header-mode').value),
@@ -271,10 +283,12 @@ export async function saveHeaderBrandingSettings(settings, refreshHeader) {
   saveButton.disabled = true;
   const originalText = saveButton.textContent;
   saveButton.textContent = 'Đang lưu cấu hình...';
+  feedback('Đang kiểm tra và tải banner lên hệ thống...', 'info');
   try {
     for (const device of devices) {
       const file = files[device];
       if (!file) continue;
+      feedback('Đang tải ảnh banner ' + device + '...', 'info');
       const base64 = await readImageAsDataUrl(file);
       const upload = await requestJson('POST', { base64 });
       const prefix = device === 'desktop' ? 'header_banner_' : 'header_banner_' + device + '_';
@@ -304,4 +318,30 @@ export async function saveHeaderBrandingSettings(settings, refreshHeader) {
     saveButton.disabled = false;
     saveButton.textContent = originalText;
   }
+}
+
+// The settings tab is injected asynchronously: delegate actions to the persistent document.
+// Avoid relying on inline onclick globals being available when the tab becomes visible.
+if (typeof document !== 'undefined') {
+  document.addEventListener('click', event => {
+    const button = event.target?.closest?.('[data-header-branding-action]');
+    if (!button) return;
+    const action = button.dataset.headerBrandingAction;
+    if (action === 'save') {
+      const settings = window.appSettings;
+      if (typeof window.saveHeaderBrandingSettings === 'function') {
+        Promise.resolve().then(() => window.saveHeaderBrandingSettings()).catch(error => {
+          toast(error?.message || 'Không thể bắt đầu lưu banner.', 'error');
+        });
+      } else {
+        saveHeaderBrandingSettings(settings || {}, window.refreshAppHeaderTitle);
+      }
+    } else if (action === 'clear') {
+      clearHeaderBrandingBanner();
+    } else if (action === 'clear-variant') {
+      clearHeaderBrandingVariant(button.dataset.device);
+    } else if (action === 'preview') {
+      selectHeaderBannerPreview(button.dataset.device);
+    }
+  });
 }
