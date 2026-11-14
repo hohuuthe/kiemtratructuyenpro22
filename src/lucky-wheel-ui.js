@@ -376,7 +376,9 @@ class ClassroomWheel {
     this.el('lw-result').textContent = '🎉 ' + winner.name + ' 🎉';
     this.setNotice('Xin chúc mừng ' + winner.name + '! Mời em tham gia.');
     this.renderList();
-    this.draw();
+    // Keep the winning sector under the pointer until the next spin begins.
+    // Redrawing against the reduced available pool here would falsely point at another student.
+    this.setControls();
     void this.sound.start('applause').catch(() => {});
     if (typeof window.confetti === 'function') {
       window.confetti({ particleCount: 130, spread: 80, origin: { y: .62 }, disableForReducedMotion: true });
