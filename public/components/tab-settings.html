@@ -78,6 +78,22 @@
                               <span class="font-normal text-slate-500">Banner máy tính: <strong>1920 × 320 px</strong> (tỷ lệ 6:1)</span>
                             </label>
                           </div>
+                          <div class="student-exam-header-setting" aria-labelledby="student-exam-branding-heading">
+                            <div>
+                              <h5 id="student-exam-branding-heading" class="text-sm font-black text-emerald-900">🖥️ Tiêu đề / Banner khi học sinh làm bài toàn màn hình</h5>
+                              <p class="text-xs text-slate-600 mt-1">Thiết lập riêng cho giao diện bài thi, độc lập với giao diện đầu trang chính. Dùng chung tiêu đề và ảnh banner đã tải ở mục trên.</p>
+                            </div>
+                            <label class="flex flex-col gap-1 text-xs font-bold text-slate-700">
+                              Chế độ trên màn hình làm bài
+                              <select id="settings-exam-header-mode" onchange="previewHeaderBrandingSettings()" class="w-full mt-1 px-3 py-2.5 border border-emerald-200 bg-white rounded-xl text-sm">
+                                <option value="text">Chỉ tiêu đề chữ</option>
+                                <option value="banner">Chỉ hình banner</option>
+                                <option value="both">Tiêu đề chữ + Banner</option>
+                              </select>
+                            </label>
+                            <p id="settings-exam-header-mode-help" role="status" aria-live="polite" class="text-xs text-emerald-800">Màn hình làm bài toàn màn hình sẽ có dòng tiêu đề hệ thống phía trên thông tin thí sinh.</p>
+                            <p class="text-xs text-slate-500">Ưu tiên không gian làm bài: banner thu gọn theo màn hình và không che đồng hồ, câu hỏi, nút Nộp bài. Chế độ có banner cần ảnh máy tính hợp lệ.</p>
+                          </div>
                           <div class="header-banner-size-guide" aria-label="Hướng dẫn tạo banner theo thiết bị">
                             <h5 class="text-sm font-black text-emerald-900">📐 Kích thước banner khuyến nghị</h5>
                             <p class="text-xs text-slate-600">Bạn có thể dùng một banner duy nhất cho mọi thiết bị; để chữ và logo dễ đọc hơn, hãy thêm ảnh riêng cho máy tính bảng hoặc điện thoại.</p>
