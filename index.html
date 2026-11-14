@@ -10,6 +10,7 @@
   <meta property="og:description" content="HỆ THỐNG KIỂM TRA TRỰC TUYẾN - Hệ thống kiểm tra, tạo đề thi, ngân hàng câu hỏi trực tuyến dành cho Giáo viên & Học sinh">
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎓</text></svg>">
   <link rel="stylesheet" href="/src/style.css">
+  <link rel="stylesheet" href="/lucky-wheel.css">
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#1e1b4b">
   
@@ -165,6 +166,9 @@
           <button onclick="switchTab('boards'); closeMobileSidebar();" data-sidebar-tab="boards" class="sidebar-nav-item hidden w-full flex items-center gap-2.5 px-2.5 py-1 rounded-lg font-bold text-base text-white/95 hover:bg-white/10 hover:text-white transition-all cursor-pointer">
             <span class="w-4.5 h-4.5 flex-shrink-0 text-cyan-300">🧠</span><span class="truncate">Bảng tương tác</span>
           </button>
+          <button onclick="switchTab('lucky-wheel'); closeMobileSidebar();" data-sidebar-tab="lucky-wheel" class="sidebar-nav-item hidden w-full flex items-center gap-2.5 px-2.5 py-1 rounded-lg font-bold text-base text-white/95 hover:bg-white/10 hover:text-white transition-all cursor-pointer">
+            <span class="w-4.5 h-4.5 flex-shrink-0 text-yellow-300">🎡</span><span class="truncate">Vòng quay may mắn</span>
+          </button>
           <button onclick="switchTab('qr-cards'); closeMobileSidebar();" data-sidebar-tab="qr-cards" class="sidebar-nav-item hidden w-full flex items-center gap-2.5 px-2.5 py-1 rounded-lg font-bold text-base text-white/95 hover:bg-white/10 hover:text-white transition-all cursor-pointer">
             <span class="w-4.5 h-4.5 flex-shrink-0 text-amber-300">📷</span>
             <span class="truncate flex-1 text-left">Quét thẻ trả lời</span>
@@ -278,6 +282,7 @@
      <div id="tab-documents" class="tab-content w-full"></div>
      <div id="tab-boards" class="tab-content w-full"></div>
      <div id="tab-qr-cards" class="tab-content w-full"></div>
+     <div id="tab-lucky-wheel" class="tab-content w-full"></div>
      <div id="tab-help" class="tab-content"></div>
     </main>
 
