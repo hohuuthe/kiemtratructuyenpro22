@@ -13,6 +13,7 @@ on:
       - 'migrations/20261114_header_banner_branding.sql'
       - 'database-schema.sql'
       - 'tests/header-branding.test.mjs'
+      - 'tests/header-banner-dimensions.test.mjs'
       - '.github/workflows/header-branding.yml'
   push:
     branches: [main]
@@ -28,6 +29,7 @@ on:
       - 'migrations/20261114_header_banner_branding.sql'
       - 'database-schema.sql'
       - 'tests/header-branding.test.mjs'
+      - 'tests/header-banner-dimensions.test.mjs'
   workflow_dispatch:
 jobs:
   verify:
@@ -41,6 +43,6 @@ jobs:
           cache: npm
       - run: npm ci --no-audit --no-fund
       - run: node --check src/header-branding-ui.js && node --check src/header-branding-policy.js && node --check src/main.js
-      - run: node --test tests/header-branding.test.mjs tests/lazy-tab-loading.test.mjs
+      - run: node --test tests/header-branding.test.mjs tests/header-banner-dimensions.test.mjs tests/lazy-tab-loading.test.mjs
       - run: npm run lint
       - run: npm run build

@@ -1,4 +1,5 @@
 import { DEFAULT_HEADER_TITLE, headerMode, normalizedHeaderBranding } from './header-branding-policy.js';
+import { bannerDimensionFeedback } from './header-banner-dimensions.js';
 
 const find = id => document.getElementById(id);
 const label = text => String(text || '').trim();
@@ -162,6 +163,11 @@ function renderBrandingPreview() {
   const showImage = mode !== 'text' && !!imageUrl;
   const viewport = find('settings-header-preview-viewport');
   if (viewport) viewport.dataset.device = previewDevice;
+  const guidance = find('settings-banner-dimension-feedback');
+  if (guidance) {
+    guidance.textContent = 'Chọn ảnh để kiểm tra kích thước phù hợp thiết bị.';
+    guidance.dataset.status = 'neutral';
+  }
   img.hidden = !showImage; empty.hidden = showImage;
   if (showImage) {
     img.onload = () => {
@@ -169,10 +175,20 @@ function renderBrandingPreview() {
       const meta = find('settings-banner-preview-dimensions');
       if(meta) meta.textContent = img.naturalWidth + ' × ' + img.naturalHeight + ' px' +
         (!specificUrl && previewDevice !== 'desktop' ? ' • Dùng banner máy tính dự phòng' : '');
+      if (guidance) {
+        const sourceDevice = specificUrl ? previewDevice : 'desktop';
+        const result = bannerDimensionFeedback(sourceDevice, img.naturalWidth, img.naturalHeight);
+        guidance.dataset.status = result.status;
+        guidance.textContent = result.text;
+      }
     };
     img.onerror = () => {
       img.hidden = true; empty.hidden = false; heading.hidden = false;
       empty.textContent = 'Không thể đọc banner. Vui lòng chọn ảnh khác.';
+      if (guidance) {
+        guidance.dataset.status = 'invalid';
+        guidance.textContent = 'Không đọc được kích thước ảnh. Hãy chọn ảnh hợp lệ.';
+      }
     };
     img.src = imageUrl;
   } else {
