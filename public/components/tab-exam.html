@@ -155,7 +155,12 @@
          <span class="text-[10px] sm:text-xs font-bold text-amber-200/90 uppercase tracking-wider hidden xs:inline">Còn:</span>
          <span id="floating-timer-text" class="font-mono text-amber-300 font-black text-xs sm:text-sm tracking-tight">00:00</span>
        </div>
-      <!-- Exam Header -->
+      <!-- School identity shown only inside the student-exam fullscreen element. -->
+       <div id="exam-header-branding" class="student-exam-branding" hidden aria-label="Nhận diện hệ thống">
+         <div id="exam-header-branding-title" class="student-exam-branding-title">HỆ THỐNG KIỂM TRA TRỰC TUYẾN</div>
+         <img id="exam-header-branding-img" class="student-exam-branding-img" alt="" decoding="async" hidden>
+       </div>
+       <!-- Exam Header -->
       <div class="bg-gradient-to-r from-emerald-50 to-teal-50 rounded-xl shadow-sm p-2 md:p-3 mb-2 border border-emerald-100 relative overflow-hidden">
        <div class="absolute top-0 right-0 w-32 h-32 bg-emerald-200 rounded-full mix-blend-multiply filter blur-2xl opacity-50 animate-blob"></div>
        <div class="absolute top-0 right-32 w-32 h-32 bg-teal-200 rounded-full mix-blend-multiply filter blur-2xl opacity-50 animate-blob animation-delay-2000"></div>
