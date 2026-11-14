@@ -2558,6 +2558,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             resetDocumentLinks();
             if (typeof window.__resetInteractiveBoards === 'function') window.__resetInteractiveBoards();
             if (typeof window.__resetQrAnswerCards === 'function') window.__resetQrAnswerCards();
+            if (typeof window.__resetLuckyWheel === 'function') window.__resetLuckyWheel();
             window.__documentsTabRequested = false;
             resetRoleHelpCache();
             {
@@ -2786,7 +2787,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 } else if (tab === 'ranking') {
                     // QL Kết quả: Hiển thị cho Giáo viên và Admin (ẩn đối với Học sinh)
                     visible = isTeacher || isAdmin || Boolean(currentUser);
-                } else if (tab === 'questions' || tab === 'exams' || tab === 'exam-editor' || tab === 'qr-cards') {
+                } else if (tab === 'questions' || tab === 'exams' || tab === 'exam-editor' || tab === 'qr-cards' || tab === 'lucky-wheel') {
                     // QL Câu hỏi, QL Đề thi: Dành cho Giáo viên và Admin
                     visible = isTeacher || isAdmin;
                 } else if (tab === 'users') {
@@ -2886,6 +2887,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
         async function adminLogout() {
             closeModal();
             if (typeof window.__resetQrAnswerCards === 'function') window.__resetQrAnswerCards();
+            if (typeof window.__resetLuckyWheel === 'function') window.__resetLuckyWheel();
             if (typeof window.__resetInteractiveBoards === 'function') window.__resetInteractiveBoards();
             localStorage.removeItem(window.tenantStorageKey('auth_token'));
             isAdminLoggedIn = false;
@@ -4460,6 +4462,7 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
         function switchTab(tabName) {
             const previousTab = requestedTab;
             requestedTab = tabName;
+            if (previousTab === 'lucky-wheel' && tabName !== 'lucky-wheel' && typeof window.__resetLuckyWheel === 'function') window.__resetLuckyWheel();
             if (previousTab === 'qr-cards' && tabName !== 'qr-cards' && typeof window.__resetQrAnswerCards === 'function') {
                 window.__resetQrAnswerCards();
             }
@@ -4469,7 +4472,7 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
                 requestedTab = previousTab || '';
                 return;
             }
-            const protectedTabs=['questions','exams','exam-editor','accounts','users','settings','ranking','teacher-assignment','boards','qr-cards'];
+            const protectedTabs=['questions','exams','exam-editor','accounts','users','settings','ranking','teacher-assignment','boards','qr-cards','lucky-wheel'];
             const adminTabs=['accounts','settings','teacher-assignment'];
             if(protectedTabs.includes(tabName)&&!(
               isAdminLoggedIn||(isTeacherLoggedIn&&!adminTabs.includes(tabName))||
@@ -4615,6 +4618,17 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
                 }).catch(error => {
                     console.error('Cannot load interactive board module', error);
                     showToast('Không thể tải Bảng tương tác. Vui lòng thử lại.', 'error');
+                });
+            }
+            if (tabName === 'lucky-wheel' && (isAdminLoggedIn || isTeacherLoggedIn) && currentUser) {
+                const generation = authDataGeneration;
+                void import('./lucky-wheel-ui.js').then(module => {
+                    if (generation !== authDataGeneration || requestedTab !== 'lucky-wheel') return;
+                    module.connectLuckyWheel();
+                    window.__resetLuckyWheel = module.resetLuckyWheel;
+                }).catch(error => {
+                    console.error('Cannot load lucky wheel', error);
+                    showToast('Không thể tải Vòng quay may mắn. Vui lòng thử lại.', 'error');
                 });
             }
             if (tabName === 'qr-cards' && currentUser && canUseQrScannerVip()) {

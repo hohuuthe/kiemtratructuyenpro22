@@ -1,0 +1,48 @@
+<div id="tab-lucky-wheel" class="tab-content w-full">
+  <section id="lucky-wheel-root" class="lw">
+    <header class="lw-topbar">
+      <div><span class="lw-eyebrow">TRÒ CHƠI TƯƠNG TÁC TRÊN LỚP</span><h2>🎡 Vòng quay may mắn</h2><p>Ai sẽ là người được gọi tên tiếp theo?</p></div>
+      <div class="lw-top-actions"><button type="button" id="lw-refresh" class="lw-outline">↻ Cập nhật lớp</button><button type="button" id="lw-fullscreen" class="lw-outline">⛶ Toàn màn hình</button></div>
+    </header>
+    <div id="lw-notice" role="status" aria-live="polite" class="lw-notice">Chọn lớp để bắt đầu trò chơi.</div>
+    <div class="lw-toolbar">
+      <label>🏫 Lớp học<select id="lw-class" aria-label="Chọn lớp học"><option value="">Đang tải danh sách lớp...</option></select></label>
+      <div class="lw-count">👥 <strong id="lw-total">0</strong> học sinh</div>
+      <div class="lw-count">✅ <strong id="lw-available">0</strong> chưa gọi</div>
+      <div class="lw-count">🎯 <strong id="lw-called">0</strong> đã gọi</div>
+    </div>
+    <div class="lw-main">
+      <section class="lw-stage" aria-label="Sân khấu vòng quay">
+        <div class="lw-sparkle" aria-hidden="true">✦ &nbsp; ✧ &nbsp; ✦</div>
+        <div class="lw-wheel-wrap">
+          <canvas id="lw-canvas" width="820" height="820" aria-label="Vòng quay gọi tên học sinh"></canvas>
+          <span class="lw-pointer" aria-hidden="true"></span>
+          <span class="lw-center" aria-hidden="true">★</span>
+        </div>
+        <button type="button" class="lw-spin" id="lw-spin" disabled>🎯 BẮT ĐẦU QUAY</button>
+        <div id="lw-result" class="lw-result" aria-live="polite" aria-atomic="true">✨ Sẵn sàng gọi tên học sinh</div>
+      </section>
+      <aside class="lw-panel">
+        <div class="lw-panel-title"><h3>Danh sách tham gia</h3><span id="lw-selected">0/0</span></div>
+        <div class="lw-panel-tools"><button type="button" class="lw-small" id="lw-select-all">Chọn tất cả</button><button type="button" class="lw-small" id="lw-exclude-all">Bỏ chọn</button></div>
+        <label class="lw-search-label">🔎 Tìm học sinh<input id="lw-search" type="search" placeholder="Nhập họ tên..." autocomplete="off"></label>
+        <div id="lw-roster" class="lw-roster" role="group" aria-label="Danh sách học sinh trong lớp"></div>
+        <div class="lw-panel-title"><h3>Lịch sử gọi tên</h3><button type="button" id="lw-reset" class="lw-small lw-danger">↻ Vòng mới</button></div>
+        <ol id="lw-history" class="lw-history"><li>Chưa có học sinh nào được gọi.</li></ol>
+      </aside>
+    </div>
+    <details id="lw-sound-settings" class="lw-settings">
+      <summary>🎵 Cài đặt âm thanh &amp; nhạc tùy chỉnh</summary>
+      <div class="lw-settings-body">
+        <p>Mặc định có nhạc quay vui nhộn và âm thanh vỗ tay. Bạn có thể chọn nhạc MP3, WAV, OGG, M4A hoặc AAC từ máy. Nhạc riêng được lưu bằng IndexedDB trên trình duyệt hiện tại, tự dùng lại ở các lần truy cập sau và không gửi lên máy chủ.</p>
+        <div class="lw-sound-grid">
+          <div class="lw-upload"><label for="lw-spin-file"><strong>🎶 Nhạc khi vòng quay chạy</strong></label><input id="lw-spin-file" type="file" accept="audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/ogg,audio/mp4,audio/aac,.mp3,.wav,.ogg,.m4a,.aac"><div id="lw-spin-filename" class="lw-filename">Nhạc vui nhộn mặc định</div><div class="lw-sound-row"><button type="button" id="lw-preview-spin" class="lw-small">▶ Nghe thử</button><button type="button" id="lw-default-spin" class="lw-small">Khôi phục mặc định</button></div></div>
+          <div class="lw-upload"><label for="lw-applause-file"><strong>👏 Nhạc khi chọn được học sinh</strong></label><input id="lw-applause-file" type="file" accept="audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/ogg,audio/mp4,audio/aac,.mp3,.wav,.ogg,.m4a,.aac"><div id="lw-applause-filename" class="lw-filename">Tiếng vỗ tay mặc định</div><div class="lw-sound-row"><button type="button" id="lw-preview-applause" class="lw-small">▶ Nghe thử</button><button type="button" id="lw-default-applause" class="lw-small">Khôi phục mặc định</button></div></div>
+        </div>
+        <div class="lw-sound-row lw-volume"><label for="lw-volume">🔊 Âm lượng <strong id="lw-volume-text">65%</strong></label><input id="lw-volume" type="range" min="0" max="100" value="65"><label class="lw-mute"><input id="lw-muted" type="checkbox"> Tắt toàn bộ âm thanh</label></div>
+        <p id="lw-storage-note" class="lw-help" role="status" aria-live="polite">Nhạc tự tải lên được lưu trong trình duyệt này và khôi phục khi mở lại ứng dụng.</p>
+        <p class="lw-help">Giới hạn 15 MB mỗi tệp. Nhạc được giữ khi tải lại trang, đổi lớp hoặc đăng nhập lại bằng cùng tài khoản trên trình duyệt này, cho đến khi bạn thay nhạc hoặc chọn Khôi phục mặc định. Nếu xóa dữ liệu trang web, dùng chế độ riêng tư hoặc trình duyệt tự dọn bộ nhớ, các tệp có thể bị mất. Nhạc không đồng bộ giữa các thiết bị.</p>
+      </div>
+    </details>
+  </section>
+</div>
