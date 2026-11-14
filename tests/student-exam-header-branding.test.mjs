@@ -63,3 +63,14 @@ test('admin controls and both APIs persist the independent mode for each tenant'
   assert.match(main,/examHeaderDisplayMode:d\.exam_header_display_mode/);
   assert.match(read('migrations/20261114_header_banner_branding.sql'),/ADD COLUMN IF NOT EXISTS exam_header_display_mode/);
 });
+
+
+test('exam activates branding after a previous fullscreen entry (race regression)', () => {
+  const main = read('src/main.js');
+  const start = main.indexOf('window.startExamUI = function startExamUI(');
+  const activate = main.indexOf("examInterface.classList.remove('hidden')",start);
+  const render = main.indexOf('applyStudentExamHeaderBranding(appSettings)',activate);
+  const startTime = main.indexOf('currentExam.startTime',activate);
+  assert.ok(start > -1 && activate > start,'exam start must exist');
+  assert.ok(render > activate && render < startTime,'branding must render on exam activation');
+});
