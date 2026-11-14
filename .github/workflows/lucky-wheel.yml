@@ -8,6 +8,7 @@ on:
       - 'public/lucky-wheel.css'
       - 'public/components/tab-lucky-wheel.html'
       - 'tests/lucky-wheel.test.mjs'
+      - 'tests/lucky-wheel-audio-persistence.test.mjs'
       - '.github/workflows/lucky-wheel.yml'
   push:
     branches: [main]
@@ -18,6 +19,7 @@ on:
       - 'public/lucky-wheel.css'
       - 'public/components/tab-lucky-wheel.html'
       - 'tests/lucky-wheel.test.mjs'
+      - 'tests/lucky-wheel-audio-persistence.test.mjs'
   workflow_dispatch:
 jobs:
   test:
@@ -31,7 +33,7 @@ jobs:
           cache: npm
       - run: npm ci --no-audit --no-fund
       - run: node --check src/main.js && node --check src/lucky-wheel-core.js && node --check src/lucky-wheel-ui.js
-      - run: node --test tests/lucky-wheel.test.mjs tests/lazy-tab-loading.test.mjs
+      - run: node --test tests/lucky-wheel.test.mjs tests/lucky-wheel-audio-persistence.test.mjs tests/lazy-tab-loading.test.mjs
       # This legacy suite has a known failing static assertion on unchanged main.
       # Keep visibility without blocking unrelated changes until the stale test is repaired.
       - name: Legacy core identity baseline (informational)
