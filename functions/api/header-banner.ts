@@ -38,6 +38,10 @@ async function ensureBannerColumns(db: any) {
   await db.prepare("ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS header_banner_url TEXT NOT NULL DEFAULT ''").run();
   await db.prepare("ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS header_banner_key TEXT NOT NULL DEFAULT ''").run();
   await db.prepare("ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS header_banner_alt TEXT NOT NULL DEFAULT ''").run();
+  await db.prepare("ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS header_banner_tablet_url TEXT NOT NULL DEFAULT ''").run();
+  await db.prepare("ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS header_banner_tablet_key TEXT NOT NULL DEFAULT ''").run();
+  await db.prepare("ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS header_banner_mobile_url TEXT NOT NULL DEFAULT ''").run();
+  await db.prepare("ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS header_banner_mobile_key TEXT NOT NULL DEFAULT ''").run();
 }
 
 function getTenant(context: EventContext<Env, any, any>) {
@@ -119,18 +123,60 @@ export const onRequestPut: PagesFunction<Env> = async context => {
       if (!validTenantBannerKey(key, tenant) || url !== bannerPublicUrl(key, tenant, context.env))
         return response(400, { error: 'Banner không hợp lệ hoặc không thuộc cơ sở dữ liệu hiện tại.' });
     }
+    const optionalVariant = (device: 'tablet' | 'mobile') => {
+      const candidateKey = body['header_banner_' + device + '_key'];
+      const candidateUrl = body['header_banner_' + device + '_url'];
+      if (candidateKey === undefined && candidateUrl === undefined) return null;
+      if (typeof candidateKey !== 'string' || typeof candidateUrl !== 'string')
+        throw new Error('Thiếu hoặc sai định dạng banner ' + device + '.');
+      if (!candidateKey && !candidateUrl) return { key: '', url: '' };
+      if (!validTenantBannerKey(candidateKey, tenant) ||
+          candidateUrl !== bannerPublicUrl(candidateKey, tenant, context.env))
+        throw new Error('Banner ' + device + ' không thuộc tenant hiện tại.');
+      return { key: candidateKey, url: candidateUrl };
+    };
+    let tablet: { key: string; url: string } | null;
+    let mobile: { key: string; url: string } | null;
+    try {
+      tablet = optionalVariant('tablet');
+      mobile = optionalVariant('mobile');
+    } catch (error: any) {
+      return response(400, { error: error.message || 'Banner thiết bị không hợp lệ.' });
+    }
     if (mode !== 'text' && (!key || !url))
-      return response(400, { error: 'Vui lòng tải và lưu ảnh trước khi chọn chế độ hiển thị banner.' });
+      return response(400, { error: 'Vui lòng tải và lưu banner máy tính trước khi chọn chế độ có hình.' });
     const alt = typeof body.header_banner_alt === 'string' ? body.header_banner_alt.trim().slice(0, 120) : '';
     const title = typeof body.app_title === 'string' ? body.app_title.trim() : '';
     if (!title || title.length > 180) return response(400, { error: 'Tiêu đề hệ thống phải có 1–180 ký tự.' });
     await ensureBannerColumns(db);
+    const existing: any = await db.prepare(`
+      SELECT header_banner_tablet_url, header_banner_tablet_key,
+             header_banner_mobile_url, header_banner_mobile_key
+      FROM app_settings WHERE id = 1
+    `).first();
+    if (!existing) return response(409, { error: 'Không tồn tại cấu hình hệ thống để cập nhật.' });
+    const tabletAsset = tablet ?? {
+      key: String(existing.header_banner_tablet_key || ''),
+      url: String(existing.header_banner_tablet_url || '')
+    };
+    const mobileAsset = mobile ?? {
+      key: String(existing.header_banner_mobile_key || ''),
+      url: String(existing.header_banner_mobile_url || '')
+    };
+    // Clearing the main banner also clears the two optional image variants.
+    const finalTablet = key && url ? tabletAsset : { key: '', url: '' };
+    const finalMobile = key && url ? mobileAsset : { key: '', url: '' };
     const changed = await db.prepare(`
       UPDATE app_settings
       SET header_display_mode = ?, header_banner_url = ?, header_banner_key = ?,
+          header_banner_tablet_url = ?, header_banner_tablet_key = ?,
+          header_banner_mobile_url = ?, header_banner_mobile_key = ?,
           header_banner_alt = ?, app_title = ?
       WHERE id = 1
-    `).bind(mode, url, key, alt, title).run();
+    `).bind(mode, url, key,
+      finalTablet.url, finalTablet.key,
+      finalMobile.url, finalMobile.key,
+      alt, title).run();
     if (!changed?.meta?.changes && !changed?.changes) {
       const exists = await db.prepare('SELECT id FROM app_settings WHERE id = 1').first();
       if (!exists) return response(409, { error: 'Không tồn tại cấu hình hệ thống để cập nhật.' });
@@ -141,6 +187,10 @@ export const onRequestPut: PagesFunction<Env> = async context => {
         header_display_mode: mode,
         header_banner_url: url,
         header_banner_key: key,
+        header_banner_tablet_url: finalTablet.url,
+        header_banner_tablet_key: finalTablet.key,
+        header_banner_mobile_url: finalMobile.url,
+        header_banner_mobile_key: finalMobile.key,
         header_banner_alt: alt
       },
       error: null
