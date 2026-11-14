@@ -39,10 +39,21 @@ export const onRequestGet: PagesFunction = async (context) => {
         // Optional responsive columns can be added on the first admin save.
       }
     }
+    let examHeaderMode = 'text';
+    try {
+      const appearance: any = await db.prepare(
+        'SELECT exam_header_display_mode FROM app_settings WHERE id = 1'
+      ).first();
+      if (['text','banner','both'].includes(appearance?.exam_header_display_mode))
+        examHeaderMode = appearance.exam_header_display_mode;
+    } catch {
+      // Legacy tenant without the independent fullscreen branding column.
+    }
     const branding = normalizedHeaderBranding(header);
     const data = {
       app_title: row?.app_title || 'HỆ THỐNG KIỂM TRA TRỰC TUYẾN',
       header_display_mode: branding.mode,
+      exam_header_display_mode: examHeaderMode,
       header_banner_url: branding.url,
       header_banner_tablet_url: branding.tabletUrl,
       header_banner_mobile_url: branding.mobileUrl,
