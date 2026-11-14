@@ -25,7 +25,7 @@ const localWrite = (key, value) => {
 };
 const emptyState = () => ({ excluded: [], called: [], history: [], pendingId: null, lastId: null });
 
-class WheelSound {
+export class WheelSound {
   constructor(namespace) {
     this.namespace = namespace;
     this.volume = .65;
@@ -49,20 +49,40 @@ class WheelSound {
     const db = await this.openStore();
     try {
       return await new Promise((resolve, reject) => {
-        const tx = db.transaction('tracks', mode);
-        const request = callback(tx.objectStore('tracks'));
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error || Error('Lưu hoặc đọc nhạc thất bại.'));
-        tx.onerror = () => reject(tx.error || Error('Giao dịch nhạc thất bại.'));
+        let result;
+        let tx;
+        try {
+          tx = db.transaction('tracks', mode);
+          const request = callback(tx.objectStore('tracks'));
+          request.onsuccess = () => { result = request.result; };
+          request.onerror = () => reject(request.error || Error('Lưu hoặc đọc nhạc thất bại.'));
+          // A request may succeed before the IndexedDB transaction is committed.
+          // Only report durable storage when the whole transaction completes.
+          tx.oncomplete = () => resolve(result);
+          tx.onerror = () => reject(tx.error || Error('Giao dịch nhạc thất bại.'));
+          tx.onabort = () => reject(tx.error || Error('Giao dịch lưu nhạc bị hủy.'));
+        } catch (error) {
+          if (tx) { try { tx.abort(); } catch {} }
+          reject(error);
+        }
       });
     } finally { db.close(); }
   }
   key(kind) { return this.namespace + ':' + kind; }
+  requestPersistentStorage() {
+    // Called directly from the file-selection gesture: some browsers require it.
+    const storage = window.navigator?.storage;
+    if (!storage?.persist) return Promise.resolve(null);
+    try { return Promise.resolve(storage.persist()).then(Boolean, () => false); }
+    catch { return Promise.resolve(false); }
+  }
   async restore() {
+    const failed = [];
     for (const kind of ['spin', 'applause']) {
       try { this.sounds[kind] = await this.dbAction('readonly', store => store.get(this.key(kind))) || null; }
-      catch { this.sounds[kind] = null; }
+      catch { this.sounds[kind] = null; failed.push(kind); }
     }
+    if (failed.length) throw new Error('Không thể đọc nhạc đã lưu trên trình duyệt. Vui lòng kiểm tra quyền truy cập dữ liệu trang web.');
   }
   async save(kind, file) {
     if (!file || file.size <= 0 || file.size > 15 * 1024 * 1024) throw new Error('Mỗi nhạc tải lên phải từ 1 byte đến tối đa 15 MB.');
@@ -399,15 +419,35 @@ class ClassroomWheel {
   }
   async upload(kind, file) {
     if (!file) return;
-    try { await this.sound.save(kind, file); this.showTrackNames(); notify('Đã lưu nhạc riêng vào trình duyệt.', 'success'); }
-    catch (error) { notify(error.message || 'Không thể lưu nhạc.', 'error'); }
-    this.el(kind === 'spin' ? 'lw-spin-file' : 'lw-applause-file').value = '';
+    // Browser persistence is best-effort; the music still stays in IndexedDB
+    // when the browser declines a persistent-storage grant.
+    const persistence = this.sound.requestPersistentStorage();
+    try {
+      await this.sound.save(kind, file);
+      const granted = await persistence;
+      if (!this.active) return;
+      this.showTrackNames();
+      this.el('lw-storage-note').textContent = granted === true
+        ? '✓ Nhạc đã lưu lâu dài trên trình duyệt này (được cấp quyền bảo vệ lưu trữ).'
+        : '✓ Nhạc đã lưu trên trình duyệt này. Trình duyệt có thể tự dọn dữ liệu khi thiếu dung lượng.';
+      notify('Đã lưu nhạc thành công. Những lần mở lại sẽ dùng bản nhạc này đến khi bạn thay đổi.', 'success');
+    } catch (error) {
+      if (this.active) notify(error.message || 'Không thể lưu nhạc.', 'error');
+    } finally {
+      if (this.active) this.el(kind === 'spin' ? 'lw-spin-file' : 'lw-applause-file').value = '';
+    }
   }
   showTrackNames() {
     for (const kind of ['spin', 'applause']) {
-      this.el('lw-' + kind + '-filename').textContent =
-        this.sound.sounds[kind]?.name || (kind === 'spin' ? 'Nhạc vui nhộn mặc định' : 'Tiếng vỗ tay mặc định');
+      const saved = this.sound.sounds[kind];
+      this.el('lw-' + kind + '-filename').textContent = saved
+        ? '✓ Đã lưu: ' + saved.name
+        : (kind === 'spin' ? 'Nhạc vui nhộn mặc định' : 'Tiếng vỗ tay mặc định');
     }
+    const customCount = ['spin', 'applause'].filter(kind => this.sound.sounds[kind]?.blob).length;
+    this.el('lw-storage-note').textContent = customCount
+      ? '✓ ' + customCount + ' bản nhạc tùy chỉnh đang được lưu trên trình duyệt này; tự khôi phục khi mở lại hoặc đổi lớp.'
+      : 'Đang sử dụng âm thanh mặc định; bạn có thể tải nhạc riêng để lưu trên trình duyệt.';
   }
   async preview(kind) {
     this.sound.stop();
@@ -481,7 +521,8 @@ class ClassroomWheel {
     this.el('lw-volume').value = String(Math.round(this.sound.volume * 100));
     this.el('lw-volume-text').textContent = Math.round(this.sound.volume * 100) + '%';
     this.el('lw-muted').checked = this.sound.muted;
-    try { await this.sound.restore(); } catch {}
+    try { await this.sound.restore(); }
+    catch (error) { if (this.active) notify(error.message, 'error'); }
     if (!this.active) return;
     this.showTrackNames();
     await this.load();
