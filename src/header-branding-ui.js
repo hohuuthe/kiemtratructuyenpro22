@@ -226,6 +226,10 @@ export async function saveHeaderBrandingSettings(settings, refreshHeader) {
     header_display_mode: headerMode(find('settings-header-mode').value),
     header_banner_key: find('settings-banner-key')?.value || '',
     header_banner_url: find('settings-banner-url')?.value || '',
+    header_banner_tablet_key: find('settings-banner-tablet-key')?.value || '',
+    header_banner_tablet_url: find('settings-banner-tablet-url')?.value || '',
+    header_banner_mobile_key: find('settings-banner-mobile-key')?.value || '',
+    header_banner_mobile_url: find('settings-banner-mobile-url')?.value || '',
     header_banner_alt: label(find('settings-banner-alt')?.value)
   };
   if (!draft.app_title || draft.app_title.length > 180) {
@@ -236,13 +240,15 @@ export async function saveHeaderBrandingSettings(settings, refreshHeader) {
     toast('Mô tả banner tối đa 120 ký tự.', 'error');
     return;
   }
-  const file = fileInput()?.files?.[0];
-  if (file && (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) ||
-      file.size < 1 || file.size > 5 * 1024 * 1024)) {
-    toast('Chọn ảnh PNG, JPG hoặc WebP, dung lượng tối đa 5 MB.', 'error');
-    return;
+  const files = Object.fromEntries(devices.map(device => [device,fileInput(device)?.files?.[0]]));
+  for (const [device, file] of Object.entries(files)) {
+    if (file && (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) ||
+        file.size < 1 || file.size > 5 * 1024 * 1024)) {
+      toast('Ảnh ' + device + ': chỉ chọn PNG, JPG hoặc WebP, tối đa 5 MB.', 'error');
+      return;
+    }
   }
-  if (draft.header_display_mode !== 'text' && !file && !draft.header_banner_url) {
+  if (draft.header_display_mode !== 'text' && !files.desktop && !draft.header_banner_url) {
     toast('Vui lòng tải ảnh banner trước khi chọn chế độ có hình.', 'error');
     return;
   }
@@ -250,11 +256,14 @@ export async function saveHeaderBrandingSettings(settings, refreshHeader) {
   const originalText = saveButton.textContent;
   saveButton.textContent = 'Đang lưu cấu hình...';
   try {
-    if (file) {
+    for (const device of devices) {
+      const file = files[device];
+      if (!file) continue;
       const base64 = await readImageAsDataUrl(file);
       const upload = await requestJson('POST', { base64 });
-      draft.header_banner_key = upload.key;
-      draft.header_banner_url = upload.url;
+      const prefix = device === 'desktop' ? 'header_banner_' : 'header_banner_' + device + '_';
+      draft[prefix + 'key'] = upload.key;
+      draft[prefix + 'url'] = upload.url;
     }
     // The active banner is changed only after server-side DB save succeeds.
     const committed = await requestJson('PUT', draft);
@@ -263,6 +272,10 @@ export async function saveHeaderBrandingSettings(settings, refreshHeader) {
       headerDisplayMode: committed.header_display_mode,
       headerBannerUrl: committed.header_banner_url,
       headerBannerKey: committed.header_banner_key,
+      headerBannerTabletUrl: committed.header_banner_tablet_url,
+      headerBannerTabletKey: committed.header_banner_tablet_key,
+      headerBannerMobileUrl: committed.header_banner_mobile_url,
+      headerBannerMobileKey: committed.header_banner_mobile_key,
       headerBannerAlt: committed.header_banner_alt
     });
     window.appSettings = settings;
