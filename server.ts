@@ -3790,6 +3790,17 @@ async function startServer() {
         `, []);
         header = result.results?.[0] || {};
       } catch {}
+      if (header) {
+        try {
+          const result = await executeSqlQuery(`
+            SELECT header_banner_tablet_url, header_banner_mobile_url
+            FROM app_settings WHERE id = 1
+          `,[]);
+          header = {...header,...(result.results?.[0]||{})};
+        } catch {
+          // Legacy tenant without optional image columns.
+        }
+      }
       const brand = normalizedHeaderBranding(header);
       res.set('Cache-Control','private, no-store, max-age=0');
       return res.json({data:{
@@ -3806,6 +3817,8 @@ async function startServer() {
         qr_code_url:row.qr_code_url||'',
         header_display_mode:brand.mode,
         header_banner_url:brand.url,
+        header_banner_tablet_url:brand.tabletUrl,
+        header_banner_mobile_url:brand.mobileUrl,
         header_banner_alt:brand.alt
       },error:null});
     } catch {
