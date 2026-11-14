@@ -1,5 +1,6 @@
 import { copyToastMessage } from './toast-copy.js';
 import { applyHeaderBranding, populateBrandingSettings, previewHeaderBrandingSettings, clearHeaderBrandingBanner, clearHeaderBrandingVariant, selectHeaderBannerPreview, saveHeaderBrandingSettings } from './header-branding-ui.js';
+import { applyStudentExamHeaderBranding } from './student-exam-header-branding.js';
 import { matchesQuestionBankLevel, countQuestionBankLevels } from './question-bank-level-filter.js';
 import {canDeleteRankingResult} from './ranking-result-delete-policy.js';
 import { isShortAnswerCorrect, parseTF4CorrectAnswer, examFlagEnabled, clampScore, roundScore } from './exam-grading-core.js';
@@ -8827,6 +8828,10 @@ if (contentType && contentType.includes("application/json")) {
             if (examInterface) {
                 examInterface.classList.remove('hidden');
                 examInterface.classList.add('fade-in');
+                // Fullscreen may already have been entered before the server prepared the exam.
+                // The fullscreenchange event then ran while this node was still hidden.
+                // Re-render branding on exam activation, never altering fullscreen/violation state.
+                applyStudentExamHeaderBranding(appSettings);
             }
 
             const elName = document.getElementById('exam-student-name');
