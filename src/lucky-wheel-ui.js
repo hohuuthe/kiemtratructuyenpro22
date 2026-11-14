@@ -227,7 +227,7 @@ class ClassroomWheel {
     this.el('lw-available').textContent = String(pending.length);
     this.el('lw-called').textContent = String(this.state.called.length);
     this.el('lw-selected').textContent = (this.roster.length - this.state.excluded.length) + '/' + this.roster.length;
-    this.el('lw-spin').disabled = this.spinning || !pending.length;
+    this.el('lw-spin').disabled = this.spinning || Boolean(this.state.pendingId) || !pending.length;
     for (const id of ['lw-class','lw-refresh','lw-select-all','lw-exclude-all','lw-reset']) this.el(id).disabled = this.spinning;
   }
   draw(list = availableStudents(this.roster, this.state), angle = this.angle) {
@@ -337,9 +337,18 @@ class ClassroomWheel {
   }
   async spin() {
     if (this.spinning || !this.classKey) return;
+    if (this.state.pendingId) {
+      this.setNotice('Lớp này đang có lượt quay chưa kết thúc ở một tab khác. Hãy chờ hoặc tải lại danh sách.', 'warning');
+      return;
+    }
     const students = availableStudents(this.roster, this.state);
     if (!students.length) { this.setNotice('Đã gọi hết học sinh hợp lệ. Hãy bắt đầu vòng mới hoặc chọn thêm học sinh.', 'warning'); return; }
     const stored = reconcileWheelState(localRead(this.classKey), this.roster);
+    if (stored.pendingId && !this.state.pendingId) {
+      this.state = stored; this.draw(); this.renderList();
+      this.setNotice('Một lượt quay đang thực hiện trên tab khác. Không thể bắt đầu lượt trùng.', 'warning');
+      return;
+    }
     if (JSON.stringify(stored) !== JSON.stringify(this.state)) {
       this.state = stored; this.draw(); this.renderList();
       this.setNotice('Dữ liệu lớp vừa thay đổi. Hãy kiểm tra danh sách trước khi quay.', 'warning'); return;
