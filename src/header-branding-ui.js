@@ -1,5 +1,6 @@
 import { DEFAULT_HEADER_TITLE, headerMode, normalizedHeaderBranding } from './header-branding-policy.js';
 import { bannerDimensionFeedback } from './header-banner-dimensions.js';
+import { applyStudentExamHeaderBranding } from './student-exam-header-branding.js';
 
 const find = id => document.getElementById(id);
 const label = text => String(text || '').trim();
@@ -57,6 +58,7 @@ function selectedBranding(settings) {
 
 export function applyHeaderBranding(settings) {
   renderedSettings = settings;
+  applyStudentExamHeaderBranding(settings);
   ensureImageQueryListeners();
   const title = find('app-title');
   const banner = find('app-header-banner');
