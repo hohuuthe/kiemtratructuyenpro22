@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   classChoices, classRoster, wheelStorageKey, reconcileWheelState,
-  availableStudents, randomWheelIndex, nextWheelRotation, finishPendingWheelResult
+  availableStudents, randomWheelIndex, nextWheelRotation, finishPendingWheelResult,
+  wheelStudentLabel
 } from '../src/lucky-wheel-core.js';
 
 const people = [
@@ -84,6 +85,39 @@ test('animation ends with selected sector centered under the fixed top pointer',
       assert.ok(Math.min(remainder,tau-remainder)<1e-8,`sector count=${count}, index=${winner}`);
     }
   }
+});
+
+test('student numbers are stable after earlier winners leave the wheel',()=>{
+  const original=classRoster(people,assignments,false,'Trường A','10A1');
+  assert.deepEqual(original.map(s=>wheelStudentLabel(s)),['01 - Nguyễn Văn An','02 - Trần Thị Bình']);
+  const firstResult=finishPendingWheelResult(reconcileWheelState({pendingId: original[0].id},original));
+  const remaining=availableStudents(original,firstResult);
+  assert.deepEqual(remaining.map(s=>wheelStudentLabel(s)),['02 - Trần Thị Bình']);
+  assert.equal(remaining.some(s=>s.id===firstResult.lastId),false);
+  assert.deepEqual(availableStudents(original,finishPendingWheelResult({
+    ...firstResult,pendingId:remaining[0].id
+  })),[]);
+});
+
+test('already-called pupils remain outside the wheel after reload and when reselected',()=>{
+  const roster=classRoster(people,assignments,false,'Trường A','10A1');
+  const calledState=reconcileWheelState({called:['s1'],history:['s1'],excluded:[]},roster);
+  assert.deepEqual(availableStudents(roster,calledState).map(s=>s.id),['s2']);
+  const allSelected={...calledState,excluded:[]};
+  assert.deepEqual(availableStudents(roster,allSelected).map(s=>s.id),['s2']);
+  assert.deepEqual(availableStudents(roster,reconcileWheelState(allSelected,roster)).map(s=>s.id),['s2']);
+});
+
+test('UI removes the drawn winner from wheel but keeps numbered result and enlarged badge',()=>{
+  const module=readFileSync(new URL('../src/lucky-wheel-ui.js',import.meta.url),'utf8');
+  const stylesheet=readFileSync(new URL('../public/lucky-wheel.css',import.meta.url),'utf8');
+  assert.match(module,/this\.angle = 0;\s*this\.draw\(\);\s*this\.renderList\(\);/);
+  assert.match(module,/wheelStudentLabel\(winner\)/);
+  assert.match(module,/wheelStudentLabel\(student\)/);
+  assert.match(module,/wheelStudentLabel\(previousWinner\)/);
+  assert.match(module,/renderWheel\(this\.el\('lw-canvas'\), list, angle/);
+  assert.match(stylesheet,/\.lw-main\{display:grid;grid-template-columns:minmax\(0,1fr\) minmax\(245px,28%\)/);
+  assert.match(stylesheet,/\.lw-student small\{font-size:13\.5px/);
 });
 
 test('integration keeps private lazy loaded tab, two custom audio inputs and teacher-only menu',()=>{
