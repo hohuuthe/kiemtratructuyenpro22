@@ -43,7 +43,17 @@ test('Existing exam-management functionality is retained', () => {
   assert.doesNotMatch(markup, /min-w-\[1360px\]/);
   assert.match(renderer, /class="exam-config-title-cell[^"]*"/);
   assert.doesNotMatch(renderer, /max-w-xs truncate/);
-  assert.match(css, /\.exam-configs-table \.exam-config-title-cell\s*\{[^}]*white-space:\s*normal;[^}]*overflow-wrap:\s*anywhere;/s);
+  assert.match(renderer, /<td class="exam-config-title-cell[^"]*" title="\$\{escapedName\}">\s*\$\{escapedName\}/);
+  assert.match(css, /\.exam-configs-table \.exam-config-title-cell\s*\{[^}]*font-size:\s*11px;[^}]*white-space:\s*nowrap;[^}]*overflow:\s*hidden;[^}]*text-overflow:\s*ellipsis;/s);
+});
+
+test('Exam title column uses small single-line text while preserving the full name on hover', () => {
+  assert.match(markup, /<th[^>]*class="exam-config-title-column"[^>]*>/);
+  assert.match(css, /\.exam-configs-table \.exam-config-title-column\s*\{\s*white-space:\s*nowrap;/s);
+  assert.match(css, /\.exam-configs-table \.exam-config-title-cell\s*\{[^}]*font-size:\s*11px;[^}]*white-space:\s*nowrap;[^}]*overflow-wrap:\s*normal;[^}]*word-break:\s*normal;[^}]*overflow:\s*hidden;[^}]*text-overflow:\s*ellipsis;/s);
+  assert.match(renderer, /<td class="exam-config-title-cell[^"]*" title="\$\{escapedName\}">\s*\$\{escapedName\}/);
+  assert.ok(!renderer.includes('max-w-xs truncate'), 'No other truncation should be injected');
+  assert.match(css, /#exam-configs-table-scroll\s*\{\s*max-width:\s*100%;/);
 });
 
 test('Long exam IDs wrap safely without covering the following title column', () => {
