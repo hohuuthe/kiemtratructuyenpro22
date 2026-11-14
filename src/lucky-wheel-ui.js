@@ -359,6 +359,7 @@ class ClassroomWheel {
     if (!localWrite(this.classKey, this.state)) {
       this.state.pendingId = null; this.setNotice('Không thể lưu lượt quay an toàn. Vui lòng kiểm tra bộ nhớ trình duyệt.', 'error'); return;
     }
+    if (this.previewTimer) { clearTimeout(this.previewTimer); this.previewTimer = 0; }
     this.spinning = true; this.setControls(); this.renderList();
     this.el('lw-result').textContent = '🎶 Đang quay... Chúc em may mắn!';
     this.setNotice('Vòng quay đang chạy! Hãy chờ kim dừng lại...');
