@@ -1,6 +1,6 @@
 import {
   classChoices, classRoster, wheelStorageKey, reconcileWheelState,
-  availableStudents, randomWheelIndex, nextWheelRotation, finishPendingWheelResult
+  availableStudents, randomWheelIndex, nextWheelRotation, finishPendingWheelResult, wheelStudentLabel
 } from './lucky-wheel-core.js';
 
 let active = null;
@@ -153,7 +153,7 @@ class WheelSound {
   dispose() { this.stop(); if (this.ctx) { void this.ctx.close().catch(() => {}); this.ctx = null; } }
 }
 
-function renderWheel(canvas, participants, angle = 0) {
+function renderWheel(canvas, participants, angle = 0, emptyMessage = 'HÃY CHỌN LỚP') {
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
   const w = canvas.width, mid = w / 2, radius = w * .47;
@@ -164,7 +164,7 @@ function renderWheel(canvas, participants, angle = 0) {
   const count = participants.length;
   if (!count) {
     ctx.fillStyle = '#283a79'; ctx.beginPath(); ctx.arc(0, 0, radius, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = 'white'; ctx.font = 'bold 28px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('HÃY CHỌN LỚP', 0, -75);
+    ctx.fillStyle = 'white'; ctx.font = 'bold 28px sans-serif'; ctx.textAlign = 'center'; ctx.fillText(emptyMessage, 0, -75);
   } else {
     const size = Math.PI * 2 / count, palette = ['#ff6a75','#ffce62','#39beb4','#5f8ceb','#a476e8','#f48ab7','#79c76a','#ee9c45'];
     for (let i = 0; i < count; i++) {
@@ -176,7 +176,7 @@ function renderWheel(canvas, participants, angle = 0) {
       ctx.rotate(Math.PI / 2);
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillStyle = '#152143'; ctx.font = '900 ' + (count > 40 ? 22 : count > 25 ? 26 : 32) + 'px sans-serif';
-      ctx.fillText(String(i + 1).padStart(2, '0'), 0, 0);
+      ctx.fillText(String(participants[i].ordinal).padStart(2, '0'), 0, 0);
       ctx.restore();
     }
   }
@@ -231,7 +231,7 @@ class ClassroomWheel {
     for (const id of ['lw-class','lw-refresh','lw-select-all','lw-exclude-all','lw-reset']) this.el(id).disabled = this.spinning;
   }
   draw(list = availableStudents(this.roster, this.state), angle = this.angle) {
-    renderWheel(this.el('lw-canvas'), list, angle);
+    renderWheel(this.el('lw-canvas'), list, angle, this.roster.length ? 'KHÔNG CÒN TÊN' : 'HÃY CHỌN LỚP');
     this.setControls();
   }
   renderList() {
@@ -250,7 +250,7 @@ class ClassroomWheel {
           : [...new Set([...this.state.excluded, student.id])];
         this.saveState(); this.draw(); this.renderList();
       });
-      const text = document.createElement('span'); text.textContent = String(index + 1).padStart(2, '0') + '. ' + student.name;
+      const text = document.createElement('span'); text.textContent = wheelStudentLabel(student);
       label.append(input, text);
       if (called.has(student.id)) {
         const badge = document.createElement('small'); badge.textContent = 'Đã gọi'; label.append(badge);
@@ -266,7 +266,7 @@ class ClassroomWheel {
     for (const id of this.state.history) {
       const student = this.roster.find(s => s.id === id);
       if (!student) continue;
-      const li = document.createElement('li'); li.textContent = student.name; history.append(li);
+      const li = document.createElement('li'); li.textContent = wheelStudentLabel(student); history.append(li);
     }
     if (!history.childNodes.length) {
       const li = document.createElement('li'); li.textContent = 'Chưa có học sinh nào được gọi.'; history.append(li);
@@ -285,8 +285,9 @@ class ClassroomWheel {
       this.setNotice('Đã phục hồi kết quả lượt quay bị gián đoạn; không bốc lại học sinh.', 'warning');
     } else this.setNotice('Danh sách ' + choice.className + ' • ' + choice.unit + ' đã sẵn sàng.');
     this.angle = 0;
-    this.el('lw-result').textContent = this.state.lastId
-      ? '🎉 ' + (this.roster.find(s => s.id === this.state.lastId)?.name || 'Đã có kết quả')
+    const previousWinner = this.roster.find(s => s.id === this.state.lastId);
+    this.el('lw-result').textContent = previousWinner
+      ? '🎉 ' + wheelStudentLabel(previousWinner) + ' 🎉'
       : '✨ Sẵn sàng gọi tên học sinh';
     this.el('lw-search').value = '';
     this.draw(); this.renderList();
@@ -383,12 +384,14 @@ class ClassroomWheel {
     this.spinning = false; this.sound.stop();
     this.state = finishPendingWheelResult(this.state);
     this.saveState();
-    this.el('lw-result').textContent = '🎉 ' + winner.name + ' 🎉';
-    this.setNotice('Xin chúc mừng ' + winner.name + '! Mời em tham gia.');
+    const winnerLabel = wheelStudentLabel(winner);
+    this.el('lw-result').textContent = '🎉 ' + winnerLabel + ' 🎉';
+    this.setNotice('Đã gọi ' + winnerLabel + '. Em đã được đưa ra khỏi vòng quay; mời em tham gia.');
+    // After the winner is announced in the separate result panel, rebuild the
+    // actual wheel from only the remaining pupils, never from the completed round.
+    this.angle = 0;
+    this.draw();
     this.renderList();
-    // Keep the winning sector under the pointer until the next spin begins.
-    // Redrawing against the reduced available pool here would falsely point at another student.
-    this.setControls();
     void this.sound.start('applause').catch(() => {});
     if (typeof window.confetti === 'function') {
       window.confetti({ particleCount: 130, spread: 80, origin: { y: .62 }, disableForReducedMotion: true });
