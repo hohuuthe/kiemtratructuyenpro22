@@ -158,3 +158,17 @@ test('backend independently validates tenant-scoped image paths for all devices'
   assert.match(bootstrap,/header_banner_mobile_url: branding\.mobileUrl/);
   assert.match(bootstrap,/catch \{[\s\S]*?Optional responsive columns/);
 });
+
+
+test('lazy-loaded banner actions are delegated and provide an accessible save status',()=>{
+  const js=read('src/header-branding-ui.js');
+  const html=read('public/components/tab-settings.html');
+  assert.match(js,/document\.addEventListener\('click'/);
+  assert.match(js,/saveHeaderBrandingSettings\(settings \|\| \{\}, window\.refreshAppHeaderTitle\)/);
+  assert.match(js,/feedback\('Đang kiểm tra và tải banner/);
+  assert.match(html,/id="settings-header-save" data-header-branding-action="save"/);
+  assert.match(html,/id="settings-header-save-status" role="status" aria-live="polite"/);
+  assert.doesNotMatch(html,/onclick="saveHeaderBrandingSettings\(\)"/);
+  for (const device of ['desktop','tablet','mobile'])
+    assert.match(html,new RegExp('data-header-branding-action="preview" data-device="'+device+'"'));
+});
