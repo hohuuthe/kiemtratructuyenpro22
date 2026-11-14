@@ -57,7 +57,13 @@ export function classRoster(users, assignments, isAdmin, unit, className) {
   })).sort((a, b) =>
     a.name.localeCompare(b.name, 'vi', { numeric: true }) ||
     a.id.localeCompare(b.id, 'vi')
-  );
+  ).map((student, index) => ({ ...student, ordinal: index + 1 }));
+}
+
+// A pupil keeps the same class list number after earlier pupils are drawn.
+export function wheelStudentLabel(student) {
+  if (!student || !Number.isSafeInteger(student.ordinal) || student.ordinal < 1) return '';
+  return String(student.ordinal).padStart(2, '0') + ' - ' + student.name;
 }
 
 export function reconcileWheelState(raw, roster) {
