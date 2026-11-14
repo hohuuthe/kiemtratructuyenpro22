@@ -1,4 +1,5 @@
 import { copyToastMessage } from './toast-copy.js';
+import { applyHeaderBranding, populateBrandingSettings, previewHeaderBrandingSettings, clearHeaderBrandingBanner, saveHeaderBrandingSettings } from './header-branding-ui.js';
 import { matchesQuestionBankLevel, countQuestionBankLevels } from './question-bank-level-filter.js';
 import {canDeleteRankingResult} from './ranking-result-delete-policy.js';
 import { isShortAnswerCorrect, parseTF4CorrectAnswer, examFlagEnabled, clampScore, roundScore } from './exam-grading-core.js';
@@ -1445,15 +1446,12 @@ if (contentTypeConfig && contentTypeConfig.includes("application/json")) {
         };
 
         function refreshAppHeaderTitle() {
-            const appTitleEl = document.getElementById('app-title');
-            if (!appTitleEl) return;
-            if (appSettings && appSettings.appTitle && appSettings.appTitle.trim()) {
-                appTitleEl.textContent = appSettings.appTitle.trim();
-            } else {
-                appTitleEl.textContent = "HỆ THỐNG KIỂM TRA TRỰC TUYẾN";
-            }
+            applyHeaderBranding(appSettings);
         }
         window.refreshAppHeaderTitle = refreshAppHeaderTitle;
+        window.previewHeaderBrandingSettings = previewHeaderBrandingSettings;
+        window.clearHeaderBrandingBanner = clearHeaderBrandingBanner;
+        window.saveHeaderBrandingSettings = () => saveHeaderBrandingSettings(appSettings, refreshAppHeaderTitle);
 
         function getExamWriterId() {
             const key = window.tenantStorageKey('exam_writer_id');
@@ -1580,6 +1578,10 @@ Trả về kết quả dưới dạng JSON Array, mỗi phần tử tương ứn
             answerFontSize: 50,
             displayMode: 'single',
             appTitle: "HỆ THỐNG KIỂM TRA TRỰC TUYẾN",
+            headerDisplayMode: 'text',
+            headerBannerUrl: '',
+            headerBannerKey: '',
+            headerBannerAlt: '',
             authorInfo: "Phát triển bởi: Hồ Hữu Thế - 0935 078 895",
             aiPrompt: DEFAULT_AI_PROMPT,
             aiAppraisePrompt: DEFAULT_AI_APPRAISE_PROMPT,
@@ -3112,6 +3114,10 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
               sqPunctuationSensitive:d.sq_punctuation_sensitive,
               questionFontSize:d.question_font_size,answerFontSize:d.answer_font_size,
               displayMode:d.display_mode,appTitle:d.app_title||appSettings.appTitle,
+              headerDisplayMode:d.header_display_mode||'text',
+              headerBannerUrl:d.header_banner_url||'',
+              headerBannerKey:d.header_banner_key||'',
+              headerBannerAlt:d.header_banner_alt||'',
               authorInfo:d.author_info||appSettings.authorInfo,
               aiPrompt:d.ai_prompt||'',aiAppraisePrompt:d.ai_appraise_prompt||'',
               aiGradingKey:d.ai_grading_key||'',qrCodeUrl:d.qr_code_url||''};
@@ -3145,6 +3151,8 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
         function loadSettings() {
             const settingsAppTitle = document.getElementById('settings-app-title');
             if (settingsAppTitle) settingsAppTitle.value = appSettings.appTitle || "HỆ THỐNG KIỂM TRA TRỰC TUYẾN";
+            populateBrandingSettings(appSettings);
+            refreshAppHeaderTitle();
             
             // Load Font Size
             const qSize = appSettings.questionFontSize || 24;
@@ -4126,6 +4134,9 @@ if (contentType && contentType.includes("application/json")) {
               if(!d)throw Error('Invalid bootstrap');
               appSettings={...appSettings,appTitle:d.app_title||appSettings.appTitle,
                 authorInfo:d.author_info||appSettings.authorInfo,
+                headerDisplayMode:d.header_display_mode||'text',
+                headerBannerUrl:d.header_banner_url||'',
+                headerBannerAlt:d.header_banner_alt||'',
                 questionFontSize:d.question_font_size??appSettings.questionFontSize,
                 answerFontSize:d.answer_font_size??appSettings.answerFontSize,
                 displayMode:d.display_mode||appSettings.displayMode,
