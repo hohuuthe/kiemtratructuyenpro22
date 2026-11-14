@@ -49,9 +49,56 @@
                             <h4 class="text-md font-bold text-gray-800 mb-2 flex items-center gap-2">
                                 <span class="bg-emerald-100 text-emerald-600 p-1 rounded">📝</span> Tiêu đề hệ thống
                             </h4>
-                            <input type="text" id="settings-app-title" placeholder="Nhập tiêu đề ứng dụng" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 transition focus:outline-none mb-2 font-medium" onchange="saveSettings(); updateAppTitle(this.value);">
+                            <input type="text" id="settings-app-title" maxlength="180" oninput="previewHeaderBrandingSettings()" placeholder="Nhập tiêu đề ứng dụng" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 transition focus:outline-none mb-2 font-medium" onchange="saveSettings(); updateAppTitle(this.value);">
                             <p class="text-xs text-gray-500 leading-relaxed">Sẽ thay thế hiển thị cho tiêu đề chính ở phần trên cùng của ứng dụng.</p>
                         </div>
+
+                        <section class="header-branding-settings md:col-span-2" aria-labelledby="branding-settings-heading">
+                          <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+                            <div>
+                              <h4 id="branding-settings-heading" class="text-base font-black text-emerald-900">🖼️ Thương hiệu &amp; Banner hệ thống</h4>
+                              <p class="text-xs text-slate-500 mt-1">Chọn chế độ hiển thị đầu trang. Chỉ Admin có quyền thay đổi và tải banner.</p>
+                            </div>
+                            <span class="text-xs font-bold text-emerald-700 bg-emerald-50 px-3 py-2 rounded-full">Cloudflare R2 • theo tenant</span>
+                          </div>
+                          <div class="header-branding-options mb-4">
+                            <label class="flex flex-col gap-1 text-xs font-bold text-slate-700">Chế độ hiển thị
+                              <select id="settings-header-mode" onchange="previewHeaderBrandingSettings()" class="w-full mt-1 px-3 py-2.5 border border-emerald-200 bg-white rounded-xl text-sm">
+                                <option value="text">Chỉ tiêu đề chữ</option>
+                                <option value="banner">Chỉ hình banner</option>
+                                <option value="both">Tiêu đề chữ + Banner</option>
+                              </select>
+                            </label>
+                            <label class="flex flex-col gap-1 text-xs font-bold text-slate-700">Ảnh banner (PNG, JPG, WebP; ≤ 5 MB)
+                              <input type="file" id="settings-header-banner-file" accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp" onchange="previewHeaderBrandingSettings()" class="w-full mt-1 text-xs p-2 rounded-xl bg-white border border-emerald-200">
+                              <span id="settings-header-file-name" class="font-normal text-slate-500 break-all">Chưa có banner</span>
+                            </label>
+                            <label class="flex flex-col gap-1 text-xs font-bold text-slate-700">Mô tả banner (không bắt buộc)
+                              <input id="settings-banner-alt" maxlength="120" type="text" placeholder="Ví dụ: Banner trường học" class="w-full mt-1 px-3 py-2.5 border border-emerald-200 bg-white rounded-xl text-sm">
+                              <span class="font-normal text-slate-500">Khuyến nghị ảnh ngang 1920 × 320 px</span>
+                            </label>
+                          </div>
+                          <input type="hidden" id="settings-banner-key">
+                          <input type="hidden" id="settings-banner-url">
+                          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+                            <div>
+                              <p class="text-xs font-bold text-emerald-900 mb-2">Xem trước giao diện</p>
+                              <div class="header-branding-preview" aria-label="Xem trước tiêu đề và banner">
+                                <div id="settings-header-preview-title" class="header-branding-preview-title">HỆ THỐNG KIỂM TRA TRỰC TUYẾN</div>
+                                <img id="settings-header-preview-img" class="header-branding-preview-image" alt="Xem trước hình ảnh banner" hidden>
+                                <div id="settings-header-preview-empty" class="header-branding-preview-empty">Chưa chọn banner – đang dùng tiêu đề chữ</div>
+                              </div>
+                            </div>
+                            <div class="flex flex-col gap-3">
+                              <p class="text-xs text-slate-600 leading-relaxed">Banner sẽ được lưu trong <strong>luuhinhnh/banner-he-thong/&lt;tenant&gt;/</strong> trên R2, còn đường dẫn được lưu vào bảng cấu hình của tenant hiện tại. Bản cũ chỉ bị thay đổi khi nhấn <strong>Lưu và áp dụng</strong> thành công.</p>
+                              <div class="flex gap-2 flex-wrap">
+                                <button type="button" id="settings-header-save" onclick="saveHeaderBrandingSettings()" class="header-branding-button bg-emerald-700 text-white shadow-sm">💾 Lưu và áp dụng</button>
+                                <button type="button" onclick="clearHeaderBrandingBanner()" class="header-branding-button bg-rose-50 text-rose-700 border border-rose-200">Xóa banner</button>
+                              </div>
+                              <p class="text-[11px] text-slate-500">Thanh menu đầu trang vẫn cố định khi cuộn. Banner được đặt ngay bên dưới, hiển thị thích ứng trên điện thoại; nếu ảnh lỗi, hệ thống hiện tiêu đề chữ thay thế.</p>
+                            </div>
+                          </div>
+                        </section>
 
                         <div class="bg-white p-5 rounded-xl border border-gray-200 shadow-sm hover:border-purple-300 transition-colors">
                             <div class="flex items-center justify-between mb-2">

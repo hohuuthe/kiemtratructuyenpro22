@@ -1,0 +1,46 @@
+name: Header branding - Admin / R2 / Tenant / Build
+on:
+  pull_request:
+    paths:
+      - 'src/header-branding-*.js'
+      - 'src/main.js'
+      - 'index.html'
+      - 'public/header-branding.css'
+      - 'public/components/tab-settings.html'
+      - 'functions/api/header-banner.ts'
+      - 'functions/api/bootstrap.ts'
+      - 'server.ts'
+      - 'migrations/20261114_header_banner_branding.sql'
+      - 'database-schema.sql'
+      - 'tests/header-branding.test.mjs'
+      - '.github/workflows/header-branding.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src/header-branding-*.js'
+      - 'src/main.js'
+      - 'index.html'
+      - 'public/header-branding.css'
+      - 'public/components/tab-settings.html'
+      - 'functions/api/header-banner.ts'
+      - 'functions/api/bootstrap.ts'
+      - 'server.ts'
+      - 'migrations/20261114_header_banner_branding.sql'
+      - 'database-schema.sql'
+      - 'tests/header-branding.test.mjs'
+  workflow_dispatch:
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: node --check src/header-branding-ui.js && node --check src/header-branding-policy.js && node --check src/main.js
+      - run: node --test tests/header-branding.test.mjs tests/lazy-tab-loading.test.mjs
+      - run: npm run lint
+      - run: npm run build

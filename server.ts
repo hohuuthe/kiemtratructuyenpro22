@@ -41,6 +41,8 @@ import { onRequestPost as hardenedExamSaveHandler } from './functions/api/exam/s
 import { onRequestPost as hardenedExamViolationHandler } from './functions/api/exam/violation';
 import { onRequestPost as hardenedExamResumeHandler } from './functions/api/exam/resume';
 import { onRequestPost as hardenedUploadImageHandler } from './functions/api/upload-image';
+import { onRequestPost as uploadSystemBanner, onRequestPut as saveSystemBanner } from './functions/api/header-banner';
+import { normalizedHeaderBranding } from './src/header-branding-policy.js';
 import { signAuthSession as signCloudflareAuthSession } from './functions/api/exam/utils';
 import { normalizeQuestionType, validateQuestionAnswer } from './src/exam-grading-core.js';
 
@@ -3770,6 +3772,47 @@ async function startServer() {
     }
   });
 
+  // Public, tenant-scoped appearance only: never expose account or AI settings.
+  app.get('/api/bootstrap', async (_req, res) => {
+    try {
+      const query = await executeSqlQuery(`
+        SELECT app_title, author_info, question_font_size, answer_font_size,
+               display_mode, show_results_details, allow_ranking_details,
+               immediate_feedback, sq_case_sensitive, sq_punctuation_sensitive, qr_code_url
+        FROM app_settings WHERE id = 1
+      `, []);
+      const row: any = query.results?.[0] || {};
+      let header: any = {};
+      try {
+        const result = await executeSqlQuery(`
+          SELECT header_display_mode,header_banner_url,header_banner_alt
+          FROM app_settings WHERE id = 1
+        `, []);
+        header = result.results?.[0] || {};
+      } catch {}
+      const brand = normalizedHeaderBranding(header);
+      res.set('Cache-Control','private, no-store, max-age=0');
+      return res.json({data:{
+        app_title:row.app_title||'HỆ THỐNG KIỂM TRA TRỰC TUYẾN',
+        author_info:row.author_info||'',
+        question_font_size:row.question_font_size??18,
+        answer_font_size:row.answer_font_size??16,
+        display_mode:row.display_mode||'single',
+        show_results_details:row.show_results_details??true,
+        allow_ranking_details:row.allow_ranking_details??true,
+        immediate_feedback:row.immediate_feedback??false,
+        sq_case_sensitive:row.sq_case_sensitive??false,
+        sq_punctuation_sensitive:row.sq_punctuation_sensitive??false,
+        qr_code_url:row.qr_code_url||'',
+        header_display_mode:brand.mode,
+        header_banner_url:brand.url,
+        header_banner_alt:brand.alt
+      },error:null});
+    } catch {
+      return res.status(503).json({data:null,error:'Không thể tải cấu hình giao diện.'});
+    }
+  });
+
   app.get("/api/settings", async (req, res) => {
     try {
       let data: any = null;
@@ -4304,6 +4347,66 @@ async function startServer() {
       return false;
     }
   }
+
+  // Shared Cloudflare Pages handlers for admin banner routes, bridged through
+  // current account state and the verified tenant request path in local Express.
+  const callSystemBannerHandler = async (req: any, res: any, handler: any) => {
+    try {
+      const headers = new Headers();
+      for (const [name,value] of Object.entries(req.headers || {})) {
+        if (Array.isArray(value)) for (const part of value) headers.append(name,String(part));
+        else if (value !== undefined) headers.set(name,String(value));
+      }
+      const raw = String(req.headers.authorization || '');
+      if (raw.startsWith('Bearer ')) {
+        const token = raw.slice(7);
+        const secret = await getServerSecret();
+        const decoded: any = verifyJWTSync(token,secret);
+        if (decoded?.auth_state && decoded?.id) {
+          const row = (await executeSqlQuery(`
+            SELECT a.id,a.user_id,a.username,a.password,a.role,a.is_active,a.expiry_date,
+                   u.full_name,u.target_audience,u.donvi,u.lop,u.is_vip AS profile_vip,
+                   u.is_active AS profile_active,u.expiry_date AS profile_expiry_date
+            FROM accounts a LEFT JOIN users u ON u.id=COALESCE(a.user_id,a.id)
+            WHERE a.id=? LIMIT 1
+          `,[decoded.id])).results?.[0];
+          if (!row || !getAccountAccessStatus(row).allowed)
+            return res.status(401).json({error:'Phiên đăng nhập không còn hiệu lực.'});
+          const expected=crypto.createHash('sha256').update(accountSessionMaterial(row)).digest('hex');
+          if(expected!==decoded.auth_state)
+            return res.status(401).json({error:'Phiên đăng nhập đã thay đổi.'});
+          const tenantKey=tenantStorage.getStore()?.databaseUrl||'';
+          const signed=await signCloudflareAuthSession(row,{
+            id:row.id,user_id:row.user_id||row.id,username:row.username,
+            role:row.role,target_audience:row.target_audience||''
+          },secret,tenantKey);
+          headers.set('Authorization','Bearer '+signed);
+        }
+      }
+      headers.set('Content-Type','application/json');
+      const host=req.get('host')||'localhost:'+PORT;
+      const webReq=new Request('https://'+host+(req.originalUrl||req.url),{
+        method:req.method,headers,body:JSON.stringify(req.body||{})
+      });
+      const env={
+        ...process.env,
+        CLOUDFLARE_R2_ACCESS_KEY_ID:getConfig('CLOUDFLARE_R2_ACCESS_KEY_ID')||process.env.CLOUDFLARE_R2_ACCESS_KEY_ID,
+        CLOUDFLARE_R2_SECRET_ACCESS_KEY:getConfig('CLOUDFLARE_R2_SECRET_ACCESS_KEY')||process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY,
+        CLOUDFLARE_R2_BUCKET_NAME:getConfig('CLOUDFLARE_R2_BUCKET_NAME')||process.env.CLOUDFLARE_R2_BUCKET_NAME,
+        CLOUDFLARE_R2_ACCOUNT_ID:getConfig('CLOUDFLARE_R2_ACCOUNT_ID')||process.env.CLOUDFLARE_R2_ACCOUNT_ID,
+        CLOUDFLARE_R2_PUBLIC_URL:getConfig('CLOUDFLARE_R2_PUBLIC_URL')||process.env.CLOUDFLARE_R2_PUBLIC_URL
+      };
+      const result=await handler({request:webReq,env} as any);
+      res.status(result.status);
+      result.headers.forEach((v:string,k:string)=>{if(k.toLowerCase()!=='content-length')res.setHeader(k,v);});
+      return res.send(await result.text());
+    } catch (e:any) {
+      console.error('[Header branding local adapter]',e?.message||e);
+      return res.status(500).json({error:'Không thể xử lý cấu hình banner an toàn.'});
+    }
+  };
+  app.post('/api/header-banner', (req,res) => { void callSystemBannerHandler(req,res,uploadSystemBanner); });
+  app.put('/api/header-banner', (req,res) => { void callSystemBannerHandler(req,res,saveSystemBanner); });
 
   // Image upload uses the same hardened handler as Cloudflare production.
   app.post("/api/upload-image", async (req, res) => {

@@ -284,7 +284,11 @@ CREATE TABLE IF NOT EXISTS app_settings (
     ai_prompt TEXT DEFAULT '',
     ai_appraise_prompt TEXT DEFAULT '',
     ai_grading_key TEXT DEFAULT '',
-    qr_code_url TEXT DEFAULT ''
+    qr_code_url TEXT DEFAULT '',
+    header_display_mode TEXT NOT NULL DEFAULT 'text',
+    header_banner_url TEXT NOT NULL DEFAULT '',
+    header_banner_key TEXT NOT NULL DEFAULT '',
+    header_banner_alt TEXT NOT NULL DEFAULT ''
 );
 
 -- 7. BẢNG PHÂN CÔNG GIÁO VIÊN - LỚP HỌC (teacher_classes)

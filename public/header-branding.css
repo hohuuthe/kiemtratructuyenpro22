@@ -1,0 +1,18 @@
+/* Tenant-branded header: navigation stays sticky; image banner scrolls away naturally. */
+.app-header-banner[hidden],.app-header-banner-image[hidden]{display:none!important}
+.app-header-banner{width:100%;padding:8px 12px 2px;background:transparent;position:relative;flex-shrink:0}
+.app-header-banner-image{display:block;width:100%;height:auto;max-height:200px;object-fit:contain;object-position:center;background:linear-gradient(100deg,#064e3b,#065f46);border-radius:12px;box-shadow:0 5px 18px rgba(0,0,0,.16);border:1px solid rgba(255,255,255,.28)}
+.header-branding-settings{padding:18px;border:1px solid #dcece6;background:linear-gradient(145deg,#fff,#f3faf7);border-radius:15px}
+.header-branding-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.header-branding-preview{border-radius:12px;overflow:hidden;border:1px solid #d7e4e0;background:#fff}
+.header-branding-preview-title{background:linear-gradient(100deg,#064e3b,#065f46);color:#fff;font-weight:850;font-size:13px;line-height:1.4;padding:12px;overflow-wrap:anywhere}
+.header-branding-preview-title[hidden]{display:none!important}
+.header-branding-preview-image{width:100%;max-height:120px;object-fit:contain;display:block;background:#e6f3ef}
+.header-branding-preview-image[hidden]{display:none!important}
+.header-branding-preview-empty{padding:24px 8px;text-align:center;background:#eaf4ef;color:#475569;font-size:12px}
+.header-branding-preview-empty[hidden]{display:none!important}
+.header-branding-button{padding:10px 13px;border-radius:10px;font-weight:800;font-size:13px;transition:filter .15s}
+.header-branding-button:disabled{opacity:.6;cursor:wait}
+.header-branding-button:not(:disabled):hover{filter:brightness(1.06)}
+@media(max-width:700px){.header-branding-options{grid-template-columns:1fr}.app-header-banner{padding:5px 6px 1px}.app-header-banner-image{max-height:108px;border-radius:8px}.header-branding-settings{padding:12px}}
+@media(prefers-reduced-motion:reduce){.header-branding-button{transition:none}}
