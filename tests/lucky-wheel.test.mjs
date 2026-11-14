@@ -102,6 +102,6 @@ test('integration keeps private lazy loaded tab, two custom audio inputs and tea
   assert.match(panel,/id="lw-muted"/);
   assert.match(module,/indexedDB\.open/);
   assert.match(module,/window\.currentTeacherAssignments/);
-  assert.match(module,/crypto|getRandomValues/);
+  assert.match(module,/randomWheelIndex/);
   assert.doesNotMatch(module,/fetch\(.+upload|\/api\/upload-image/);
 });
