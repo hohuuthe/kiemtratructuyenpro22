@@ -80,3 +80,11 @@ export function applyStudentExamHeaderBranding(settings) {
   if (image.getAttribute('src') !== wanted) image.src = wanted;
   else if (image.complete && image.naturalWidth > 0) title.hidden = !showTitle;
 }
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('fullscreenchange', () => {
+    if (lastSettings) applyStudentExamHeaderBranding(lastSettings);
+    else if (typeof window !== 'undefined' && window.appSettings)
+      applyStudentExamHeaderBranding(window.appSettings);
+  });
+}
