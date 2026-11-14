@@ -3801,6 +3801,15 @@ async function startServer() {
           // Legacy tenant without optional image columns.
         }
       }
+      let examHeaderMode = 'text';
+      try {
+        const examResult = await executeSqlQuery(
+          'SELECT exam_header_display_mode FROM app_settings WHERE id = 1', []);
+        const value = examResult.results?.[0]?.exam_header_display_mode;
+        if (['text','banner','both'].includes(value)) examHeaderMode = value;
+      } catch {
+        // Legacy tenants remain text-only by default.
+      }
       const brand = normalizedHeaderBranding(header);
       res.set('Cache-Control','private, no-store, max-age=0');
       return res.json({data:{
@@ -3816,6 +3825,7 @@ async function startServer() {
         sq_punctuation_sensitive:row.sq_punctuation_sensitive??false,
         qr_code_url:row.qr_code_url||'',
         header_display_mode:brand.mode,
+        exam_header_display_mode:examHeaderMode,
         header_banner_url:brand.url,
         header_banner_tablet_url:brand.tabletUrl,
         header_banner_mobile_url:brand.mobileUrl,
