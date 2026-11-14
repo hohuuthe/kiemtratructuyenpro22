@@ -1,4 +1,5 @@
 import { getDatabase } from './exam/utils';
+import { normalizedHeaderBranding } from '../../src/header-branding-policy.js';
 
 // Dữ liệu công khai tối thiểu để mở giao diện. Tuyệt đối không trả khóa AI,
 // prompt, danh sách tài khoản, đề thi, câu hỏi hoặc kết quả bài làm.
@@ -18,8 +19,21 @@ export const onRequestGet: PagesFunction = async (context) => {
              qr_code_url
       FROM app_settings WHERE id = 1
     `).first();
+    // Old tenants may not yet have banner columns. Preserve the current text-only UI.
+    let header: any = null;
+    try {
+      header = await db.prepare(
+        'SELECT header_display_mode, header_banner_url, header_banner_key, header_banner_alt FROM app_settings WHERE id = 1'
+      ).first();
+    } catch {
+      header = null;
+    }
+    const branding = normalizedHeaderBranding(header);
     const data = {
       app_title: row?.app_title || 'HỆ THỐNG KIỂM TRA TRỰC TUYẾN',
+      header_display_mode: branding.mode,
+      header_banner_url: branding.url,
+      header_banner_alt: branding.alt,
       author_info: row?.author_info || 'Phát triển bởi: Hồ Hữu Thế - 0935 078 895',
       question_font_size: Number(row?.question_font_size) || 18,
       answer_font_size: Number(row?.answer_font_size) || 16,
