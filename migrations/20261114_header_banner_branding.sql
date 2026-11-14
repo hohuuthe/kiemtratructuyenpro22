@@ -16,3 +16,12 @@ ALTER TABLE public.app_settings
 UPDATE public.app_settings
 SET header_display_mode = 'text'
 WHERE header_display_mode IS NULL OR header_display_mode NOT IN ('text', 'banner', 'both');
+
+-- Independent student exam fullscreen branding mode. Safe for all older tenants.
+ALTER TABLE public.app_settings
+  ADD COLUMN IF NOT EXISTS exam_header_display_mode TEXT NOT NULL DEFAULT 'text';
+
+UPDATE public.app_settings
+SET exam_header_display_mode = 'text'
+WHERE exam_header_display_mode IS NULL
+   OR exam_header_display_mode NOT IN ('text', 'banner', 'both');

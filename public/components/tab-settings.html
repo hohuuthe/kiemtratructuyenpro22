@@ -78,6 +78,22 @@
                               <span class="font-normal text-slate-500">Banner máy tính: <strong>1920 × 320 px</strong> (tỷ lệ 6:1)</span>
                             </label>
                           </div>
+                          <div class="student-exam-header-setting" aria-labelledby="student-exam-branding-heading">
+                            <div>
+                              <h5 id="student-exam-branding-heading" class="text-sm font-black text-emerald-900">🖥️ Tiêu đề / Banner khi học sinh làm bài toàn màn hình</h5>
+                              <p class="text-xs text-slate-600 mt-1">Thiết lập riêng cho giao diện bài thi, độc lập với giao diện đầu trang chính. Dùng chung tiêu đề và ảnh banner đã tải ở mục trên.</p>
+                            </div>
+                            <label class="flex flex-col gap-1 text-xs font-bold text-slate-700">
+                              Chế độ trên màn hình làm bài
+                              <select id="settings-exam-header-mode" onchange="previewHeaderBrandingSettings()" class="w-full mt-1 px-3 py-2.5 border border-emerald-200 bg-white rounded-xl text-sm">
+                                <option value="text">Chỉ tiêu đề chữ</option>
+                                <option value="banner">Chỉ hình banner</option>
+                                <option value="both">Tiêu đề chữ + Banner</option>
+                              </select>
+                            </label>
+                            <p id="settings-exam-header-mode-help" role="status" aria-live="polite" class="text-xs text-emerald-800">Màn hình làm bài toàn màn hình sẽ có dòng tiêu đề hệ thống phía trên thông tin thí sinh.</p>
+                            <p class="text-xs text-slate-500">Ưu tiên không gian làm bài: banner thu gọn theo màn hình và không che đồng hồ, câu hỏi, nút Nộp bài. Chế độ có banner cần ảnh máy tính hợp lệ.</p>
+                          </div>
                           <div class="header-banner-size-guide" aria-label="Hướng dẫn tạo banner theo thiết bị">
                             <h5 class="text-sm font-black text-emerald-900">📐 Kích thước banner khuyến nghị</h5>
                             <p class="text-xs text-slate-600">Bạn có thể dùng một banner duy nhất cho mọi thiết bị; để chữ và logo dễ đọc hơn, hãy thêm ảnh riêng cho máy tính bảng hoặc điện thoại.</p>
@@ -92,12 +108,12 @@
                             <label class="flex flex-col gap-1 text-xs font-bold text-slate-700">Banner riêng cho máy tính bảng (không bắt buộc)
                               <input type="file" id="settings-header-banner-tablet-file" accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp" onchange="previewHeaderBrandingSettings()" class="w-full mt-1 text-xs p-2 rounded-xl bg-white border border-emerald-200">
                               <span id="settings-tablet-file-name" class="font-normal text-slate-500">Sử dụng ảnh máy tính khi chưa tải</span>
-                              <button type="button" onclick="clearHeaderBrandingVariant('tablet')" class="header-branding-secondary-button">Bỏ ảnh máy tính bảng</button>
+                              <button type="button" data-header-branding-action="clear-variant" data-device="tablet" class="header-branding-secondary-button">Bỏ ảnh máy tính bảng</button>
                             </label>
                             <label class="flex flex-col gap-1 text-xs font-bold text-slate-700">Banner riêng cho điện thoại (không bắt buộc)
                               <input type="file" id="settings-header-banner-mobile-file" accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp" onchange="previewHeaderBrandingSettings()" class="w-full mt-1 text-xs p-2 rounded-xl bg-white border border-emerald-200">
                               <span id="settings-mobile-file-name" class="font-normal text-slate-500">Sử dụng ảnh máy tính khi chưa tải</span>
-                              <button type="button" onclick="clearHeaderBrandingVariant('mobile')" class="header-branding-secondary-button">Bỏ ảnh điện thoại</button>
+                              <button type="button" data-header-branding-action="clear-variant" data-device="mobile" class="header-branding-secondary-button">Bỏ ảnh điện thoại</button>
                             </label>
                           </div>
                           <input type="hidden" id="settings-banner-tablet-key">
@@ -110,9 +126,9 @@
                             <div>
                               <p class="text-xs font-bold text-emerald-900 mb-2">Xem trước giao diện</p>
                               <div class="header-banner-preview-select" role="group" aria-label="Xem trước theo loại thiết bị">
-                                <button type="button" id="settings-banner-preview-desktop" aria-pressed="true" onclick="selectHeaderBannerPreview('desktop')">🖥️ Máy tính</button>
-                                <button type="button" id="settings-banner-preview-tablet" aria-pressed="false" onclick="selectHeaderBannerPreview('tablet')">📱 Máy tính bảng</button>
-                                <button type="button" id="settings-banner-preview-mobile" aria-pressed="false" onclick="selectHeaderBannerPreview('mobile')">📲 Điện thoại</button>
+                                <button type="button" id="settings-banner-preview-desktop" aria-pressed="true" data-header-branding-action="preview" data-device="desktop">🖥️ Máy tính</button>
+                                <button type="button" id="settings-banner-preview-tablet" aria-pressed="false" data-header-branding-action="preview" data-device="tablet">📱 Máy tính bảng</button>
+                                <button type="button" id="settings-banner-preview-mobile" aria-pressed="false" data-header-branding-action="preview" data-device="mobile">📲 Điện thoại</button>
                               </div>
                               <div id="settings-header-preview-viewport" class="header-banner-preview-viewport" data-device="desktop">
                               <div class="header-branding-preview" aria-label="Xem trước tiêu đề và banner">
@@ -127,9 +143,10 @@
                             <div class="flex flex-col gap-3">
                               <p class="text-xs text-slate-600 leading-relaxed">Banner sẽ được lưu trong <strong>luuhinhnh/banner-he-thong/&lt;tenant&gt;/</strong> trên R2, còn đường dẫn được lưu vào bảng cấu hình của tenant hiện tại. Bản cũ chỉ bị thay đổi khi nhấn <strong>Lưu và áp dụng</strong> thành công.</p>
                               <div class="flex gap-2 flex-wrap">
-                                <button type="button" id="settings-header-save" onclick="saveHeaderBrandingSettings()" class="header-branding-button bg-emerald-700 text-white shadow-sm">💾 Lưu và áp dụng</button>
-                                <button type="button" onclick="clearHeaderBrandingBanner()" class="header-branding-button bg-rose-50 text-rose-700 border border-rose-200">Xóa banner</button>
+                                <button type="button" id="settings-header-save" data-header-branding-action="save" class="header-branding-button bg-emerald-700 text-white shadow-sm">💾 Lưu và áp dụng</button>
+                                <button type="button" data-header-branding-action="clear" class="header-branding-button bg-rose-50 text-rose-700 border border-rose-200">Xóa banner</button>
                               </div>
+                              <p id="settings-header-save-status" role="status" aria-live="polite" class="text-xs font-semibold text-slate-700 min-h-4" data-status="info"></p>
                               <p class="text-[11px] text-slate-500">Thanh menu đầu trang vẫn cố định khi cuộn. Banner được đặt ngay bên dưới, hiển thị thích ứng trên điện thoại; nếu ảnh lỗi, hệ thống hiện tiêu đề chữ thay thế.</p>
                             </div>
                           </div>

@@ -1,5 +1,6 @@
 import { copyToastMessage } from './toast-copy.js';
 import { applyHeaderBranding, populateBrandingSettings, previewHeaderBrandingSettings, clearHeaderBrandingBanner, clearHeaderBrandingVariant, selectHeaderBannerPreview, saveHeaderBrandingSettings } from './header-branding-ui.js';
+import { applyStudentExamHeaderBranding } from './student-exam-header-branding.js';
 import { matchesQuestionBankLevel, countQuestionBankLevels } from './question-bank-level-filter.js';
 import {canDeleteRankingResult} from './ranking-result-delete-policy.js';
 import { isShortAnswerCorrect, parseTF4CorrectAnswer, examFlagEnabled, clampScore, roundScore } from './exam-grading-core.js';
@@ -1581,6 +1582,7 @@ Trả về kết quả dưới dạng JSON Array, mỗi phần tử tương ứn
             displayMode: 'single',
             appTitle: "HỆ THỐNG KIỂM TRA TRỰC TUYẾN",
             headerDisplayMode: 'text',
+            examHeaderDisplayMode: 'text',
             headerBannerUrl: '',
             headerBannerKey: '',
             headerBannerTabletUrl: '',
@@ -3121,6 +3123,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
               questionFontSize:d.question_font_size,answerFontSize:d.answer_font_size,
               displayMode:d.display_mode,appTitle:d.app_title||appSettings.appTitle,
               headerDisplayMode:d.header_display_mode||'text',
+              examHeaderDisplayMode:d.exam_header_display_mode||'text',
               headerBannerUrl:d.header_banner_url||'',
               headerBannerKey:d.header_banner_key||'',
               headerBannerTabletUrl:d.header_banner_tablet_url||'',
@@ -4145,6 +4148,7 @@ if (contentType && contentType.includes("application/json")) {
               appSettings={...appSettings,appTitle:d.app_title||appSettings.appTitle,
                 authorInfo:d.author_info||appSettings.authorInfo,
                 headerDisplayMode:d.header_display_mode||'text',
+                examHeaderDisplayMode:d.exam_header_display_mode||'text',
                 headerBannerUrl:d.header_banner_url||'',
                 headerBannerTabletUrl:d.header_banner_tablet_url||'',
                 headerBannerMobileUrl:d.header_banner_mobile_url||'',
@@ -8824,6 +8828,10 @@ if (contentType && contentType.includes("application/json")) {
             if (examInterface) {
                 examInterface.classList.remove('hidden');
                 examInterface.classList.add('fade-in');
+                // Fullscreen may already have been entered before the server prepared the exam.
+                // The fullscreenchange event then ran while this node was still hidden.
+                // Re-render branding on exam activation, never altering fullscreen/violation state.
+                applyStudentExamHeaderBranding(appSettings);
             }
 
             const elName = document.getElementById('exam-student-name');

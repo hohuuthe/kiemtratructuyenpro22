@@ -1,5 +1,6 @@
 import { DEFAULT_HEADER_TITLE, headerMode, normalizedHeaderBranding } from './header-branding-policy.js';
 import { bannerDimensionFeedback } from './header-banner-dimensions.js';
+import { applyStudentExamHeaderBranding } from './student-exam-header-branding.js';
 
 const find = id => document.getElementById(id);
 const label = text => String(text || '').trim();
@@ -30,7 +31,15 @@ function ensureImageQueryListeners() {
     window.matchMedia(query).addEventListener?.('change',()=>{ if(renderedSettings) applyHeaderBranding(renderedSettings); });
   }
 }
+const feedback = (message, kind = 'info') => {
+  const status = find('settings-header-save-status');
+  if (status) {
+    status.textContent = message;
+    status.dataset.status = kind;
+  }
+};
 const toast = (message, kind = 'info') => {
+  feedback(message, kind);
   if (typeof window.showToast === 'function') window.showToast(message, kind);
 };
 
@@ -49,6 +58,7 @@ function selectedBranding(settings) {
 
 export function applyHeaderBranding(settings) {
   renderedSettings = settings;
+  applyStudentExamHeaderBranding(settings);
   ensureImageQueryListeners();
   const title = find('app-title');
   const banner = find('app-header-banner');
@@ -98,6 +108,8 @@ export function populateBrandingSettings(settings) {
   if (!mode) return;
   const current = selectedBranding(settings);
   mode.value = current.mode;
+  const examMode = find('settings-exam-header-mode');
+  if (examMode) examMode.value = headerMode(settings?.examHeaderDisplayMode ?? settings?.exam_header_display_mode);
   const key = find('settings-banner-key');
   const url = find('settings-banner-url');
   const alt = find('settings-banner-alt');
@@ -143,6 +155,8 @@ export function clearHeaderBrandingVariant(device) {
     clear('tablet'); clear('mobile');
     const mode = find('settings-header-mode');
     if (mode && mode.value !== 'text') mode.value = 'text';
+    const examMode = find('settings-exam-header-mode');
+    if (examMode) examMode.value = 'text';
   }
   previewHeaderBrandingSettings();
   toast(device === 'desktop' ? 'Đã bỏ các banner khỏi cấu hình nháp. Bấm Lưu và áp dụng để xác nhận.'
@@ -197,6 +211,15 @@ function renderBrandingPreview() {
     if(meta) meta.textContent = 'Chưa có ảnh';
     empty.textContent = mode === 'text' ? 'Chế độ chỉ tiêu đề chữ' : 'Chưa chọn banner';
   }
+  const examModeHelp = find('settings-exam-header-mode-help');
+  if (examModeHelp) {
+    const examMode = headerMode(find('settings-exam-header-mode')?.value);
+    examModeHelp.textContent = examMode === 'text'
+      ? 'Màn hình làm bài toàn màn hình sẽ có dòng tiêu đề hệ thống phía trên thông tin thí sinh.'
+      : examMode === 'banner'
+        ? 'Màn hình làm bài toàn màn hình sẽ dùng banner. Nếu ảnh lỗi, tiêu đề chữ tự xuất hiện thay thế.'
+        : 'Màn hình làm bài toàn màn hình sẽ hiển thị cả tiêu đề chữ và banner.';
+  }
   for(const device of devices) {
     const caption = find(device === 'desktop' ? 'settings-header-file-name' : 'settings-'+device+'-file-name');
     if (caption) caption.textContent = fileInput(device)?.files?.[0]?.name ||
@@ -236,10 +259,15 @@ async function readImageAsDataUrl(file) {
 
 export async function saveHeaderBrandingSettings(settings, refreshHeader) {
   const saveButton = find('settings-header-save');
-  if (!saveButton || saveButton.disabled || !find('settings-header-mode')) return;
+  if (!saveButton || saveButton.disabled) return;
+  if (!find('settings-header-mode')) {
+    feedback('Không tìm thấy biểu mẫu banner. Hãy mở lại tab Cấu hình.', 'error');
+    return;
+  }
   const draft = {
     app_title: label(find('settings-app-title')?.value),
     header_display_mode: headerMode(find('settings-header-mode').value),
+    exam_header_display_mode: headerMode(find('settings-exam-header-mode')?.value),
     header_banner_key: find('settings-banner-key')?.value || '',
     header_banner_url: find('settings-banner-url')?.value || '',
     header_banner_tablet_key: find('settings-banner-tablet-key')?.value || '',
@@ -264,17 +292,19 @@ export async function saveHeaderBrandingSettings(settings, refreshHeader) {
       return;
     }
   }
-  if (draft.header_display_mode !== 'text' && !files.desktop && !draft.header_banner_url) {
+  if ((draft.header_display_mode !== 'text' || draft.exam_header_display_mode !== 'text') && !files.desktop && !draft.header_banner_url) {
     toast('Vui lòng tải ảnh banner trước khi chọn chế độ có hình.', 'error');
     return;
   }
   saveButton.disabled = true;
   const originalText = saveButton.textContent;
   saveButton.textContent = 'Đang lưu cấu hình...';
+  feedback('Đang kiểm tra và tải banner lên hệ thống...', 'info');
   try {
     for (const device of devices) {
       const file = files[device];
       if (!file) continue;
+      feedback('Đang tải ảnh banner ' + device + '...', 'info');
       const base64 = await readImageAsDataUrl(file);
       const upload = await requestJson('POST', { base64 });
       const prefix = device === 'desktop' ? 'header_banner_' : 'header_banner_' + device + '_';
@@ -286,6 +316,7 @@ export async function saveHeaderBrandingSettings(settings, refreshHeader) {
     Object.assign(settings, {
       appTitle: committed.app_title,
       headerDisplayMode: committed.header_display_mode,
+      examHeaderDisplayMode: committed.exam_header_display_mode,
       headerBannerUrl: committed.header_banner_url,
       headerBannerKey: committed.header_banner_key,
       headerBannerTabletUrl: committed.header_banner_tablet_url,
@@ -304,4 +335,30 @@ export async function saveHeaderBrandingSettings(settings, refreshHeader) {
     saveButton.disabled = false;
     saveButton.textContent = originalText;
   }
+}
+
+// The settings tab is injected asynchronously: delegate actions to the persistent document.
+// Avoid relying on inline onclick globals being available when the tab becomes visible.
+if (typeof document !== 'undefined') {
+  document.addEventListener('click', event => {
+    const button = event.target?.closest?.('[data-header-branding-action]');
+    if (!button) return;
+    const action = button.dataset.headerBrandingAction;
+    if (action === 'save') {
+      const settings = window.appSettings;
+      if (typeof window.saveHeaderBrandingSettings === 'function') {
+        Promise.resolve().then(() => window.saveHeaderBrandingSettings()).catch(error => {
+          toast(error?.message || 'Không thể bắt đầu lưu banner.', 'error');
+        });
+      } else {
+        saveHeaderBrandingSettings(settings || {}, window.refreshAppHeaderTitle);
+      }
+    } else if (action === 'clear') {
+      clearHeaderBrandingBanner();
+    } else if (action === 'clear-variant') {
+      clearHeaderBrandingVariant(button.dataset.device);
+    } else if (action === 'preview') {
+      selectHeaderBannerPreview(button.dataset.device);
+    }
+  });
 }
