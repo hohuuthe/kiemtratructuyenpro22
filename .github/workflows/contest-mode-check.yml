@@ -24,6 +24,10 @@ on:
       - '.github/workflows/contest-mode-check.yml'
   workflow_dispatch:
 
+concurrency:
+  group: contest-release-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   verify-contest:
     name: Syntax, legacy regression, types and production build
