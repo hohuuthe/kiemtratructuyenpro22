@@ -161,18 +161,31 @@ try {
   for(const item of files){
     check('Actual browser export '+item.name,!item.error && item.size>500,'size='+item.size+' '+(item.error||''));
     if(!item.error){
-      const pending=page.waitForEvent('download',{timeout:30000});
+      // A trusted browser click is required for blob downloads in Chromium.
+      // A synthetic DOM click can silently be suppressed without a download event.
+      const downloadSelector='a[data-qa-download="'+item.name+'"]';
       await page.evaluate(name=>{
         const link=document.createElement('a');
         link.href=URL.createObjectURL(window.__qaExports[name]);
         link.download='sample.'+name;
+        link.dataset.qaDownload=name;
+        link.textContent='Download QA '+name;
+        link.style.cssText='position:fixed;top:0;left:0;z-index:2147483647;background:white;color:black';
         document.body.appendChild(link);
-        link.click();
-        link.remove();
       },item.name);
-      const download=await pending;
-      await download.saveAs(root+'/sample.'+item.name);
-      report.files.push('sample.'+item.name);
+      try {
+        const [download]=await Promise.all([
+          page.waitForEvent('download',{timeout:30000}),
+          page.locator(downloadSelector).click({timeout:15000})
+        ]);
+        await download.saveAs(root+'/sample.'+item.name);
+        report.files.push('sample.'+item.name);
+      } finally {
+        await page.evaluate(name=>{
+          const link=document.querySelector('a[data-qa-download="'+name+'"]');
+          if(link){URL.revokeObjectURL(link.href);link.remove();}
+        },item.name).catch(()=>{});
+      }
     }
   }
   // Inspect the ACTUAL downloaded browser DOCX, rather than trusting size.
