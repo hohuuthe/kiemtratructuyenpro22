@@ -3807,6 +3807,13 @@ async function startServer() {
           header = {...header,...(scope.results?.[0]||{})};
         } catch { /* Legacy tenant defaults to both modes. */ }
       }
+      // Optional, tenant-scoped fullscreen header mode; legacy DBs remain text-only.
+      let examHeaderMode = 'text';
+      try {
+        const r = await executeSqlQuery('SELECT exam_header_display_mode FROM app_settings WHERE id = 1', []);
+        const v = r.results?.[0]?.exam_header_display_mode;
+        if (['text','banner','both'].includes(v)) examHeaderMode = v;
+      } catch { /* Safe legacy default. */ }
       const brand = normalizedHeaderBranding(header);
       res.set('Cache-Control','private, no-store, max-age=0');
       return res.json({data:{
@@ -3822,6 +3829,7 @@ async function startServer() {
         sq_punctuation_sensitive:row.sq_punctuation_sensitive??false,
         qr_code_url:row.qr_code_url||'',
         header_display_mode:brand.mode,
+        exam_header_display_mode:examHeaderMode,
         header_banner_scope:brand.scope,
         header_banner_url:brand.url,
         header_banner_tablet_url:brand.tabletUrl,
