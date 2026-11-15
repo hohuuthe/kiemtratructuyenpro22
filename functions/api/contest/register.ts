@@ -102,12 +102,20 @@ export const onRequestPost: PagesFunction = async (context: any) => {
   if (!db) return respond({error:'Không thể kết nối cơ sở dữ liệu.'},503);
   try {
     if (!(await isContestEnabled(db))) return respond({error:'Cổng cuộc thi chưa được kích hoạt.'},403);
-    const rate = await consumeSecurityAttempt(db,context.request,'contest-registration','public',{
-      maxAttempts: 10,windowMs: 10*60*1000,blockMs: 15*60*1000
+    // Schools can have hundreds of contestants behind a single NAT IP.
+    // A coarse IP cap protects the edge without blocking a whole school at 10 entries.
+    const ipRate = await consumeSecurityAttempt(db,context.request,'contest-registration-ip','public',{
+      maxAttempts: 1500,windowMs: 10*60*1000,blockMs: 15*60*1000
     });
-    if (!rate.allowed) return respond({error:'Có quá nhiều lượt đăng ký. Vui lòng thử lại sau.'},429);
+    if (!ipRate.allowed) return respond({error:'Cổng đăng ký đang nhận quá nhiều yêu cầu từ mạng này. Vui lòng thử lại sau.'},429);
     const body = await context.request.json();
     const v = validate(body);
+    // Independently throttle repeated attempts using one phone number and exam.
+    // The rate-limit helper stores a SHA-256 digest, never raw contact details.
+    const phoneRate = await consumeSecurityAttempt(db,context.request,'contest-registration-phone',v.phone+':'+v.examId,{
+      maxAttempts: 6,windowMs: 10*60*1000,blockMs: 15*60*1000
+    });
+    if (!phoneRate.allowed) return respond({error:'Thông tin đăng ký này được gửi quá nhiều lần. Vui lòng thử lại sau.'},429);
     const exam = await publicContestExam(db,v.examId);
     if (!exam) return respond({error:'Cuộc thi không được công bố hoặc đã bị thu hồi.'},403);
     const access = evaluateExamAccessWindow(exam,Date.now());
