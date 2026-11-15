@@ -14,13 +14,6 @@ const headers = {
 export const respond = (data: any, status = 200) =>
   new Response(JSON.stringify(data), {status, headers});
 
-export async function isContestEnabled(db: any): Promise<boolean> {
-  const row: any = await db.prepare(
-    'SELECT application_mode FROM app_settings WHERE id = 1'
-  ).first();
-  return row?.application_mode === CONTEST_MODE;
-}
-
 export async function publicContestExam(db: any, id: string): Promise<any | null> {
   if (!id) return null;
   return db.prepare(`
@@ -101,7 +94,6 @@ export const onRequestPost: PagesFunction = async (context: any) => {
   const db = getDatabase(context);
   if (!db) return respond({error:'Không thể kết nối cơ sở dữ liệu.'},503);
   try {
-    if (!(await isContestEnabled(db))) return respond({error:'Cổng cuộc thi chưa được kích hoạt.'},403);
     // Schools can have hundreds of contestants behind a single NAT IP.
     // A coarse IP cap protects the edge without blocking a whole school at 10 entries.
     const ipRate = await consumeSecurityAttempt(db,context.request,'contest-registration-ip','public',{
