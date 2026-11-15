@@ -406,7 +406,7 @@ test('smart board tab is open to logged users while creation is VIP-only',()=>{
   assert.match(main,/tabName === 'boards' && currentUser/);
   assert.doesNotMatch(main,/showInteractiveBoardVipRequiredModal/);
   assert.doesNotMatch(main,/tabName === 'boards'[\s\S]{0,300}!canUseInteractiveBoardVip/);
-  assert.match(ui,/canCreateBoard=isAdmin\|\|\(isTeacher&&vipFlag\(actor\?\.is_vip\)\)/);
+  assert.match(ui,/canCreateBoard=!isStudent&&\(isAdmin\|\|\(isTeacher&&vipFlag\(actor\?\.is_vip\)\)\)/);
   assert.match(ui,/boards-new'[\s\S]*!manage/);
   assert.match(ui,/b\.can_manage\?'<button data-board-edit/);
   assert.match(ui,/Bạn chỉ được sửa bảng do mình tạo/);
@@ -540,7 +540,9 @@ test('image proxy only serves configured immutable R2 image origins',()=>{
   assert.match(proxy,/contentType\.startsWith\('image\/'\)/);
   assert.match(proxy,/12\*1024\*1024/);
   assert.match(proxy,/max-age=31536000, immutable/);
-  assert.doesNotMatch(genericProxy,/CLOUDFLARE_R2_PUBLIC_URL/);
+  assert.match(genericProxy,/CLOUDFLARE_R2_PUBLIC_URL/);
+  assert.match(genericProxy,/bases\.some/);
+  assert.match(genericProxy,/url\.protocol!=='https:'/);
   assert.match(ui,/\/api\/board\/image-proxy\?url=/);
   const router=fs.readFileSync('functions/[slug]/api/[[path]].ts','utf8');
   assert.match(router,/'board\/image-proxy': boardImageProxy/);
