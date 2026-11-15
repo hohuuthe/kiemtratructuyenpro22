@@ -99,7 +99,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
       }
       const row: any = results[0];
       // Private/draft contests must not be discoverable through the legacy public endpoint.
-      if (row.chedodethi === 'Cuộc thi trực tuyến' && !isAdmin && !isTeacher) {
+      if (row.chedodethi === 'Cuộc thi trực tuyến' && !isExamOwner(user,row)) {
         let contestActive = false;
         try {
           const modeRow: any = await db.prepare('SELECT application_mode FROM app_settings WHERE id = 1').first();
@@ -150,6 +150,9 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
       // teacher to enumerate another teacher's exam titles.
       if (isTeacher && !isExamOwner(user,row))
         return new Response(JSON.stringify({data:null,error:'Giáo viên chỉ được truy cập đề thi do mình tạo'}),{status:403,headers:corsHeaders});
+      if (row.chedodethi === 'Cuộc thi trực tuyến' && !isExamOwner(user,row)) {
+        return new Response(JSON.stringify({data:null,error:'Không có quyền tra cứu cấu hình cuộc thi qua mã chia sẻ.'}),{status:403,headers:corsHeaders});
+      }
       const isShared = row.is_shared_results === 1 || row.is_shared_results === true || row.is_shared_results === 'true';
       if (!isShared && !isAdmin) {
         return new Response(JSON.stringify({ data: null, error: "Đề thi này không được phép chia sẻ kết quả" }), { status: 403, headers: corsHeaders });
