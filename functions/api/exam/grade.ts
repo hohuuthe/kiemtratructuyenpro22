@@ -1,6 +1,7 @@
 import { verifyAuthSession, verifyJWT, getDynamicSecret, hashToken, getDatabase } from './utils';
 import { evaluateTF4, isShortAnswerCorrect, examFlagEnabled, clampScore, roundScore, validateQuestionAnswer } from '../../../src/exam-grading-core.js';
 import { EXAM_SESSION_PURPOSE_PRESTART, EXAM_SESSION_PURPOSE_ACTIVE, resolveAuthoritativeExamTiming } from '../../../src/exam-time-authority.js';
+import { stripContestAnswerHints } from '../../../src/exam-public-contest-projection';
 
 interface Env {
   NEON_DATABASE_URL?: string;
@@ -35,8 +36,8 @@ const normalizeType = (type: any): string => {
     return String(type || '4-1');
 };
 
-function sanitizeGradingDetailForClient(detail: any, showDetails: boolean): any {
-    if (showDetails) return detail;
+function sanitizeGradingDetailForClient(detail: any, showDetails: boolean, isContest = false): any {
+    if (showDetails && !isContest) return detail;
     const { correctAnswer, aiFeedback, isCorrect, correctStatements, ...safeD } = detail || {};
     const question = safeD.question && typeof safeD.question === 'object' ? safeD.question : {};
     const { answer, ...safeQuestion } = question;
@@ -45,7 +46,7 @@ function sanitizeGradingDetailForClient(detail: any, showDetails: boolean): any 
         safeQuestion.options = safeOptions;
     }
     safeD.question = safeQuestion;
-    return safeD;
+    return isContest ? stripContestAnswerHints(safeD) : safeD;
 }
 
 function hasPendingEssayGrading(details: any[]): boolean {
@@ -252,7 +253,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                             false
                         );
                         const replayDetails = storedDetails.map((d: any) =>
-                            sanitizeGradingDetailForClient(d, replayShowDetails)
+                            sanitizeGradingDetailForClient(d, replayShowDetails, Boolean(contestParticipantId))
                         );
                         await releaseActiveAttemptLock();
                         return new Response(JSON.stringify({
@@ -976,7 +977,7 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
                             false
                         );
                         const safeDetails = storedDetails.map((d: any) =>
-                            sanitizeGradingDetailForClient(d, showDetailsOnReplay)
+                            sanitizeGradingDetailForClient(d, showDetailsOnReplay, Boolean(contestParticipantId))
                         );
                         const replayGradingPending = hasPendingEssayGrading(storedDetails);
                         await releaseActiveAttemptLock();
@@ -1147,7 +1148,7 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
         // BẢO MẬT: Nếu cấu hình không cho xem chi tiết đáp án, loại bỏ hoàn toàn correctAnswer và ảnh đáp án trước khi trả về client
         const shouldShowDetails = examFlagEnabled(examConfig.showDetails ?? examConfig.show_details, false);
         const clientDetailedResults = detailedResults.map((d: any) =>
-            sanitizeGradingDetailForClient(d, shouldShowDetails)
+            sanitizeGradingDetailForClient(d, shouldShowDetails, Boolean(contestParticipantId))
         );
 
         return new Response(JSON.stringify({
