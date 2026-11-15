@@ -1,3 +1,4 @@
+import './contest-mobile-performance.css';
 // Public contest experience is strictly opt-in per tenant.
 // Uses existing student exam engine (selection, READY, START, scoring) unchanged.
 function findEl(id){ return document.getElementById(id); }
