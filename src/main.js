@@ -9006,6 +9006,9 @@ if (contentType && contentType.includes("application/json")) {
             }
 
             const isResumedContest = data.isContestAttempt === true;
+            // Set the owner before calling switchTab: a resumed attempt already
+            // has a server start time and must never trigger the "cancel exam" guard.
+            window.__activeStudentExamTab = isResumedContest ? 'contest' : 'exam';
             try { switchTab(isResumedContest ? 'contest' : 'exam'); } catch(e) {}
             const nameInput = document.getElementById('guest_data_1');
             const lopInput = document.getElementById('guest_data_lop') || document.getElementById('guest_data_2');
