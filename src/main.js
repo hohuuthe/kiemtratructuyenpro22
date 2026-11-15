@@ -9362,6 +9362,13 @@ if (contentType && contentType.includes("application/json")) {
                         showToast('Đề thi đã thay đổi. Vui lòng chọn và tải lại đề thi.', 'warning');
                         return;
                     }
+                    // Never start the server clock unless the public contest's
+                    // exam interface can be displayed. Otherwise a lazy-load failure
+                    // would consume a registered candidate's time unfairly.
+                    if (window.__contestTicket && !window.__contestCanShowExam?.()) {
+                        showToast('Giao diện cuộc thi chưa sẵn sàng. Vui lòng thử lại trước khi bắt đầu tính giờ.', 'error');
+                        return;
+                    }
 
                     // Yêu cầu fullscreen phải phát sinh trực tiếp từ click; sau đó mới await server.
                     if (typeof window.enterExamFullscreen === 'function') {
