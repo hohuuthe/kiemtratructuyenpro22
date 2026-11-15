@@ -154,6 +154,7 @@ window.__contestOnExamSubmitted=function(){
   // Discard registration PII from the DOM after it has served its purpose.
   // Do not clear the authenticated student's separate verified profile.
   findEl('contest-registration-form')?.reset();
+  window.__contestRefreshProfile?.();
   // Registered students retain ONLY their verified school profile.
   // The guest contestant's declared identity must never survive in school form.
   const profile=window.currentUser;
@@ -225,6 +226,14 @@ function setupSettings(mode) {
     }
   };
 }
+function contestAuthToken(){
+  try {return localStorage.getItem(window.tenantStorageKey('auth_token')) || '';}
+  catch {return '';}
+}
+function contestIdentityFields(form){
+  return ['ho_ten','don_vi','so_dien_thoai','dia_chi','so_cccd']
+    .map(name=>form.elements.namedItem(name)).filter(Boolean);
+}
 async function runContestEntry(){
   const form=findEl('contest-registration-form');
   const select=findEl('contest-exam-picker');
@@ -233,6 +242,63 @@ async function runContestEntry(){
   const meta=findEl('contest-exam-meta');
   const startButton=findEl('contest-register-submit');
   const entries=new Map();
+  let profileToken=null, profileMode='guest', profileGeneration=0, hasSchoolProfile=false;
+  function applySchoolProfile(profile){
+    for(const input of contestIdentityFields(form)){
+      if(profile) input.value=String(profile[input.name]||'');
+      else if(hasSchoolProfile) input.value='';
+      input.readOnly=Boolean(profile);
+      // Browser validation cannot demand empty, read-only school profile fields.
+      input.required=!profile && ['ho_ten','don_vi','so_dien_thoai'].includes(input.name);
+      input.classList.toggle('bg-slate-100',Boolean(profile));
+      input.classList.toggle('text-slate-600',Boolean(profile));
+      input.setAttribute('aria-readonly',String(Boolean(profile)));
+    }
+    const phone=form.elements.namedItem('so_dien_thoai');
+    if(phone)phone.required=!profile;
+    const studentClass=form.elements.namedItem('lop');
+    if(studentClass)studentClass.value=profile ? String(profile.lop||'') : '';
+    findEl('contest-student-class-row')?.classList.toggle('hidden',!profile);
+    findEl('contest-verified-profile-note')?.classList.toggle('hidden',!profile);
+    hasSchoolProfile=Boolean(profile);
+  }
+  async function syncSchoolProfile(force=false){
+    const token=contestAuthToken();
+    if(!force && token===profileToken)return profileMode!=='invalid';
+    const generation=++profileGeneration;
+    profileToken=token;
+    if(!token){applySchoolProfile(null);profileMode='guest';hideError();return true;}
+    profileMode='loading';
+    try{
+      const response=await fetchJson('/api/contest/register',{headers:{Authorization:'Bearer '+token}});
+      if(generation!==profileGeneration||token!==contestAuthToken())return false;
+      if(response?.data?.authenticated){
+        if(!response.data.profile)throw new Error('Không nhận được hồ sơ học sinh đã xác minh.');
+        applySchoolProfile(response.data.profile);
+        profileMode='verified';
+      }else{
+        applySchoolProfile(null);
+        profileMode='guest';
+      }
+      hideError();
+      return true;
+    }catch(error){
+      if(generation!==profileGeneration||token!==contestAuthToken())return false;
+      applySchoolProfile(null);profileMode='invalid';
+      showError(error?.message||'Không thể xác minh tài khoản. Vui lòng đăng nhập lại.');
+      return false;
+    }
+  }
+  // Account switches may happen without reloading the contest component.
+  setInterval(()=>{
+    if(!document.hidden&&findEl('tab-contest')?.classList.contains('active')&&contestAuthToken()!==profileToken)
+      void syncSchoolProfile();
+  },1200);
+  window.addEventListener('storage',event=>{
+    if(event.key===window.tenantStorageKey('auth_token'))void syncSchoolProfile();
+  });
+  window.__contestRefreshProfile=()=>syncSchoolProfile(true);
+  void syncSchoolProfile();
   function describe(){
     const row=entries.get(select.value);
     if(!row){if(meta)meta.textContent='Chọn cuộc thi để xem thông tin.';return;}
@@ -287,19 +353,30 @@ async function runContestEntry(){
     if(!chosen){showError('Vui lòng chọn cuộc thi hợp lệ.');return;}
     if(startButton){startButton.disabled=true;startButton.textContent='Đang xác minh thông tin và chuẩn bị đề thi...';}
     try{
+      if(!await syncSchoolProfile(true)||profileMode==='invalid')
+        throw new Error('Chưa xác minh được tài khoản. Vui lòng đăng nhập lại.');
+      const token=contestAuthToken();
       const values=Object.fromEntries(new FormData(form).entries());
       const enrollment=await fetchJson('/api/contest/register',{
-        method:'POST',headers:{'Content-Type':'application/json'},
+        method:'POST',headers:{
+          'Content-Type':'application/json',
+          ...(token ? {Authorization:'Bearer '+token} : {})
+        },
         body:JSON.stringify({...values,dong_y:values.dong_y==='on'})
       });
+      if(token!==contestAuthToken())throw new Error('Tài khoản đã thay đổi. Vui lòng đăng ký lại.');
       if(!enrollment?.data?.ticket)throw new Error('Máy chủ chưa xác nhận đăng ký.');
       // Reuse the already-tested exam engine's exact DOM IDs, with the teacher
       // selected from server metadata (never required from the participant).
       const inputName=findEl('guest_data_1'),inputUnit=findEl('guest_data_donvi'),inputClass=findEl('guest_data_lop');
       if(!inputName||!inputUnit||!inputClass)throw new Error('Giao diện làm bài chưa tải đầy đủ.');
       inputName.value=String(values.ho_ten||'');
-      inputUnit.value=String(values.don_vi||'');
-      inputClass.value='';
+      // The shared school exam engine historically requires a nonempty class or
+      // unit. This local display-only fallback does not modify verified identity:
+      // contest registration and grading use the server-owned participant record.
+      inputUnit.value=String(values.don_vi||'') ||
+        (profileMode==='verified' && !String(values.lop||'').trim() ? 'Chưa cập nhật đơn vị' : '');
+      inputClass.value=profileMode==='verified' ? String(form.elements.namedItem('lop')?.value||'') : '';
       const teacher=findEl('student-teacher-filter'),exam=findEl('student-exam-name-filter');
       if(!teacher||!exam)throw new Error('Không tìm thấy bộ chọn đề thi trong ứng dụng.');
       teacher.replaceChildren(new Option('Đơn vị tổ chức',String(chosen.creator_id)));

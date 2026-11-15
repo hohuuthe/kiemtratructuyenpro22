@@ -5,6 +5,7 @@
       <header class="contest-registration-head bg-gradient-to-r from-slate-900 via-teal-900 to-emerald-800 px-4 py-3 sm:px-6 sm:py-4 text-white">
         <h2 id="contest-heading" class="text-lg sm:text-2xl font-black leading-tight">Đăng ký tham gia cuộc thi</h2>
         <p class="contest-registration-hint mt-1 text-xs sm:text-sm text-teal-100 leading-snug">Điền thông tin và chọn cuộc thi để bắt đầu.</p>
+        <p id="contest-verified-profile-note" class="hidden mt-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs sm:text-sm font-semibold text-emerald-900" role="status">Thông tin học sinh được lấy từ tài khoản đã đăng nhập và khóa chỉnh sửa. Nếu có sai sót, hãy liên hệ quản trị viên cập nhật hồ sơ.</p>
       </header>
       <form id="contest-registration-form" class="p-3 sm:p-5 lg:p-6" autocomplete="on">
         <div class="contest-registration-scroll" role="region" aria-label="Thông tin đăng ký dự thi" tabindex="0">
@@ -16,6 +17,10 @@
           <label class="block min-w-0">
             <span class="block text-xs sm:text-sm font-semibold text-slate-700 mb-1">Đơn vị / Cơ quan / Trường học <span class="text-red-600">*</span></span>
             <input name="don_vi" required maxlength="180" placeholder="Nhập tên đơn vị" class="w-full min-w-0 min-h-11 rounded-lg border border-slate-300 px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+          </label>
+          <label id="contest-student-class-row" class="hidden block min-w-0">
+            <span class="block text-xs sm:text-sm font-semibold text-slate-700 mb-1">Lớp học sinh</span>
+            <input name="lop" readonly maxlength="100" autocomplete="off" class="w-full min-w-0 min-h-11 rounded-lg border border-slate-300 bg-slate-100 text-slate-600 px-3 py-2 text-base" />
           </label>
           <label class="block min-w-0">
             <span class="block text-xs sm:text-sm font-semibold text-slate-700 mb-1">Số điện thoại <span class="text-red-600">*</span></span>
