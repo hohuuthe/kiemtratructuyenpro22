@@ -1,6 +1,8 @@
 // Pages catch-all for /:slug/api/*, retaining the original URL for authoritative
 // tenant routing. Never honor a user-provided X-Tenant-Slug as database authority.
 import { resolveTenantRoutingFromRequest } from '../../../src/tenant-host-map';
+import * as contestExams from '../../api/contest/exams';
+import * as contestRegister from '../../api/contest/register';
 import * as r0 from '../../api/accounts-page';
 import * as r1 from '../../api/accounts';
 import * as r2 from '../../api/accounts/clean-schema';
@@ -46,6 +48,8 @@ import * as accountId from '../../api/accounts/[id]';
 import * as userId from '../../api/users/[id]';
 
 const handlers: Record<string, any> = {
+  'contest/exams': contestExams,
+  'contest/register': contestRegister,
   'accounts-page': r0,
   'accounts': r1,
   'accounts/clean-schema': r2,
