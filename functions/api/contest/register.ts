@@ -35,7 +35,7 @@ const encoder = new TextEncoder();
 function base64url(bytes: Uint8Array) {
   let binary = '';
   for (const b of bytes) binary += String.fromCharCode(b);
-  return btoa(binary).replace(/=/g,'').replace(/\\+/g,'-').replace(/\\//g,'_');
+  return btoa(binary).replace(/=/g,'').replace(/\+/g,'-').replace(/\//g,'_');
 }
 async function hmac(secret: string, plain: string): Promise<string> {
   const key = await crypto.subtle.importKey('raw',encoder.encode(secret),{name:'HMAC',hash:'SHA-256'},false,['sign']);
@@ -53,13 +53,13 @@ async function encryptPrivate(secret: string, value: string): Promise<string | n
   return 'v1.' + base64url(iv) + '.' + base64url(new Uint8Array(ciphertext));
 }
 function validate(body: any) {
-  const name = String(body?.ho_ten || '').normalize('NFKC').trim().replace(/\\s+/g,' ');
-  const unit = String(body?.don_vi || '').normalize('NFKC').trim().replace(/\\s+/g,' ');
+  const name = String(body?.ho_ten || '').normalize('NFKC').trim().replace(/\s+/g,' ');
+  const unit = String(body?.don_vi || '').normalize('NFKC').trim().replace(/\s+/g,' ');
   const address = String(body?.dia_chi || '').normalize('NFKC').trim();
-  const phone = String(body?.so_dien_thoai || '').replace(/[\\s.()-]/g,'');
+  const phone = String(body?.so_dien_thoai || '').replace(/[\s.()-]/g,'');
   const citizen = String(body?.so_cccd || '').trim();
   if (!name || name.length > 120 || !unit || unit.length > 180 ||
-      address.length > 300 || !/^(?:\\+84|0)[0-9]{9,10}$/.test(phone) ||
+      address.length > 300 || !/^(?:\+84|0)[0-9]{9,10}$/.test(phone) ||
       (citizen && !/^[0-9]{12}$/.test(citizen))) {
     throw new Error('Thông tin dự thi không hợp lệ. Kiểm tra họ tên, đơn vị và số điện thoại.');
   }
@@ -129,7 +129,7 @@ export const onRequestPost: PagesFunction = async (context: any) => {
       const done: any = await db.prepare(
         'SELECT COUNT(*) AS count FROM results WHERE exam_id = ? AND ma_nguoi_du_thi = ?'
       ).bind(exam.id,candidateId).first();
-      if (Number(done?.count)||0 >= maxAttempts) {
+      if ((Number(done?.count) || 0) >= maxAttempts) {
         return respond({code:'EXAM_ATTEMPT_LIMIT_REACHED',error:'Bạn đã hết số lượt tham gia cuộc thi này.'},403);
       }
     }
