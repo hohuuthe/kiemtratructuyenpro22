@@ -90,6 +90,57 @@ export function applyStudentExamHeaderBranding(settings) {
   }
 }
 
+let configRequested = false;
+let rootObserver = null;
+let hydrationObserver = null;
+
+/** Main app uses a legacy explicit settings projection. Read the new optional
+ * field independently until that projection is upgraded, without changing
+ * the student exam engine. No candidate PII or grading data is requested.
+ */
+export function initializeStudentExamHeaderBranding(settings) {
+  if (typeof document === 'undefined') return;
+  lastSettings = settings || lastSettings;
+  const watchRoot = () => {
+    const root = document.getElementById('exam-interface');
+    if (!root || rootObserver) return Boolean(root);
+    rootObserver = new MutationObserver(() => {
+      if (lastSettings) applyStudentExamHeaderBranding(lastSettings);
+    });
+    rootObserver.observe(root, { attributes: true, attributeFilter: ['class'] });
+    if (lastSettings) applyStudentExamHeaderBranding(lastSettings);
+    return true;
+  };
+  if (!watchRoot() && !hydrationObserver) {
+    hydrationObserver = new MutationObserver(() => {
+      if (watchRoot()) {
+        hydrationObserver.disconnect();
+        hydrationObserver = null;
+      }
+    });
+    hydrationObserver.observe(document.documentElement, { childList: true, subtree: true });
+  }
+  if (configRequested) return;
+  configRequested = true;
+  // Independent fullscreen mode uses only the public, tenant-scoped bootstrap.
+  void fetch('/api/bootstrap', { cache:'no-store' }).then(r => {
+    if (!r.ok) throw new Error('Fullscreen branding bootstrap unavailable');
+    return r.json();
+  }).then(body => {
+    const mode = body?.data?.exam_header_display_mode;
+    if (!['text', 'banner', 'both'].includes(mode)) return;
+    if (lastSettings && lastSettings.examHeaderDisplayMode === undefined) {
+      lastSettings.examHeaderDisplayMode = mode;
+      applyStudentExamHeaderBranding(lastSettings);
+      // The settings tab may be opened after hydration; populate on load.
+      const picker = document.getElementById('settings-exam-header-mode');
+      if (picker) picker.value = mode;
+    }
+  }).catch(() => {
+    // Legacy tenants or transient read failures remain text-only.
+  });
+}
+
 if (typeof document !== 'undefined') {
   document.addEventListener('fullscreenchange', () => {
     if (lastSettings) applyStudentExamHeaderBranding(lastSettings);
