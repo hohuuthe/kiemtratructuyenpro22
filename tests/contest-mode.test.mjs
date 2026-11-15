@@ -466,3 +466,21 @@ test('Student and guest registration validation keep separate phone requirements
  assert.equal(validate(data,true).phone,'');
  assert.throws(()=>validate(data,false),/Thông tin dự thi không hợp lệ/);
 });
+
+
+test('Incomplete verified school profiles never require filling locked fields',async()=>{
+ const {validate}=await import('../functions/api/contest/register.ts');
+ const payload={ho_ten:'',don_vi:'',so_dien_thoai:'',dia_chi:'',so_cccd:'',
+   ma_de_thi:'contest1',dong_y:true};
+ assert.equal(validate(payload,true).name,'');
+ assert.equal(validate(payload,true).unit,'');
+ assert.equal(validate(payload,true).phone,'');
+ assert.throws(()=>validate(payload,false),/Thông tin dự thi không hợp lệ/);
+ const register=source('functions/api/contest/register.ts');
+ assert.doesNotMatch(register,/Hồ sơ học sinh chưa có họ tên hoặc đơn vị/);
+ assert.match(register,/row\?\.full_name \|\| user\.full_name \|\| user\.username/);
+ const ui=source('src/contest-mode-ui.js');
+ assert.match(ui,/input\.required=!profile && \['ho_ten','don_vi','so_dien_thoai'\]/);
+ assert.match(ui,/profileMode==='verified' && !String\(values\.lop\|\|''\)\.trim\(\) \? 'Chưa cập nhật đơn vị'/);
+ assert.match(ui,/window\.__contestRefreshProfile=\(\)=>syncSchoolProfile\(true\)/);
+});
