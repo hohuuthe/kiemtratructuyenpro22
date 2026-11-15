@@ -1,5 +1,6 @@
 import { DEFAULT_HEADER_TITLE, headerMode, normalizedHeaderBranding, bannerScope, bannerShownForMode } from './header-branding-policy.js';
 import { bannerDimensionFeedback } from './header-banner-dimensions.js';
+import { applyStudentExamHeaderBranding, initializeStudentExamHeaderBranding } from './student-exam-header-branding.js';
 
 const find = id => document.getElementById(id);
 const label = text => String(text || '').trim();
@@ -55,6 +56,8 @@ function selectedBranding(settings) {
 
 export function applyHeaderBranding(settings) {
   renderedSettings = settings;
+  initializeStudentExamHeaderBranding(settings);
+  applyStudentExamHeaderBranding(settings);
   ensureImageQueryListeners();
   const title = find('app-title');
   const banner = find('app-header-banner');
@@ -104,6 +107,8 @@ export function populateBrandingSettings(settings) {
   if (!mode) return;
   const current = selectedBranding(settings);
   mode.value = current.mode;
+  const examMode = find('settings-exam-header-mode');
+  if (examMode) examMode.value = headerMode(settings?.examHeaderDisplayMode ?? settings?.exam_header_display_mode);
   if (find('settings-banner-scope')) find('settings-banner-scope').value = current.scope;
   const key = find('settings-banner-key');
   const url = find('settings-banner-url');
@@ -150,6 +155,7 @@ export function clearHeaderBrandingVariant(device) {
     clear('tablet'); clear('mobile');
     const mode = find('settings-header-mode');
     if (mode && mode.value !== 'text') mode.value = 'text';
+    if (find('settings-exam-header-mode')) find('settings-exam-header-mode').value = 'text';
   }
   previewHeaderBrandingSettings();
   toast(device === 'desktop' ? 'Đã bỏ các banner khỏi cấu hình nháp. Bấm Lưu và áp dụng để xác nhận.'
@@ -204,6 +210,13 @@ function renderBrandingPreview() {
     if(meta) meta.textContent = 'Chưa có ảnh';
     empty.textContent = mode === 'text' ? 'Chế độ chỉ tiêu đề chữ' : 'Chưa chọn banner';
   }
+  const examHelp = find('settings-exam-header-mode-help');
+  if (examHelp) {
+    const selected = headerMode(find('settings-exam-header-mode')?.value);
+    examHelp.textContent = selected === 'text' ? 'Chỉ tiêu đề hệ thống trong toàn màn hình.'
+      : selected === 'banner' ? 'Chỉ banner trong toàn màn hình, có tiêu đề chữ dự phòng nếu ảnh lỗi hoặc phạm vi không cho phép.'
+      : 'Hiển thị cả tiêu đề chữ và banner trong toàn màn hình khi banner thuộc phạm vi chế độ thi.';
+  }
   for(const device of devices) {
     const caption = find(device === 'desktop' ? 'settings-header-file-name' : 'settings-'+device+'-file-name');
     if (caption) caption.textContent = fileInput(device)?.files?.[0]?.name ||
@@ -247,6 +260,7 @@ export async function saveHeaderBrandingSettings(settings, refreshHeader) {
   const draft = {
     app_title: label(find('settings-app-title')?.value),
     header_display_mode: headerMode(find('settings-header-mode').value),
+    exam_header_display_mode: headerMode(find('settings-exam-header-mode')?.value),
     header_banner_scope: bannerScope(find('settings-banner-scope')?.value),
     header_banner_key: find('settings-banner-key')?.value || '',
     header_banner_url: find('settings-banner-url')?.value || '',
@@ -272,7 +286,7 @@ export async function saveHeaderBrandingSettings(settings, refreshHeader) {
       return;
     }
   }
-  if (draft.header_display_mode !== 'text' && !files.desktop && !draft.header_banner_url) {
+  if ((draft.header_display_mode !== 'text' || draft.exam_header_display_mode !== 'text') && !files.desktop && !draft.header_banner_url) {
     toast('Vui lòng tải ảnh banner trước khi chọn chế độ có hình.', 'error');
     return;
   }
@@ -294,6 +308,7 @@ export async function saveHeaderBrandingSettings(settings, refreshHeader) {
     Object.assign(settings, {
       appTitle: committed.app_title,
       headerDisplayMode: committed.header_display_mode,
+      examHeaderDisplayMode: committed.exam_header_display_mode,
       headerBannerScope: committed.header_banner_scope,
       headerBannerUrl: committed.header_banner_url,
       headerBannerKey: committed.header_banner_key,
