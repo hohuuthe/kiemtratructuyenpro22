@@ -43,7 +43,7 @@ test('API dispatches teacher and student profiles to different database function
 });
 
 test('submission anti-replay records are bound to exact student user id', () => {
-  assert.match(grade, /_submitted_exam_tokens \(token_hash, exam_id, student_name, user_id, submitted_at\)/);
+  assert.match(grade, /_submitted_exam_tokens \(token_hash, exam_id, student_name, user_id, submitted_at, status, result_id, claimed_at\)/);
   assert.match(grade, /authenticatedUserId \|\| null/);
 });
 
