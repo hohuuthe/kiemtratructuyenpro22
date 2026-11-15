@@ -10,6 +10,7 @@ on:
       - 'functions/api/bootstrap.ts'
       - 'functions/**'
       - 'src/contest-mode-ui.js'
+      - 'src/exam-public-contest-projection.ts'
       - 'src/exam-config-contract.ts'
       - 'src/main.js'
       - 'src/bootstrap.js'
@@ -18,6 +19,7 @@ on:
       - 'public/components/tab-settings.html'
       - 'migrations/20261115_contest_mode.sql'
       - 'tests/contest-mode.test.mjs'
+      - 'tests/contest-responsive.playwright.mjs'
       - '.github/workflows/contest-mode-check.yml'
   workflow_dispatch:
 
@@ -46,3 +48,28 @@ jobs:
         run: npm run lint
       - name: Production build
         run: npm run build
+
+  responsive-preview:
+    name: Browser responsive verification (Preview, no writes)
+    needs: verify-contest
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Verify mobile, tablet and Full HD Preview layout
+        run: node tests/contest-responsive.playwright.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: contest-responsive-screenshots
+          path: test-artifacts/contest-responsive/
+          if-no-files-found: ignore
