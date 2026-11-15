@@ -190,6 +190,20 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         const { answerImage, ...safeOptions } = withoutAnswer.options;
         withoutAnswer.options = safeOptions;
       }
+      if (contestParticipantId) {
+        // Contest question DTO is additionally stripped of known scoring hints.
+        // School question rendering remains untouched.
+        for (const key of [
+          'correctAnswer','correctStatements','answerKey','solution',
+          'explanation','aiFeedback','rubric','gradingGuide','isCorrect'
+        ]) delete withoutAnswer[key];
+        if (withoutAnswer.options && typeof withoutAnswer.options === 'object') {
+          for (const key of [
+            'answer','correctAnswer','correctStatements','answerKey',
+            'solution','explanation','isCorrect'
+          ]) delete withoutAnswer.options[key];
+        }
+      }
       return withoutAnswer;
     });
 
