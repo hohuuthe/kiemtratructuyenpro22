@@ -3801,6 +3801,12 @@ async function startServer() {
           // Legacy tenant without optional image columns.
         }
       }
+      if (header) {
+        try {
+          const scope = await executeSqlQuery('SELECT header_banner_scope FROM app_settings WHERE id = 1', []);
+          header = {...header,...(scope.results?.[0]||{})};
+        } catch { /* Legacy tenant defaults to both modes. */ }
+      }
       const brand = normalizedHeaderBranding(header);
       res.set('Cache-Control','private, no-store, max-age=0');
       return res.json({data:{
@@ -3816,6 +3822,7 @@ async function startServer() {
         sq_punctuation_sensitive:row.sq_punctuation_sensitive??false,
         qr_code_url:row.qr_code_url||'',
         header_display_mode:brand.mode,
+        header_banner_scope:brand.scope,
         header_banner_url:brand.url,
         header_banner_tablet_url:brand.tabletUrl,
         header_banner_mobile_url:brand.mobileUrl,
