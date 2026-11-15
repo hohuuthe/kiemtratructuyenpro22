@@ -699,7 +699,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
         selectedQuestions = shuffle(selectedQuestions);
 
-        const isImmediateFeedback = examFlagEnabled(
+        // A public contest must never deliver answer keys in question payloads.
+        // Preserve the existing Immediate Feedback behaviour for school exams.
+        const isImmediateFeedback = !registeredContest && examFlagEnabled(
             activeExamConfig.immediateFeedback ?? activeExamConfig.immediate_feedback,
             false
         );
