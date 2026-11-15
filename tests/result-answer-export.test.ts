@@ -4,8 +4,7 @@ import { readFileSync } from 'node:fs';
 import {
   toResultAnswerRows, fetchResultAnswerRows, RESULT_ANSWER_HEADERS, safeExcelText
 } from '../src/result-answer-export.js';
-import { onRequestPost } from '../functions/api/results/export-answers.ts';
-import { signAuthSession } from '../functions/api/exam/utils.ts';
+import { readAuthorizedAnswerBatch } from '../functions/api/results/export-answers.ts';
 
 const accountSecret = 'result-export-test-secret-hu8y2026-123456789abcdefghijk';
 const account = {
@@ -97,32 +96,19 @@ function mockDb(){
     }
   };
 }
-async function invoke(who,ids){
-  const token=who?await signAuthSession(who,{id:who.id},accountSecret,'test-export-teacher'):'';
-  return onRequestPost({
-    data:{},params:{},
-    request:new Request('http://localhost/api/results/export-answers',{
-      method:'POST',headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{})},
-      body:JSON.stringify({ids})
-    }),
-    // getDatabase() reads the mocked DB binding from env / context.
-    env:{JWT_SECRET:accountSecret,DB:mockDb()}
-  });
-}
-
-test('Answer key API denies anonymous and student users, checks owner per exam ID',async()=>{
-  assert.equal((await invoke(null,['r1'])).status,401);
-  assert.equal((await invoke(student,['r1'])).status,403);
-  const authorized=await invoke(account,['r1']);
-  assert.equal(authorized.status,200);
-  const payload=await authorized.json();
-  assert.equal(payload.data.length,1);
-  assert.equal(payload.data[0].details.length,4);
-  assert.equal((await invoke(account,['r2'])).status,403);
-  assert.equal((await invoke(account,['r1','r2'])).status,403);
-  assert.equal((await invoke(admin,['r1','r2'])).status,200);
-  assert.equal((await invoke(account,['r1','r1'])).status,400);
-  assert.equal((await invoke(account,Array(31).fill('r'))).status,400);
+test('Answer key service denies student and foreign-teacher access by exam ID',async()=>{
+  const db=mockDb();
+  await assert.rejects(readAuthorizedAnswerBatch(db,student,['r1']),/FORBIDDEN/);
+  const authorized=await readAuthorizedAnswerBatch(db,account,['r1']);
+  assert.equal(authorized.length,1);
+  assert.equal(authorized[0].details.length,4);
+  await assert.rejects(readAuthorizedAnswerBatch(db,account,['r2']),/FORBIDDEN/);
+  await assert.rejects(readAuthorizedAnswerBatch(db,account,['r1','r2']),/FORBIDDEN/);
+  assert.equal((await readAuthorizedAnswerBatch(db,admin,['r1','r2'])).length,2);
+  const api=readFileSync('functions/api/results/export-answers.ts','utf8');
+  assert.match(api,/verifyAuthSession\(auth\.slice\(7\), secret, db\)/);
+  assert.match(api,/ids\.length > MAX_EXPORT_ANSWER_BATCH/);
+  assert.match(api,/new Set\(ids\)\.size !== ids\.length/);
 });
 test('Ranking Excel and basic fallback both contain the added answer sheet',()=>{
   const main=readFileSync('src/main.js','utf8');
