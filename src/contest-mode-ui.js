@@ -58,6 +58,10 @@ window.__contestPrepareForReady=function(){
 window.__contestBeforeFullscreen=function(){
   const root=findEl('exam-interface'),tab=findEl('tab-contest');
   if(!window.__contestReadyPrepared || !root || !tab?.contains(root))return false;
+  // Ensure the parent tab is rendered before requestFullscreen.
+  // Otherwise the hidden ancestor makes fullscreen fail on mobile.
+  if(!tab.classList.contains('active'))window.switchTab?.('contest');
+  if(!tab.classList.contains('active'))return false;
   // requestFullscreen() rejects display:none. Reveal a blank container only
   // after explicit READY acceptance; no question or timer exists yet.
   root.classList.remove('hidden');
@@ -89,7 +93,9 @@ window.__contestOnExamStarted=function(){
   window.__contestStartPending=false;
   window.__activeStudentExamTab='contest';
   findEl('contest-registration')?.classList.add('hidden');
-  window.switchTab?.('contest');
+  // Re-switching the already-active tab can briefly set its display:none,
+  // which browsers interpret as leaving fullscreen.
+  if(!findEl('tab-contest')?.classList.contains('active'))window.switchTab?.('contest');
 };
 window.__contestOnExamReset=function(){
   window.__contestReadyPrepared=false;
