@@ -93,3 +93,37 @@ test('Compact registration removes redundant text while preserving mobile-safe c
  assert.match(contest,/sm:grid-cols-2/);
  assert.match(contest,/name="ma_de_thi"/);
 });
+
+test('Contest answer keys stay server-side, existing school Immediate Feedback unchanged',()=>{
+ const generate=source('functions/api/exam/generate.ts');
+ const start=source('functions/api/exam/start.ts');
+ assert.match(generate,/!registeredContest && examFlagEnabled/);
+ assert.match(start,/if \(immediateFeedback\)/);
+});
+test('Contest attempt is claimed BEFORE the server starts the clock',()=>{
+ const start=source('functions/api/exam/start.ts');
+ const reservation=start.indexOf('INSERT INTO contest_attempts');
+ const ticking=start.indexOf('UPDATE _exam_grade_sessions SET started_at');
+ assert.ok(reservation>0 && ticking>reservation,'contest reservation must precede clock activation');
+ assert.match(start,/ON CONFLICT \(ma_phien_thi\) DO NOTHING/);
+ assert.match(start,/attemptKey = examId \+ ':' \+ signedAttemptUserId/);
+});
+test('Registered results use server-owned identity, class and exam ID',()=>{
+ const grade=source('functions/api/exam/grade.ts');
+ assert.match(grade,/candidate\.ho_ten/);
+ assert.match(grade,/contestParticipantId \? '' : \(authenticatedLop/);
+ assert.match(grade,/contestParticipantId \? 'Cuộc thi trực tuyến'/);
+ assert.match(grade,/AND ma_de_thi = \?/);
+});
+test('Participant identity and encryption keys stay stable across JWT rotations',()=>{
+ const register=source('functions/api/contest/register.ts');
+ assert.match(register,/contest_identity_key_v1/);
+ assert.match(register,/getParticipantDataSecret\(db\)/);
+ assert.match(register,/hmac\(participantSecret/);
+ assert.match(register,/encryptPrivate\(participantSecret/);
+});
+test('Public exam detail and shared result code exclude unpublished contests',()=>{
+ const exams=source('functions/api/exams.ts');
+ assert.match(exams,/row\.chedodethi === 'Cuộc thi trực tuyến' && !isExamOwner\(user,row\)/);
+ assert.match(exams,/Không có quyền tra cứu cấu hình cuộc thi qua mã chia sẻ/);
+});
