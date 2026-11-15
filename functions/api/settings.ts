@@ -42,6 +42,7 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
         question_font_size: 18,
         answer_font_size: 16,
         display_mode: 'standard',
+        application_mode: 'school',
         app_title: 'HỆ THỐNG KIỂM TRA TRỰC TUYẾN',
         author_info: 'Phát triển bởi: Hồ Hữu Thế - 0935 078 895',
         ai_prompt: '',
@@ -129,9 +130,14 @@ export const onRequestPut: PagesFunction<Env> = async (context) => {
         show_results_details, allow_ranking_details, show_delete_selected_ranking, 
         immediate_feedback, sq_case_sensitive, sq_punctuation_sensitive, 
         question_font_size, answer_font_size, display_mode, app_title, 
-        author_info, ai_prompt, ai_appraise_prompt, ai_grading_key, qr_code_url 
+        author_info, ai_prompt, ai_appraise_prompt, ai_grading_key, qr_code_url,
+        application_mode
     } = body;
     
+    if (application_mode !== undefined && !['school','contest'].includes(application_mode)) {
+      return new Response(JSON.stringify({error:'Chế độ ứng dụng không hợp lệ.'}), {status:400,headers:corsHeaders});
+    }
+    const finalApplicationMode = application_mode ?? currentSettings?.application_mode ?? 'school';
     const finalShowResults = show_results_details !== undefined ? (show_results_details ? 1 : 0) : (currentSettings?.show_results_details ?? 1);
     const finalAllowRanking = allow_ranking_details !== undefined ? (allow_ranking_details ? 1 : 0) : (currentSettings?.allow_ranking_details ?? 1);
     const finalShowDeleteRanking = show_delete_selected_ranking !== undefined ? (show_delete_selected_ranking ? 1 : 0) : (currentSettings?.show_delete_selected_ranking ?? 0);
@@ -154,7 +160,7 @@ export const onRequestPut: PagesFunction<Env> = async (context) => {
             immediate_feedback = ?, sq_case_sensitive = ?, sq_punctuation_sensitive = ?, 
             question_font_size = ?, answer_font_size = ?, display_mode = ?, 
             app_title = ?, author_info = ?, ai_prompt = ?, ai_appraise_prompt = ?, ai_grading_key = ?,
-            qr_code_url = ?
+            qr_code_url = ?, application_mode = ?
         WHERE id = 1
     `).bind(
         finalShowResults, 
@@ -171,7 +177,8 @@ export const onRequestPut: PagesFunction<Env> = async (context) => {
         finalAiPrompt,
         finalAiAppraisePrompt,
         finalAiGradingKey,
-        finalQrCodeUrl
+        finalQrCodeUrl,
+        finalApplicationMode
     );
     
     await stmt.run();
