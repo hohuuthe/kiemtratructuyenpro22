@@ -6,7 +6,8 @@
 export function createEmptyExamDraft(user = null) {
   return {
     id: '', updatedAt: '', name: '', creatorId: user?.id || '', creatorName: user?.full_name || '',
-    chedodethi: 'Đề công khai', mabaomatdethi: '', target_lop: '', targetLop: '',
+    chedodethi: 'Đề công khai', contestStatus: 'draft', contest_status: 'draft',
+    mabaomatdethi: '', target_lop: '', targetLop: '',
     lop: '', target_donvi: '', donvi: '', timeLimit: 45, maxCheatWarnings: 5,
     maxAttempts: 0, max_attempts: 0,
     count41: 0, countTF4: 0, countSQ: 0, countTL: 0,
@@ -73,14 +74,17 @@ export function mapStoredExamToDraft(row, {currentUser = null, accounts = [], ac
   const targetDonvi = text(row.target_donvi ?? row.targetDonvi ?? row.donvi);
   const startTime = text(row.tg_bd ?? accessObj.startTime);
   const endTime = text(row.tg_kt ?? accessObj.endTime);
-  const publicMode = mode === 'Đề công khai';
+  const publicMode = mode === 'Đề công khai' || mode === 'Cuộc thi trực tuyến';
+  const contestStatus = mode === 'Cuộc thi trực tuyến' && row.contest_status === 'published'
+    ? 'published' : 'draft';
   return {
     ...defaults,
     id: row.id,
     updatedAt: text(row.updated_at ?? row.updatedAt),
     name: text(row.name),
     creatorId, creatorName,
-    chedodethi: mode, mabaomatdethi: text(row.mabaomatdethi),
+    chedodethi: mode, contestStatus, contest_status: contestStatus,
+    mabaomatdethi: text(row.mabaomatdethi),
     target_lop: publicMode ? '' : targetLop,
     targetLop: publicMode ? '' : targetLop,
     lop: publicMode ? '' : targetLop,
