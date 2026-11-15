@@ -6,6 +6,7 @@ async function bootApplication() {
 
   await import('./modal-behavior.js');
   await import('./main.js');
+  await import('./contest-mode-ui.js');
   await import('./exam-invalid-pool-guard.js');
   await Promise.all([
     import('./student-attempt-history-controller.js'),
