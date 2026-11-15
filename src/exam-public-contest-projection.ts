@@ -5,7 +5,10 @@ const CONTEST_PRIVATE_QUESTION_FIELDS = new Set([
   'answer','answerkey','correctanswer','correctanswers','correctstatements',
   'iscorrect','correct','solution','explanation','aifeedback','rubric',
   'gradingguide','gradingrubric','markingscheme','answerimage','answerimages',
-  'correctoption','correctoptions','feedbackcorrect','feedbackincorrect'
+  'correctoption','correctoptions','feedbackcorrect','feedbackincorrect',
+  // A per-question numeric mark is an answer oracle, even without the key.
+  // Aggregate contest scores and category counts are returned separately.
+  'score','maxscore','earnedscore','pointsearned','mark','marks'
 ]);
 export function stripContestAnswerHints(input: any, depth = 0): any {
   if (depth > 16) throw new Error('CONTEST_QUESTION_STRUCTURE_TOO_DEEP');
