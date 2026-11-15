@@ -398,6 +398,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
               SELECT 1 FROM _exam_grade_sessions gs
               WHERE gs.session_id = contest_attempts.ma_phien_thi
                 AND gs.expires_at > ?
+                AND gs.started_at IS NOT NULL
             )
         `).bind(contestParticipantId,examId,gradingSessionId,new Date().toISOString()).run();
         await db.prepare(`
