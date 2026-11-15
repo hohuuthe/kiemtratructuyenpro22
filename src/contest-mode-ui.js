@@ -26,7 +26,12 @@ function relocateExamWidgets(toContest) {
         element.parentNode?.insertBefore(marker,element);
         examHomes.set(id,marker);
       }
-      contestTab.appendChild(element);
+      // Moving the fullscreen element causes an automatic browser fullscreen exit.
+      // Prepare the destination BEFORE the user requests fullscreen.
+      if(element.parentElement!==contestTab){
+        if(document.fullscreenElement && (document.fullscreenElement.contains(element) || element.contains(document.fullscreenElement)))return false;
+        contestTab.appendChild(element);
+      }
     }else{
       const marker=examHomes.get(id);
       if(marker?.parentNode){marker.parentNode.insertBefore(element,marker);marker.remove();}
@@ -37,17 +42,58 @@ function relocateExamWidgets(toContest) {
 }
 window.__contestCanShowExam=()=>Boolean(
   findEl('tab-contest')&&findEl('tab-exam')&&
-  findEl('exam-interface')&&findEl('exam-results')
+  findEl('exam-interface')&&findEl('exam-results')&&
+  findEl('tab-contest').contains(findEl('exam-interface'))&&
+  findEl('tab-contest').contains(findEl('exam-results'))
 );
-window.__contestOnExamStarted=function(){
-  if(!relocateExamWidgets(true)){
-    throw new Error('Không thể thiết lập giao diện cuộc thi an toàn.');
+// Stage the already-hidden exam UI before the READY confirmation click.
+// Never move an element between tabs while it is in fullscreen.
+window.__contestPrepareForReady=function(){
+  if(document.fullscreenElement || !relocateExamWidgets(true)){
+    throw new Error('Không thể chuẩn bị phòng thi ổn định. Vui lòng thử lại.');
   }
+  window.__contestReadyPrepared=true;
+  return true;
+};
+window.__contestBeforeFullscreen=function(){
+  const root=findEl('exam-interface'),tab=findEl('tab-contest');
+  if(!window.__contestReadyPrepared || !root || !tab?.contains(root))return false;
+  // requestFullscreen() rejects display:none. Reveal a blank container only
+  // after explicit READY acceptance; no question or timer exists yet.
+  root.classList.remove('hidden');
+  findEl('contest-registration')?.classList.add('hidden');
+  window.__contestStartPending=true;
+  return true;
+};
+window.__contestAfterStartRejected=function(){
+  if(window.__activeStudentExamTab==='contest')return;
+  window.__contestStartPending=false;
+  findEl('exam-interface')?.classList.add('hidden');
+  findEl('contest-registration')?.classList.remove('hidden');
+};
+window.__contestOnReadyCancelled=function(){
+  window.__contestAfterStartRejected?.();
+  if(!document.fullscreenElement)relocateExamWidgets(false);
+  window.__contestReadyPrepared=false;
+  window.__contestTicket=null;
+  for(const id of ['guest_data_1','guest_data_lop','guest_data_donvi']){
+    const field=findEl(id);
+    if(field && !window.currentUser)field.value='';
+  }
+};
+window.__contestOnExamStarted=function(){
+  if(!window.__contestReadyPrepared || !window.__contestCanShowExam?.()){
+    throw new Error('Giao diện cuộc thi chưa được đặt cố định trước khi tính giờ.');
+  }
+  window.__contestReadyPrepared=false;
+  window.__contestStartPending=false;
   window.__activeStudentExamTab='contest';
   findEl('contest-registration')?.classList.add('hidden');
   window.switchTab?.('contest');
 };
 window.__contestOnExamReset=function(){
+  window.__contestReadyPrepared=false;
+  window.__contestStartPending=false;
   relocateExamWidgets(false);
   window.__activeStudentExamTab=null;
   findEl('contest-registration')?.classList.remove('hidden');
@@ -245,13 +291,13 @@ async function runContestEntry(){
       const readyButton=findEl('exam-start-ready-confirm');
       if(!window.currentExamToken || !readyButton)
         throw new Error('Máy chủ chưa chuẩn bị được đề thi hợp lệ. Vui lòng thử lại.');
+      window.__contestPrepareForReady();
       const cancel=findEl('exam-start-ready-cancel');
       cancel?.addEventListener('click',()=>{
-        window.__contestTicket=null;
-        findEl('contest-registration')?.classList.remove('hidden');
+        window.__contestOnReadyCancelled?.();
       },{once:true});
     }catch(e){
-      window.__contestTicket=null;
+      if(window.__activeStudentExamTab!=='contest')window.__contestOnReadyCancelled?.();
       showError(e?.message||'Không thể bắt đầu cuộc thi, vui lòng thử lại.');
     }finally{
       if(startButton){startButton.disabled=false;startButton.textContent='🚀 Đăng ký và bắt đầu làm bài';}
