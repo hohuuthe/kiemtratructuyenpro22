@@ -1,10 +1,19 @@
 /** Shared, restrictive policy for tenant-scoped application header banners. */
 export const HEADER_BRANDING_MODES = Object.freeze(['text', 'banner', 'both']);
+export const HEADER_BANNER_SCOPES = Object.freeze(['both', 'school', 'contest']);
 export const DEFAULT_HEADER_TITLE = 'HỆ THỐNG KIỂM TRA TRỰC TUYẾN';
 const FOLDER = 'luuhinhnh/banner-he-thong';
 
 export function headerMode(mode) {
   return HEADER_BRANDING_MODES.includes(mode) ? mode : 'text';
+}
+
+export function bannerScope(value) {
+  return HEADER_BANNER_SCOPES.includes(value) ? value : 'both';
+}
+export function bannerShownForMode(scope, mode) {
+  const selected = bannerScope(scope);
+  return selected === 'both' || selected === (mode === 'contest' ? 'contest' : 'school');
 }
 
 export function validTenantBannerKey(key, tenant) {
@@ -40,6 +49,7 @@ export function normalizedHeaderBranding(raw) {
   // Fail safe: never hide the header title if a banner is unavailable.
   return {
     mode: mode !== 'text' && !url ? 'text' : mode,
+    scope: bannerScope(raw?.header_banner_scope),
     url,
     tabletUrl: mediaUrl(raw?.header_banner_tablet_url),
     tabletKey: typeof raw?.header_banner_tablet_key === 'string' ? raw.header_banner_tablet_key : '',
