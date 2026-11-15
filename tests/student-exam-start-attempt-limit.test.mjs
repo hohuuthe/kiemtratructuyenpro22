@@ -39,10 +39,16 @@ test('Front end never enters fullscreen before server accepts exam start', () =>
   assert.match(region,/parseExamAttemptLimitError\(response.status, response.body\)/);
   assert.match(region,/showModal\(buildExamAttemptLimitModal/);
   assert.match(region,/finally \{\s*examStartPending = false;/);
-  assert.doesNotMatch(region,/enterExamFullscreen\(/);
+  // Fullscreen is now requested in the actual user gesture on READY confirmation;
+  // the timer remains server-authoritative and starts only after /api/exam/start.
+  const readyClick=region.indexOf("readyButton.addEventListener('click'");
+  const fullscreen=region.indexOf('window.enterExamFullscreen()', readyClick);
+  const serverStart=region.indexOf("fetch('/api/exam/start'", readyClick);
+  assert.ok(readyClick > 0 && fullscreen > readyClick && serverStart > fullscreen);
+  assert.match(region,/startExamUI\(true\)/);
   assert.match(region,/exam-start-ready-confirm/);
   assert.match(region,/readyButton.addEventListener\('click'/);
-  assert.match(region,/startExamUI\(\)/);
+  assert.match(region,/startResult\.token/);
   assert.doesNotMatch(region,/KIỂM TRA TRƯỚC SỐ LẦN LÀM BÀI TRÊN CLIENT/);
   for(const path of ['functions/api/exam/generate.ts','server.ts']) {
     const backend=readFileSync(path,'utf8');
@@ -55,13 +61,9 @@ test('attempt limits are bound only to authenticated user_id and exact exam_id',
   const backend=readFileSync('functions/api/exam/generate.ts','utf8');
   assert.match(backend,/EXAM_ATTEMPT_LOGIN_REQUIRED/);
   assert.match(backend,/WHERE exam_id = \? AND user_id = \?/);
-  assert.doesNotMatch(
-    backend.slice(
-      backend.indexOf('// KIỂM TRA GIỚI HẠN SỐ LẦN LÀM BÀI'),
-      backend.indexOf('// Chuẩn hóa và đối sánh bài học')
-    ),
-    /student_name|exam_name/
-  );
+  const contestBranch = backend.slice(backend.indexOf('if (maxAttemptsVal > 0 && registeredContest)'),backend.indexOf('if (maxAttemptsVal > 0 && !isAdmin'));
+  assert.match(contestBranch,/ma_nguoi_du_thi/);
+  assert.doesNotMatch(contestBranch,/student_name|exam_name/);
   assert.match(backend,/EXAM_ATTEMPT_COUNT_UNAVAILABLE/);
 });
 
@@ -87,7 +89,8 @@ test('start revalidates max attempts and atomically allows only one active sessi
   const start=readFileSync('functions/api/exam/start.ts','utf8');
   assert.match(start,/SELECT COUNT\(\*\) AS count FROM results WHERE exam_id = \? AND user_id = \?/);
   assert.match(start,/_exam_active_attempts/);
-  assert.match(start,/attemptKey = examId \+ ':' \+ signedStudentUserId/);
+  assert.match(start,/attemptKey = examId \+ ':' \+ signedAttemptUserId/);
+  assert.match(start,/contestParticipantId \? 'contest:'\+contestParticipantId/);
   assert.match(start,/ON CONFLICT \(attempt_key\) DO UPDATE SET/);
   assert.match(start,/EXAM_ATTEMPT_ALREADY_ACTIVE/);
   assert.match(start,/EXAM_ATTEMPT_COUNT_UNAVAILABLE/);
