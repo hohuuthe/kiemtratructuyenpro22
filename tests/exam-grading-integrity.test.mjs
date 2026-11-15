@@ -165,7 +165,7 @@ test('exam READY preparation cannot expose questions or use another teacher bank
   assert.match(generate, /immediate_feedback: mappedExam\.immediate_feedback \?\? 0/);
   assert.match(generate, /examFlagEnabled\(\s*activeExamConfig\.immediateFeedback \?\? activeExamConfig\.immediate_feedback/);
   assert.doesNotMatch(generate, /SELECT \* FROM questions'\)\.all\(\)/);
-  assert.match(generate, /studentUserId: tokenUser\?\.user_id \|\| tokenUser\?\.id \|\| null/);
+  assert.match(generate, /studentUserId: registeredContest \? null : \(tokenUser\?\.user_id \|\| tokenUser\?\.id \|\| null\)/);
   assert.match(generate, /ready:\s*true/);
   assert.doesNotMatch(generate, /questions:\s*clientQuestions/);
   assert.doesNotMatch(generate, /return \{ \.\.\.q \}/);
@@ -338,7 +338,7 @@ test('submission replay after an atomic claim uses one defined storedDetails sna
 
 test('autosave response reports the revision that actually remains persisted', () => {
   const save = fs.readFileSync(new URL('../functions/api/exam/save.ts', import.meta.url), 'utf8');
-  assert.match(save, /SELECT revision, saved_at FROM _exam_answer_drafts WHERE session_id = \?/);
+  assert.match(save, /SELECT answers_json, revision, saved_at, writer_id, writer_seen_at FROM _exam_answer_drafts WHERE session_id = \?/);
   assert.match(save, /const persistedRevision = Math\.max/);
   assert.match(save, /const accepted = persistedRevision === revision/);
   assert.match(save, /requestedRevision: revision/);
@@ -358,9 +358,10 @@ test('stale processing submission claims can recover without duplicating a store
 
 test('autosave equal-revision races are accepted only when this exact payload was persisted', () => {
   const save = fs.readFileSync(new URL('../functions/api/exam/save.ts', import.meta.url), 'utf8');
-  assert.match(save, /SELECT answers_json, revision, saved_at FROM _exam_answer_drafts/);
+  assert.match(save, /SELECT answers_json, revision, saved_at, writer_id, writer_seen_at FROM _exam_answer_drafts/);
   assert.match(save, /persistedAnswersJson === answersJson/);
   assert.match(save, /persistedSavedAt === savedAt/);
+  assert.match(save, /persistedWriterId === writerId/);
 });
 
 test('resume fails closed when authoritative violation count cannot be restored', () => {
