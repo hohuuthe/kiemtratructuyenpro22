@@ -365,7 +365,7 @@ test('Same-device attempts remain tenant and browser-tab scoped without legacy g
  assert.match(main,/if \(currentExam\?\.startTime && currentExam\?\.questions\?\.length/);
 });
 
-test('Switching from school results to contest removes the previous student's private score',()=>{
+test("Switching from school results to contest removes the previous student's private score",()=>{
  const main=source('src/main.js');
  const before=main.indexOf("if (tabName === 'contest' && isShowingResults &&");
  const cleaned=main.indexOf("resetExam();",before);
