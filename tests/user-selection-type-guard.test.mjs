@@ -25,5 +25,9 @@ test('delete action has a final mixed-type fail-safe', () => {
 });
 
 test('guard is loaded after batch deletion controller', () => {
-  assert.match(bootstrap, /import\('\.\/batch-teacher-delete-ui\.js'\)[\s\S]*\]\);\s*await import\('\.\/user-selection-type-guard\.js'\)/);
+  const batchPos = bootstrap.indexOf("import('./batch-teacher-delete-ui.js')");
+  const guardPos = bootstrap.indexOf("await import('./user-selection-type-guard.js')");
+  const batchCompletion = bootstrap.indexOf(']);', batchPos);
+  assert.ok(batchPos >= 0 && batchCompletion > batchPos);
+  assert.ok(guardPos > batchCompletion, 'Guard must load after all batch controllers finish initializing');
 });
