@@ -371,7 +371,11 @@ async function runContestEntry(){
       const inputName=findEl('guest_data_1'),inputUnit=findEl('guest_data_donvi'),inputClass=findEl('guest_data_lop');
       if(!inputName||!inputUnit||!inputClass)throw new Error('Giao diện làm bài chưa tải đầy đủ.');
       inputName.value=String(values.ho_ten||'');
-      inputUnit.value=String(values.don_vi||'');
+      // The shared school exam engine historically requires a nonempty class or
+      // unit. This local display-only fallback does not modify verified identity:
+      // contest registration and grading use the server-owned participant record.
+      inputUnit.value=String(values.don_vi||'') ||
+        (profileMode==='verified' && !String(values.lop||'').trim() ? 'Chưa cập nhật đơn vị' : '');
       inputClass.value=profileMode==='verified' ? String(form.elements.namedItem('lop')?.value||'') : '';
       const teacher=findEl('student-teacher-filter'),exam=findEl('student-exam-name-filter');
       if(!teacher||!exam)throw new Error('Không tìm thấy bộ chọn đề thi trong ứng dụng.');
