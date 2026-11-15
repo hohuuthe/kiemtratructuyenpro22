@@ -278,6 +278,7 @@ test('Contest registration is hidden on confirmed results, including delayed com
  assert.match(ui,/window\.__contestShowEntry\?\.\(\)/);
  assert.match(ui,/window\.__contestOnExamSubmitted=function\(\)/);
  assert.match(ui,/findEl\('contest-registration-form'\)\?\.reset\(\)/);
+ assert.match(ui,/window\.__contestTicket=null/);
  assert.match(ui,/window\.__contestShowEntry\?\.\(\);\s*try\{/);
  assert.match(main,/if \(window\.__activeStudentExamTab === 'contest'\) \{\s*window\.__contestOnExamSubmitted\?\.\(\);/);
  assert.match(main,/document\.getElementById\('exam-results'\)\?\.classList\.remove\('hidden'\)/);
