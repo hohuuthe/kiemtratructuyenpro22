@@ -81,24 +81,45 @@ async function runContestEntry(){
     if(meta)meta.textContent=`${row.so_cau} câu hỏi · ${row.time_limit} phút · ${Number(row.max_attempts)===0?'Không giới hạn':row.max_attempts+' lượt'} · Bắt đầu: ${open} · Kết thúc: ${close}`;
   }
   select.addEventListener('change',describe);
-  try{
-    const response=await fetchJson('/api/contest/exams');
-    select.replaceChildren(new Option('-- Chọn cuộc thi muốn tham gia --',''));
-    for(const row of response.data||[]){
-      if(!row?.id||!row?.creator_id)continue;
-      entries.set(String(row.id),row);
-      select.add(new Option(String(row.name),String(row.id)));
-    }
-    if(!entries.size){
-      select.add(new Option('Hiện chưa có cuộc thi được công bố',''));
-      select.disabled=true;
-      if(meta)meta.textContent='Hiện chưa có cuộc thi mở để đăng ký. Vui lòng quay lại sau.';
-    }else select.disabled=false;
-  }catch(e){
-    showError(e?.message||'Không thể tải danh sách cuộc thi.');
-    select.replaceChildren(new Option('Không tải được danh sách cuộc thi',''));
+  const refresh=findEl('contest-reload-exams');
+  let loadingContests=false;
+  async function reloadPublishedContests(){
+    if(loadingContests)return;
+    loadingContests=true;
+    if(refresh){refresh.disabled=true;refresh.textContent='Đang tải...';}
+    const lastId=select.value;
     select.disabled=true;
+    select.replaceChildren(new Option('Đang tải danh sách cuộc thi...',''));
+    hideError();
+    try{
+      const response=await fetchJson('/api/contest/exams');
+      entries.clear();
+      select.replaceChildren(new Option('-- Chọn cuộc thi muốn tham gia --',''));
+      for(const row of response.data||[]){
+        if(!row?.id||!row?.creator_id)continue;
+        entries.set(String(row.id),row);
+        select.add(new Option(String(row.name),String(row.id)));
+      }
+      if(!entries.size){
+        select.add(new Option('Chưa có cuộc thi được công bố',''));
+        select.disabled=true;
+        if(meta)meta.textContent='Chưa có cuộc thi được công bố. Admin cần mở đề, chọn Đã công bố rồi Lưu cấu hình đề thi.';
+      } else {
+        select.disabled=false;
+        if(entries.has(lastId))select.value=lastId;
+        describe();
+      }
+    }catch(e){
+      showError(e?.message||'Không thể tải danh sách cuộc thi.');
+      select.replaceChildren(new Option('Không tải được danh sách cuộc thi',''));
+      select.disabled=true;
+    }finally{
+      loadingContests=false;
+      if(refresh){refresh.disabled=false;refresh.textContent='Tải lại danh sách';}
+    }
   }
+  refresh?.addEventListener('click',reloadPublishedContests);
+  await reloadPublishedContests();
 
   form.addEventListener('submit',async event=>{
     event.preventDefault();hideError();
