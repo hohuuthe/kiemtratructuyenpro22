@@ -35,6 +35,10 @@ function relocateExamWidgets(toContest) {
   }
   return true;
 }
+window.__contestCanShowExam=()=>Boolean(
+  findEl('tab-contest')&&findEl('tab-exam')&&
+  findEl('exam-interface')&&findEl('exam-results')
+);
 window.__contestOnExamStarted=function(){
   if(!relocateExamWidgets(true)){
     throw new Error('Không thể thiết lập giao diện cuộc thi an toàn.');
