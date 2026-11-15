@@ -100,7 +100,6 @@ function mockDb(){
 async function invoke(who,ids){
   const token=who?await signAuthSession(who,{id:who.id},accountSecret,'test-export-teacher'):'';
   return onRequestPost({
-    env:{JWT_SECRET:accountSecret},
     data:{},params:{},
     request:new Request('http://localhost/api/results/export-answers',{
       method:'POST',headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{})},
