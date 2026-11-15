@@ -8879,6 +8879,23 @@ if (contentType && contentType.includes("application/json")) {
             }
             if (!currentExam.sessionId) currentExam.sessionId = createExamSessionId();
             currentExam.submitting = false;
+            currentExam.monitoringArmed = false;
+            currentExam.monitoringWaitingForVisibility = false;
+            currentExam.fullscreenWasEstablished = Boolean(
+                document.fullscreenElement &&
+                (document.fullscreenElement === examInterface || document.fullscreenElement.contains(examInterface))
+            );
+            // The timer remains server-authoritative. Only monitoring is armed
+            // after the browser's initial fullscreen transition settles.
+            const monitoringSessionId = currentExam.sessionId;
+            setTimeout(() => {
+                if (!isSameExamSession(monitoringSessionId) || !currentExam?.startTime) return;
+                if (document.hidden) {
+                    currentExam.monitoringWaitingForVisibility = true;
+                    return;
+                }
+                currentExam.monitoringArmed = true;
+            }, 1800);
             startTimer();
             renderQuestionNav();
             renderCurrentQuestion(true);
@@ -9373,6 +9390,12 @@ if (contentType && contentType.includes("application/json")) {
                         return;
                     }
 
+                    // For contests, fix the fullscreen target before starting the
+                    // server clock; moving a fullscreen node later creates a false exit.
+                    if (window.__contestTicket && !window.__contestBeforeFullscreen?.()) {
+                        showToast('Phòng thi chưa sẵn sàng để mở toàn màn hình. Chưa tính giờ.', 'error');
+                        return;
+                    }
                     // Yêu cầu fullscreen phải phát sinh trực tiếp từ click; sau đó mới await server.
                     if (typeof window.enterExamFullscreen === 'function') {
                         Promise.resolve(window.enterExamFullscreen()).catch(() => {});
@@ -9445,12 +9468,14 @@ if (contentType && contentType.includes("application/json")) {
                                 setTimeout(() => { window.intentionalFullscreenExit = false; }, 300);
                             }
                         } catch(e) {}
+                        if (window.__contestTicket) window.__contestAfterStartRejected?.();
                         showToast(error?.message || 'Không thể bắt đầu bài thi. Vui lòng thử lại.', 'error');
                     }
                 });
                 document.getElementById('exam-start-ready-cancel')?.addEventListener('click', () => {
                     window.currentExamToken = null;
                     clearStoredActiveExamResume();
+                    window.__contestOnReadyCancelled?.();
                     closeModal();
                 }, { once: true });
                 readyButton.focus();
@@ -10800,7 +10825,9 @@ if (contentType && contentType.includes("application/json")) {
                 examResults && examResults.classList.contains('hidden') &&
                 typeof currentExam !== 'undefined' && currentExam && currentExam.questions && currentExam.questions.length > 0 && currentExam.startTime;
 
-            if (!isExamActive) return;
+            // Ignore our own READY/fullscreen/visibility transitions until
+            // the server-started exam has been visible and stable.
+            if (!isExamActive || currentExam.monitoringArmed !== true) return;
 
             const sessionId = currentExam.sessionId;
             if (!sessionId) return;
@@ -10900,7 +10927,8 @@ if (contentType && contentType.includes("application/json")) {
             if (!document.fullscreenElement) {
                 const requestFs = elem.requestFullscreen || elem.webkitRequestFullscreen || elem.mozRequestFullScreen || elem.msRequestFullscreen;
                 if (requestFs) {
-                    return requestFs.call(elem).then(() => {
+                    try {
+                    return Promise.resolve(requestFs.call(elem)).then(() => {
                         if (navigator.keyboard && navigator.keyboard.lock) {
                             navigator.keyboard.lock(['Escape']).catch(() => {});
                         }
@@ -10911,6 +10939,11 @@ if (contentType && contentType.includes("application/json")) {
                         window.showFullscreenEnforcer();
                         return false;
                     });
+                    } catch(err) {
+                        console.warn('Không thể mở toàn màn hình:', err);
+                        window.showFullscreenEnforcer();
+                        return Promise.resolve(false);
+                    }
                 } else {
                     // Thiết bị không hỗ trợ API Fullscreen
                     window.hideFullscreenEnforcer();
@@ -11033,12 +11066,22 @@ if (contentType && contentType.includes("application/json")) {
             if (document.hidden && !window.isAllowedExamFilePickerActive()) {
                 window.handleCheatDetection('tab_switch');
             } else {
+                if (currentExam?.monitoringWaitingForVisibility && currentExam.startTime) {
+                    currentExam.monitoringWaitingForVisibility = false;
+                    currentExam.monitoringArmed = true;
+                }
                 resetViolationEpisodeIfRecovered();
             }
         });
 
         document.addEventListener('fullscreenchange', () => {
-            const isExamActive = document.getElementById('exam-interface') && !document.getElementById('exam-interface').classList.contains('hidden');
+            const examRoot = document.getElementById('exam-interface');
+            const isExamActive = examRoot && !examRoot.classList.contains('hidden') &&
+                currentExam?.startTime && Array.isArray(currentExam.questions) && currentExam.questions.length > 0;
+            if (document.fullscreenElement && isExamActive &&
+                (document.fullscreenElement === examRoot || document.fullscreenElement.contains(examRoot))) {
+                currentExam.fullscreenWasEstablished = true;
+            }
             
             const modalContainer = document.getElementById('modal-container');
             const toastCenter = document.getElementById('toast-container-center');
@@ -11079,8 +11122,11 @@ if (contentType && contentType.includes("application/json")) {
                 }
                 if (elem) elem.classList.remove('p-4', 'md:p-8', 'bg-gray-50', 'overflow-y-auto');
 
-                if (isExamActive && !window.intentionalFullscreenExit && !window.isAllowedExamFilePickerActive()) {
-                    // Unauthorized exit from fullscreen. Native file selection initiated by the exam UI is allowed.
+                if (isExamActive && currentExam.monitoringArmed === true &&
+                    currentExam.fullscreenWasEstablished === true &&
+                    !window.intentionalFullscreenExit && !window.isAllowedExamFilePickerActive()) {
+                    // Only count an exit after this exam actually entered fullscreen.
+                    // Setup, unsupported devices and file pickers are exempt.
                     window.handleCheatDetection('Thoát toàn màn hình trái phép');
                     window.showFullscreenEnforcer();
                 }
