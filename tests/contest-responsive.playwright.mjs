@@ -13,9 +13,41 @@ const sizes = [
   {name:'desktop-1366',width:1366,height:768,mobile:false},
   {name:'fullhd-1920',width:1920,height:1080,mobile:false}
 ];
+
+// Verify default landing choice only affects initial navigation (not whether
+// either tab exists). Intercept only the PUBLIC bootstrap response. No writes.
+async function checkLanding(browser, mode) {
+  const context=await browser.newContext({viewport:{width:390,height:844}});
+  try {
+    await context.route('**/api/bootstrap',async route=>{
+      const upstream=await route.fetch();
+      const body=await upstream.json();
+      assert.equal(upstream.status(),200);
+      body.data.application_mode=mode;
+      await route.fulfill({response:upstream,body:JSON.stringify(body),
+        headers:{...upstream.headers(),'content-type':'application/json'}});
+    });
+    const page=await context.newPage();
+    const response=await page.goto(origin,{waitUntil:'domcontentloaded',timeout:30000});
+    assert.ok(response?.ok());
+    const tab=mode==='contest'?'tab-contest':'tab-exam';
+    await page.waitForFunction(id=>document.getElementById(id)?.classList.contains('active'),tab,{timeout:30000});
+    const tabs=await page.evaluate(()=>({
+      school:!!document.querySelector('[data-sidebar-tab="exam"]'),
+      contest:!!document.querySelector('[data-sidebar-tab="contest"]'),
+      active:[...document.querySelectorAll('main .tab-content.active')].map(x=>x.id)
+    }));
+    assert.equal(tabs.school,true);
+    assert.equal(tabs.contest,true);
+    assert.ok(tabs.active.includes(tab),JSON.stringify(tabs));
+    console.log('PASS landing',mode,JSON.stringify(tabs));
+  }finally{await context.close();}
+}
 mkdirSync('test-artifacts/contest-responsive',{recursive:true});
 const browser=await chromium.launch({headless:true});
 try {
+  await checkLanding(browser,'school');
+  await checkLanding(browser,'contest');
   for(const item of sizes){
     const context=await browser.newContext({
       viewport:{width:item.width,height:item.height},
