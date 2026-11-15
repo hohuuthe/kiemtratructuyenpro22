@@ -269,3 +269,49 @@ test('Saving the default landing tab unlocks the save button on both success and
  assert.match(save,/method:'PUT'/);
  assert.match(save,/'Authorization':'Bearer '\+token/);
 });
+
+test('Contest registration is hidden on confirmed results, including delayed component hydration',()=>{
+ const ui=source('src/contest-mode-ui.js');
+ const main=source('src/main.js');
+ assert.match(ui,/const shouldHide=ownsVisibleExam \|\|/);
+ assert.match(ui,/tab\?\.contains\(result\)/);
+ assert.match(ui,/window\.__contestShowEntry\?\.\(\)/);
+ assert.match(ui,/window\.__contestOnExamSubmitted=function\(\)/);
+ assert.match(ui,/findEl\('contest-registration-form'\)\?\.reset\(\)/);
+ assert.match(ui,/window\.__contestShowEntry\?\.\(\);\s*try\{/);
+ assert.match(main,/if \(window\.__activeStudentExamTab === 'contest'\) \{\s*window\.__contestOnExamSubmitted\?\.\(\);/);
+ assert.match(main,/document\.getElementById\('exam-results'\)\?\.classList\.remove\('hidden'\)/);
+});
+
+test('Contest results display authenticated identity and server-trusted aggregates without answer hints',()=>{
+ const grade=source('functions/api/exam/grade.ts');
+ const main=source('src/main.js');
+ const projection=source('src/exam-public-contest-projection.ts');
+ assert.match(grade,/contestTypeStatsFromTrustedDetails\(detailedResults\)/);
+ assert.match(grade,/contestTypeStatsFromTrustedDetails\(storedDetails\)/);
+ assert.match(grade,/contestStudentName: authenticatedStudentName/);
+ assert.match(grade,/contestStudentUnit: authenticatedDonvi/);
+ assert.match(main,/result\.contestStudentName \|\| name/);
+ assert.match(main,/result\.contestStudentUnit \|\| ''/);
+ assert.match(main,/result\.statsByType && typeof result\.statsByType === 'object'/);
+ assert.match(main,/const showDetails = window\.__activeStudentExamTab === 'contest'/);
+ assert.match(projection,/'score','maxscore','earnedscore'/);
+ const safe=stripContestAnswerHints({
+   question:{type:'4-1',content:'Nội dung hợp lệ',answer:'B',isCorrect:true},
+   score:1,maxScore:1,isCorrect:true,correctAnswer:'B',userAnswer:'B'
+ });
+ assert.equal(safe.score,undefined);
+ assert.equal(safe.maxScore,undefined);
+ assert.equal(safe.isCorrect,undefined);
+ assert.equal(safe.correctAnswer,undefined);
+ assert.equal(safe.question.answer,undefined);
+ assert.equal(safe.userAnswer,'B');
+});
+
+test('School exam results retain their historical display and scoring behavior',()=>{
+ const main=source('src/main.js');
+ const grade=source('functions/api/exam/grade.ts');
+ assert.match(main,/window\.__activeStudentExamTab === 'contest'\s*\? \(result\.statsByType/);
+ assert.match(main,/: statsByType,/);
+ assert.match(grade,/if \(showDetails && !isContest\) return detail/);
+});
