@@ -46,6 +46,20 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_contest_attempt_active
   WHERE trang_thai = 'DANG_LAM';
 CREATE INDEX IF NOT EXISTS idx_results_contest_participant
   ON public.results(ma_nguoi_du_thi, exam_id, created_at DESC);
+-- Backfill only when the previous attempt already recorded the immutable
+-- result ID and that mapping is unambiguous. Never infer by name or phone.
+UPDATE public.results AS r
+SET ma_phien_thi=ca.ma_phien_thi
+FROM public.contest_attempts AS ca
+WHERE r.id=ca.ma_ket_qua
+  AND r.exam_id=ca.ma_de_thi
+  AND r.ma_nguoi_du_thi=ca.ma_nguoi_du_thi
+  AND r.ma_phien_thi IS NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM public.contest_attempts AS other
+    WHERE other.ma_ket_qua=ca.ma_ket_qua
+      AND other.ma_phien_thi<>ca.ma_phien_thi
+  );
 CREATE UNIQUE INDEX IF NOT EXISTS uq_results_contest_session
   ON public.results(ma_phien_thi) WHERE ma_phien_thi IS NOT NULL;
 
