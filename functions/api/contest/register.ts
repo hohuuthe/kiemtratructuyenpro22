@@ -65,8 +65,10 @@ export function validate(body: any, verifiedStudent = false) {
   const address = String(body?.dia_chi || '').normalize('NFKC').trim();
   const phone = String(body?.so_dien_thoai || '').replace(/[\s.()-]/g,'');
   const citizen = String(body?.so_cccd || '').trim();
-  if (!name || name.length > 120 || !unit || unit.length > 180 ||
-      address.length > 300 || ((!verifiedStudent || Boolean(phone)) && !/^(?:\+84|0)[0-9]{9,10}$/.test(phone)) ||
+  // Signed-in students cannot edit verified profile data; blank fields must not block them.
+  // The published exam, consent, identity and attempt limits remain mandatory.
+  if ((!verifiedStudent && (!name || !unit || !/^(?:\+84|0)[0-9]{9,10}$/.test(phone))) ||
+      name.length > 120 || unit.length > 180 || address.length > 300 ||
       (citizen && !/^[0-9]{12}$/.test(citizen))) {
     throw new Error('Thông tin dự thi không hợp lệ. Kiểm tra họ tên, đơn vị và số điện thoại.');
   }
@@ -90,15 +92,14 @@ async function verifiedStudentProfile(db: any, user: any) {
   const row: any = await db.prepare(
     'SELECT full_name, donvi, lop, phone_number, address FROM users WHERE id = ? LIMIT 1'
   ).bind(String(user.user_id)).first();
-  if (!row || !String(row.full_name || '').trim() || !String(row.donvi || '').trim()) {
-    throw new Error('Hồ sơ học sinh chưa có họ tên hoặc đơn vị. Vui lòng liên hệ quản trị viên để cập nhật.');
-  }
+  // An active, verified student account remains eligible even when its profile
+  // row is absent or individual fields have not been completed.
   return {
-    ho_ten:String(row.full_name).trim(),
-    don_vi:String(row.donvi).trim(),
-    lop:String(row.lop || '').trim(),
-    so_dien_thoai:String(row.phone_number || '').trim(),
-    dia_chi:String(row.address || '').trim(),
+    ho_ten:String(row?.full_name || user.full_name || user.username || '').trim(),
+    don_vi:String(row?.donvi || user.donvi || '').trim(),
+    lop:String(row?.lop || user.lop || '').trim(),
+    so_dien_thoai:String(row?.phone_number || '').trim(),
+    dia_chi:String(row?.address || '').trim(),
     // No verified CCCD column exists in the current school user schema.
     so_cccd:''
   };
@@ -117,9 +118,8 @@ export const onRequestGet: PagesFunction = async (context: any) => {
     if (!isSchoolStudent(user)) return respond({data:{authenticated:false}});
     const profile = await verifiedStudentProfile(db,user);
     return respond({data:{authenticated:true,profile}});
-  } catch (error: any) {
-    const incomplete = String(error?.message || '').startsWith('Hồ sơ học sinh');
-    return respond({error:incomplete?error.message:'Không thể xác minh hồ sơ học sinh.'},incomplete?409:503);
+  } catch {
+    return respond({error:'Không thể xác minh hồ sơ học sinh.'},503);
   }
 };
 
@@ -230,9 +230,9 @@ export const onRequestPost: PagesFunction = async (context: any) => {
     },secret);
     return respond({data:{ticket,ma_de_thi:exam.id,ten_de_thi:exam.name,ma_nguoi_du_thi:candidateId}});
   } catch(error:any) {
-    const known = error?.message?.startsWith('Hồ sơ học sinh') || error?.message?.startsWith('Thông tin') || error?.message?.startsWith('Bạn cần') ||
+    const known = error?.message?.startsWith('Thông tin') || error?.message?.startsWith('Bạn cần') ||
       error?.message?.startsWith('Vui lòng');
     console.error('[contest/register]',known?'invalid input':'server unavailable');
-    return respond({error:known?error.message:'Không thể đăng ký an toàn. Vui lòng thử lại.'},known?(String(error?.message||'').startsWith('Hồ sơ học sinh')?409:400):503);
+    return respond({error:known?error.message:'Không thể đăng ký an toàn. Vui lòng thử lại.'},known?400:503);
   }
 };
