@@ -1582,6 +1582,7 @@ Trả về kết quả dưới dạng JSON Array, mỗi phần tử tương ứn
             applicationMode: 'school',
             appTitle: "HỆ THỐNG KIỂM TRA TRỰC TUYẾN",
             headerDisplayMode: 'text',
+            headerBannerScope: 'both',
             headerBannerUrl: '',
             headerBannerKey: '',
             headerBannerTabletUrl: '',
@@ -3126,6 +3127,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
               questionFontSize:d.question_font_size,answerFontSize:d.answer_font_size,
               displayMode:d.display_mode,appTitle:d.app_title||appSettings.appTitle,
               headerDisplayMode:d.header_display_mode||'text',
+              headerBannerScope:d.header_banner_scope||'both',
               headerBannerUrl:d.header_banner_url||'',
               headerBannerKey:d.header_banner_key||'',
               headerBannerTabletUrl:d.header_banner_tablet_url||'',
@@ -4151,6 +4153,7 @@ if (contentType && contentType.includes("application/json")) {
                 applicationMode:d.application_mode==='contest'?'contest':'school',
                 authorInfo:d.author_info||appSettings.authorInfo,
                 headerDisplayMode:d.header_display_mode||'text',
+              headerBannerScope:d.header_banner_scope||'both',
                 headerBannerUrl:d.header_banner_url||'',
                 headerBannerTabletUrl:d.header_banner_tablet_url||'',
                 headerBannerMobileUrl:d.header_banner_mobile_url||'',
@@ -4651,6 +4654,7 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
 
             const tabEl = document.getElementById(`tab-${tabName}`);
             if (tabEl) tabEl.classList.add('active');
+            refreshAppHeaderTitle();
             if (tabName === 'contest') window.__contestShowEntry?.();
             if (tabName === 'documents') {
                 if (document.getElementById('documents-table-body')) {
