@@ -1,5 +1,5 @@
 import { verifyAuthSession, verifyJWT, signJWT, getDynamicSecret, getDatabase } from './utils';
-import { publicContestExam } from '../contest/register';
+import { isContestEnabled, publicContestExam } from '../contest/register';
 import { stripContestAnswerHints } from '../../../src/exam-public-contest-projection';
 import {
   EXAM_SESSION_PURPOSE_PRESTART,
@@ -123,9 +123,12 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         {
           const examRow: any = authoritativeExamRow;
     if (contestParticipantId) {
+      // Changing the application back to school closes new contest STARTs;
+      // already active contestants can still save and submit their work.
+      const contestEnabled = await isContestEnabled(db);
       const published = await publicContestExam(db,examId);
       const candidate: any = await db.prepare('SELECT ma_nguoi_du_thi FROM contest_participants WHERE ma_nguoi_du_thi = ?').bind(contestParticipantId).first();
-      if (!published || !candidate) return new Response(JSON.stringify({error:'Phiên cuộc thi không còn được phép bắt đầu.'}),{status:403,headers:corsHeaders});
+      if (!contestEnabled || !published || !candidate) return new Response(JSON.stringify({error:'Phiên cuộc thi không còn được phép bắt đầu.'}),{status:403,headers:corsHeaders});
     }
           if (frozenExamRevision && String(examRow?.updated_at || '').trim() !== frozenExamRevision) {
             return new Response(JSON.stringify({
