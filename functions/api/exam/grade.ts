@@ -1041,6 +1041,8 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
             } catch (e) {}
             for (const sql of [
                 "ALTER TABLE results ADD COLUMN IF NOT EXISTS ma_nguoi_du_thi TEXT",
+                "ALTER TABLE results ADD COLUMN IF NOT EXISTS ma_phien_thi TEXT",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_results_contest_session ON results(ma_phien_thi) WHERE ma_phien_thi IS NOT NULL",
                 "ALTER TABLE results ADD COLUMN IF NOT EXISTS submission_token_hash TEXT",
                 "ALTER TABLE results ADD COLUMN IF NOT EXISTS grading_status TEXT DEFAULT 'FINAL'",
                 "ALTER TABLE results ADD COLUMN IF NOT EXISTS score_finalized_at TEXT",
@@ -1054,7 +1056,7 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
             const gradingStatus = hasPendingEssayGrades ? 'PENDING' : 'FINAL';
             const finalizedAt = hasPendingEssayGrades ? null : new Date().toISOString();
             await db.prepare(
-                `INSERT INTO results (id, user_id, student_name, student_class, lop, don_vi, exam_name, exam_id, score, time_taken, correct_count, total_questions, details, loai_thi_sinh, cheat_warning_count, submission_token_hash, grading_status, score_finalized_at, ma_nguoi_du_thi, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                `INSERT INTO results (id, user_id, student_name, student_class, lop, don_vi, exam_name, exam_id, score, time_taken, correct_count, total_questions, details, loai_thi_sinh, cheat_warning_count, submission_token_hash, grading_status, score_finalized_at, ma_nguoi_du_thi, ma_phien_thi, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
             ).bind(
                 resultId,
                 authenticatedUserId || null,
@@ -1075,6 +1077,7 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
                 gradingStatus,
                 finalizedAt,
                 contestParticipantId || null,
+                contestParticipantId ? String(gradingSessionId || '') : null,
                 new Date().toISOString()
             ).run();
             resultPersisted = true;
