@@ -63,14 +63,16 @@ test('Public selector excludes private scoring and identity data',()=>{
  assert.match(register,/dong_y !== true/);
 });
 test('Responsive public form keeps old school form and hides teacher choice',()=>{
- const html=source('public/components/tab-exam.html');
+ const school=source('public/components/tab-exam.html');
+ const html=source('public/components/tab-contest.html');
+ assert.match(school,/id="exam-form"/);
+ assert.doesNotMatch(school,/id="contest-registration-form"/);
  assert.match(html,/id="contest-registration-form"/);
- assert.match(html,/id="exam-form"/);
  assert.match(html,/grid-cols-1 sm:grid-cols-2/);
  const js=source('src/contest-mode-ui.js');
  assert.match(js,/window.onStudentExamNameChange/);
  assert.match(js,/window.startExam/);
- assert.match(js,/body\[data-application-mode="contest"\]/);
+ assert.match(js,/__contestOnExamStarted/);
 });
 
 test('Regression: editor sends contest_status and reloads published state from stored DB',()=>{
@@ -86,8 +88,7 @@ test('Regression: editor sends contest_status and reloads published state from s
  assert.match(api,/Chỉ quản trị viên có quyền công bố/);
 });
 test('Compact registration removes redundant text while preserving mobile-safe controls',()=>{
- const html=source('public/components/tab-exam.html');
- const contest=html.slice(html.indexOf('id="contest-registration"'),html.indexOf('id="exam-form"'));
+ const contest=source('public/components/tab-contest.html');
  assert.doesNotMatch(contest,/CỔNG THAM GIA TRỰC TUYẾN/);
  assert.doesNotMatch(contest,/Không cần lựa chọn giáo viên/);
  assert.match(contest,/grid-cols-1 sm:grid-cols-2/);
@@ -188,4 +189,44 @@ test('All score submission and idempotent replay paths redact nested marking dat
      'Missing contest projection in '+tag);
  }
  assert.match(grade,/if \(showDetails && !isContest\) return detail/);
+});
+
+test('Both tabs are always in guest navigation and have separate components',()=>{
+ const index=source('index.html');
+ const main=source('src/main.js');
+ const ui=source('src/contest-mode-ui.js');
+ const bootstrap=source('functions/api/bootstrap.ts');
+ assert.match(index,/data-sidebar-tab="exam"/);
+ assert.match(index,/data-sidebar-tab="contest"/);
+ assert.match(index,/Ôn tập, kiểm tra/);
+ assert.match(index,/Cuộc thi trực tuyến/);
+ assert.match(index,/id="tab-contest"/);
+ assert.match(main,/const components=\['modal-container','tab-exam','tab-contest'/);
+ assert.match(main,/appSettings\.applicationMode === 'contest' \? 'contest' : 'exam'/);
+ assert.match(main,/tab === 'exam' \|\| tab === 'contest'/);
+ assert.match(main,/__activeStudentExamTab === 'contest'/);
+ assert.match(main,/__contestOnExamStarted/);
+ assert.match(main,/__contestOnExamReset/);
+ assert.match(main,/isResumedContest = data\.isContestAttempt === true/);
+ assert.match(ui,/relocateExamWidgets\(true\)/);
+ assert.match(ui,/relocateExamWidgets\(false\)/);
+ assert.doesNotMatch(ui,/body\[data-application-mode/);
+ assert.match(bootstrap,/application_mode: applicationMode/);
+});
+test('Default choice changes landing only; contest APIs remain published-only for both defaults',()=>{
+ const selector=source('functions/api/contest/exams.ts');
+ const register=source('functions/api/contest/register.ts');
+ const generate=source('functions/api/exam/generate.ts');
+ const start=source('functions/api/exam/start.ts');
+ const settings=source('public/components/tab-settings.html');
+ assert.doesNotMatch(selector,/isContestEnabled/);
+ assert.doesNotMatch(register,/isContestEnabled/);
+ assert.doesNotMatch(generate,/isContestEnabled/);
+ assert.doesNotMatch(start,/isContestEnabled/);
+ assert.match(selector,/contest_status = 'published'/);
+ assert.match(register,/publicContestExam\(db,v\.examId\)/);
+ assert.match(generate,/verifyContestTicket\(db,SECRET/);
+ assert.match(start,/publicContestExam\(db,examId\)/);
+ assert.match(settings,/Giao diện mặc định khi mở ứng dụng/);
+ assert.match(settings,/Cả hai chức năng/);
 });
