@@ -63,7 +63,7 @@ try {
       assert.ok(response?.ok(),item.name+' Preview page is not HTTP 200');
       const registration=page.locator('#contest-registration');
       await registration.waitFor({state:'attached',timeout:25000});
-      await page.waitForFunction(()=>typeof window.switchTab==='function',{timeout:30000});
+      await page.waitForFunction(()=>typeof window.switchTab==='function',null,{timeout:30000});
       await page.evaluate(()=>window.switchTab('contest'));
       await page.waitForFunction(()=>document.getElementById('tab-contest')?.classList.contains('active'),null,{timeout:30000});
       await registration.waitFor({state:'visible',timeout:20000});
