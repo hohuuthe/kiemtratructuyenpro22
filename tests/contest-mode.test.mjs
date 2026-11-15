@@ -436,3 +436,33 @@ test('Mobile contest entry binds submit before loading and fetches public choice
   assert.match(mobile,/overscroll-behavior-y: auto/);
   assert.match(mobile,/max-height: 600px/);
 });
+
+
+test('Signed-in school students use server-owned identity and read-only registration',()=>{
+ const register=source('functions/api/contest/register.ts');
+ assert.match(register,/verifyAuthSession\(authorization\.slice\(7\),secret,db\)/);
+ assert.match(register,/verifiedProfile \? \{\.\.\.body,\.\.\.verifiedProfile\} : body/);
+ assert.match(register,/contest-school-account:v1:/);
+ assert.match(register,/contest-school-candidate:v1:/);
+ assert.match(register,/SELECT full_name, donvi, lop, phone_number, address FROM users WHERE id = \?/);
+ assert.match(register,/if \(value == null\) return null/);
+ const ui=source('src/contest-mode-ui.js');
+ assert.match(ui,/input\.readOnly=Boolean\(profile\)/);
+ assert.match(ui,/await syncSchoolProfile\(true\)/);
+ assert.match(ui,/Authorization:'Bearer '\+token/);
+ assert.match(ui,/token!==contestAuthToken\(\)/);
+ const html=source('public/components/tab-contest.html');
+ assert.match(html,/id="contest-student-class-row"/);
+ assert.match(html,/id="contest-verified-profile-note"/);
+});
+test('Student and guest registration validation keep separate phone requirements',async()=>{
+ const {validate,isSchoolStudent}=await import('../functions/api/contest/register.ts');
+ assert.equal(isSchoolStudent({role:'user',target_audience:'Học sinh'}),true);
+ assert.equal(isSchoolStudent({role:'student',target_audience:'Học sinh'}),true);
+ assert.equal(isSchoolStudent({role:'admin',target_audience:'Quản trị viên'}),false);
+ assert.equal(isSchoolStudent({role:'teacher',target_audience:'Giáo viên'}),false);
+ assert.equal(isSchoolStudent({role:'user',target_audience:'Khách'}),false);
+ const data={ho_ten:'Học sinh A',don_vi:'Trường A',ma_de_thi:'contest1',dong_y:true,so_dien_thoai:''};
+ assert.equal(validate(data,true).phone,'');
+ assert.throws(()=>validate(data,false),/Thông tin dự thi không hợp lệ/);
+});
