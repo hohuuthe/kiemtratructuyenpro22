@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
 const guard = fs.readFileSync(new URL('../src/user-selection-type-guard.js', import.meta.url), 'utf8');
-const index = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+const bootstrap = fs.readFileSync(new URL('../src/bootstrap.js', import.meta.url), 'utf8');
 
 test('multi-select guard blocks mixed student and teacher selections', () => {
   assert.match(guard, /TYPE_STUDENT/);
@@ -25,8 +25,5 @@ test('delete action has a final mixed-type fail-safe', () => {
 });
 
 test('guard is loaded after batch deletion controller', () => {
-  const batchPos = index.indexOf('/src/batch-teacher-delete-ui.js');
-  const guardPos = index.indexOf('/src/user-selection-type-guard.js');
-  assert.ok(batchPos >= 0);
-  assert.ok(guardPos > batchPos);
+  assert.match(bootstrap, /import\('\.\/batch-teacher-delete-ui\.js'\)[\s\S]*\]\);\s*await import\('\.\/user-selection-type-guard\.js'\)/);
 });
