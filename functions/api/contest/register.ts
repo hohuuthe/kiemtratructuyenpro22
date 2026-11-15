@@ -1,5 +1,6 @@
 import { getDatabase, getDynamicSecret, signJWT, verifyJWT } from '../exam/utils';
 import { consumeSecurityAttempt } from '../../../src/security-rate-limit';
+import { evaluateExamAccessWindow } from '../../../src/exam-time-authority.js';
 
 export const CONTEST_MODE = 'contest';
 export const CONTEST_EXAM_MODE = 'Cuộc thi trực tuyến';
@@ -96,6 +97,8 @@ export const onRequestPost: PagesFunction = async (context: any) => {
     const v = validate(body);
     const exam = await publicContestExam(db,v.examId);
     if (!exam) return respond({error:'Cuộc thi không được công bố hoặc đã bị thu hồi.'},403);
+    const access = evaluateExamAccessWindow(exam,Date.now());
+    if (!access.allowed) return respond({error:access.code === 'EXAM_NOT_STARTED' ? 'Cuộc thi chưa đến thời gian bắt đầu.' : access.code === 'EXAM_WINDOW_CLOSED' ? 'Cuộc thi đã hết thời gian tham gia.' : 'Khung thời gian cuộc thi chưa hợp lệ.'},403);
     const secret = await getDynamicSecret(db,context.env.JWT_SECRET);
     // Phone-based deduplication is a best-effort identifier, NOT proof of phone ownership.
     // Official one-person competitions require a verified OTP provider in a later release.
