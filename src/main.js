@@ -4316,6 +4316,7 @@ if (contentType && contentType.includes("application/json")) {
                     sq_punctuation_sensitive: draft.sqPunctuationSensitive ? 1 : 0,
                     auto_grade_essay: draft.autoGradeEssay ? 1 : 0,
                     chedodethi: draft.chedodethi || 'Đề công khai',
+                    contest_status: draft.chedodethi === 'Cuộc thi trực tuyến' && draft.contestStatus === 'published' ? 'published' : 'draft',
                     mabaomatdethi: draft.chedodethi === 'Đề có mã bảo mật' ? (draft.mabaomatdethi || '') : '',
                     target_lop: (draft.chedodethi === 'Đề công khai' || !draft.chedodethi) ? '' : (draft.target_lop || draft.lop || ''),
                     lop: (draft.chedodethi === 'Đề công khai' || !draft.chedodethi) ? '' : (draft.target_lop || draft.lop || ''),
@@ -6032,6 +6033,8 @@ if (contentType && contentType.includes("application/json")) {
 
             const elMode = document.getElementById('exam-config-mode');
             if (elMode) elMode.value = 'Đề công khai';
+            const contestStatusInput = document.getElementById('exam-contest-status');
+            if (contestStatusInput) contestStatusInput.value = 'draft';
             const passContainer = document.getElementById('exam-password-container');
             if (passContainer) passContainer.classList.add('hidden');
             const elPass = document.getElementById('exam-config-password');
@@ -7900,7 +7903,7 @@ if (contentType && contentType.includes("application/json")) {
             if (document.getElementById('exam-config-max-attempts')) document.getElementById('exam-config-max-attempts').value = examConfig.maxAttempts || 0;
             if (document.getElementById('exam-config-mode')) document.getElementById('exam-config-mode').value = examConfig.chedodethi;
             const contestStatusEl = document.getElementById('exam-contest-status');
-            if (contestStatusEl) contestStatusEl.value = cData.contest_status || 'draft';
+            if (contestStatusEl) contestStatusEl.value = examConfig.contestStatus || 'draft';
             if (document.getElementById('exam-config-password')) document.getElementById('exam-config-password').value = examConfig.mabaomatdethi || '';
             
             if (currentUser && currentUser.role !== 'admin' && (examConfig.chedodethi === 'Đề cho đơn vị' || examConfig.chedodethi === 'Đề thi cho đơn vị')) {
@@ -16677,6 +16680,21 @@ D. Phát biểu SAI</pre>
             const mode = document.getElementById('exam-config-mode')?.value || '';
             const contestBox = document.getElementById('contest-publish-container');
             contestBox?.classList.toggle('hidden',mode !== 'Cuộc thi trực tuyến');
+            const publication = document.getElementById('exam-contest-status');
+            if (publication) {
+                // Only admins can publish or revoke a contest; server enforces this too.
+                const published = examConfig?.contestStatus === 'published';
+                publication.disabled = !isAdminLoggedIn;
+                publication.title = !isAdminLoggedIn
+                    ? 'Chỉ quản trị viên được phép công bố cuộc thi.'
+                    : '';
+                if (mode !== 'Cuộc thi trực tuyến') publication.value = 'draft';
+                else if (published) publication.value = 'published';
+            }
+            const publicationHelp = document.getElementById('exam-contest-status-help');
+            if (publicationHelp) publicationHelp.textContent = isAdminLoggedIn
+                ? 'Admin có thể công bố hoặc chuyển cuộc thi về bản nháp. Lưu đề để áp dụng.'
+                : 'Giáo viên lưu bản nháp; quản trị viên phê duyệt và công bố.';
             const passwordContainer = document.getElementById('exam-password-container');
             const donviContainer = document.getElementById('exam-donvi-container');
             const lopContainer = document.getElementById('exam-class-container') || document.getElementById('exam-lop-container');
@@ -16892,7 +16910,8 @@ if (contentType && contentType.includes("application/json")) {
                 examConfig.maxAttempts = Math.max(0, getInt('exam-config-max-attempts') || 0);
                 examConfig.max_attempts = examConfig.maxAttempts;
                 examConfig.chedodethi = getVal('exam-config-mode') || 'Đề công khai';
-                examConfig.contestStatus = examConfig.chedodethi === 'Cuộc thi trực tuyến' ? getVal('exam-contest-status') || 'draft' : 'draft';
+                examConfig.contestStatus = examConfig.chedodethi === 'Cuộc thi trực tuyến'
+                    ? (isAdminLoggedIn ? (getVal('exam-contest-status') || 'draft') : 'draft') : 'draft';
                 examConfig.contest_status = examConfig.contestStatus;
                 examConfig.mabaomatdethi = examConfig.chedodethi === 'Đề có mã bảo mật' ? getVal('exam-config-password').trim() : '';
                 if (currentUser && currentUser.role !== 'admin' && (examConfig.chedodethi === 'Đề cho đơn vị' || examConfig.chedodethi === 'Đề thi cho đơn vị')) {
