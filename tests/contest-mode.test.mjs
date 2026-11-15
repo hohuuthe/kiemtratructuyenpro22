@@ -90,6 +90,6 @@ test('Compact registration removes redundant text while preserving mobile-safe c
  assert.doesNotMatch(contest,/CỔNG THAM GIA TRỰC TUYẾN/);
  assert.doesNotMatch(contest,/Không cần lựa chọn giáo viên/);
  assert.match(contest,/grid-cols-1 sm:grid-cols-2/);
- assert.match(contest,/sm:col-span-2/);
+ assert.match(contest,/sm:grid-cols-2/);
  assert.match(contest,/name="ma_de_thi"/);
 });
