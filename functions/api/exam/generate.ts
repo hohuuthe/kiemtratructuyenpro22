@@ -64,7 +64,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                     dbExam = results[0];
                 }
             }
-            if (!dbExam && teacherId) {
+            if (!dbExam && teacherId && !registeredContest) {
                 const searchName = (examName || examConfig?.name || '').trim().toLowerCase();
                 if (searchName) {
                     const { results } = await db.prepare("SELECT * FROM exam_configs WHERE creator_id = ? ORDER BY updated_at DESC, created_at DESC").bind(teacherId).all();
