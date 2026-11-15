@@ -114,17 +114,21 @@ export const onRequestPost: PagesFunction = async (context: any) => {
     if (!access.allowed) return respond({error:access.code === 'EXAM_NOT_STARTED' ? 'Cuộc thi chưa đến thời gian bắt đầu.' : access.code === 'EXAM_WINDOW_CLOSED' ? 'Cuộc thi đã hết thời gian tham gia.' : 'Khung thời gian cuộc thi chưa hợp lệ.'},403);
     const secret = await getDynamicSecret(db,context.env.JWT_SECRET);
     const participantSecret = await getParticipantDataSecret(db);
-    // Phone-based deduplication is a best-effort identifier, NOT proof of phone ownership.
-    // Official one-person competitions require a verified OTP provider in a later release.
-    const identity = await hmac(participantSecret,'contest-phone:v1:'+v.phone);
-    const candidateId = 'ct_' + (await hmac(participantSecret,'contest-candidate:v1:'+identity)).slice(0,40);
+    // A telephone is contact information, NOT a unique contestant ID:
+    // relatives and students may legitimately share a guardian's phone.
+    // Distinguish named candidates by a stable tenant-private composite fingerprint.
+    // This does NOT verify that the declarant owns the identity: official ranked
+    // contests must add phone OTP or an organizer-approved identity check.
+    const canonicalIdentity = JSON.stringify([
+      v.phone,
+      v.name.toLocaleLowerCase('vi-VN'),
+      v.unit.toLocaleLowerCase('vi-VN')
+    ]);
+    const identity = await hmac(participantSecret,'contest-person-composite:v2:'+canonicalIdentity);
+    const candidateId = 'ct_' + (await hmac(participantSecret,'contest-candidate:v2:'+identity)).slice(0,40);
     const previous: any = await db.prepare(
       'SELECT ma_nguoi_du_thi, ho_ten, don_vi FROM contest_participants WHERE ma_dinh_danh_bam = ?'
     ).bind(identity).first();
-    if (previous && (
-      String(previous.ho_ten).toLocaleLowerCase('vi-VN') !== v.name.toLocaleLowerCase('vi-VN') ||
-      String(previous.don_vi).toLocaleLowerCase('vi-VN') !== v.unit.toLocaleLowerCase('vi-VN')
-    )) return respond({error:'Số điện thoại này đã được dùng với hồ sơ dự thi khác. Liên hệ ban tổ chức để xác minh.'},409);
     if (!previous) {
       await db.prepare(`
         INSERT INTO contest_participants
