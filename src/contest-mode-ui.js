@@ -154,7 +154,15 @@ async function runContestEntry(){
       if(!loaded || loaded.status!=='ready' || String(loaded.examId)!==String(chosen.id))
         throw new Error(loaded?.message||'Không xác minh được cấu hình đề thi. Vui lòng thử lại.');
       await window.startExam?.(startButton);
-      if(!window.currentExamToken)throw new Error('Máy chủ chưa phát hành phiên thi. Vui lòng kiểm tra và thử lại.');
+      // A READY token is NOT an active exam. Only hide registration when
+      // the legacy exam engine has actually opened its verified READY dialog.
+      const readyButton=findEl('exam-start-ready-confirm');
+      if(!window.currentExamToken || !readyButton)
+        throw new Error('Máy chủ chưa mở được phiên thi hợp lệ. Vui lòng kiểm tra và thử lại.');
+      const cancel=findEl('exam-start-ready-cancel');
+      cancel?.addEventListener('click',()=>{
+        findEl('contest-registration')?.classList.remove('hidden');
+      },{once:true});
       findEl('contest-registration')?.classList.add('hidden');
     }catch(e){
       window.__contestTicket=null;
