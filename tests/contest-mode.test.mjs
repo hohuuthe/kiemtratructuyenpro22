@@ -364,3 +364,12 @@ test('Same-device attempts remain tenant and browser-tab scoped without legacy g
  assert.match(main,/writerId: getExamWriterId\(\)/);
  assert.match(main,/if \(currentExam\?\.startTime && currentExam\?\.questions\?\.length/);
 });
+
+test('Switching from school results to contest removes the previous student's private score',()=>{
+ const main=source('src/main.js');
+ const before=main.indexOf("if (tabName === 'contest' && isShowingResults &&");
+ const cleaned=main.indexOf("resetExam();",before);
+ const school=main.indexOf("if (tabName === 'exam')",before);
+ assert.ok(before>0 && cleaned>before && school>cleaned);
+ assert.match(main.slice(before,cleaned+20),/window\.__activeStudentExamTab !== 'contest'/);
+});
