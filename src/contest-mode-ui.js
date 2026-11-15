@@ -138,11 +138,17 @@ window.__contestOnExamSubmitted=function(){
   // Discard registration PII from the DOM after it has served its purpose.
   // Do not clear the authenticated student's separate verified profile.
   findEl('contest-registration-form')?.reset();
-  if(!window.currentUser){
-    for(const id of ['guest_data_1','guest_data_lop','guest_data_donvi']){
-      const field=findEl(id);
-      if(field)field.value='';
-    }
+  // Registered students retain ONLY their verified school profile.
+  // The guest contestant's declared identity must never survive in school form.
+  const profile=window.currentUser;
+  const restore={
+    guest_data_1:profile ? String(profile.full_name||'') : '',
+    guest_data_lop:profile ? String(profile.lop||'') : '',
+    guest_data_donvi:profile ? String(profile.donvi||profile.address||'') : ''
+  };
+  for(const [id,value] of Object.entries(restore)){
+    const field=findEl(id);
+    if(field)field.value=value;
   }
 };
 const noStore = {cache:'no-store'};
