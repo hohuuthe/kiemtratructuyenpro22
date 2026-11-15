@@ -9,6 +9,8 @@ ALTER TABLE public.exam_configs
   ADD COLUMN IF NOT EXISTS contest_status TEXT NOT NULL DEFAULT 'draft';
 ALTER TABLE public.results
   ADD COLUMN IF NOT EXISTS ma_nguoi_du_thi TEXT;
+ALTER TABLE public.results
+  ADD COLUMN IF NOT EXISTS ma_phien_thi TEXT;
 
 -- Tat ca ten cot cua bang contest_participants bang tieng Viet khong dau.
 CREATE TABLE IF NOT EXISTS public.contest_participants (
@@ -44,6 +46,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_contest_attempt_active
   WHERE trang_thai = 'DANG_LAM';
 CREATE INDEX IF NOT EXISTS idx_results_contest_participant
   ON public.results(ma_nguoi_du_thi, exam_id, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_results_contest_session
+  ON public.results(ma_phien_thi) WHERE ma_phien_thi IS NOT NULL;
 
 -- Keep the participant registry private even when this DB is accessed through
 -- Supabase Data API. Cloudflare/Neon trusted server-side SQL retains owner access.
