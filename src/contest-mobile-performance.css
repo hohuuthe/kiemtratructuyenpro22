@@ -1,0 +1,39 @@
+/* Scoped mobile contest registration interaction fixes.
+   Keep school exam layout and full-screen exam widgets untouched. */
+@media (max-width: 767px) {
+  #contest-registration-form .contest-registration-scroll {
+    overscroll-behavior-y: auto;
+    touch-action: pan-y;
+  }
+  #contest-registration .contest-registration-card {
+    contain: layout style;
+  }
+  #contest-registration-form input,
+  #contest-registration-form select,
+  #contest-registration-form button {
+    touch-action: manipulation;
+  }
+}
+/* With a short visual viewport or landscape orientation, nested scrolling
+   traps taps and keyboard focus. Let the page handle scrolling instead. */
+@media (max-width: 767px) and (max-height: 600px) {
+  #contest-registration .contest-registration-card {
+    max-height: none;
+    overflow: visible;
+  }
+  #contest-registration-form {
+    overflow: visible;
+  }
+  #contest-registration-form .contest-registration-scroll {
+    overflow: visible;
+    flex: 0 0 auto;
+  }
+}
+/* Avoid heavy shadow repaints while the user is moving through form fields. */
+@media (max-width: 767px) and (prefers-reduced-motion: reduce) {
+  #contest-registration .contest-registration-card,
+  #contest-registration-form * {
+    scroll-behavior: auto;
+    transition-duration: 0s;
+  }
+}
