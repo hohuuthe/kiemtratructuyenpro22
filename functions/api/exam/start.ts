@@ -371,6 +371,34 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       }
     }
 
+    // Record the accepted contest attempt without affecting school accounts.
+    if (contestParticipantId) {
+      try {
+        // Reconcile orphaned ACTIVE rows only when the older session has
+        // demonstrably expired or been removed. Never cancel a live attempt.
+        await db.prepare(`
+          UPDATE contest_attempts SET trang_thai = 'HUY'
+          WHERE ma_nguoi_du_thi = ? AND ma_de_thi = ?
+            AND trang_thai = 'DANG_LAM' AND ma_phien_thi <> ?
+            AND NOT EXISTS (
+              SELECT 1 FROM _exam_grade_sessions gs
+              WHERE gs.session_id = contest_attempts.ma_phien_thi
+                AND gs.expires_at > ?
+            )
+        `).bind(contestParticipantId,examId,gradingSessionId,new Date().toISOString()).run();
+        await db.prepare(`
+          INSERT INTO contest_attempts
+            (ma_phien_thi,ma_nguoi_du_thi,ma_de_thi,trang_thai,thoi_diem_bat_dau)
+          VALUES (?,?,?,'DANG_LAM',?)
+          ON CONFLICT (ma_phien_thi) DO NOTHING
+        `).bind(gradingSessionId,contestParticipantId,examId,proposedStartedAt).run();
+      } catch (error) {
+        console.error('Cannot bind contest attempt to verified session:',error);
+        try { await db.prepare('DELETE FROM _exam_active_attempts WHERE session_id = ?').bind(gradingSessionId).run(); } catch {}
+        return new Response(JSON.stringify({error:'Chưa thể xác nhận phiên dự thi. Vui lòng tiếp tục phiên hiện có.'}),{status:503,headers:corsHeaders});
+      }
+    }
+
     // Claim đầu tiên ghi đồng thời start + deadline + TTL kỹ thuật. Nếu lệnh này
     // thất bại trước khi đồng hồ được ghi, thu hồi khóa ACTIVE để học sinh không mắc kẹt.
     try {
@@ -449,32 +477,6 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       }
     }
 
-    // Record the accepted contest attempt without affecting school accounts.
-    if (contestParticipantId) {
-      try {
-        // Reconcile orphaned ACTIVE rows only when the older session has
-        // demonstrably expired or been removed. Never cancel a live attempt.
-        await db.prepare(`
-          UPDATE contest_attempts SET trang_thai = 'HUY'
-          WHERE ma_nguoi_du_thi = ? AND ma_de_thi = ?
-            AND trang_thai = 'DANG_LAM' AND ma_phien_thi <> ?
-            AND NOT EXISTS (
-              SELECT 1 FROM _exam_grade_sessions gs
-              WHERE gs.session_id = contest_attempts.ma_phien_thi
-                AND gs.expires_at > ?
-            )
-        `).bind(contestParticipantId,examId,gradingSessionId,new Date().toISOString()).run();
-        await db.prepare(`
-          INSERT INTO contest_attempts
-            (ma_phien_thi,ma_nguoi_du_thi,ma_de_thi,trang_thai,thoi_diem_bat_dau)
-          VALUES (?,?,?,'DANG_LAM',?)
-          ON CONFLICT (ma_phien_thi) DO NOTHING
-        `).bind(gradingSessionId,contestParticipantId,examId,new Date(startedAtMs).toISOString()).run();
-      } catch (error) {
-        console.error('Cannot bind contest attempt to verified session:',error);
-        return new Response(JSON.stringify({error:'Chưa thể xác nhận phiên dự thi. Vui lòng tiếp tục phiên hiện có.'}),{status:503,headers:corsHeaders});
-      }
-    }
     const activePayload = {
       ...decoded,
       purpose: EXAM_SESSION_PURPOSE_ACTIVE,
