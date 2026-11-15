@@ -8943,7 +8943,7 @@ if (contentType && contentType.includes("application/json")) {
                 }
                 if (data?.code === 'EXAM_SUBMISSION_PROCESSING') {
                     window.__EXAM_RESUME_BLOCK_NEW__ = true;
-                    try { switchTab('exam'); } catch(e) {}
+                    try { switchTab(data.isContestAttempt === true ? 'contest' : 'exam'); } catch(e) {}
                     showModal(`
                         <div class="p-4 sm:p-5 text-center">
                             <div class="text-4xl mb-2">⏳</div>
