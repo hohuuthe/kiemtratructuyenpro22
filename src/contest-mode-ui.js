@@ -31,8 +31,21 @@ function showError(message) {
 }
 function hideError(){findEl('contest-error')?.classList.add('hidden');}
 function setupSettings(mode) {
-  const picker=findEl('settings-application-mode');
-  if(picker)picker.value=mode;
+  // Components load independently; initialize the settings selector after it exists.
+  function syncPicker(){
+    const picker=findEl('settings-application-mode');
+    if(!picker)return false;
+    if(picker.dataset.contestInitialized!=='1'){
+      picker.value=mode;
+      picker.dataset.contestInitialized='1';
+    }
+    return true;
+  }
+  if(!syncPicker()){
+    const observer=new MutationObserver(()=>{if(syncPicker())observer.disconnect();});
+    observer.observe(document.documentElement,{childList:true,subtree:true});
+    setTimeout(()=>observer.disconnect(),15000);
+  }
   window.saveApplicationMode=async function(){
     const modeChoice=findEl('settings-application-mode')?.value;
     const button=findEl('save-application-mode');
