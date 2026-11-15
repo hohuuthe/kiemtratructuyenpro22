@@ -1,0 +1,48 @@
+name: Contest mode release verification
+
+on:
+  pull_request:
+    paths:
+      - 'functions/api/contest/**'
+      - 'functions/api/exam/**'
+      - 'functions/api/exams.ts'
+      - 'functions/api/settings.ts'
+      - 'functions/api/bootstrap.ts'
+      - 'functions/[slug]/api/[[path]].ts'
+      - 'src/contest-mode-ui.js'
+      - 'src/exam-config-contract.ts'
+      - 'src/main.js'
+      - 'src/bootstrap.js'
+      - 'public/components/tab-exam.html'
+      - 'public/components/tab-exam-editor.html'
+      - 'public/components/tab-settings.html'
+      - 'migrations/20261115_contest_mode.sql'
+      - 'tests/contest-mode.test.mjs'
+      - '.github/workflows/contest-mode-check.yml'
+  workflow_dispatch:
+
+jobs:
+  verify-contest:
+    name: Syntax, legacy regression, types and production build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Parse JavaScript
+        run: |
+          node --check src/main.js
+          node --check src/contest-mode-ui.js
+          node --check src/bootstrap.js
+      - name: Contest mode contracts and exam regressions
+        run: node --import tsx --test tests/contest-mode.test.mjs tests/exam-critical-integrity.test.ts tests/exam-config-integrity.test.ts tests/security-tenant-integration.test.ts
+      - name: TypeScript checks
+        run: npm run lint
+      - name: Production build
+        run: npm run build
