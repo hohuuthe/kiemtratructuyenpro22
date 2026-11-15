@@ -303,6 +303,18 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
             {status:403,headers:corsHeaders});
       }
       if (!isAdmin && !isTeacher) {
+        // Public contest scores are private to the participant and organizers.
+        // An exam's generic "shared results" toggle must not leak contestants'
+        // full names, units or scores through the legacy public roster.
+        const publicExam: any = await db.prepare(
+          'SELECT chedodethi FROM exam_configs WHERE id = ? LIMIT 1'
+        ).bind(examIdParam).first();
+        if (publicExam?.chedodethi === 'Cuộc thi trực tuyến') {
+          return new Response(JSON.stringify({
+            data: [],
+            error: 'Kết quả cuộc thi chỉ được xem theo phiên cá nhân hoặc bởi ban tổ chức.'
+          }),{status:403,headers:corsHeaders});
+        }
         const { results: sharedExam } = await db.prepare(
           "SELECT id FROM exam_configs WHERE id = ? AND (is_shared_results = 1 OR is_shared_results = 'true' OR is_shared_results = true)"
         ).bind(examIdParam).all();
