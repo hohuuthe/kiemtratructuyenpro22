@@ -382,3 +382,16 @@ test('Finishing a contest clears guest identity and restores only authenticated 
  assert.match(ui,/guest_data_donvi:profile \? String\(profile\.donvi\|\|profile\.address\|\|''\)/);
  assert.match(ui,/for\(const \[id,value\] of Object\.entries\(restore\)\)/);
 });
+
+test('Restoring a contest mounts its DOM BEFORE fullscreen and handles expired drafts',()=>{
+ const ui=source('src/contest-mode-ui.js');
+ const main=source('src/main.js');
+ assert.match(ui,/window\.__contestOnExamResumed=function\(\)/);
+ assert.match(ui,/if\(!relocateExamWidgets\(true\)\)return false/);
+ const click=main.indexOf("resumeButton.addEventListener('click'");
+ const resume=main.indexOf('window.__contestOnExamResumed?.()',click);
+ const expired=main.indexOf('if (data.expired)',click);
+ const fullscreen=main.indexOf('window.enterExamFullscreen()',click);
+ assert.ok(click>=0 && resume>click && expired>resume && fullscreen>expired);
+ assert.doesNotMatch(main.slice(click,fullscreen+100),/isResumedContest\) window\.__contestOnExamStarted/);
+});
