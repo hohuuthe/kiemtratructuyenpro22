@@ -99,15 +99,9 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
       }
       const row: any = results[0];
       // Private/draft contests must not be discoverable through the legacy public endpoint.
-      if (row.chedodethi === 'Cuộc thi trực tuyến' && !isExamOwner(user,row)) {
-        let contestActive = false;
-        try {
-          const modeRow: any = await db.prepare('SELECT application_mode FROM app_settings WHERE id = 1').first();
-          contestActive = modeRow?.application_mode === 'contest';
-        } catch {}
-        if (!contestActive || row.contest_status !== 'published') {
-          return new Response(JSON.stringify({data:null,error:'Cuộc thi chưa được công bố.'}),{status:404,headers:corsHeaders});
-        }
+      if (row.chedodethi === 'Cuộc thi trực tuyến' && !isExamOwner(user,row) &&
+          row.contest_status !== 'published') {
+        return new Response(JSON.stringify({data:null,error:'Cuộc thi chưa được công bố.'}),{status:404,headers:corsHeaders});
       }
       const accessCode = request.headers.get('X-Exam-Access-Code');
       const challenge = examAccessChallenge(user,row,accessCode);
