@@ -723,6 +723,12 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             ...makeGradeSessionConfig(activeExamConfig),
             examRevision: String(activeExamConfig.updated_at || activeExamConfig.examRevision || '')
         };
+        if (registeredContest) {
+            // Contest participants cannot reveal official answer keys via Immediate
+            // Feedback or result detail while a public competition is running.
+            gradeSessionConfig.showDetails = false;
+            gradeSessionConfig.show_details = 0;
+        }
         const gradingSessionId = crypto.randomUUID();
         const expiresAtEpoch = Math.floor(Date.now() / 1000) + Math.max(3600, Math.min(8 * 3600, timeLimitSeconds + 3600));
         const expiresAt = new Date(expiresAtEpoch * 1000).toISOString();
