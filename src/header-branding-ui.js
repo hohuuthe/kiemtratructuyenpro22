@@ -36,7 +36,15 @@ function ensureImageQueryListeners() {
     window.matchMedia(query).addEventListener?.('change',()=>{ if(renderedSettings) applyHeaderBranding(renderedSettings); });
   }
 }
+const feedback = (message, kind = 'info') => {
+  const status = find('settings-header-save-status');
+  if (status) {
+    status.textContent = message;
+    status.dataset.status = kind;
+  }
+};
 const toast = (message, kind = 'info') => {
+  feedback(message, kind);
   if (typeof window.showToast === 'function') window.showToast(message, kind);
 };
 
@@ -293,10 +301,12 @@ export async function saveHeaderBrandingSettings(settings, refreshHeader) {
   saveButton.disabled = true;
   const originalText = saveButton.textContent;
   saveButton.textContent = 'Đang lưu cấu hình...';
+  feedback('Đang kiểm tra và tải banner lên hệ thống...', 'info');
   try {
     for (const device of devices) {
       const file = files[device];
       if (!file) continue;
+      feedback('Đang tải banner lên hệ thống...', 'info');
       const base64 = await readImageAsDataUrl(file);
       const upload = await requestJson('POST', { base64 });
       const prefix = device === 'desktop' ? 'header_banner_' : 'header_banner_' + device + '_';
@@ -319,6 +329,7 @@ export async function saveHeaderBrandingSettings(settings, refreshHeader) {
       headerBannerAlt: committed.header_banner_alt
     });
     window.appSettings = settings;
+    applyStudentExamHeaderBranding(settings);
     populateBrandingSettings(settings);
     refreshHeader?.();
     toast('Đã lưu và áp dụng thương hiệu hệ thống thành công.', 'success');
@@ -328,4 +339,26 @@ export async function saveHeaderBrandingSettings(settings, refreshHeader) {
     saveButton.disabled = false;
     saveButton.textContent = originalText;
   }
+}
+
+/* Settings is hydrated asynchronously. Delegated click controls work even if
+ * main.js has not bound optional legacy global handlers on the settings tab.
+ * No duplicate inline click handlers: buttons use data-header-branding-action.
+ */
+if (typeof document !== 'undefined') {
+  document.addEventListener('click', event => {
+    const button = event.target?.closest?.('[data-header-branding-action]');
+    if (!button) return;
+    const action = button.dataset.headerBrandingAction;
+    if (action === 'save') {
+      const settings = renderedSettings || window.appSettings || {};
+      void saveHeaderBrandingSettings(settings, window.refreshAppHeaderTitle);
+    } else if (action === 'clear') {
+      clearHeaderBrandingBanner();
+    } else if (action === 'clear-variant') {
+      clearHeaderBrandingVariant(button.dataset.device);
+    } else if (action === 'preview') {
+      selectHeaderBannerPreview(button.dataset.device);
+    }
+  });
 }
