@@ -179,3 +179,13 @@ test('Prestart crash recovery reclaims reservation only if earlier clock never s
  assert.match(start,/gs\.started_at IS NOT NULL/);
  assert.match(start,/AND gs\.expires_at > \?/);
 });
+
+test('All score submission and idempotent replay paths redact nested marking data',()=>{
+ const grade=source('functions/api/exam/grade.ts');
+ assert.match(grade,/isContest \? stripContestAnswerHints\(safeD\) : safeD/);
+ for(const tag of ['replayShowDetails','showDetailsOnReplay','shouldShowDetails']){
+   assert.ok(grade.includes('sanitizeGradingDetailForClient(d, '+tag+', Boolean(contestParticipantId))'),
+     'Missing contest projection in '+tag);
+ }
+ assert.match(grade,/if \(showDetails && !isContest\) return detail/);
+});
