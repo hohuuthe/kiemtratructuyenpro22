@@ -332,12 +332,12 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     if (!owner) return respond({error:'Không xác định được người tạo đề'},403);
     const fields=normalizeExamConfigInput(body,existing);
     // Teachers can prepare contests but ONLY a verified Admin can publish them.
+    if (!isAdmin && existing?.contest_status === 'published' &&
+        existing?.chedodethi === 'Cuộc thi trực tuyến') {
+      return respond({error:'Cuộc thi đang công bố. Giáo viên cần yêu cầu Admin thu hồi công bố trước khi sửa.'},403);
+    }
     if (!isAdmin && fields.contest_status === 'published' && fields.chedodethi === 'Cuộc thi trực tuyến') {
-      if (existing?.contest_status === 'published') {
-        fields.contest_status = 'published'; // editing existing published exam; publication may be revoked by Admin only
-      } else {
-        return respond({error:'Chỉ quản trị viên có quyền công bố cuộc thi.'},403);
-      }
+      return respond({error:'Chỉ quản trị viên có quyền công bố cuộc thi.'},403);
     }
 
     // Fail-closed: mọi cấu hình mới/sửa phải đủ câu hỏi trên DB tại đúng thời điểm lưu.
