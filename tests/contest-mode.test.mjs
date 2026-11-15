@@ -395,3 +395,26 @@ test('Restoring a contest mounts its DOM BEFORE fullscreen and handles expired d
  assert.ok(click>=0 && resume>click && expired>resume && fullscreen>expired);
  assert.doesNotMatch(main.slice(click,fullscreen+100),/isResumedContest\) window\.__contestOnExamStarted/);
 });
+
+test('Mobile registration keeps the start action visible with independently scrollable fields',()=>{
+ const html=source('public/components/tab-contest.html');
+ const css=source('src/style.css');
+ assert.match(html,/id="contest-registration-form"/);
+ assert.match(html,/class="contest-registration-scroll"/);
+ assert.match(html,/class="contest-submit-dock"/);
+ const scrollAt=html.indexOf('class="contest-registration-scroll"');
+ const consentAt=html.indexOf('name="dong_y"');
+ const dockAt=html.indexOf('class="contest-submit-dock"');
+ const submitAt=html.indexOf('id="contest-register-submit"');
+ assert.ok(scrollAt>=0 && consentAt>scrollAt && dockAt>consentAt && submitAt>dockAt);
+ assert.match(css,/@media \(max-width: 767px\)/);
+ assert.match(css,/#contest-registration-form \.contest-registration-scroll \{[\s\S]*?overflow-y:auto/);
+ assert.match(css,/#contest-registration-form \.contest-submit-dock \{[\s\S]*?flex:0 0 auto/);
+ assert.match(css,/max-height:calc\(100dvh - 150px\)/);
+ assert.match(css,/font-size:16px; line-height:1\.35/);
+ assert.match(html,/name="ho_ten" required/);
+ assert.match(html,/name="don_vi" required/);
+ assert.match(html,/name="so_dien_thoai" required/);
+ assert.match(html,/name="ma_de_thi" required/);
+ assert.match(html,/name="dong_y" type="checkbox" required/);
+});
