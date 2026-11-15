@@ -41,7 +41,11 @@ async function checkLanding(browser, mode) {
     assert.equal(tabs.contest,true);
     assert.ok(tabs.active.includes(tab),JSON.stringify(tabs));
     console.log('PASS landing',mode,JSON.stringify(tabs));
-  }finally{await context.close();}
+  }finally{
+    // Pending bootstrap interception must not reject after the page is closed.
+    await context.unrouteAll({behavior:'ignoreErrors'});
+    await context.close();
+  }
 }
 mkdirSync('test-artifacts/contest-responsive',{recursive:true});
 const browser=await chromium.launch({headless:true});
