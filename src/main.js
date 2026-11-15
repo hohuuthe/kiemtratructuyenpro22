@@ -9087,6 +9087,14 @@ if (contentType && contentType.includes("application/json")) {
             if (resumeButton) {
                 resumeButton.addEventListener('click', async () => {
                     resumeButton.disabled = true;
+                    // A restored contest has no registration ticket; its
+                    // server-attested ACTIVE session still owns the contest tab.
+                    // Stabilize the DOM BEFORE any fullscreen request or grading.
+                    if (isResumedContest && !window.__contestOnExamResumed?.()) {
+                        resumeButton.disabled = false;
+                        showToast('Không thể đặt giao diện cuộc thi an toàn để khôi phục bài. Vui lòng thử lại.', 'error');
+                        return;
+                    }
                     closeModal();
 
                     if (data.expired) {
@@ -9099,7 +9107,7 @@ if (contentType && contentType.includes("application/json")) {
                     if (typeof window.enterExamFullscreen === 'function') {
                         Promise.resolve(window.enterExamFullscreen()).catch(() => {});
                     }
-                    if (isResumedContest) window.__contestOnExamStarted?.();
+                    // Resume UI was already mounted before entering fullscreen.
                     window.startExamUI(true);
                     showToast('Đã khôi phục bài thi. Đồng hồ tiếp tục theo deadline cũ.', 'success');
                 }, { once: true });
