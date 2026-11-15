@@ -81,3 +81,22 @@ export function selectQuestionsStrictByDifficulty(
 
   return selected;
 }
+
+
+/**
+ * Shuffle question positions only inside each configured type. This runs before
+ * the grading session and signed question IDs are frozen; never reorder a live
+ * or resumed attempt, because saved answers are position-indexed.
+ */
+export function orderSelectedExamQuestionsByType<T extends Question>(
+  selected: T[],
+  shuffle: (items: T[]) => T[]
+): T[] {
+  const types = ['4-1', 'TF4', 'SQ', 'TL'] as const;
+  const questions = Array.isArray(selected) ? selected : [];
+  // Fail closed rather than silently drop an unsupported question from a paper.
+  if (questions.some(question => !types.includes(question?.type as typeof types[number]))) {
+    throw new ExamQuestionSelectionError('Đề thi có loại câu hỏi không được hỗ trợ; không thể sắp xếp an toàn.');
+  }
+  return types.flatMap(type => shuffle(questions.filter(question => question.type === type)));
+}
