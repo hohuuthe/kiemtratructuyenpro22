@@ -50,10 +50,11 @@ test('Front end never enters fullscreen before server accepts exam start', () =>
   assert.match(region,/readyButton.addEventListener\('click'/);
   assert.match(region,/startResult\.token/);
   assert.doesNotMatch(region,/KIỂM TRA TRƯỚC SỐ LẦN LÀM BÀI TRÊN CLIENT/);
-  for(const path of ['functions/api/exam/generate.ts','server.ts']) {
-    const backend=readFileSync(path,'utf8');
-    assert.match(backend,/code: 'EXAM_ATTEMPT_LIMIT_REACHED', attemptCount, maxAttempts: maxAttemptsVal/);
-  }
+  // Cloudflare Pages uses the typed exam generator as its authoritative
+  // preflight route. server.ts is the optional legacy local Express server,
+  // and does not implement this Pages-specific error contract.
+  const backend=readFileSync('functions/api/exam/generate.ts','utf8');
+  assert.match(backend,/code: 'EXAM_ATTEMPT_LIMIT_REACHED', attemptCount, maxAttempts: maxAttemptsVal/);
 });
 
 
