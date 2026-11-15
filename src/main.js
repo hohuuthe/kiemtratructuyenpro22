@@ -11517,6 +11517,11 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             }
             document.getElementById('exam-interface')?.classList.add('hidden');
             document.getElementById('exam-results')?.classList.remove('hidden');
+            // Contest registration and the confirmed result are mutually exclusive.
+            // Keep the ticket/owner until a deliberate reset, not at submission.
+            if (window.__activeStudentExamTab === 'contest') {
+                window.__contestOnExamSubmitted?.();
+            }
 
             // Đảm bảo modal-container và toast luôn nằm ở document.body sau khi làm bài xong
             const modalContainer = document.getElementById('modal-container');
