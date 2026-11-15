@@ -150,9 +150,12 @@ try {
     await page.locator('#import-preview-container .katex, #import-preview-container mjx-container').count()>0&&!corrected.includes('__WMATH_'));
   check('Explicit valid correction clears the pending review count',
     (await page.locator('#import-total-count').innerText()).includes('0 câu cần kiểm tra'));
-  await page.mouse.move(0,0);
-  await page.waitForFunction(()=>!document.querySelector('#toast-container-right .toast, #toast-container-center .toast'),null,{timeout:10000});
-  await page.locator('#import-preview-container').screenshot({path:folder+'/corrected-word-import.png'});
+  // Toast lifetime is unrelated to the import preview's correctness.
+  // Hide toasts only in the QA screenshot, without changing application state.
+  await page.locator('#import-preview-container').screenshot({
+    path:folder+'/corrected-word-import.png',
+    style:'#toast-container-right, #toast-container-center { visibility: hidden !important; }'
+  });
   const multiline=await openAndImport(await multilineAnswerFixture());
   const multilineStatus=await page.locator('#import-total-count').innerText();
   check('Multiline TL answers on lines after Đáp án are retained as three questions',
