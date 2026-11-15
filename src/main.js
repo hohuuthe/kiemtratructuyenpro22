@@ -11561,7 +11561,10 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             const formattedEndDate = endDateTime.toLocaleDateString('vi-VN');
 
             const showScore = examConfig.showScore !== undefined ? examConfig.showScore : true;
-            const showDetails = examConfig.showDetails !== undefined ? examConfig.showDetails : true;
+            // Public contest outcomes never expose per-question correctness or keys.
+            // The server computes any published category aggregates independently.
+            const showDetails = window.__activeStudentExamTab === 'contest'
+                ? false : (examConfig.showDetails !== undefined ? examConfig.showDetails : true);
 
             const stats = result.statsByType || {};
             const renderTypeRow = (type, label, color) => {
