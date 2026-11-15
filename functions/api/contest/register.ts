@@ -1,4 +1,4 @@
-import { getDatabase, getDynamicSecret, signJWT, verifyJWT } from '../exam/utils';
+import { getDatabase, getDynamicSecret, signJWT, verifyJWT, verifyAuthSession } from '../exam/utils';
 import { consumeSecurityAttempt } from '../../../src/security-rate-limit';
 import { evaluateExamAccessWindow } from '../../../src/exam-time-authority.js';
 
@@ -54,19 +54,19 @@ async function encryptionKey(secret: string) {
   return crypto.subtle.importKey('raw',digest,'AES-GCM',false,['encrypt','decrypt']);
 }
 async function encryptPrivate(secret: string, value: string): Promise<string | null> {
-  if (!value) return null;
+  if (value == null) return null;
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const ciphertext = await crypto.subtle.encrypt({name:'AES-GCM',iv},await encryptionKey(secret),encoder.encode(value));
   return 'v1.' + base64url(iv) + '.' + base64url(new Uint8Array(ciphertext));
 }
-function validate(body: any) {
+export function validate(body: any, verifiedStudent = false) {
   const name = String(body?.ho_ten || '').normalize('NFKC').trim().replace(/\s+/g,' ');
   const unit = String(body?.don_vi || '').normalize('NFKC').trim().replace(/\s+/g,' ');
   const address = String(body?.dia_chi || '').normalize('NFKC').trim();
   const phone = String(body?.so_dien_thoai || '').replace(/[\s.()-]/g,'');
   const citizen = String(body?.so_cccd || '').trim();
   if (!name || name.length > 120 || !unit || unit.length > 180 ||
-      address.length > 300 || !/^(?:\+84|0)[0-9]{9,10}$/.test(phone) ||
+      address.length > 300 || ((!verifiedStudent || Boolean(phone)) && !/^(?:\+84|0)[0-9]{9,10}$/.test(phone)) ||
       (citizen && !/^[0-9]{12}$/.test(citizen))) {
     throw new Error('Thông tin dự thi không hợp lệ. Kiểm tra họ tên, đơn vị và số điện thoại.');
   }
@@ -75,6 +75,53 @@ function validate(body: any) {
   if (!examId || examId.length > 128) throw new Error('Vui lòng chọn cuộc thi hợp lệ.');
   return {name,unit,address,phone,citizen,examId};
 }
+
+
+/** Only authenticated student accounts get server-owned, immutable identities. */
+export function isSchoolStudent(user: any): boolean {
+  const role = String(user?.role || '').trim().toLocaleLowerCase('vi-VN');
+  const audience = String(user?.target_audience || '').trim().toLocaleLowerCase('vi-VN');
+  return ['user','student','học sinh','hs'].includes(role)
+    && (audience === 'học sinh' || (role !== 'user' && !audience));
+}
+
+async function verifiedStudentProfile(db: any, user: any) {
+  // user_id was validated against an active account within the current tenant.
+  const row: any = await db.prepare(
+    'SELECT full_name, donvi, lop, phone_number, address FROM users WHERE id = ? LIMIT 1'
+  ).bind(String(user.user_id)).first();
+  if (!row || !String(row.full_name || '').trim() || !String(row.donvi || '').trim()) {
+    throw new Error('Hồ sơ học sinh chưa có họ tên hoặc đơn vị. Vui lòng liên hệ quản trị viên để cập nhật.');
+  }
+  return {
+    ho_ten:String(row.full_name).trim(),
+    don_vi:String(row.donvi).trim(),
+    lop:String(row.lop || '').trim(),
+    so_dien_thoai:String(row.phone_number || '').trim(),
+    dia_chi:String(row.address || '').trim(),
+    // No verified CCCD column exists in the current school user schema.
+    so_cccd:''
+  };
+}
+
+export const onRequestGet: PagesFunction = async (context: any) => {
+  const authorization = context.request.headers.get('Authorization') || '';
+  if (!authorization) return respond({data:{authenticated:false}});
+  if (!/^Bearer \S+$/.test(authorization)) return respond({error:'Phiên đăng nhập không hợp lệ.'},401);
+  const db = getDatabase(context);
+  if (!db) return respond({error:'Không thể kết nối cơ sở dữ liệu.'},503);
+  try {
+    const secret = await getDynamicSecret(db,context.env.JWT_SECRET);
+    const user = await verifyAuthSession(authorization.slice(7),secret,db);
+    if (!user) return respond({error:'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.'},401);
+    if (!isSchoolStudent(user)) return respond({data:{authenticated:false}});
+    const profile = await verifiedStudentProfile(db,user);
+    return respond({data:{authenticated:true,profile}});
+  } catch (error: any) {
+    const incomplete = String(error?.message || '').startsWith('Hồ sơ học sinh');
+    return respond({error:incomplete?error.message:'Không thể xác minh hồ sơ học sinh.'},incomplete?409:503);
+  }
+};
 
 export async function verifyContestTicket(db: any, secret: string, token: string, examId: string) {
   if (!token || token.length > 5000) return null;
@@ -101,10 +148,26 @@ export const onRequestPost: PagesFunction = async (context: any) => {
     });
     if (!ipRate.allowed) return respond({error:'Cổng đăng ký đang nhận quá nhiều yêu cầu từ mạng này. Vui lòng thử lại sau.'},429);
     const body = await context.request.json();
-    const v = validate(body);
+    const authorization = context.request.headers.get('Authorization') || '';
+    let verifiedProfile: any = null;
+    let schoolAccountId = '';
+    const secret = await getDynamicSecret(db,context.env.JWT_SECRET);
+    if (authorization) {
+      if (!/^Bearer \S+$/.test(authorization))
+        return respond({error:'Phiên đăng nhập không hợp lệ.'},401);
+      const user = await verifyAuthSession(authorization.slice(7),secret,db);
+      if (!user) return respond({error:'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.'},401);
+      if (isSchoolStudent(user)) {
+        schoolAccountId = String(user.user_id || '');
+        if (!schoolAccountId) return respond({error:'Không xác minh được tài khoản học sinh.'},401);
+        verifiedProfile = await verifiedStudentProfile(db,user);
+      }
+    }
+    // Student identity fields from the browser are untrusted and discarded.
+    const v = validate(verifiedProfile ? {...body,...verifiedProfile} : body,Boolean(verifiedProfile));
     // Independently throttle repeated attempts using one phone number and exam.
     // The rate-limit helper stores a SHA-256 digest, never raw contact details.
-    const phoneRate = await consumeSecurityAttempt(db,context.request,'contest-registration-phone',v.phone+':'+v.examId,{
+    const phoneRate = await consumeSecurityAttempt(db,context.request,'contest-registration-phone',verifiedProfile ? 'account:'+schoolAccountId+':'+v.examId : v.phone+':'+v.examId,{
       maxAttempts: 6,windowMs: 10*60*1000,blockMs: 15*60*1000
     });
     if (!phoneRate.allowed) return respond({error:'Thông tin đăng ký này được gửi quá nhiều lần. Vui lòng thử lại sau.'},429);
@@ -112,7 +175,6 @@ export const onRequestPost: PagesFunction = async (context: any) => {
     if (!exam) return respond({error:'Cuộc thi không được công bố hoặc đã bị thu hồi.'},403);
     const access = evaluateExamAccessWindow(exam,Date.now());
     if (!access.allowed) return respond({error:access.code === 'EXAM_NOT_STARTED' ? 'Cuộc thi chưa đến thời gian bắt đầu.' : access.code === 'EXAM_WINDOW_CLOSED' ? 'Cuộc thi đã hết thời gian tham gia.' : 'Khung thời gian cuộc thi chưa hợp lệ.'},403);
-    const secret = await getDynamicSecret(db,context.env.JWT_SECRET);
     const participantSecret = await getParticipantDataSecret(db);
     // A telephone is contact information, NOT a unique contestant ID:
     // relatives and students may legitimately share a guardian's phone.
@@ -124,8 +186,11 @@ export const onRequestPost: PagesFunction = async (context: any) => {
       v.name.toLocaleLowerCase('vi-VN'),
       v.unit.toLocaleLowerCase('vi-VN')
     ]);
-    const identity = await hmac(participantSecret,'contest-person-composite:v2:'+canonicalIdentity);
-    const candidateId = 'ct_' + (await hmac(participantSecret,'contest-candidate:v2:'+identity)).slice(0,40);
+    const identity = await hmac(participantSecret,verifiedProfile
+      ? 'contest-school-account:v1:'+schoolAccountId
+      : 'contest-person-composite:v2:'+canonicalIdentity);
+    const candidateId = 'ct_' + (await hmac(participantSecret,
+      (verifiedProfile ? 'contest-school-candidate:v1:' : 'contest-candidate:v2:')+identity)).slice(0,40);
     const previous: any = await db.prepare(
       'SELECT ma_nguoi_du_thi, ho_ten, don_vi FROM contest_participants WHERE ma_dinh_danh_bam = ?'
     ).bind(identity).first();
@@ -145,6 +210,11 @@ export const onRequestPost: PagesFunction = async (context: any) => {
       if (!stored || String(stored.ho_ten) !== v.name || String(stored.don_vi) !== v.unit)
         return respond({error:'Không xác minh được hồ sơ dự thi, vui lòng liên hệ ban tổ chức.'},409);
     }
+    if (previous && verifiedProfile &&
+        (String(previous.ho_ten) !== v.name || String(previous.don_vi) !== v.unit)) {
+      await db.prepare('UPDATE contest_participants SET ho_ten = ?, don_vi = ?, thoi_diem_cap_nhat = ? WHERE ma_nguoi_du_thi = ? AND ma_dinh_danh_bam = ?')
+        .bind(v.name,v.unit,new Date().toISOString(),candidateId,identity).run();
+    }
     const maxAttempts = Math.max(0,Number(exam.max_attempts)||0);
     if (maxAttempts) {
       const done: any = await db.prepare(
@@ -160,9 +230,9 @@ export const onRequestPost: PagesFunction = async (context: any) => {
     },secret);
     return respond({data:{ticket,ma_de_thi:exam.id,ten_de_thi:exam.name,ma_nguoi_du_thi:candidateId}});
   } catch(error:any) {
-    const known = error?.message?.startsWith('Thông tin') || error?.message?.startsWith('Bạn cần') ||
+    const known = error?.message?.startsWith('Hồ sơ học sinh') || error?.message?.startsWith('Thông tin') || error?.message?.startsWith('Bạn cần') ||
       error?.message?.startsWith('Vui lòng');
     console.error('[contest/register]',known?'invalid input':'server unavailable');
-    return respond({error:known?error.message:'Không thể đăng ký an toàn. Vui lòng thử lại.'},known?400:503);
+    return respond({error:known?error.message:'Không thể đăng ký an toàn. Vui lòng thử lại.'},known?(String(error?.message||'').startsWith('Hồ sơ học sinh')?409:400):503);
   }
 };
