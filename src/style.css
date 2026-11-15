@@ -2876,3 +2876,61 @@ html.kttt-modal-open, body.kttt-modal-open { overflow: hidden !important; oversc
  #exam-configs-pagination-container{padding:10px 6px}
  #exam-configs-pagination-container>div{flex-wrap:wrap;justify-content:center;width:100%}
 }
+
+/* Mobile public-contest registration: a bounded form with a persistent start
+   action. The fields alone scroll; desktop layout is intentionally unchanged. */
+@media (max-width: 767px) {
+  #contest-registration {margin-bottom: 0; padding: 0 3px;}
+  #contest-registration .contest-registration-card {
+    display:flex; flex-direction:column; max-height:calc(100vh - 150px);
+    max-height:calc(100dvh - 150px); min-height:0; border-radius:13px;
+  }
+  #contest-registration .contest-registration-head {flex:0 0 auto; padding:9px 12px;}
+  #contest-registration .contest-registration-head h2 {font-size:16px; line-height:1.3;}
+  #contest-registration .contest-registration-hint {margin-top:2px; font-size:11px; line-height:1.3;}
+  #contest-registration-form {
+    display:flex; flex-direction:column; flex:1 1 auto; min-height:0;
+    overflow:hidden; padding:0;
+  }
+  #contest-registration-form .contest-registration-scroll {
+    flex:1 1 auto; min-height:0; overflow-y:auto; overscroll-behavior:contain;
+    padding:10px 11px 6px; -webkit-overflow-scrolling:touch;
+  }
+  #contest-registration-form .contest-registration-grid {
+    display:grid; grid-template-columns:minmax(0,1fr); gap:7px 10px;
+  }
+  #contest-registration-form .contest-registration-grid label {min-width:0;}
+  #contest-registration-form .contest-registration-grid label > span {margin-bottom:3px; font-size:11px; line-height:1.25;}
+  #contest-registration-form .contest-registration-grid input,
+  #contest-registration-form .contest-registration-grid select {
+    min-height:38px; padding:6px 9px; font-size:16px; line-height:1.35;
+  }
+  #contest-registration-form #contest-exam-meta {
+    margin-top:8px; padding:6px 8px; line-height:1.3; font-size:11px;
+  }
+  #contest-registration-form .contest-consent {
+    margin-top:8px; gap:7px; font-size:11px; line-height:1.35;
+  }
+  #contest-registration-form .contest-consent input {
+    flex:0 0 17px; width:17px; height:17px; margin-top:1px;
+  }
+  #contest-registration-form .contest-submit-dock {
+    position:relative; z-index:1; flex:0 0 auto;
+    padding:7px 11px calc(8px + env(safe-area-inset-bottom, 0px));
+    border-top:1px solid #e2e8f0; background:white;
+    box-shadow:0 -3px 12px rgba(15,23,42,.05);
+  }
+  #contest-registration-form #contest-register-submit {
+    margin:0; min-height:44px; padding:9px 8px; font-size:14px; line-height:1.3;
+  }
+  #contest-registration-form #contest-error {
+    margin:0 0 6px; padding:6px 8px; font-size:12px; line-height:1.35;
+    max-height:76px; overflow-y:auto;
+  }
+}
+@media (min-width: 430px) and (max-width: 767px) {
+  #contest-registration-form .contest-registration-grid {
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+  #contest-registration-form .contest-picker-field {grid-column:1/-1;}
+}
