@@ -317,7 +317,8 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       'ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS max_cheat_warnings INTEGER DEFAULT 5',
       'ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS keep_raw_score INTEGER DEFAULT 0',
       'ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS tieu_de_bai_thi TEXT',
-      'ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS max_attempts INTEGER DEFAULT 0'
+      'ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS max_attempts INTEGER DEFAULT 0',
+      "ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS contest_status TEXT NOT NULL DEFAULT 'draft'"
     ]) await db.prepare(ddl).run();
     const body:any=await request.json();
     if (!body || typeof body!=='object' || Array.isArray(body)) return respond({error:'Cấu hình không hợp lệ'},400);
@@ -330,6 +331,14 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       (isAdmin && (body.creator_id||body.creatorId) ? String(body.creator_id||body.creatorId):String(user.id));
     if (!owner) return respond({error:'Không xác định được người tạo đề'},403);
     const fields=normalizeExamConfigInput(body,existing);
+    // Teachers can prepare contests but ONLY a verified Admin can publish them.
+    if (!isAdmin && fields.contest_status === 'published' && fields.chedodethi === 'Cuộc thi trực tuyến') {
+      if (existing?.contest_status === 'published') {
+        fields.contest_status = 'published'; // editing existing published exam; publication may be revoked by Admin only
+      } else {
+        return respond({error:'Chỉ quản trị viên có quyền công bố cuộc thi.'},403);
+      }
+    }
 
     // Fail-closed: mọi cấu hình mới/sửa phải đủ câu hỏi trên DB tại đúng thời điểm lưu.
     // Nhờ vậy một đề đang thiếu câu vẫn có thể được mở để sửa, nhưng chỉ được lưu
