@@ -1,5 +1,6 @@
 import { verifyAuthSession, verifyJWT, signJWT, getDynamicSecret, getDatabase } from './utils';
 import { publicContestExam } from '../contest/register';
+import { stripContestAnswerHints } from '../../../src/exam-public-contest-projection';
 import {
   EXAM_SESSION_PURPOSE_PRESTART,
   EXAM_SESSION_PURPOSE_ACTIVE,
@@ -190,20 +191,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         const { answerImage, ...safeOptions } = withoutAnswer.options;
         withoutAnswer.options = safeOptions;
       }
-      if (contestParticipantId) {
-        // Contest question DTO is additionally stripped of known scoring hints.
-        // School question rendering remains untouched.
-        for (const key of [
-          'correctAnswer','correctStatements','answerKey','solution',
-          'explanation','aiFeedback','rubric','gradingGuide','isCorrect'
-        ]) delete withoutAnswer[key];
-        if (withoutAnswer.options && typeof withoutAnswer.options === 'object') {
-          for (const key of [
-            'answer','correctAnswer','correctStatements','answerKey',
-            'solution','explanation','isCorrect'
-          ]) delete withoutAnswer.options[key];
-        }
-      }
+      if (contestParticipantId) return stripContestAnswerHints(withoutAnswer);
       return withoutAnswer;
     });
 
