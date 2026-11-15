@@ -49,9 +49,10 @@ window.__contestOnExamReset=function(){
   findEl('contest-registration')?.classList.remove('hidden');
 };
 window.__contestShowEntry=function(){
-  const running=window.__activeStudentExamTab==='contest' &&
-    !findEl('exam-interface')?.classList.contains('hidden');
-  findEl('contest-registration')?.classList.toggle('hidden',Boolean(running));
+  const isContest=window.__activeStudentExamTab==='contest';
+  const examVisible=!findEl('exam-interface')?.classList.contains('hidden');
+  const resultsVisible=!findEl('exam-results')?.classList.contains('hidden');
+  findEl('contest-registration')?.classList.toggle('hidden',Boolean(isContest&&(examVisible||resultsVisible)));
 };
 const noStore = {cache:'no-store'};
 async function fetchJson(url,options={}) {
