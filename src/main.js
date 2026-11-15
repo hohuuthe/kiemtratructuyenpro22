@@ -11438,8 +11438,8 @@ if (contentType && contentType.includes("application/json")) {
 
                 const submitResult = {
                     id: insertedId,
-                    studentName: name,
-                    studentClass: studentClass,
+                    studentName: window.__activeStudentExamTab === 'contest' ? (result.contestStudentName || name) : name,
+                    studentClass: window.__activeStudentExamTab === 'contest' ? (result.contestStudentUnit || '') : studentClass,
                     examName: examName,
                     examCreator: (accountsMap && accountsMap[examConfig.creatorId]) ? accountsMap[examConfig.creatorId] : '',
                     score: score,
@@ -11450,7 +11450,11 @@ if (contentType && contentType.includes("application/json")) {
                     totalTF4CorrectStatements: totalTF4CorrectStatements,
                     answeredQuestionsCount: answeredQuestionsCount,
                     answeredStatementsCount: answeredStatementsCount,
-                    statsByType: statsByType,
+                    // Contest details deliberately exclude per-question marking hints.
+                    // Use only the server-computed aggregate, never infer "0 đúng".
+                    statsByType: window.__activeStudentExamTab === 'contest'
+                        ? (result.statsByType && typeof result.statsByType === 'object' ? result.statsByType : {})
+                        : statsByType,
                     cheatWarningCount: Number.isFinite(Number(result.cheatWarningCount))
                         ? Number(result.cheatWarningCount)
                         : (currentExam.serverCheatWarningCount || currentExam.cheatWarningCount || 0),
