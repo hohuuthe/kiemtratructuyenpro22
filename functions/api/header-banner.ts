@@ -35,6 +35,7 @@ async function adminContext(context: EventContext<Env, any, any>) {
 async function ensureBannerColumns(db: any) {
   // Additive, idempotent migration, scoped to the VERIFIED current database.
   await db.prepare("ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS header_display_mode TEXT NOT NULL DEFAULT 'text'").run();
+  await db.prepare("ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS exam_header_display_mode TEXT NOT NULL DEFAULT 'text'").run();
   await db.prepare("ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS header_banner_scope TEXT NOT NULL DEFAULT 'both'").run();
   await db.prepare("ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS header_banner_url TEXT NOT NULL DEFAULT ''").run();
   await db.prepare("ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS header_banner_key TEXT NOT NULL DEFAULT ''").run();
@@ -119,6 +120,9 @@ export const onRequestPut: PagesFunction<Env> = async context => {
     if (body.header_banner_scope !== undefined && !HEADER_BANNER_SCOPES.includes(body.header_banner_scope))
       return response(400, { error: 'Phạm vi banner không hợp lệ.' });
     const mode = headerMode(body.header_display_mode);
+    const requestedExamMode = body.exam_header_display_mode;
+    if (requestedExamMode !== undefined && !['text','banner','both'].includes(requestedExamMode))
+      return response(400, { error: 'Chế độ tiêu đề bài thi không hợp lệ.' });
     const tenant = getTenant(context);
     const key = typeof body.header_banner_key === 'string' ? body.header_banner_key : '';
     const url = typeof body.header_banner_url === 'string' ? body.header_banner_url : '';
@@ -153,12 +157,17 @@ export const onRequestPut: PagesFunction<Env> = async context => {
     if (!title || title.length > 180) return response(400, { error: 'Tiêu đề hệ thống phải có 1–180 ký tự.' });
     await ensureBannerColumns(db);
     const existing: any = await db.prepare(`
-      SELECT header_banner_scope, header_banner_tablet_url, header_banner_tablet_key,
+      SELECT exam_header_display_mode, header_banner_scope, header_banner_tablet_url, header_banner_tablet_key,
              header_banner_mobile_url, header_banner_mobile_key
       FROM app_settings WHERE id = 1
     `).first();
     if (!existing) return response(409, { error: 'Không tồn tại cấu hình hệ thống để cập nhật.' });
     const scope = bannerScope(body.header_banner_scope ?? existing.header_banner_scope);
+    const examMode = requestedExamMode === undefined
+      ? headerMode(existing.exam_header_display_mode)
+      : requestedExamMode;
+    if (examMode !== 'text' && (!key || !url))
+      return response(400, { error: 'Cần lưu banner máy tính trước khi bật banner trong giao diện làm bài.' });
     const tabletAsset = tablet ?? {
       key: String(existing.header_banner_tablet_key || ''),
       url: String(existing.header_banner_tablet_url || '')
@@ -172,12 +181,12 @@ export const onRequestPut: PagesFunction<Env> = async context => {
     const finalMobile = key && url ? mobileAsset : { key: '', url: '' };
     const changed = await db.prepare(`
       UPDATE app_settings
-      SET header_display_mode = ?, header_banner_scope = ?, header_banner_url = ?, header_banner_key = ?,
+      SET header_display_mode = ?, exam_header_display_mode = ?, header_banner_scope = ?, header_banner_url = ?, header_banner_key = ?,
           header_banner_tablet_url = ?, header_banner_tablet_key = ?,
           header_banner_mobile_url = ?, header_banner_mobile_key = ?,
           header_banner_alt = ?, app_title = ?
       WHERE id = 1
-    `).bind(mode, scope, url, key,
+    `).bind(mode, examMode, scope, url, key,
       finalTablet.url, finalTablet.key,
       finalMobile.url, finalMobile.key,
       alt, title).run();
@@ -189,6 +198,7 @@ export const onRequestPut: PagesFunction<Env> = async context => {
       data: {
         app_title: title,
         header_display_mode: mode,
+        exam_header_display_mode: examMode,
         header_banner_scope: scope,
         header_banner_url: url,
         header_banner_key: key,
