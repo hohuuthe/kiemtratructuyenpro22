@@ -127,3 +127,18 @@ test('Public exam detail and shared result code exclude unpublished contests',()
  assert.match(exams,/row\.chedodethi === 'Cuộc thi trực tuyến' && !isExamOwner\(user,row\)/);
  assert.match(exams,/Không có quyền tra cứu cấu hình cuộc thi qua mã chia sẻ/);
 });
+
+test('Public contest result rosters and official answers cannot leak by share flags',()=>{
+ const results=source('functions/api/results.ts');
+ const generate=source('functions/api/exam/generate.ts');
+ assert.match(results,/publicExam\?\.chedodethi === 'Cuộc thi trực tuyến'/);
+ assert.match(results,/chỉ được xem theo phiên cá nhân/);
+ assert.match(generate,/gradeSessionConfig\.show_details = 0/);
+ assert.match(generate,/!registeredContest && examFlagEnabled/);
+});
+test('Contest registration visibility follows verified READY dialog and cancellation restores form',()=>{
+ const src=source('src/contest-mode-ui.js');
+ assert.match(src,/exam-start-ready-confirm/);
+ assert.match(src,/exam-start-ready-cancel/);
+ assert.match(src,/findEl\('contest-registration'\)\?\.classList\.remove\('hidden'\)/);
+});
