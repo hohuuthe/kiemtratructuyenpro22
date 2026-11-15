@@ -63,11 +63,10 @@ try {
       assert.ok(response?.ok(),item.name+' Preview page is not HTTP 200');
       const registration=page.locator('#contest-registration');
       await registration.waitFor({state:'attached',timeout:25000});
-      await page.evaluate(()=>{
-        document.querySelector('#contest-registration')?.classList.remove('hidden');
-        const school=document.querySelector('#exam-form');
-        if(school)school.style.setProperty('display','none','important');
-      });
+      await page.waitForFunction(()=>typeof window.switchTab==='function',{timeout:30000});
+      await page.evaluate(()=>window.switchTab('contest'));
+      await page.waitForFunction(()=>document.getElementById('tab-contest')?.classList.contains('active'),null,{timeout:30000});
+      await registration.waitFor({state:'visible',timeout:20000});
       await registration.scrollIntoViewIfNeeded();
       const layout=await page.evaluate(()=>{
         const box=document.querySelector('#contest-registration')?.getBoundingClientRect();
