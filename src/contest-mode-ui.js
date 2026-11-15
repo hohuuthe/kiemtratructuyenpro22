@@ -80,6 +80,9 @@ window.__contestOnExamSubmitted=function(){
   // Called only after /api/exam/grade confirms a durable result.
   if(!contestResultIsVisible())return;
   window.__contestShowEntry?.();
+  // The signed registration ticket is no longer needed after a durable result.
+  // Release its JS reference without touching the already persisted attempt.
+  window.__contestTicket=null;
   // Discard registration PII from the DOM after it has served its purpose.
   // Do not clear the authenticated student's separate verified profile.
   findEl('contest-registration-form')?.reset();
