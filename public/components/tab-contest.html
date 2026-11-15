@@ -1,13 +1,14 @@
 <div id="tab-contest" class="tab-content w-full">
   <!-- Cuộc thi trực tuyến độc lập với Ôn tập, kiểm tra. -->
   <section id="contest-registration" class="hidden mx-auto w-full max-w-4xl mb-3 px-0 sm:px-2" aria-labelledby="contest-heading">
-    <div class="overflow-hidden rounded-2xl bg-white shadow-lg border border-slate-200">
-      <header class="bg-gradient-to-r from-slate-900 via-teal-900 to-emerald-800 px-4 py-3 sm:px-6 sm:py-4 text-white">
+    <div class="contest-registration-card overflow-hidden rounded-2xl bg-white shadow-lg border border-slate-200">
+      <header class="contest-registration-head bg-gradient-to-r from-slate-900 via-teal-900 to-emerald-800 px-4 py-3 sm:px-6 sm:py-4 text-white">
         <h2 id="contest-heading" class="text-lg sm:text-2xl font-black leading-tight">Đăng ký tham gia cuộc thi</h2>
-        <p class="mt-1 text-xs sm:text-sm text-teal-100 leading-snug">Điền thông tin và chọn cuộc thi để bắt đầu.</p>
+        <p class="contest-registration-hint mt-1 text-xs sm:text-sm text-teal-100 leading-snug">Điền thông tin và chọn cuộc thi để bắt đầu.</p>
       </header>
       <form id="contest-registration-form" class="p-3 sm:p-5 lg:p-6" autocomplete="on">
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
+        <div class="contest-registration-scroll" role="region" aria-label="Thông tin đăng ký dự thi" tabindex="0">
+          <div class="contest-registration-grid grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
           <label class="block min-w-0">
             <span class="block text-xs sm:text-sm font-semibold text-slate-700 mb-1">Họ và tên <span class="text-red-600">*</span></span>
             <input name="ho_ten" required maxlength="120" autocomplete="name" placeholder="Nhập họ tên đầy đủ" class="w-full min-w-0 min-h-11 rounded-lg border border-slate-300 px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-emerald-500" />
@@ -28,20 +29,23 @@
             <span class="block text-xs sm:text-sm font-semibold text-slate-700 mb-1">Số căn cước công dân (khi thể lệ yêu cầu)</span>
             <input name="so_cccd" inputmode="numeric" pattern="[0-9]{12}" maxlength="12" autocomplete="off" placeholder="12 chữ số nếu có" class="w-full min-w-0 min-h-11 rounded-lg border border-slate-300 px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-emerald-500" />
           </label>
-          <label class="block min-w-0">
+          <label class="contest-picker-field block min-w-0">
             <span class="flex flex-wrap items-center justify-between gap-2 text-xs sm:text-sm font-semibold text-slate-700 mb-1"><span>Chọn cuộc thi trực tuyến <span class="text-red-600">*</span></span><button id="contest-reload-exams" type="button" class="text-emerald-700 hover:text-emerald-900 font-semibold underline underline-offset-2" aria-label="Tải lại danh sách cuộc thi">Tải lại danh sách</button></span>
             <select id="contest-exam-picker" name="ma_de_thi" required class="w-full min-w-0 min-h-11 rounded-lg border border-slate-300 px-3 py-2 text-base bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500" disabled><option value="">Đang tải danh sách cuộc thi...</option></select>
           </label>
         </div>
         <div id="contest-exam-meta" class="mt-3 rounded-lg bg-emerald-50 text-emerald-950 px-3 py-2 text-xs sm:text-sm border border-emerald-100" role="status">Chọn cuộc thi để xem số câu hỏi, thời gian và lượt dự thi.</div>
-        <label class="flex items-start gap-2 mt-3 text-xs sm:text-sm text-slate-700 leading-relaxed">
+        <label class="contest-consent flex items-start gap-2 mt-3 text-xs sm:text-sm text-slate-700 leading-relaxed">
           <input name="dong_y" type="checkbox" required class="mt-1 w-4 h-4 shrink-0 accent-emerald-700"/>
           <span>Tôi xác nhận thông tin đã khai báo và đồng ý cho đơn vị tổ chức xử lý thông tin phục vụ cuộc thi theo thông báo bảo vệ dữ liệu.</span>
         </label>
-        <p id="contest-error" role="alert" class="hidden text-sm text-red-700 border border-red-200 rounded-xl p-3 mt-4 bg-red-50"></p>
-        <button id="contest-register-submit" type="submit" class="mt-3 w-full min-h-11 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-base sm:text-lg font-black p-3 disabled:opacity-60 disabled:cursor-not-allowed">
-          🚀 Đăng ký và bắt đầu làm bài
-        </button>
+        </div>
+        <div class="contest-submit-dock">
+          <p id="contest-error" role="alert" class="hidden text-sm text-red-700 border border-red-200 rounded-xl p-3 mt-4 bg-red-50"></p>
+          <button id="contest-register-submit" type="submit" class="mt-3 w-full min-h-11 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-base sm:text-lg font-black p-3 disabled:opacity-60 disabled:cursor-not-allowed">
+            🚀 Đăng ký và bắt đầu làm bài
+          </button>
+        </div>
       </form>
     </div>
   </section>
