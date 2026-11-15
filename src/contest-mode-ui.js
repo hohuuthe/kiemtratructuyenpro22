@@ -248,6 +248,8 @@ async function runContestEntry(){
       if(profile) input.value=String(profile[input.name]||'');
       else if(hasSchoolProfile) input.value='';
       input.readOnly=Boolean(profile);
+      // Browser validation cannot demand empty, read-only school profile fields.
+      input.required=!profile && ['ho_ten','don_vi','so_dien_thoai'].includes(input.name);
       input.classList.toggle('bg-slate-100',Boolean(profile));
       input.classList.toggle('text-slate-600',Boolean(profile));
       input.setAttribute('aria-readonly',String(Boolean(profile)));
@@ -290,12 +292,12 @@ async function runContestEntry(){
   // Account switches may happen without reloading the contest component.
   setInterval(()=>{
     if(!document.hidden&&findEl('tab-contest')?.classList.contains('active')&&contestAuthToken()!==profileToken)
-      window.__contestRefreshProfile=()=>syncSchoolProfile(true);
-  void syncSchoolProfile();
+      void syncSchoolProfile();
   },1200);
   window.addEventListener('storage',event=>{
     if(event.key===window.tenantStorageKey('auth_token'))void syncSchoolProfile();
   });
+  window.__contestRefreshProfile=()=>syncSchoolProfile(true);
   void syncSchoolProfile();
   function describe(){
     const row=entries.get(select.value);
