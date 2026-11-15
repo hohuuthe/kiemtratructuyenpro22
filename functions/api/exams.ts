@@ -98,6 +98,17 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
         return new Response(JSON.stringify({ data: null, error: "Không tìm thấy cấu hình đề thi" }), { status: 404, headers: corsHeaders });
       }
       const row: any = results[0];
+      // Private/draft contests must not be discoverable through the legacy public endpoint.
+      if (row.chedodethi === 'Cuộc thi trực tuyến' && !isAdmin && !isTeacher) {
+        let contestActive = false;
+        try {
+          const modeRow: any = await db.prepare('SELECT application_mode FROM app_settings WHERE id = 1').first();
+          contestActive = modeRow?.application_mode === 'contest';
+        } catch {}
+        if (!contestActive || row.contest_status !== 'published') {
+          return new Response(JSON.stringify({data:null,error:'Cuộc thi chưa được công bố.'}),{status:404,headers:corsHeaders});
+        }
+      }
       const accessCode = request.headers.get('X-Exam-Access-Code');
       const challenge = examAccessChallenge(user,row,accessCode);
       if (challenge) return new Response(JSON.stringify({data:null,...challenge}), {
@@ -234,6 +245,8 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     let filteredResults = mappedResults;
     if (!isAdmin && !isTeacher) {
       filteredResults = mappedResults.filter((row: any) => {
+        // Contest listings use the dedicated allowlisted /api/contest/exams endpoint.
+        if (row.chedodethi === 'Cuộc thi trực tuyến') return false;
         if (row.chedodethi === 'Đề cho đơn vị' || row.chedodethi === 'Đề thi cho đơn vị') {
           const teacherDonvi = String(row.teacher_donvi || '').trim().toLowerCase();
           let allowedUnits: string[] = [];
