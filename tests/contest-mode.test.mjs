@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {normalizeExamConfigInput, ExamConfigInputError} from '../src/exam-config-contract.ts';
+import {stripContestAnswerHints} from '../src/exam-public-contest-projection.ts';
 
 const source = p => readFileSync(p,'utf8');
 const fixture = {
@@ -141,4 +142,38 @@ test('Contest registration visibility follows verified READY dialog and cancella
  assert.match(src,/exam-start-ready-confirm/);
  assert.match(src,/exam-start-ready-cancel/);
  assert.match(src,/findEl\('contest-registration'\)\?\.classList\.remove\('hidden'\)/);
+});
+
+test('Contest question projection removes nested marking hints while preserving renderable content',()=>{
+ const question={
+   id:'q1',content:'Kiem tra',answer:'A',answer_key:'B',options:{
+     A:{text:'Phuong an A',isCorrect:true,feedbackCorrect:'yes'},
+     B:{text:'Phuong an B',metadata:{answerKey:'B',explanation:'because',image:'/a.png'}}
+   },
+   nested:[{answerImage:'secret',content:'Noi dung'}]
+ };
+ const projected=stripContestAnswerHints(question);
+ assert.equal(projected.content,'Kiem tra');
+ assert.equal(projected.options.A.text,'Phuong an A');
+ assert.equal(projected.options.B.metadata.image,'/a.png');
+ assert.equal(projected.answer,undefined);
+ assert.equal(projected.options.A.isCorrect,undefined);
+ assert.equal(projected.options.B.metadata.answerKey,undefined);
+ assert.equal(projected.nested[0].answerImage,undefined);
+ assert.equal(question.options.A.isCorrect,true,'Server-side snapshot must not be mutated');
+ assert.throws(()=>stripContestAnswerHints({a:{b:{c:{d:{e:{f:{g:{h:{i:{j:{k:{l:{m:{n:{o:{p:{q:{answer:'x'}}}}}}}}}}}}}}}}}}}),/CONTEST_QUESTION_STRUCTURE_TOO_DEEP/);
+ const start=source('functions/api/exam/start.ts');
+ assert.match(start,/stripContestAnswerHints\(withoutAnswer\)/);
+});
+test('Shared family telephone does not merge different named contestants',()=>{
+ const register=source('functions/api/contest/register.ts');
+ assert.match(register,/contest-person-composite:v2:/);
+ assert.match(register,/v\.name\.toLocaleLowerCase\('vi-VN'\)/);
+ assert.match(register,/v\.unit\.toLocaleLowerCase\('vi-VN'\)/);
+ assert.doesNotMatch(register,/Số điện thoại này đã được dùng với hồ sơ dự thi khác/);
+});
+test('Prestart crash recovery reclaims reservation only if earlier clock never started',()=>{
+ const start=source('functions/api/exam/start.ts');
+ assert.match(start,/gs\.started_at IS NOT NULL/);
+ assert.match(start,/AND gs\.expires_at > \?/);
 });
