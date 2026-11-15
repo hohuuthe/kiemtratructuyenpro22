@@ -172,7 +172,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         const contestParticipantId = String(decoded.contestParticipantId || '').trim();
         if (contestParticipantId) {
             const candidate: any = await db.prepare('SELECT ma_nguoi_du_thi, ho_ten, don_vi FROM contest_participants WHERE ma_nguoi_du_thi = ?').bind(contestParticipantId).first();
-            const attempt: any = await db.prepare('SELECT ma_phien_thi FROM contest_attempts WHERE ma_phien_thi = ? AND ma_nguoi_du_thi = ?').bind(String(gradingSessionId || ''),contestParticipantId).first();
+            const attempt: any = await db.prepare('SELECT ma_phien_thi FROM contest_attempts WHERE ma_phien_thi = ? AND ma_nguoi_du_thi = ? AND ma_de_thi = ?').bind(String(gradingSessionId || ''),contestParticipantId,String(decoded?.examConfig?.id || '')).first();
             if (!candidate || !attempt) return new Response(JSON.stringify({error:'Không xác minh được người dự thi hoặc phiên dự thi đã đăng ký.'}),{status:403,headers:corsHeaders});
             authenticatedUserId = null;
             authenticatedStudentName = String(candidate.ho_ten);
@@ -1058,8 +1058,8 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
                 resultId,
                 authenticatedUserId || null,
                 authenticatedStudentName || studentInfo.name || '',
-                authenticatedLop || studentInfo.lop || studentInfo.studentClass || '',
-                authenticatedLop || studentInfo.lop || '',
+                contestParticipantId ? '' : (authenticatedLop || studentInfo.lop || studentInfo.studentClass || ''),
+                contestParticipantId ? '' : (authenticatedLop || studentInfo.lop || ''),
                 authenticatedDonvi || studentInfo.donvi || studentInfo.unit || '',
                 String(examConfig.name || studentInfo.examName || ''),
                 String(examConfig.id || studentInfo.examId || ''),
@@ -1068,7 +1068,7 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
                 correctCount,
                 clientQuestions.length,
                 JSON.stringify(detailedResults),
-                studentInfo.loaiThiSinh || (authenticatedUserId ? 'Đã đăng nhập' : 'Tự do'),
+                contestParticipantId ? 'Cuộc thi trực tuyến' : (studentInfo.loaiThiSinh || (authenticatedUserId ? 'Đã đăng nhập' : 'Tự do')),
                 cheatWarningCount,
                 tokenHash,
                 gradingStatus,
