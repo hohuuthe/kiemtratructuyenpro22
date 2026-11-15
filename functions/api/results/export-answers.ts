@@ -53,7 +53,7 @@ export async function readAuthorizedAnswerBatch(db: any, actor: any, ids: string
   return data;
 }
 
-export const onRequestOptions: PagesFunction = async ()
+export const onRequestOptions: PagesFunction = async () =>
   new Response(null, { status: 204, headers: { ...headers, Allow: 'POST, OPTIONS' } });
 
 export const onRequestPost: PagesFunction = async (context: any) => {
