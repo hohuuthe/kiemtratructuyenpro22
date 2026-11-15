@@ -71,3 +71,25 @@ test('Responsive public form keeps old school form and hides teacher choice',()=
  assert.match(js,/window.startExam/);
  assert.match(js,/body\[data-application-mode="contest"\]/);
 });
+
+test('Regression: editor sends contest_status and reloads published state from stored DB',()=>{
+ const main=source('src/main.js');
+ const helper=source('src/exam-editor-safety.js');
+ const api=source('functions/api/exams.ts');
+ assert.match(main,/contest_status:\s*draft\.chedodethi === 'Cuộc thi trực tuyến'/);
+ assert.match(main,/contestStatusEl\.value = examConfig\.contestStatus/);
+ assert.match(main,/examConfig\.contestStatus = examConfig\.chedodethi === 'Cuộc thi trực tuyến'/);
+ assert.match(helper,/contestStatus:\s*'draft'/);
+ assert.match(helper,/row\.contest_status === 'published'/);
+ assert.match(api,/fields\.contest_status === 'published'/);
+ assert.match(api,/Chỉ quản trị viên có quyền công bố/);
+});
+test('Compact registration removes redundant text while preserving mobile-safe controls',()=>{
+ const html=source('public/components/tab-exam.html');
+ const contest=html.slice(html.indexOf('id="contest-registration"'),html.indexOf('id="exam-form"'));
+ assert.doesNotMatch(contest,/CỔNG THAM GIA TRỰC TUYẾN/);
+ assert.doesNotMatch(contest,/Không cần lựa chọn giáo viên/);
+ assert.match(contest,/grid-cols-1 sm:grid-cols-2/);
+ assert.match(contest,/sm:col-span-2/);
+ assert.match(contest,/name="ma_de_thi"/);
+});
