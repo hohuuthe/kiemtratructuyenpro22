@@ -161,7 +161,9 @@ test('Contest question projection removes nested marking hints while preserving 
  assert.equal(projected.options.B.metadata.answerKey,undefined);
  assert.equal(projected.nested[0].answerImage,undefined);
  assert.equal(question.options.A.isCorrect,true,'Server-side snapshot must not be mutated');
- assert.throws(()=>stripContestAnswerHints({a:{b:{c:{d:{e:{f:{g:{h:{i:{j:{k:{l:{m:{n:{o:{p:{q:{answer:'x'}}}}}}}}}}}}}}}}}}}),/CONTEST_QUESTION_STRUCTURE_TOO_DEEP/);
+ let deeplyNested={answer:'x'};
+ for(let i=0;i<20;i++)deeplyNested={child:deeplyNested};
+ assert.throws(()=>stripContestAnswerHints(deeplyNested),/CONTEST_QUESTION_STRUCTURE_TOO_DEEP/);
  const start=source('functions/api/exam/start.ts');
  assert.match(start,/stripContestAnswerHints\(withoutAnswer\)/);
 });
