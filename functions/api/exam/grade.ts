@@ -49,6 +49,29 @@ function sanitizeGradingDetailForClient(detail: any, showDetails: boolean, isCon
     return isContest ? stripContestAnswerHints(safeD) : safeD;
 }
 
+function contestTypeStatsFromTrustedDetails(details: any[]): Record<string, any> {
+    const stats: Record<string, any> = {};
+    for (const d of details) {
+        const type = normalizeType(d?.question?.type);
+        if (!['4-1','TF4','SQ','TL'].includes(type)) continue;
+        const row = stats[type] || (stats[type] = {total:0, answered:0, correct:0});
+        row.total++;
+        const answer = d?.userAnswer;
+        const answered = type === 'TF4'
+            ? Boolean(answer && typeof answer === 'object' && Object.keys(answer).length)
+            : type === 'TL'
+              ? Boolean(typeof answer === 'string' ? answer.trim() : answer?.text?.trim() || answer?.image)
+              : answer !== undefined && answer !== null && answer !== '';
+        if (answered) row.answered++;
+        if (d?.isCorrect === true) row.correct++;
+        if (type === 'TF4') {
+            row.totalStatements = (row.totalStatements || 0) + 4;
+            row.correctStatements = (row.correctStatements || 0) + Math.max(0, Number(d?.correctStatements) || 0);
+        }
+    }
+    return stats;
+}
+
 function hasPendingEssayGrading(details: any[]): boolean {
     return Array.isArray(details) && details.some((d: any) =>
         d?.question?.type === 'TL' &&
@@ -266,6 +289,11 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                             gradingPending: hasPendingEssayGrading(storedDetails),
                             scoreFinalized: !hasPendingEssayGrading(storedDetails),
                             detailedResults: replayDetails,
+                            ...(contestParticipantId ? {
+                                statsByType: contestTypeStatsFromTrustedDetails(storedDetails),
+                                contestStudentName: authenticatedStudentName,
+                                contestStudentUnit: authenticatedDonvi
+                            } : {}),
                             alreadySubmitted: true
                         }), { status: 200, headers: corsHeaders });
                     }
@@ -991,6 +1019,11 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
                             gradingPending: replayGradingPending,
                             scoreFinalized: !replayGradingPending,
                             detailedResults: safeDetails,
+                            ...(contestParticipantId ? {
+                                statsByType: contestTypeStatsFromTrustedDetails(storedDetails),
+                                contestStudentName: authenticatedStudentName,
+                                contestStudentUnit: authenticatedDonvi
+                            } : {}),
                             alreadySubmitted: true
                         }), { status: 200, headers: corsHeaders });
                     }
@@ -1166,7 +1199,12 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
             deadlineSnapshotUsed: usedDeadlineDraft,
             gradingPending: hasPendingEssayGrades,
             scoreFinalized: !hasPendingEssayGrades,
-            detailedResults: clientDetailedResults
+            detailedResults: clientDetailedResults,
+            ...(contestParticipantId ? {
+                statsByType: contestTypeStatsFromTrustedDetails(detailedResults),
+                contestStudentName: authenticatedStudentName,
+                contestStudentUnit: authenticatedDonvi
+            } : {})
         }), {
             status: 200,
             headers: corsHeaders
