@@ -316,3 +316,14 @@ test('School exam results retain their historical display and scoring behavior',
  assert.match(main,/: statsByType,/);
  assert.match(grade,/if \(showDetails && !isContest\) return detail/);
 });
+
+test('Contest participant result is not mixed into school ranking caches',()=>{
+ const main=source('src/main.js');
+ const start=main.indexOf('const submitResult = {',main.indexOf('const statsByType = {'));
+ const end=main.indexOf('// Trả về giao diện sau khi chấm xong',start);
+ assert.ok(start>0 && end>start);
+ const region=main.slice(start,end);
+ assert.match(region,/if \(window\.__activeStudentExamTab !== 'contest'\)/);
+ assert.match(region,/window\.results\.unshift\(submitResult\)/);
+ assert.match(region,/results\.unshift\(submitResult\)/);
+});
