@@ -57,7 +57,7 @@ jobs:
   responsive-preview:
     name: Browser responsive verification (Preview, no writes)
     needs: verify-contest
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     timeout-minutes: 15
