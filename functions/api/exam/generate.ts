@@ -3,7 +3,7 @@ import { signJWT, verifyAuthSession, getDynamicSecret, getDatabase } from './uti
 import {makeGradeSessionConfig, accessCodeMatches} from './security';
 import { examFlagEnabled, validateQuestionAnswer } from '../../../src/exam-grading-core.js';
 import { EXAM_SESSION_PURPOSE_PRESTART, evaluateExamAccessWindow } from '../../../src/exam-time-authority.js';
-import { isContestEnabled, publicContestExam, verifyContestTicket } from '../contest/register';
+import { publicContestExam, verifyContestTicket } from '../contest/register';
 import { selectQuestionsStrictByDifficulty } from '../../../src/exam-question-selector.js';
 
 interface Env {
@@ -39,8 +39,8 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         let { teacherId, examId, examName, examConfig } = body;
         let registeredContest: any = null;
         if (body.contestTicket) {
-            if (!examId || !(await isContestEnabled(db))) {
-                return new Response(JSON.stringify({error:'Cuộc thi không được kích hoạt.'}),{status:403,headers:corsHeaders});
+            if (!examId) {
+                return new Response(JSON.stringify({error:'Thiếu mã cuộc thi hợp lệ.'}),{status:403,headers:corsHeaders});
             }
             const contest = await publicContestExam(db,String(examId));
             if (!contest) return new Response(JSON.stringify({error:'Cuộc thi chưa được công bố.'}),{status:403,headers:corsHeaders});
