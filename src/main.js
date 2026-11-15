@@ -4533,6 +4533,9 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
             // TRƯỜNG HỢP: Đang trong quá trình làm bài và bấm sang tab khác (Quản lý, Thống kê, Trợ giúp...)
             const activeExamOwnerTab = window.__activeStudentExamTab === 'contest' ? 'contest' : 'exam';
             if (tabName !== activeExamOwnerTab && isExamInProgress && !isShowingResults) {
+                // Keep the current tab as owner if a learner declines cancellation.
+                // The earlier eager requestedTab update must not corrupt navigation.
+                requestedTab = previousTab || activeExamOwnerTab;
                 showConfirmModal('Bạn đang trong quá trình làm bài thi. Nếu chuyển sang tab khác, bài làm của bạn sẽ bị hủy. Bạn có chắc chắn muốn chuyển không?', () => {
                     resetExam();
                     switchTab(tabName);
