@@ -1,3 +1,4 @@
+import './contest-mobile-performance.css';
 // Public contest experience is strictly opt-in per tenant.
 // Uses existing student exam engine (selection, READY, START, scoring) unchanged.
 function findEl(id){ return document.getElementById(id); }
@@ -278,8 +279,8 @@ async function runContestEntry(){
     }
   }
   refresh?.addEventListener('click',reloadPublishedContests);
-  await reloadPublishedContests();
-
+  // Bind submit before the first network request completes. Slow connections
+  // must never let the browser navigate away with a native form submission.
   form.addEventListener('submit',async event=>{
     event.preventDefault();hideError();
     const chosen=entries.get(select.value);
@@ -330,6 +331,8 @@ async function runContestEntry(){
       if(startButton){startButton.disabled=false;startButton.textContent='🚀 Đăng ký và bắt đầu làm bài';}
     }
   });
+  // Populate public exam choices after all interactions have been wired.
+  await reloadPublishedContests();
 }
 async function initializeContestMode() {
   // Both tabs stay available regardless of the Admin's landing preference.
@@ -337,6 +340,9 @@ async function initializeContestMode() {
   if(!await waitForForm())return;
   // Respect an existing server-confirmed contest attempt on delayed hydration.
   window.__contestShowEntry?.();
+  // The published contest list is independent of the default landing setting.
+  // Start both reads concurrently so a slow bootstrap cannot hold the form idle.
+  const entryPromise=runContestEntry();
   try{
     const boot=await fetchJson('/api/bootstrap');
     setupSettings(boot?.data?.application_mode==='contest'?'contest':'school');
@@ -344,7 +350,7 @@ async function initializeContestMode() {
     console.warn('[contest-ui] Default landing setting unavailable:',error?.message);
     setupSettings('school');
   }
-  await runContestEntry();
+  await entryPromise;
   window.__contestShowEntry?.();
 }
 void initializeContestMode();

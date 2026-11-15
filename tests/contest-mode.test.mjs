@@ -279,7 +279,7 @@ test('Contest registration is hidden on confirmed results, including delayed com
  assert.match(ui,/window\.__contestOnExamSubmitted=function\(\)/);
  assert.match(ui,/findEl\('contest-registration-form'\)\?\.reset\(\)/);
  assert.match(ui,/window\.__contestTicket=null/);
- assert.match(ui,/window\.__contestShowEntry\?\.\(\);\s*try\{/);
+ assert.match(ui,/window\.__contestShowEntry\?\.\(\);[\s\S]*?const entryPromise=runContestEntry\(\);[\s\S]*?try\{/);
  assert.match(main,/if \(window\.__activeStudentExamTab === 'contest'\) \{\s*window\.__contestOnExamSubmitted\?\.\(\);/);
  assert.match(main,/document\.getElementById\('exam-results'\)\?\.classList\.remove\('hidden'\)/);
 });
@@ -417,4 +417,22 @@ test('Mobile registration keeps the start action visible with independently scro
  assert.match(html,/name="so_dien_thoai" required/);
  assert.match(html,/name="ma_de_thi" required/);
  assert.match(html,/name="dong_y" type="checkbox" required/);
+});
+
+
+test('Mobile contest entry binds submit before loading and fetches public choices concurrently',()=>{
+  const ui=source('src/contest-mode-ui.js');
+  const submit=ui.indexOf("form.addEventListener('submit',async event=>");
+  const list=ui.indexOf('await reloadPublishedContests();');
+  assert.ok(submit>0 && list>submit,'Submit handler must be active before first network fetch settles');
+  const boot=ui.slice(ui.indexOf('async function initializeContestMode()'));
+  const entry=boot.indexOf('const entryPromise=runContestEntry();');
+  const settings=boot.indexOf("await fetchJson('/api/bootstrap')");
+  const join=boot.indexOf('await entryPromise;');
+  assert.ok(entry>0 && settings>entry && join>settings,'Published list must load concurrently with default settings');
+  const mobile=source('src/contest-mobile-performance.css');
+  assert.match(ui,/import '\.\/contest-mobile-performance\.css'/);
+  assert.match(mobile,/#contest-registration-form \.contest-registration-scroll/);
+  assert.match(mobile,/overscroll-behavior-y: auto/);
+  assert.match(mobile,/max-height: 600px/);
 });
