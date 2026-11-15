@@ -1,0 +1,36 @@
+name: Result Answer Sheet Release Checks
+
+on:
+  pull_request:
+    paths:
+      - 'functions/api/results/export-answers.ts'
+      - 'src/result-answer-export.js'
+      - 'src/main.js'
+      - 'tests/result-answer-export.test.ts'
+      - '.github/workflows/result-answer-sheet.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Syntax checks
+        run: |
+          node --check src/main.js
+          node --check src/result-answer-export.js
+      - name: Answer export and security regression tests
+        run: node --import tsx --test tests/result-answer-export.test.ts tests/student-results-privacy.test.ts tests/exam-grading-integrity.test.mjs
+      - name: TypeScript checks
+        run: npm run lint
+      - name: Production build
+        run: npm run build
