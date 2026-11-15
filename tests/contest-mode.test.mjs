@@ -230,3 +230,29 @@ test('Default choice changes landing only; contest APIs remain published-only fo
  assert.match(settings,/Giao diện mặc định khi mở ứng dụng/);
  assert.match(settings,/Cả hai chức năng/);
 });
+
+test('Contest tab follows server-attested resume and never loses active student exam on navigation',()=>{
+ const main=source('src/main.js');
+ const resume=source('functions/api/exam/resume.ts');
+ const ui=source('src/contest-mode-ui.js');
+ assert.match(resume,/isContestAttempt: Boolean\(decoded\.contestParticipantId\)/);
+ assert.match(main,/window\.__activeStudentExamTab = isResumedContest \? 'contest' : 'exam'/);
+ assert.match(main,/tabName !== activeExamOwnerTab && isExamInProgress/);
+ assert.match(main,/window\.__contestOnExamStarted\?\.\(\)/);
+ assert.match(main,/window\.__contestCanShowExam\?\.\(\)/);
+ assert.match(ui,/relocateExamWidgets\(true\)/);
+ assert.match(ui,/relocateExamWidgets\(false\)/);
+ assert.match(ui,/window\.__contestCanShowExam/);
+});
+test('Contest registration uses isolated component and starts only after ready exam configuration',()=>{
+ const school=source('public/components/tab-exam.html');
+ const contest=source('public/components/tab-contest.html');
+ const ui=source('src/contest-mode-ui.js');
+ assert.doesNotMatch(school,/id="contest-exam-picker"/);
+ assert.match(contest,/id="contest-exam-picker"/);
+ assert.match(contest,/id="contest-registration-form"/);
+ assert.match(ui,/await window\.onStudentExamNameChange\?\.\(\)/);
+ assert.match(ui,/window\.__contestTicket=enrollment\.data\.ticket/);
+ assert.match(ui,/await window\.startExam\?\.\(startButton\)/);
+ assert.match(ui,/exam-start-ready-confirm/);
+});
