@@ -11,9 +11,10 @@ async function bootApplication() {
   await Promise.all([
     import('./student-attempt-history-controller.js'),
     import('./teacher-delete-ui.js'),
-    import('./batch-teacher-delete-ui.js'),
-    import('./user-selection-type-guard.js')
+    import('./batch-teacher-delete-ui.js')
   ]);
+  // The guard wraps handlers installed by the batch controller; load it last.
+  await import('./user-selection-type-guard.js');
 
   startAppVersionMonitoring();
 }
