@@ -1,4 +1,5 @@
 import { copyToastMessage } from './toast-copy.js';
+import { RESULT_ANSWER_HEADERS, fetchResultAnswerRows } from './result-answer-export.js';
 import { applyHeaderBranding, populateBrandingSettings, previewHeaderBrandingSettings, clearHeaderBrandingBanner, clearHeaderBrandingVariant, selectHeaderBannerPreview, saveHeaderBrandingSettings } from './header-branding-ui.js';
 import { matchesQuestionBankLevel, countQuestionBankLevels } from './question-bank-level-filter.js';
 import {canDeleteRankingResult} from './ranking-result-delete-policy.js';
@@ -19057,6 +19058,27 @@ CẤU TRÚC JSON:
             }
 
             const sortedResults = exportResults.sort((a, b) => b.score - a.score);
+            let answerRows;
+            try {
+                // Always export all questions from every authorized, filtered attempt.
+                // Do not fetch answer keys from live question bank: old attempts own their
+                // immutable grading details, including answers to edited/deleted questions.
+                const generation = authDataGeneration;
+                const userId = String(currentUser?.id || '');
+                const exportToken = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
+                if (!exportToken || (!isAdmin && !isTeacher))
+                    throw Error('Chỉ quản trị viên hoặc giáo viên mới được xuất đáp án.');
+                answerRows = await fetchResultAnswerRows(sortedResults, {
+                    fetchImpl: fetch,
+                    authToken: exportToken,
+                    currentToken: () => localStorage.getItem(window.tenantStorageKey('auth_token')) || '',
+                    isSessionCurrent: () => generation === authDataGeneration &&
+                        userId === String(currentUser?.id || '')
+                });
+            } catch (err) {
+                showToast('Không thể xuất đủ đáp án: ' + (err?.message || err), 'error');
+                return; // Never generate an incomplete or misleading answer workbook.
+            }
 
             try {
                 if (typeof ExcelJS === 'undefined' || typeof saveAs === 'undefined') {
@@ -19142,6 +19164,27 @@ CẤU TRÚC JSON:
                 signRow0.getCell(11).alignment = { horizontal: 'center' };
                 signRow0.getCell(11).font = { name: 'Arial', size: 10, bold: true };
 
+                // Sheet 2: immutable answer details, scoped to the same result rows.
+                const answerSheet = workbook.addWorksheet('ChiTietDapAn');
+                answerSheet.views = [{ state: 'frozen', ySplit: 1 }];
+                const answerHeading = answerSheet.addRow(RESULT_ANSWER_HEADERS);
+                answerHeading.height = 27;
+                answerHeading.eachCell(cell => {
+                    cell.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
+                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E40AF' } };
+                    cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+                });
+                for (const item of answerRows) {
+                    const line = answerSheet.addRow(item);
+                    line.eachCell(cell => {
+                        cell.alignment = { vertical: 'top', wrapText: true };
+                        cell.font = { name: 'Arial', size: 10 };
+                    });
+                }
+                answerSheet.columns = RESULT_ANSWER_HEADERS.map((_, i) =>
+                    ({ width: [23,25,13,24,32,21,10,22,12,65,46,46,34,16,13,13,45,23][i] || 20 }));
+                answerSheet.autoFilter = { from: 'A1', to: 'R1' };
+
                 const bufferIdx = await workbook.xlsx.writeBuffer();
                 const fileName = `KetQua_XepHang_${new Date().toISOString().slice(0, 10)}.xlsx`;
                 const blob = new Blob([bufferIdx], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -19156,6 +19199,10 @@ CẤU TRÚC JSON:
                 const ws = XLSX.utils.aoa_to_sheet(data);
                 const wb = XLSX.utils.book_new();
                 XLSX.utils.book_append_sheet(wb, ws, 'XepHang');
+                const wsAnswers = XLSX.utils.aoa_to_sheet([RESULT_ANSWER_HEADERS, ...answerRows]);
+                wsAnswers['!cols'] = RESULT_ANSWER_HEADERS.map((_,i) => ({ wch: [23,25,13,24,32,21,10,22,12,65,46,46,34,16,13,13,45,23][i] || 20 }));
+                wsAnswers['!autofilter'] = { ref: 'A1:R' + (answerRows.length + 1) };
+                XLSX.utils.book_append_sheet(wb, wsAnswers, 'ChiTietDapAn');
                 XLSX.writeFile(wb, `XepHang_Basic_${Date.now()}.xlsx`);
             }
         }
