@@ -30,7 +30,7 @@
             <input name="so_cccd" inputmode="numeric" pattern="[0-9]{12}" maxlength="12" autocomplete="off" placeholder="12 chữ số nếu có" class="w-full min-w-0 min-h-11 rounded-lg border border-slate-300 px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-emerald-500" />
           </label>
           <label class="block min-w-0">
-            <span class="block text-xs sm:text-sm font-semibold text-slate-700 mb-1">Chọn cuộc thi trực tuyến <span class="text-red-600">*</span></span>
+            <span class="flex flex-wrap items-center justify-between gap-2 text-xs sm:text-sm font-semibold text-slate-700 mb-1"><span>Chọn cuộc thi trực tuyến <span class="text-red-600">*</span></span><button id="contest-reload-exams" type="button" class="text-emerald-700 hover:text-emerald-900 font-semibold underline underline-offset-2" aria-label="Tải lại danh sách cuộc thi">Tải lại danh sách</button></span>
             <select id="contest-exam-picker" name="ma_de_thi" required class="w-full min-w-0 min-h-11 rounded-lg border border-slate-300 px-3 py-2 text-base bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500" disabled><option value="">Đang tải danh sách cuộc thi...</option></select>
           </label>
         </div>
