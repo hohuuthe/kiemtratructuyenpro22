@@ -373,3 +373,12 @@ test('Switching from school results to contest removes the previous student's pr
  assert.ok(before>0 && cleaned>before && school>cleaned);
  assert.match(main.slice(before,cleaned+20),/window\.__activeStudentExamTab !== 'contest'/);
 });
+
+test('Finishing a contest clears guest identity and restores only authenticated school profile',()=>{
+ const ui=source('src/contest-mode-ui.js');
+ assert.match(ui,/const profile=window\.currentUser/);
+ assert.match(ui,/guest_data_1:profile \? String\(profile\.full_name\|\|''\)/);
+ assert.match(ui,/guest_data_lop:profile \? String\(profile\.lop\|\|''\)/);
+ assert.match(ui,/guest_data_donvi:profile \? String\(profile\.donvi\|\|profile\.address\|\|''\)/);
+ assert.match(ui,/for\(const \[id,value\] of Object\.entries\(restore\)\)/);
+});
