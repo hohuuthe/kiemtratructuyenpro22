@@ -51,7 +51,9 @@ export function applyStudentExamHeaderBranding(settings) {
     return;
   }
   // Read the verified exam owner, not the default landing-tab preference.
-  const ownerMode = window.__activeStudentExamTab === 'contest' ? 'contest' : 'school';
+  const inContestTab = Boolean(document.getElementById('tab-contest')?.contains(root));
+  const ownerMode = inContestTab || (typeof window !== 'undefined' && window.__activeStudentExamTab === 'contest')
+    ? 'contest' : 'school';
   const { title: heading, brand, hasBanner, showTitle } = studentExamHeaderState(settings, ownerMode);
   container.hidden = false;
   title.textContent = heading;
