@@ -292,7 +292,8 @@ CREATE TABLE IF NOT EXISTS app_settings (
     header_banner_tablet_key TEXT NOT NULL DEFAULT '',
     header_banner_mobile_url TEXT NOT NULL DEFAULT '',
     header_banner_mobile_key TEXT NOT NULL DEFAULT '',
-    header_banner_alt TEXT NOT NULL DEFAULT ''
+    header_banner_alt TEXT NOT NULL DEFAULT '',
+    exam_header_display_mode TEXT NOT NULL DEFAULT 'text'
 );
 
 -- 7. BẢNG PHÂN CÔNG GIÁO VIÊN - LỚP HỌC (teacher_classes)
