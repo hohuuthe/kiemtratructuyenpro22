@@ -4546,6 +4546,15 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
                 return;
             }
 
+            // A finished school exam is still mounted in the shared exam
+            // widgets. Clear it BEFORE entering the public registration screen:
+            // otherwise moving exam-results could briefly expose the previous
+            // student's score beneath the next contestant's form.
+            if (tabName === 'contest' && isShowingResults &&
+                window.__activeStudentExamTab !== 'contest') {
+                resetExam();
+            }
+
             // Switching from the public contest form must not silently copy
             // personal registration details into the independent school form.
             // Never erase an authenticated student's verified profile.
