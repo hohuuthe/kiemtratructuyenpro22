@@ -39,8 +39,15 @@ export const onRequestGet: PagesFunction = async (context) => {
         // Optional responsive columns can be added on the first admin save.
       }
     }
+    // Legacy tenants remain school-only until their additive migration is applied.
+    let applicationMode = 'school';
+    try {
+      const modeRow: any = await db.prepare('SELECT application_mode FROM app_settings WHERE id = 1').first();
+      applicationMode = modeRow?.application_mode === 'contest' ? 'contest' : 'school';
+    } catch {}
     const branding = normalizedHeaderBranding(header);
     const data = {
+      application_mode: applicationMode,
       app_title: row?.app_title || 'HỆ THỐNG KIỂM TRA TRỰC TUYẾN',
       header_display_mode: branding.mode,
       header_banner_url: branding.url,
