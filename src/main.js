@@ -1579,6 +1579,7 @@ Trả về kết quả dưới dạng JSON Array, mỗi phần tử tương ứn
             questionFontSize: 60,
             answerFontSize: 50,
             displayMode: 'single',
+            applicationMode: 'school',
             appTitle: "HỆ THỐNG KIỂM TRA TRỰC TUYẾN",
             headerDisplayMode: 'text',
             headerBannerUrl: '',
@@ -4143,6 +4144,7 @@ if (contentType && contentType.includes("application/json")) {
               const body=await r.json(),d=body.data;
               if(!d)throw Error('Invalid bootstrap');
               appSettings={...appSettings,appTitle:d.app_title||appSettings.appTitle,
+                applicationMode:d.application_mode==='contest'?'contest':'school',
                 authorInfo:d.author_info||appSettings.authorInfo,
                 headerDisplayMode:d.header_display_mode||'text',
                 headerBannerUrl:d.header_banner_url||'',
@@ -7897,6 +7899,8 @@ if (contentType && contentType.includes("application/json")) {
             if (document.getElementById('exam-config-max-cheat-warnings')) document.getElementById('exam-config-max-cheat-warnings').value = examConfig.maxCheatWarnings || 5;
             if (document.getElementById('exam-config-max-attempts')) document.getElementById('exam-config-max-attempts').value = examConfig.maxAttempts || 0;
             if (document.getElementById('exam-config-mode')) document.getElementById('exam-config-mode').value = examConfig.chedodethi;
+            const contestStatusEl = document.getElementById('exam-contest-status');
+            if (contestStatusEl) contestStatusEl.value = cData.contest_status || 'draft';
             if (document.getElementById('exam-config-password')) document.getElementById('exam-config-password').value = examConfig.mabaomatdethi || '';
             
             if (currentUser && currentUser.role !== 'admin' && (examConfig.chedodethi === 'Đề cho đơn vị' || examConfig.chedodethi === 'Đề thi cho đơn vị')) {
@@ -9223,7 +9227,8 @@ if (contentType && contentType.includes("application/json")) {
                     userLop: (currentUser && currentUser.lop) ? currentUser.lop : inputLop,
                     userDonvi: (currentUser && (currentUser.donvi || currentUser.address)) ? (currentUser.donvi || currentUser.address) : inputDonvi,
                     examConfig,
-                    examAccessCode: window._studentExamAccessCode || ''
+                    examAccessCode: window._studentExamAccessCode || '',
+                    ...(window.__contestTicket && examConfig?.chedodethi === 'Cuộc thi trực tuyến' ? {contestTicket: window.__contestTicket} : {})
                 };
                 
                 const authToken = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
@@ -16670,6 +16675,8 @@ D. Phát biểu SAI</pre>
 
         function toggleExamMode() {
             const mode = document.getElementById('exam-config-mode')?.value || '';
+            const contestBox = document.getElementById('contest-publish-container');
+            contestBox?.classList.toggle('hidden',mode !== 'Cuộc thi trực tuyến');
             const passwordContainer = document.getElementById('exam-password-container');
             const donviContainer = document.getElementById('exam-donvi-container');
             const lopContainer = document.getElementById('exam-class-container') || document.getElementById('exam-lop-container');
@@ -16677,7 +16684,7 @@ D. Phát biểu SAI</pre>
             const lopInput = document.getElementById('exam-config-lop');
 
             // QUY TẮC: Trong quản lý đề thi, nếu đề thi ở chế độ là đề công khai thì ô đơn vị và ô lớp xóa rỗng
-            if (mode === 'Đề công khai' || !mode) {
+            if (mode === 'Đề công khai' || mode === 'Cuộc thi trực tuyến' || !mode) {
                 if (donviInput) {
                     donviInput.value = '';
                     donviInput.readOnly = false;
@@ -16885,6 +16892,8 @@ if (contentType && contentType.includes("application/json")) {
                 examConfig.maxAttempts = Math.max(0, getInt('exam-config-max-attempts') || 0);
                 examConfig.max_attempts = examConfig.maxAttempts;
                 examConfig.chedodethi = getVal('exam-config-mode') || 'Đề công khai';
+                examConfig.contestStatus = examConfig.chedodethi === 'Cuộc thi trực tuyến' ? getVal('exam-contest-status') || 'draft' : 'draft';
+                examConfig.contest_status = examConfig.contestStatus;
                 examConfig.mabaomatdethi = examConfig.chedodethi === 'Đề có mã bảo mật' ? getVal('exam-config-password').trim() : '';
                 if (currentUser && currentUser.role !== 'admin' && (examConfig.chedodethi === 'Đề cho đơn vị' || examConfig.chedodethi === 'Đề thi cho đơn vị')) {
                     const teacherDonvi = String(currentUser.donvi || currentUser.address || '').trim();
@@ -16899,7 +16908,7 @@ if (contentType && contentType.includes("application/json")) {
                 examConfig.lop = examConfig.target_lop;
 
                 // QUY TẮC: Trong quản lý đề thi, nếu đề thi ở chế độ là đề công khai thì ô đơn vị và ô lớp xóa rỗng
-                if (examConfig.chedodethi === 'Đề công khai' || !examConfig.chedodethi) {
+                if (examConfig.chedodethi === 'Đề công khai' || examConfig.chedodethi === 'Cuộc thi trực tuyến' || !examConfig.chedodethi) {
                     examConfig.target_donvi = '';
                     examConfig.donvi = '';
                     examConfig.target_lop = '';
