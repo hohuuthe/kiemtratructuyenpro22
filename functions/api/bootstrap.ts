@@ -51,11 +51,19 @@ export const onRequestGet: PagesFunction = async (context) => {
         header = { ...header, ...scope };
       } catch { /* Legacy tenants keep existing banner in both modes. */ }
     }
+    // Independent fullscreen branding; missing column keeps legacy tenants text-only.
+    let examHeaderMode = 'text';
+    try {
+      const appearance: any = await db.prepare('SELECT exam_header_display_mode FROM app_settings WHERE id = 1').first();
+      if (['text','banner','both'].includes(appearance?.exam_header_display_mode))
+        examHeaderMode = appearance.exam_header_display_mode;
+    } catch { /* Additive migration not yet present on this tenant. */ }
     const branding = normalizedHeaderBranding(header);
     const data = {
       application_mode: applicationMode,
       app_title: row?.app_title || 'HỆ THỐNG KIỂM TRA TRỰC TUYẾN',
       header_display_mode: branding.mode,
+      exam_header_display_mode: examHeaderMode,
       header_banner_scope: branding.scope,
       header_banner_url: branding.url,
       header_banner_tablet_url: branding.tabletUrl,
