@@ -3,6 +3,7 @@ import { signJWT, verifyAuthSession, getDynamicSecret, getDatabase } from './uti
 import {makeGradeSessionConfig, accessCodeMatches} from './security';
 import { examFlagEnabled, validateQuestionAnswer } from '../../../src/exam-grading-core.js';
 import { EXAM_SESSION_PURPOSE_PRESTART, evaluateExamAccessWindow } from '../../../src/exam-time-authority.js';
+import { isContestEnabled, publicContestExam, verifyContestTicket } from '../contest/register';
 import { selectQuestionsStrictByDifficulty } from '../../../src/exam-question-selector.js';
 
 interface Env {
@@ -35,7 +36,18 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
     try {
         const body: any = await request.json();
-        const { teacherId, examId, examName, examConfig } = body;
+        let { teacherId, examId, examName, examConfig } = body;
+        let registeredContest: any = null;
+        if (body.contestTicket) {
+            if (!examId || !(await isContestEnabled(db))) {
+                return new Response(JSON.stringify({error:'Cuộc thi không được kích hoạt.'}),{status:403,headers:corsHeaders});
+            }
+            const contest = await publicContestExam(db,String(examId));
+            if (!contest) return new Response(JSON.stringify({error:'Cuộc thi chưa được công bố.'}),{status:403,headers:corsHeaders});
+            registeredContest = await verifyContestTicket(db,SECRET,String(body.contestTicket),String(examId));
+            if (!registeredContest) return new Response(JSON.stringify({error:'Thông tin đăng ký hoặc phiên tham gia không hợp lệ.'}),{status:403,headers:corsHeaders});
+            teacherId = String(contest.creator_id); // Authoritative owner, never the browser's choice.
+        }
         const submittedAccessCode = body.examAccessCode;
 
         if (!teacherId) {
@@ -257,6 +269,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             }
         }
 
+        if (dbExam?.chedodethi === 'Cuộc thi trực tuyến' && !registeredContest) {
+            return new Response(JSON.stringify({error:'Vui lòng đăng ký tham gia cuộc thi trước khi nhận đề.'}),{status:403,headers:corsHeaders});
+        }
         if (dbExam && String(dbExam.creator_id) !== String(teacherId)) {
             return new Response(JSON.stringify({error:'Đề thi không thuộc giáo viên đã chọn'}), {status:403,headers:corsHeaders});
         }
@@ -381,7 +396,15 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             ? Number(dbExam.max_attempts)
             : Number(activeExamConfig.max_attempts || activeExamConfig.maxAttempts || 0);
 
-        if (maxAttemptsVal > 0 && !isAdmin && !isTeacher) {
+        if (maxAttemptsVal > 0 && registeredContest) {
+            const countRow: any = await db.prepare(
+                'SELECT COUNT(*) AS count FROM results WHERE exam_id = ? AND ma_nguoi_du_thi = ?'
+            ).bind(String(examId),registeredContest.participantId).first();
+            if ((Number(countRow?.count)||0) >= maxAttemptsVal) {
+                return new Response(JSON.stringify({code:'EXAM_ATTEMPT_LIMIT_REACHED',error:'Bạn đã hết số lượt tham gia cuộc thi.'}),{status:403,headers:corsHeaders});
+            }
+        }
+        if (maxAttemptsVal > 0 && !isAdmin && !isTeacher && !registeredContest) {
             const studentUserIdVal = tokenUser?.user_id || tokenUser?.id || null;
             const targetExamIdStr = String(activeExamConfig.id || examId || '').trim();
 
@@ -759,7 +782,8 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             purpose: EXAM_SESSION_PURPOSE_PRESTART,
             questionIds,
             gradingSessionId,
-            studentUserId: tokenUser?.user_id || tokenUser?.id || null,
+            studentUserId: registeredContest ? null : (tokenUser?.user_id || tokenUser?.id || null),
+            contestParticipantId: registeredContest?.participantId || null,
             examConfig: tokenGradeSessionConfig,
             maxCheatWarnings: maxCheatWarningsFromDB,
             timeLimitSeconds,
