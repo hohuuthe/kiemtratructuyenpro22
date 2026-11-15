@@ -8,7 +8,7 @@ on:
       - 'functions/api/exams.ts'
       - 'functions/api/settings.ts'
       - 'functions/api/bootstrap.ts'
-      - 'functions/[slug]/api/[[path]].ts'
+      - 'functions/**'
       - 'src/contest-mode-ui.js'
       - 'src/exam-config-contract.ts'
       - 'src/main.js'
