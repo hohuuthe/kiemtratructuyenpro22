@@ -1,4 +1,4 @@
-import { DEFAULT_HEADER_TITLE, headerMode, normalizedHeaderBranding } from './header-branding-policy.js';
+import { DEFAULT_HEADER_TITLE, headerMode, normalizedHeaderBranding, bannerScope, bannerShownForMode } from './header-branding-policy.js';
 import { bannerDimensionFeedback } from './header-banner-dimensions.js';
 
 const find = id => document.getElementById(id);
@@ -15,6 +15,11 @@ export function selectHeaderBannerPreview(device) {
   previewDevice = device;
   for (const name of devices) find('settings-banner-preview-'+name)?.setAttribute('aria-pressed',String(name===device));
   renderBrandingPreview();
+}
+function activeBannerMode(settings) {
+  if (find('tab-contest')?.classList.contains('active')) return 'contest';
+  if (find('tab-exam')?.classList.contains('active')) return 'school';
+  return (settings?.applicationMode ?? settings?.application_mode) === 'contest' ? 'contest' : 'school';
 }
 function preferredBannerUrl(branding) {
   if (typeof window.matchMedia === 'function') {
@@ -37,6 +42,7 @@ const toast = (message, kind = 'info') => {
 function selectedBranding(settings) {
   return normalizedHeaderBranding({
     header_display_mode: settings?.headerDisplayMode ?? settings?.header_display_mode,
+    header_banner_scope: settings?.headerBannerScope ?? settings?.header_banner_scope,
     header_banner_url: settings?.headerBannerUrl ?? settings?.header_banner_url,
     header_banner_key: settings?.headerBannerKey ?? settings?.header_banner_key,
     header_banner_tablet_url: settings?.headerBannerTabletUrl ?? settings?.header_banner_tablet_url,
@@ -57,7 +63,7 @@ export function applyHeaderBranding(settings) {
   const content = label(settings?.appTitle ?? settings?.app_title) || DEFAULT_HEADER_TITLE;
   title.textContent = content;
   const branding = selectedBranding(settings);
-  const showBanner = branding.mode !== 'text' && !!branding.url;
+  const showBanner = branding.mode !== 'text' && !!branding.url && bannerShownForMode(branding.scope, activeBannerMode(settings));
   const showTitle = branding.mode !== 'banner';
   title.classList.toggle('sr-only', !showTitle && showBanner);
   if (!showBanner) {
@@ -98,6 +104,7 @@ export function populateBrandingSettings(settings) {
   if (!mode) return;
   const current = selectedBranding(settings);
   mode.value = current.mode;
+  if (find('settings-banner-scope')) find('settings-banner-scope').value = current.scope;
   const key = find('settings-banner-key');
   const url = find('settings-banner-url');
   const alt = find('settings-banner-alt');
@@ -240,6 +247,7 @@ export async function saveHeaderBrandingSettings(settings, refreshHeader) {
   const draft = {
     app_title: label(find('settings-app-title')?.value),
     header_display_mode: headerMode(find('settings-header-mode').value),
+    header_banner_scope: bannerScope(find('settings-banner-scope')?.value),
     header_banner_key: find('settings-banner-key')?.value || '',
     header_banner_url: find('settings-banner-url')?.value || '',
     header_banner_tablet_key: find('settings-banner-tablet-key')?.value || '',
@@ -286,6 +294,7 @@ export async function saveHeaderBrandingSettings(settings, refreshHeader) {
     Object.assign(settings, {
       appTitle: committed.app_title,
       headerDisplayMode: committed.header_display_mode,
+      headerBannerScope: committed.header_banner_scope,
       headerBannerUrl: committed.header_banner_url,
       headerBannerKey: committed.header_banner_key,
       headerBannerTabletUrl: committed.header_banner_tablet_url,
