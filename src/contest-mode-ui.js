@@ -52,11 +52,43 @@ window.__contestOnExamReset=function(){
   window.__activeStudentExamTab=null;
   findEl('contest-registration')?.classList.remove('hidden');
 };
+// The owner flag alone can become stale after async component hydration.
+// The DOM location of the verified attempt/result is a second, independent
+// signal: never show personal registration above a contest result.
+function contestResultIsVisible() {
+  const result=findEl('exam-results');
+  return Boolean(result && !result.classList.contains('hidden') &&
+    findEl('tab-contest')?.contains(result));
+}
 window.__contestShowEntry=function(){
-  const isContest=window.__activeStudentExamTab==='contest';
-  const examVisible=!findEl('exam-interface')?.classList.contains('hidden');
-  const resultsVisible=!findEl('exam-results')?.classList.contains('hidden');
-  findEl('contest-registration')?.classList.toggle('hidden',Boolean(isContest&&(examVisible||resultsVisible)));
+  const tab=findEl('tab-contest');
+  const exam=findEl('exam-interface');
+  const result=findEl('exam-results');
+  const examVisible=Boolean(exam && !exam.classList.contains('hidden'));
+  const resultsVisible=Boolean(result && !result.classList.contains('hidden'));
+  const ownsVisibleExam=Boolean(
+    (examVisible && tab?.contains(exam)) ||
+    (resultsVisible && tab?.contains(result))
+  );
+  const shouldHide=ownsVisibleExam ||
+    (window.__activeStudentExamTab==='contest' && (examVisible || resultsVisible));
+  const registration=findEl('contest-registration');
+  registration?.classList.toggle('hidden',Boolean(shouldHide));
+  registration?.setAttribute('aria-hidden',String(Boolean(shouldHide)));
+};
+window.__contestOnExamSubmitted=function(){
+  // Called only after /api/exam/grade confirms a durable result.
+  if(!contestResultIsVisible())return;
+  window.__contestShowEntry?.();
+  // Discard registration PII from the DOM after it has served its purpose.
+  // Do not clear the authenticated student's separate verified profile.
+  findEl('contest-registration-form')?.reset();
+  if(!window.currentUser){
+    for(const id of ['guest_data_1','guest_data_lop','guest_data_donvi']){
+      const field=findEl(id);
+      if(field)field.value='';
+    }
+  }
 };
 const noStore = {cache:'no-store'};
 async function fetchJson(url,options={}) {
@@ -227,7 +259,8 @@ async function initializeContestMode() {
   // Both tabs stay available regardless of the Admin's landing preference.
   // Rendering is never an authorization decision.
   if(!await waitForForm())return;
-  findEl('contest-registration')?.classList.remove('hidden');
+  // Respect an existing server-confirmed contest attempt on delayed hydration.
+  window.__contestShowEntry?.();
   try{
     const boot=await fetchJson('/api/bootstrap');
     setupSettings(boot?.data?.application_mode==='contest'?'contest':'school');
