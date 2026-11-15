@@ -32,6 +32,19 @@ export async function publicContestExam(db: any, id: string): Promise<any | null
   `).bind(id, CONTEST_EXAM_MODE).first();
 }
 
+// Keep the encrypted participant registry stable across JWT secret rotation.
+async function getParticipantDataSecret(db: any): Promise<string> {
+  await db.prepare('CREATE TABLE IF NOT EXISTS _internal_secrets (key TEXT PRIMARY KEY, value TEXT)').run();
+  const newValue = crypto.randomUUID() + ':' + crypto.randomUUID();
+  await db.prepare('INSERT INTO _internal_secrets (key,value) VALUES (?,?) ON CONFLICT (key) DO NOTHING')
+    .bind('contest_identity_key_v1',newValue).run();
+  const row: any = await db.prepare('SELECT value FROM _internal_secrets WHERE key = ?')
+    .bind('contest_identity_key_v1').first();
+  if (typeof row?.value !== 'string' || row.value.length < 40) {
+    throw new Error('CONTEST_IDENTITY_KEY_UNAVAILABLE');
+  }
+  return row.value;
+}
 const encoder = new TextEncoder();
 function base64url(bytes: Uint8Array) {
   let binary = '';
@@ -100,10 +113,11 @@ export const onRequestPost: PagesFunction = async (context: any) => {
     const access = evaluateExamAccessWindow(exam,Date.now());
     if (!access.allowed) return respond({error:access.code === 'EXAM_NOT_STARTED' ? 'Cuộc thi chưa đến thời gian bắt đầu.' : access.code === 'EXAM_WINDOW_CLOSED' ? 'Cuộc thi đã hết thời gian tham gia.' : 'Khung thời gian cuộc thi chưa hợp lệ.'},403);
     const secret = await getDynamicSecret(db,context.env.JWT_SECRET);
+    const participantSecret = await getParticipantDataSecret(db);
     // Phone-based deduplication is a best-effort identifier, NOT proof of phone ownership.
     // Official one-person competitions require a verified OTP provider in a later release.
-    const identity = await hmac(secret,'contest-phone:v1:'+v.phone);
-    const candidateId = 'ct_' + (await hmac(secret,'contest-candidate:v1:'+identity)).slice(0,40);
+    const identity = await hmac(participantSecret,'contest-phone:v1:'+v.phone);
+    const candidateId = 'ct_' + (await hmac(participantSecret,'contest-candidate:v1:'+identity)).slice(0,40);
     const previous: any = await db.prepare(
       'SELECT ma_nguoi_du_thi, ho_ten, don_vi FROM contest_participants WHERE ma_dinh_danh_bam = ?'
     ).bind(identity).first();
@@ -118,8 +132,8 @@ export const onRequestPost: PagesFunction = async (context: any) => {
            so_cccd_ma_hoa,ma_dinh_danh_bam,thoi_diem_dong_y)
         VALUES (?,?,?,?,?,?,?,?)
         ON CONFLICT (ma_dinh_danh_bam) DO NOTHING
-      `).bind(candidateId,v.name,v.unit,await encryptPrivate(secret,v.address),
-        await encryptPrivate(secret,v.phone),await encryptPrivate(secret,v.citizen),
+      `).bind(candidateId,v.name,v.unit,await encryptPrivate(participantSecret,v.address),
+        await encryptPrivate(participantSecret,v.phone),await encryptPrivate(participantSecret,v.citizen),
         identity,new Date().toISOString()).run();
       const stored: any = await db.prepare(
         'SELECT ho_ten,don_vi FROM contest_participants WHERE ma_nguoi_du_thi = ?'
