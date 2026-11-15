@@ -37,6 +37,18 @@
             <!-- Body -->
             <div class="p-6 md:p-8 space-y-8 bg-gray-50/50">
                 
+                <!-- Application mode is distinct from question display_mode. -->
+                <section class="rounded-2xl border border-emerald-200 bg-white p-4 sm:p-5 shadow-sm">
+                  <h3 class="text-base sm:text-lg font-black text-emerald-900 mb-2">🏆 Mục đích sử dụng ứng dụng</h3>
+                  <p class="text-sm text-slate-600 mb-3">Chỉ quản trị viên được chuyển chế độ. Bài làm đang thực hiện không bị thay đổi.</p>
+                  <label for="settings-application-mode" class="block text-sm font-bold text-slate-700 mb-1">Chọn chế độ hoạt động</label>
+                  <select id="settings-application-mode" class="w-full max-w-xl min-h-11 p-3 rounded-xl border border-slate-300 bg-white text-slate-900">
+                    <option value="school">Ứng dụng dành cho học sinh ôn tập, kiểm tra</option>
+                    <option value="contest">Ứng dụng dành cho các cuộc thi trực tuyến</option>
+                  </select>
+                  <button type="button" id="save-application-mode" onclick="window.saveApplicationMode()" class="mt-3 px-5 py-3 rounded-xl bg-emerald-700 text-white font-bold hover:bg-emerald-800 w-full sm:w-auto">Lưu và áp dụng chế độ</button>
+                  <p id="application-mode-status" role="status" class="mt-2 text-sm text-slate-600"></p>
+                </section>
                 <!-- Group 1: General & UX -->
                 <div class="space-y-4">
                     <h3 class="text-lg font-bold text-gray-800 flex items-center gap-2 border-b border-gray-200 pb-2">
