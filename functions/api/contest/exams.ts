@@ -1,11 +1,10 @@
 import { getDatabase } from '../exam/utils';
-import { isContestEnabled, respond, CONTEST_EXAM_MODE } from './register';
+import { respond, CONTEST_EXAM_MODE } from './register';
 
 export const onRequestGet: PagesFunction = async (context: any) => {
   try {
     const db = getDatabase(context);
     if (!db) return respond({error:'Cơ sở dữ liệu chưa sẵn sàng.'},503);
-    if (!(await isContestEnabled(db))) return respond({data:[],error:null});
     const {results} = await db.prepare(`
       SELECT id,name,creator_id,time_limit,count_41,count_tf4,count_sq,count_tl,
              max_attempts,tg_bd,tg_kt,access_control
