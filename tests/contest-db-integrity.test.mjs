@@ -51,8 +51,31 @@ test('Real PostgreSQL migration, participant uniqueness and safe attempt states'
      GROUP BY ma_nguoi_du_thi ORDER BY ma_nguoi_du_thi`);
    assert.deepEqual(attempts.rows.map(x=>[x.ma_nguoi_du_thi,x.so_luot]),
      [['p1',2],['p2',1]]);
+   // Submission persisted while the attempt metadata write was interrupted.
+   await db.query(`INSERT INTO results
+     (id,exam_id,created_at,score,ma_nguoi_du_thi,ma_phien_thi)
+     VALUES('result-c','contest-1',now()::text,9.5,'p1','session-c')`);
+   await assert.rejects(db.query(`INSERT INTO results
+     (id,exam_id,created_at,score,ma_nguoi_du_thi,ma_phien_thi)
+     VALUES('duplicate-c','contest-1',now()::text,9.5,'p1','session-c')`),/unique|duplicate/i);
+   await db.query(`
+     UPDATE contest_attempts ca
+     SET trang_thai='DA_NOP',ma_ket_qua=r.id,
+         thoi_diem_nop=COALESCE(r.created_at::timestamptz,now())
+     FROM results r
+     WHERE ca.ma_nguoi_du_thi='p1' AND ca.ma_de_thi='contest-1'
+       AND ca.trang_thai='DANG_LAM'
+       AND r.ma_phien_thi=ca.ma_phien_thi
+       AND r.ma_nguoi_du_thi=ca.ma_nguoi_du_thi
+       AND r.exam_id=ca.ma_de_thi`);
+   const repaired=await db.query(`SELECT trang_thai,ma_ket_qua
+     FROM contest_attempts WHERE ma_phien_thi='session-c'`);
+   assert.deepEqual(repaired.rows[0],{trang_thai:'DA_NOP',ma_ket_qua:'result-c'});
+   await db.query(`INSERT INTO contest_attempts
+     (ma_phien_thi,ma_nguoi_du_thi,ma_de_thi)
+     VALUES('session-d','p1','contest-1')`);
    await db.exec(migration); // must be idempotent
    const again=await db.query(`SELECT count(*)::integer AS count FROM contest_attempts`);
-   assert.equal(again.rows[0].count,3);
+   assert.equal(again.rows[0].count,4);
  }finally {await db.close();}
 });
