@@ -379,6 +379,20 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     // Record the accepted contest attempt without affecting school accounts.
     if (contestParticipantId) {
       try {
+        // A submission is authoritative once the results row is committed.
+        // Recover rare crashes between result INSERT and contest_attempts metadata
+        // update by exact signed grading-session ID, never by shared names.
+        await db.prepare(`
+          UPDATE contest_attempts ca
+          SET trang_thai='DA_NOP', ma_ket_qua=r.id,
+              thoi_diem_nop=COALESCE(r.created_at::timestamptz,now())
+          FROM results r
+          WHERE ca.ma_nguoi_du_thi=? AND ca.ma_de_thi=?
+            AND ca.trang_thai='DANG_LAM'
+            AND r.ma_phien_thi=ca.ma_phien_thi
+            AND r.ma_nguoi_du_thi=ca.ma_nguoi_du_thi
+            AND r.exam_id=ca.ma_de_thi
+        `).bind(contestParticipantId,examId).run();
         // Reconcile orphaned ACTIVE rows only when the older session has
         // demonstrably expired or been removed. Never cancel a live attempt.
         await db.prepare(`
