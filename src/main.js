@@ -1616,8 +1616,7 @@ Trả về kết quả dưới dạng JSON Array, mỗi phần tử tương ứn
                 let bootExamResumeToken = '';
                 let bootExamResumeMeta = '';
                 try {
-                    bootExamResumeToken = localStorage.getItem(window.tenantStorageKey('currentExamToken')) ||
-                        localStorage.getItem('currentExamToken') || '';
+                    bootExamResumeToken = localStorage.getItem(window.tenantStorageKey('currentExamToken')) || '';
                     bootExamResumeMeta = localStorage.getItem(window.tenantStorageKey('active_exam_resume_meta')) || '';
                 } catch(e) {}
 
@@ -1645,9 +1644,6 @@ Trả về kết quả dưới dạng JSON Array, mỗi phần tử tương ứn
                     try {
                         if (!localStorage.getItem(window.tenantStorageKey('currentExamToken'))) {
                             localStorage.setItem(window.tenantStorageKey('currentExamToken'), bootExamResumeToken);
-                        }
-                        if (!localStorage.getItem('currentExamToken')) {
-                            localStorage.setItem('currentExamToken', bootExamResumeToken);
                         }
                         if (bootExamResumeMeta && !localStorage.getItem(window.tenantStorageKey('active_exam_resume_meta'))) {
                             localStorage.setItem(window.tenantStorageKey('active_exam_resume_meta'), bootExamResumeMeta);
@@ -2895,6 +2891,13 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
 
         window.adminLogout = adminLogout;
         async function adminLogout() {
+            // Account switching must not erase or reassign an in-flight exam.
+            if (currentExam?.startTime && currentExam?.questions?.length &&
+                !document.getElementById('exam-interface')?.classList.contains('hidden') &&
+                document.getElementById('exam-results')?.classList.contains('hidden')) {
+                showToast('Đang làm bài thi. Hãy hoàn tất hoặc nộp bài trước khi đổi tài khoản.', 'warning');
+                return;
+            }
             closeModal();
             if (typeof window.__resetQrAnswerCards === 'function') window.__resetQrAnswerCards();
             if (typeof window.__resetLuckyWheel === 'function') window.__resetLuckyWheel();
@@ -8922,14 +8925,21 @@ if (contentType && contentType.includes("application/json")) {
             let token = '';
             let meta = {};
             try {
-                token = localStorage.getItem(window.tenantStorageKey('currentExamToken')) ||
-                    localStorage.getItem('currentExamToken') || '';
+                token = localStorage.getItem(window.tenantStorageKey('currentExamToken')) || '';
                 const rawMeta = localStorage.getItem(window.tenantStorageKey('active_exam_resume_meta')) || '';
                 if (rawMeta) {
                     try { meta = JSON.parse(rawMeta) || {}; } catch(e) { meta = {}; }
                 }
             } catch(e) {}
             if (!token) return false;
+            // A stale tab of the same browser must not adopt another tab's
+            // active exam. Keep the server token for the legitimate original
+            // tab; never delete an unverified ongoing attempt here.
+            if (meta.writerId && meta.writerId !== getExamWriterId()) {
+                window.__EXAM_RESUME_BLOCK_NEW__ = true;
+                showToast('Phiên thi đang thuộc tab trình duyệt khác. Vui lòng quay lại tab ban đầu để tiếp tục.', 'warning');
+                return true;
+            }
 
             const authToken = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
             const headers = { 'Content-Type': 'application/json' };
@@ -8985,7 +8995,6 @@ if (contentType && contentType.includes("application/json")) {
             window.__EXAM_RESUME_BLOCK_NEW__ = false;
             window.currentExamToken = data.token || token;
             try {
-                localStorage.setItem('currentExamToken', window.currentExamToken);
                 localStorage.setItem(window.tenantStorageKey('currentExamToken'), window.currentExamToken);
             } catch(e) {}
 
@@ -9306,10 +9315,11 @@ if (contentType && contentType.includes("application/json")) {
                 // Nội dung câu hỏi chưa được gửi xuống trình duyệt ở bước này.
                 window.currentExamToken = result.token;
                 try {
-                    localStorage.setItem('currentExamToken', result.token);
                     localStorage.setItem(window.tenantStorageKey('currentExamToken'), result.token);
                     localStorage.setItem(window.tenantStorageKey('active_exam_resume_meta'), JSON.stringify({
                         phase: 'prestart',
+                        writerId: getExamWriterId(),
+                        entryTab: window.__contestTicket && examConfig?.chedodethi === 'Cuộc thi trực tuyến' ? 'contest' : 'exam',
                         studentName: name,
                         studentLop: inputLop,
                         studentDonvi: inputDonvi,
@@ -9425,12 +9435,12 @@ if (contentType && contentType.includes("application/json")) {
 
                         window.currentExamToken = startResult.token;
                         try {
-                            localStorage.setItem('currentExamToken', startResult.token);
                             localStorage.setItem(window.tenantStorageKey('currentExamToken'), startResult.token);
                             localStorage.removeItem(window.tenantStorageKey('pending_exam_violation_events'));
                             localStorage.setItem(window.tenantStorageKey('active_exam_resume_meta'), JSON.stringify({
                                 phase: 'active',
                                 entryTab: window.__contestTicket && examConfig?.chedodethi === 'Cuộc thi trực tuyến' ? 'contest' : 'exam',
+                                writerId: getExamWriterId(),
                                 studentName: name,
                                 studentLop: inputLop,
                                 studentDonvi: inputDonvi,
