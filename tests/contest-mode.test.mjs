@@ -327,3 +327,40 @@ test('Contest participant result is not mixed into school ranking caches',()=>{
  assert.match(region,/window\.results\.unshift\(submitResult\)/);
  assert.match(region,/results\.unshift\(submitResult\)/);
 });
+
+test('Contest READY stages DOM before fullscreen and never moves an active fullscreen node',()=>{
+ const ui=source('src/contest-mode-ui.js');
+ const main=source('src/main.js');
+ const prepare=ui.indexOf('window.__contestPrepareForReady=function()');
+ const launch=ui.indexOf('window.__contestOnExamStarted=function()');
+ assert.ok(prepare>=0 && launch>prepare);
+ assert.match(ui,/window\.__contestPrepareForReady\(\)/);
+ assert.match(ui,/window\.__contestBeforeFullscreen=function\(\)/);
+ assert.match(ui,/document\.fullscreenElement && \(document\.fullscreenElement\.contains\(element\)/);
+ const readyClick=main.indexOf("readyButton.addEventListener('click'");
+ const beforeFullscreen=main.indexOf('window.__contestBeforeFullscreen?.()',readyClick);
+ const requestFullscreen=main.indexOf('window.enterExamFullscreen()',readyClick);
+ const activateServer=main.indexOf("fetch('/api/exam/start'",readyClick);
+ assert.ok(readyClick>0 && beforeFullscreen>readyClick && requestFullscreen>beforeFullscreen && activateServer>requestFullscreen);
+ assert.match(main,/window\.__contestAfterStartRejected\?\.\(\)/);
+ assert.match(main,/window\.__contestOnReadyCancelled\?\.\(\)/);
+});
+
+test('Monitoring is not armed during READY or the initial mobile fullscreen transition',()=>{
+ const main=source('src/main.js');
+ const handler=main.slice(main.indexOf('window.handleCheatDetection = function'),main.indexOf('window.enterExamFullscreen = function'));
+ assert.match(handler,/currentExam\.monitoringArmed !== true/);
+ assert.match(main,/currentExam\.monitoringArmed = false/);
+ assert.match(main,/currentExam\.monitoringArmed = true/);
+ assert.match(main,/currentExam\.fullscreenWasEstablished === true/);
+ assert.match(main,/currentExam\.monitoringWaitingForVisibility/);
+});
+
+test('Same-device attempts remain tenant and browser-tab scoped without legacy global resume fallback',()=>{
+ const main=source('src/main.js');
+ assert.doesNotMatch(main,/localStorage\.getItem\('currentExamToken'\)/);
+ assert.doesNotMatch(main,/localStorage\.setItem\('currentExamToken'/);
+ assert.match(main,/meta\.writerId !== getExamWriterId\(\)/);
+ assert.match(main,/writerId: getExamWriterId\(\)/);
+ assert.match(main,/if \(currentExam\?\.startTime && currentExam\?\.questions\?\.length/);
+});
