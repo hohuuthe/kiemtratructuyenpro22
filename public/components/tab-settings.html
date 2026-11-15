@@ -81,6 +81,14 @@
                                 <option value="both">Tiêu đề chữ + Banner</option>
                               </select>
                             </label>
+                            <label class="flex flex-col gap-1 text-xs font-bold text-slate-700">Banner xuất hiện ở chế độ nào?
+                              <select id="settings-banner-scope" class="w-full mt-1 px-3 py-2.5 border border-emerald-200 bg-white rounded-xl text-sm">
+                                <option value="both">Cả hai: Ôn tập, kiểm tra và Cuộc thi trực tuyến</option>
+                                <option value="school">Chỉ Ôn tập, kiểm tra</option>
+                                <option value="contest">Chỉ Cuộc thi trực tuyến</option>
+                              </select>
+                              <span class="font-normal text-slate-500">Không thay đổi tab mặc định, phiên thi hoặc quyền tham gia. Chế độ chỉ tiêu đề chữ sẽ ẩn banner ở cả hai.</span>
+                            </label>
                             <label class="flex flex-col gap-1 text-xs font-bold text-slate-700">Ảnh banner (PNG, JPG, WebP; ≤ 5 MB)
                               <input type="file" id="settings-header-banner-file" accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp" onchange="previewHeaderBrandingSettings()" class="w-full mt-1 text-xs p-2 rounded-xl bg-white border border-emerald-200">
                               <span id="settings-header-file-name" class="font-normal text-slate-500 break-all">Chưa có banner</span>
