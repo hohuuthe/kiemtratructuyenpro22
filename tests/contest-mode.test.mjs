@@ -267,5 +267,5 @@ test('Saving the default landing tab unlocks the save button on both success and
  assert.match(save,/finally\s*\{[\s\S]*?button\.disabled=false/);
  assert.match(save,/body\?\.data\?\.success!==true/);
  assert.match(save,/method:'PUT'/);
- assert.match(save,/Authorization:'Bearer '\+token/);
+ assert.match(save,/'Authorization':'Bearer '\+token/);
 });
