@@ -1684,7 +1684,7 @@ Trả về kết quả dưới dạng JSON Array, mỗi phần tử tương ứn
                 // Khách và học sinh bắt đầu tại Làm bài; không tải tab quản trị.
                 try {
                     if (!resumedActiveExam) {
-                        if (!isAdminLoggedIn && !isTeacherLoggedIn) switchTab('exam');
+                        if (!isAdminLoggedIn && !isTeacherLoggedIn) switchTab(appSettings.applicationMode === 'contest' ? 'contest' : 'exam');
                         else if (!document.querySelector('.tab-content.active')) switchTab('help');
                     }
                 } catch (e) {
@@ -2782,7 +2782,8 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 const tab = btn.dataset.sidebarTab;
                 let visible = false;
 
-                if (tab === 'exam') {
+                if (tab === 'exam' || tab === 'contest') {
+                    // Hai tab học tập / dự thi luôn hiển thị cho học sinh và khách.
                     // TAB LÀM BÀI: Chỉ hiển thị cho Học sinh / Khách. TUYỆT ĐỐI KHÔNG hiển thị cho Giáo viên và Admin
                     visible = isStudentOrGuest;
                 } else if (tab === 'documents') {
@@ -4503,7 +4504,7 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
             if(protectedTabs.includes(tabName)&&!(
               isAdminLoggedIn||(isTeacherLoggedIn&&!adminTabs.includes(tabName))||
               ((tabName==='ranking'||tabName==='boards')&&Boolean(currentUser)))){showAdminLoginModal();return}
-            if(tabName==='exam'&&(isAdminLoggedIn||isTeacherLoggedIn))tabName='exams';
+            if((tabName==='exam'||tabName==='contest')&&(isAdminLoggedIn||isTeacherLoggedIn))tabName='exams';
             requestedTab=tabName; // Guard phản hồi bất đồng bộ bằng tên tab đích thực tế.
             const placeholder=document.getElementById('tab-'+tabName);
             if(placeholder&&placeholder.dataset.componentLoaded!=='true'&&placeholder.children.length===0){
@@ -4530,7 +4531,8 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
             const isShowingResults = examResults && !examResults.classList.contains('hidden');
 
             // TRƯỜNG HỢP: Đang trong quá trình làm bài và bấm sang tab khác (Quản lý, Thống kê, Trợ giúp...)
-            if (tabName !== 'exam' && isExamInProgress && !isShowingResults) {
+            const activeExamOwnerTab = window.__activeStudentExamTab === 'contest' ? 'contest' : 'exam';
+            if (tabName !== activeExamOwnerTab && isExamInProgress && !isShowingResults) {
                 showConfirmModal('Bạn đang trong quá trình làm bài thi. Nếu chuyển sang tab khác, bài làm của bạn sẽ bị hủy. Bạn có chắc chắn muốn chuyển không?', () => {
                     resetExam();
                     switchTab(tabName);
@@ -4580,7 +4582,7 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
             }
 
             // Tuyệt đối không cho phép Giáo viên hoặc Admin truy cập tab Làm bài thi (exam)
-            if (tabName === 'exam' && (isAdminLoggedIn || isTeacherLoggedIn)) {
+            if ((tabName === 'exam' || tabName === 'contest') && (isAdminLoggedIn || isTeacherLoggedIn)) {
                 tabName = 'exams';
             }
 
@@ -4624,6 +4626,7 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
 
             const tabEl = document.getElementById(`tab-${tabName}`);
             if (tabEl) tabEl.classList.add('active');
+            if (tabName === 'contest') window.__contestShowEntry?.();
             if (tabName === 'documents') {
                 if (document.getElementById('documents-table-body')) {
                     connectDocumentLinks();
@@ -9002,7 +9005,8 @@ if (contentType && contentType.includes("application/json")) {
                 setTimeout(() => { flushExamViolationEvents(); }, 0);
             }
 
-            try { switchTab('exam'); } catch(e) {}
+            const isResumedContest = data.isContestAttempt === true;
+            try { switchTab(isResumedContest ? 'contest' : 'exam'); } catch(e) {}
             const nameInput = document.getElementById('guest_data_1');
             const lopInput = document.getElementById('guest_data_lop') || document.getElementById('guest_data_2');
             const donviInput = document.getElementById('guest_data_donvi');
@@ -9044,6 +9048,7 @@ if (contentType && contentType.includes("application/json")) {
                     if (typeof window.enterExamFullscreen === 'function') {
                         Promise.resolve(window.enterExamFullscreen()).catch(() => {});
                     }
+                    if (isResumedContest) window.__contestOnExamStarted?.();
                     window.startExamUI(true);
                     showToast('Đã khôi phục bài thi. Đồng hồ tiếp tục theo deadline cũ.', 'success');
                 }, { once: true });
@@ -9379,6 +9384,7 @@ if (contentType && contentType.includes("application/json")) {
                             localStorage.removeItem(window.tenantStorageKey('pending_exam_violation_events'));
                             localStorage.setItem(window.tenantStorageKey('active_exam_resume_meta'), JSON.stringify({
                                 phase: 'active',
+                                entryTab: window.__contestTicket && examConfig?.chedodethi === 'Cuộc thi trực tuyến' ? 'contest' : 'exam',
                                 studentName: name,
                                 studentLop: inputLop,
                                 studentDonvi: inputDonvi,
@@ -9400,6 +9406,9 @@ if (contentType && contentType.includes("application/json")) {
                         currentExam.timeLimitSeconds = Math.max(1, Number(startResult.timeLimitSeconds) || Number(currentExam.timeLimitSeconds) || 1);
 
                         closeModal();
+                        if (window.__contestTicket && examConfig?.chedodethi === 'Cuộc thi trực tuyến') {
+                            window.__contestOnExamStarted?.();
+                        }
                         startExamUI(true);
                         showToast('Bắt đầu làm bài! Thời gian đã được máy chủ xác nhận.', 'success');
                     } catch (error) {
@@ -11744,6 +11753,9 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
         }
 
         window.resetExam = function resetExam() {
+            try { window.__contestOnExamReset?.(); } catch (e) { console.warn('Contest UI cleanup:', e); }
+            window.__contestTicket = null;
+            window.__activeStudentExamTab = null;
             if (window.appVersionManager && typeof window.appVersionManager.setCriticalActivity === 'function') {
                 window.appVersionManager.setCriticalActivity('studentExam', false);
             } else if (window.__APP_CRITICAL_ACTIVITY__) {
@@ -24365,7 +24377,7 @@ CẤU TRÚC JSON:
             if (componentsLoadedFlag) return;
             componentsLoadedFlag = true;
 
-            const components=['modal-container','tab-exam','tab-help','toast-container-center','toast-container-right'];
+            const components=['modal-container','tab-exam','tab-contest','tab-help','toast-container-center','toast-container-right'];
             
             const loadOne = async (comp, retries = 2) => {
                 const el = document.getElementById(comp);
