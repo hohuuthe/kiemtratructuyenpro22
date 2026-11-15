@@ -4540,6 +4540,16 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
                 return;
             }
 
+            // Switching from the public contest form must not silently copy
+            // personal registration details into the independent school form.
+            // Never erase an authenticated student's verified profile.
+            if (tabName === 'exam' && previousTab === 'contest' && !currentUser && !isExamInProgress) {
+                for (const id of ['guest_data_1','guest_data_lop','guest_data_donvi']) {
+                    const field = document.getElementById(id);
+                    if (field) field.value = '';
+                }
+                window.__contestTicket = null;
+            }
             // TRƯỜNG HỢP: Quay lại tab Làm bài
             if (tabName === 'exam') {
                 // Teacher directory loads on selector interaction only.
