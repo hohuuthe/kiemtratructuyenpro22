@@ -452,6 +452,18 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     // Record the accepted contest attempt without affecting school accounts.
     if (contestParticipantId) {
       try {
+        // Reconcile orphaned ACTIVE rows only when the older session has
+        // demonstrably expired or been removed. Never cancel a live attempt.
+        await db.prepare(`
+          UPDATE contest_attempts SET trang_thai = 'HUY'
+          WHERE ma_nguoi_du_thi = ? AND ma_de_thi = ?
+            AND trang_thai = 'DANG_LAM' AND ma_phien_thi <> ?
+            AND NOT EXISTS (
+              SELECT 1 FROM _exam_grade_sessions gs
+              WHERE gs.session_id = contest_attempts.ma_phien_thi
+                AND gs.expires_at > ?
+            )
+        `).bind(contestParticipantId,examId,gradingSessionId,new Date().toISOString()).run();
         await db.prepare(`
           INSERT INTO contest_attempts
             (ma_phien_thi,ma_nguoi_du_thi,ma_de_thi,trang_thai,thoi_diem_bat_dau)
