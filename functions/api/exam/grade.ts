@@ -1,6 +1,7 @@
 import { verifyAuthSession, verifyJWT, getDynamicSecret, hashToken, getDatabase } from './utils';
 import { evaluateTF4, isShortAnswerCorrect, examFlagEnabled, clampScore, roundScore, validateQuestionAnswer } from '../../../src/exam-grading-core.js';
 import { EXAM_SESSION_PURPOSE_PRESTART, EXAM_SESSION_PURPOSE_ACTIVE, resolveAuthoritativeExamTiming } from '../../../src/exam-time-authority.js';
+import { stripContestAnswerHints } from '../../../src/exam-public-contest-projection';
 
 interface Env {
   NEON_DATABASE_URL?: string;
@@ -35,8 +36,8 @@ const normalizeType = (type: any): string => {
     return String(type || '4-1');
 };
 
-function sanitizeGradingDetailForClient(detail: any, showDetails: boolean): any {
-    if (showDetails) return detail;
+function sanitizeGradingDetailForClient(detail: any, showDetails: boolean, isContest = false): any {
+    if (showDetails && !isContest) return detail;
     const { correctAnswer, aiFeedback, isCorrect, correctStatements, ...safeD } = detail || {};
     const question = safeD.question && typeof safeD.question === 'object' ? safeD.question : {};
     const { answer, ...safeQuestion } = question;
@@ -45,7 +46,30 @@ function sanitizeGradingDetailForClient(detail: any, showDetails: boolean): any 
         safeQuestion.options = safeOptions;
     }
     safeD.question = safeQuestion;
-    return safeD;
+    return isContest ? stripContestAnswerHints(safeD) : safeD;
+}
+
+function contestTypeStatsFromTrustedDetails(details: any[]): Record<string, any> {
+    const stats: Record<string, any> = {};
+    for (const d of details) {
+        const type = normalizeType(d?.question?.type);
+        if (!['4-1','TF4','SQ','TL'].includes(type)) continue;
+        const row = stats[type] || (stats[type] = {total:0, answered:0, correct:0});
+        row.total++;
+        const answer = d?.userAnswer;
+        const answered = type === 'TF4'
+            ? Boolean(answer && typeof answer === 'object' && Object.keys(answer).length)
+            : type === 'TL'
+              ? Boolean(typeof answer === 'string' ? answer.trim() : answer?.text?.trim() || answer?.image)
+              : answer !== undefined && answer !== null && answer !== '';
+        if (answered) row.answered++;
+        if (d?.isCorrect === true) row.correct++;
+        if (type === 'TF4') {
+            row.totalStatements = (row.totalStatements || 0) + 4;
+            row.correctStatements = (row.correctStatements || 0) + Math.max(0, Number(d?.correctStatements) || 0);
+        }
+    }
+    return stats;
 }
 
 function hasPendingEssayGrading(details: any[]): boolean {
@@ -169,6 +193,16 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         }
 
         const { questionIds, teacherId, gradingSessionId, studentUserId: sessionStudentUserId } = decoded;
+        const contestParticipantId = String(decoded.contestParticipantId || '').trim();
+        if (contestParticipantId) {
+            const candidate: any = await db.prepare('SELECT ma_nguoi_du_thi, ho_ten, don_vi FROM contest_participants WHERE ma_nguoi_du_thi = ?').bind(contestParticipantId).first();
+            const attempt: any = await db.prepare('SELECT ma_phien_thi FROM contest_attempts WHERE ma_phien_thi = ? AND ma_nguoi_du_thi = ? AND ma_de_thi = ?').bind(String(gradingSessionId || ''),contestParticipantId,String(decoded?.examConfig?.id || '')).first();
+            if (!candidate || !attempt) return new Response(JSON.stringify({error:'Không xác minh được người dự thi hoặc phiên dự thi đã đăng ký.'}),{status:403,headers:corsHeaders});
+            authenticatedUserId = null;
+            authenticatedStudentName = String(candidate.ho_ten);
+            authenticatedLop = '';
+            authenticatedDonvi = String(candidate.don_vi);
+        }
         let examConfig: any = decoded.examConfig || {};
         const releaseActiveAttemptLock = async () => {
             if (!gradingSessionId) return;
@@ -188,7 +222,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                 }), { status: 403, headers: corsHeaders });
             }
             authenticatedUserId = signedStudentUserId;
-        } else if (!authHeader) {
+        } else if (!authHeader || contestParticipantId) {
             authenticatedUserId = null;
         }
 
@@ -242,7 +276,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                             false
                         );
                         const replayDetails = storedDetails.map((d: any) =>
-                            sanitizeGradingDetailForClient(d, replayShowDetails)
+                            sanitizeGradingDetailForClient(d, replayShowDetails, Boolean(contestParticipantId))
                         );
                         await releaseActiveAttemptLock();
                         return new Response(JSON.stringify({
@@ -255,6 +289,11 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                             gradingPending: hasPendingEssayGrading(storedDetails),
                             scoreFinalized: !hasPendingEssayGrading(storedDetails),
                             detailedResults: replayDetails,
+                            ...(contestParticipantId ? {
+                                statsByType: contestTypeStatsFromTrustedDetails(storedDetails),
+                                contestStudentName: authenticatedStudentName,
+                                contestStudentUnit: authenticatedDonvi
+                            } : {}),
                             alreadySubmitted: true
                         }), { status: 200, headers: corsHeaders });
                     }
@@ -966,7 +1005,7 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
                             false
                         );
                         const safeDetails = storedDetails.map((d: any) =>
-                            sanitizeGradingDetailForClient(d, showDetailsOnReplay)
+                            sanitizeGradingDetailForClient(d, showDetailsOnReplay, Boolean(contestParticipantId))
                         );
                         const replayGradingPending = hasPendingEssayGrading(storedDetails);
                         await releaseActiveAttemptLock();
@@ -980,6 +1019,11 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
                             gradingPending: replayGradingPending,
                             scoreFinalized: !replayGradingPending,
                             detailedResults: safeDetails,
+                            ...(contestParticipantId ? {
+                                statsByType: contestTypeStatsFromTrustedDetails(storedDetails),
+                                contestStudentName: authenticatedStudentName,
+                                contestStudentUnit: authenticatedDonvi
+                            } : {}),
                             alreadySubmitted: true
                         }), { status: 200, headers: corsHeaders });
                     }
@@ -1029,6 +1073,9 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
                 await db.prepare("ALTER TABLE results ADD COLUMN don_vi TEXT").run();
             } catch (e) {}
             for (const sql of [
+                "ALTER TABLE results ADD COLUMN IF NOT EXISTS ma_nguoi_du_thi TEXT",
+                "ALTER TABLE results ADD COLUMN IF NOT EXISTS ma_phien_thi TEXT",
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_results_contest_session ON results(ma_phien_thi) WHERE ma_phien_thi IS NOT NULL",
                 "ALTER TABLE results ADD COLUMN IF NOT EXISTS submission_token_hash TEXT",
                 "ALTER TABLE results ADD COLUMN IF NOT EXISTS grading_status TEXT DEFAULT 'FINAL'",
                 "ALTER TABLE results ADD COLUMN IF NOT EXISTS score_finalized_at TEXT",
@@ -1042,13 +1089,13 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
             const gradingStatus = hasPendingEssayGrades ? 'PENDING' : 'FINAL';
             const finalizedAt = hasPendingEssayGrades ? null : new Date().toISOString();
             await db.prepare(
-                `INSERT INTO results (id, user_id, student_name, student_class, lop, don_vi, exam_name, exam_id, score, time_taken, correct_count, total_questions, details, loai_thi_sinh, cheat_warning_count, submission_token_hash, grading_status, score_finalized_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                `INSERT INTO results (id, user_id, student_name, student_class, lop, don_vi, exam_name, exam_id, score, time_taken, correct_count, total_questions, details, loai_thi_sinh, cheat_warning_count, submission_token_hash, grading_status, score_finalized_at, ma_nguoi_du_thi, ma_phien_thi, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
             ).bind(
                 resultId,
                 authenticatedUserId || null,
                 authenticatedStudentName || studentInfo.name || '',
-                authenticatedLop || studentInfo.lop || studentInfo.studentClass || '',
-                authenticatedLop || studentInfo.lop || '',
+                contestParticipantId ? '' : (authenticatedLop || studentInfo.lop || studentInfo.studentClass || ''),
+                contestParticipantId ? '' : (authenticatedLop || studentInfo.lop || ''),
                 authenticatedDonvi || studentInfo.donvi || studentInfo.unit || '',
                 String(examConfig.name || studentInfo.examName || ''),
                 String(examConfig.id || studentInfo.examId || ''),
@@ -1057,11 +1104,13 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
                 correctCount,
                 clientQuestions.length,
                 JSON.stringify(detailedResults),
-                studentInfo.loaiThiSinh || (authenticatedUserId ? 'Đã đăng nhập' : 'Tự do'),
+                contestParticipantId ? 'Cuộc thi trực tuyến' : (studentInfo.loaiThiSinh || (authenticatedUserId ? 'Đã đăng nhập' : 'Tự do')),
                 cheatWarningCount,
                 tokenHash,
                 gradingStatus,
                 finalizedAt,
+                contestParticipantId || null,
+                contestParticipantId ? String(gradingSessionId || '') : null,
                 new Date().toISOString()
             ).run();
             resultPersisted = true;
@@ -1086,6 +1135,14 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
             if (!resultPersisted) {
                 throw new Error('Không thể lưu kết quả bài thi. Phiên thi chưa bị đánh dấu đã nộp; vui lòng gửi lại bài.');
             }
+        }
+
+        // Result is already authoritative even if this best-effort attempt metadata update fails.
+        if (resultPersisted && contestParticipantId) {
+            try {
+                await db.prepare(`UPDATE contest_attempts SET trang_thai = 'DA_NOP', ma_ket_qua = ?, thoi_diem_nop = ? WHERE ma_phien_thi = ? AND ma_nguoi_du_thi = ?`)
+                  .bind(resultId,new Date().toISOString(),String(gradingSessionId),contestParticipantId).run();
+            } catch (e) { console.error('Contest result persisted but attempt metadata needs reconciliation:',e); }
         }
 
         // Finalize the atomic token claim. Even if this metadata update fails, the
@@ -1127,7 +1184,7 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
         // BẢO MẬT: Nếu cấu hình không cho xem chi tiết đáp án, loại bỏ hoàn toàn correctAnswer và ảnh đáp án trước khi trả về client
         const shouldShowDetails = examFlagEnabled(examConfig.showDetails ?? examConfig.show_details, false);
         const clientDetailedResults = detailedResults.map((d: any) =>
-            sanitizeGradingDetailForClient(d, shouldShowDetails)
+            sanitizeGradingDetailForClient(d, shouldShowDetails, Boolean(contestParticipantId))
         );
 
         return new Response(JSON.stringify({
@@ -1142,7 +1199,12 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
             deadlineSnapshotUsed: usedDeadlineDraft,
             gradingPending: hasPendingEssayGrades,
             scoreFinalized: !hasPendingEssayGrades,
-            detailedResults: clientDetailedResults
+            detailedResults: clientDetailedResults,
+            ...(contestParticipantId ? {
+                statsByType: contestTypeStatsFromTrustedDetails(detailedResults),
+                contestStudentName: authenticatedStudentName,
+                contestStudentUnit: authenticatedDonvi
+            } : {})
         }), {
             status: 200,
             headers: corsHeaders

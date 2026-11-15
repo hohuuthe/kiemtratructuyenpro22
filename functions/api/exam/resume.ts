@@ -97,6 +97,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         if (submitted) {
           return new Response(JSON.stringify({
             code: 'EXAM_SUBMISSION_PROCESSING',
+            isContestAttempt: Boolean(decoded.contestParticipantId),
             error: 'Bài thi đang được máy chủ xử lý nộp bài. Vui lòng không tạo phiên mới.'
           }), { status: 409, headers: corsHeaders });
         }
@@ -273,6 +274,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     const responseNowMs = Date.now();
     return new Response(JSON.stringify({
       resumed: true,
+      isContestAttempt: Boolean(decoded.contestParticipantId),
       expired: timing.expired,
       token: resumeToken,
       questions,

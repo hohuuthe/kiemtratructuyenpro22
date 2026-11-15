@@ -101,6 +101,7 @@ test('node session scope follows the current target audience without breaking un
 });
 
 test('exam editor does not reload unscoped accounts over the core snapshot', () => {
-  assert.match(main, /Không tải lại \/api\/accounts ở đây/);
   assert.match(main, /preloadRoleScopedIdentityOnLogin/);
+  assert.match(main, /window\.__coreIdentitySnapshot/);
+  assert.match(coreApi, /role_scope: 'student'/);
 });

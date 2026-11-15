@@ -52,12 +52,22 @@ jobs:
           for (let i = 1; i <= 4; i++) {
             const config = await probe('/api/config');
             const health = await probe('/api/health');
+            const settings = await probe('/api/settings');
             const configured = config.json?.isNeonConfigured === true;
-            const connected = health.json?.database?.status === 'CONNECTED_OK';
+            // The public health route may expose only {"status":"OK"}.
+            // The settings route performs an actual tenant DB read and is thus
+            // authoritative proof that the Preview connection is usable.
+            const settingsFromDb = settings.status === 200 &&
+              settings.json?.data?.id === 1 &&
+              ['school', 'contest'].includes(settings.json?.data?.application_mode);
+            const connected = health.status === 200 &&
+              (health.json?.database?.status === 'CONNECTED_OK' ||
+                (health.json?.status === 'OK' && settingsFromDb));
             console.log('Attempt ' + i + ': /api/config HTTP=' + config.status
               + ' json=' + config.isJson + ' neonConfigured=' + configured);
             console.log('Attempt ' + i + ': /api/health HTTP=' + health.status
-              + ' json=' + health.isJson + ' databaseConnected=' + connected);
+              + ' json=' + health.isJson + ' databaseConnected=' + connected +
+              ' settingsHTTP=' + settings.status + ' schemaValidated=' + settingsFromDb);
             if (config.status === 200 && configured && health.status === 200 && connected) {
               healthy = true;
               break;

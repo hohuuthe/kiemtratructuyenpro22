@@ -27,7 +27,7 @@ test('successful login never downloads question bank or exam catalog', () => {
 });
 
 test('only required components load at startup', () => {
-  assert.match(main, /const components\s*=\s*\['modal-container','tab-exam','tab-help','toast-container-center','toast-container-right'\]/);
+  assert.match(main, /const components\s*=\s*\['modal-container','tab-exam','tab-contest','tab-help','toast-container-center','toast-container-right'\]/);
   for (const route of ['tab-questions','tab-exams','tab-exam-editor','tab-accounts','tab-users','tab-ranking','tab-settings','tab-documents']) {
     const start=main.indexOf('const components=');
     const end=main.indexOf(';',start);

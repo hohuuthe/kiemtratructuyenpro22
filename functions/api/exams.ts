@@ -98,6 +98,11 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
         return new Response(JSON.stringify({ data: null, error: "Không tìm thấy cấu hình đề thi" }), { status: 404, headers: corsHeaders });
       }
       const row: any = results[0];
+      // Private/draft contests must not be discoverable through the legacy public endpoint.
+      if (row.chedodethi === 'Cuộc thi trực tuyến' && !isExamOwner(user,row) &&
+          row.contest_status !== 'published') {
+        return new Response(JSON.stringify({data:null,error:'Cuộc thi chưa được công bố.'}),{status:404,headers:corsHeaders});
+      }
       const accessCode = request.headers.get('X-Exam-Access-Code');
       const challenge = examAccessChallenge(user,row,accessCode);
       if (challenge) return new Response(JSON.stringify({data:null,...challenge}), {
@@ -139,6 +144,9 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
       // teacher to enumerate another teacher's exam titles.
       if (isTeacher && !isExamOwner(user,row))
         return new Response(JSON.stringify({data:null,error:'Giáo viên chỉ được truy cập đề thi do mình tạo'}),{status:403,headers:corsHeaders});
+      if (row.chedodethi === 'Cuộc thi trực tuyến' && !isExamOwner(user,row)) {
+        return new Response(JSON.stringify({data:null,error:'Không có quyền tra cứu cấu hình cuộc thi qua mã chia sẻ.'}),{status:403,headers:corsHeaders});
+      }
       const isShared = row.is_shared_results === 1 || row.is_shared_results === true || row.is_shared_results === 'true';
       if (!isShared && !isAdmin) {
         return new Response(JSON.stringify({ data: null, error: "Đề thi này không được phép chia sẻ kết quả" }), { status: 403, headers: corsHeaders });
@@ -234,6 +242,8 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
     let filteredResults = mappedResults;
     if (!isAdmin && !isTeacher) {
       filteredResults = mappedResults.filter((row: any) => {
+        // Contest listings use the dedicated allowlisted /api/contest/exams endpoint.
+        if (row.chedodethi === 'Cuộc thi trực tuyến') return false;
         if (row.chedodethi === 'Đề cho đơn vị' || row.chedodethi === 'Đề thi cho đơn vị') {
           const teacherDonvi = String(row.teacher_donvi || '').trim().toLowerCase();
           let allowedUnits: string[] = [];
@@ -317,7 +327,8 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       'ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS max_cheat_warnings INTEGER DEFAULT 5',
       'ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS keep_raw_score INTEGER DEFAULT 0',
       'ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS tieu_de_bai_thi TEXT',
-      'ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS max_attempts INTEGER DEFAULT 0'
+      'ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS max_attempts INTEGER DEFAULT 0',
+      "ALTER TABLE exam_configs ADD COLUMN IF NOT EXISTS contest_status TEXT NOT NULL DEFAULT 'draft'"
     ]) await db.prepare(ddl).run();
     const body:any=await request.json();
     if (!body || typeof body!=='object' || Array.isArray(body)) return respond({error:'Cấu hình không hợp lệ'},400);
@@ -330,6 +341,14 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       (isAdmin && (body.creator_id||body.creatorId) ? String(body.creator_id||body.creatorId):String(user.id));
     if (!owner) return respond({error:'Không xác định được người tạo đề'},403);
     const fields=normalizeExamConfigInput(body,existing);
+    // Teachers can prepare contests but ONLY a verified Admin can publish them.
+    if (!isAdmin && existing?.contest_status === 'published' &&
+        existing?.chedodethi === 'Cuộc thi trực tuyến') {
+      return respond({error:'Cuộc thi đang công bố. Giáo viên cần yêu cầu Admin thu hồi công bố trước khi sửa.'},403);
+    }
+    if (!isAdmin && fields.contest_status === 'published' && fields.chedodethi === 'Cuộc thi trực tuyến') {
+      return respond({error:'Chỉ quản trị viên có quyền công bố cuộc thi.'},403);
+    }
 
     // Fail-closed: mọi cấu hình mới/sửa phải đủ câu hỏi trên DB tại đúng thời điểm lưu.
     // Nhờ vậy một đề đang thiếu câu vẫn có thể được mở để sửa, nhưng chỉ được lưu

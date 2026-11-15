@@ -1,4 +1,6 @@
 import { verifyAuthSession, verifyJWT, signJWT, getDynamicSecret, getDatabase } from './utils';
+import { publicContestExam } from '../contest/register';
+import { stripContestAnswerHints } from '../../../src/exam-public-contest-projection';
 import {
   EXAM_SESSION_PURPOSE_PRESTART,
   EXAM_SESSION_PURPOSE_ACTIVE,
@@ -55,6 +57,8 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       verifiedUser = await verifyAuthSession(authHeader.substring(7), SECRET, db);
     }
     const signedStudentUserId = String(decoded.studentUserId || '').trim();
+    const contestParticipantId = String(decoded.contestParticipantId || '').trim();
+    const signedAttemptUserId = signedStudentUserId || (contestParticipantId ? 'contest:'+contestParticipantId : '');
     if (signedStudentUserId) {
       const verifiedUserId = String(verifiedUser?.user_id || verifiedUser?.id || '').trim();
       if (!verifiedUserId || verifiedUserId !== signedStudentUserId) {
@@ -118,6 +122,12 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         }
         {
           const examRow: any = authoritativeExamRow;
+    if (contestParticipantId) {
+      // Landing-page preference never authorizes or disables this contest.
+      const published = await publicContestExam(db,examId);
+      const candidate: any = await db.prepare('SELECT ma_nguoi_du_thi FROM contest_participants WHERE ma_nguoi_du_thi = ?').bind(contestParticipantId).first();
+      if (!published || !candidate) return new Response(JSON.stringify({error:'Phiên cuộc thi không còn được phép bắt đầu.'}),{status:403,headers:corsHeaders});
+    }
           if (frozenExamRevision && String(examRow?.updated_at || '').trim() !== frozenExamRevision) {
             return new Response(JSON.stringify({
               code: 'EXAM_CHANGED_BEFORE_START',
@@ -182,6 +192,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         const { answerImage, ...safeOptions } = withoutAnswer.options;
         withoutAnswer.options = safeOptions;
       }
+      if (contestParticipantId) return stripContestAnswerHints(withoutAnswer);
       return withoutAnswer;
     });
 
@@ -218,17 +229,18 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
     // Chốt quyền lượt làm LẦN CUỐI ngay trước khi bắt đầu đồng hồ. Generate chỉ là
     // bước READY; nhiều READY token song song không được phép tiêu thụ nhiều lượt.
-    if (signedStudentUserId && examId) {
+    if (signedAttemptUserId && examId) {
       const maxAttempts = Math.max(0, Number(authoritativeExamRow?.max_attempts) || 0);
       if (maxAttempts > 0) {
         try {
           let completedAttempts = 0;
-          const completedRow: any = await db.prepare(
-            'SELECT COUNT(*) AS count FROM results WHERE exam_id = ? AND user_id = ?'
-          ).bind(examId, signedStudentUserId).first();
+          const completedRow: any = await db.prepare(contestParticipantId
+            ? 'SELECT COUNT(*) AS count FROM results WHERE exam_id = ? AND ma_nguoi_du_thi = ?'
+            : 'SELECT COUNT(*) AS count FROM results WHERE exam_id = ? AND user_id = ?'
+          ).bind(examId, contestParticipantId || signedStudentUserId).first();
           completedAttempts = Math.max(0, Number(completedRow?.count) || 0);
 
-          const profile: any = await db.prepare(
+          const profile: any = contestParticipantId ? null : await db.prepare(
             'SELECT full_name, lop, donvi FROM users WHERE id = ? LIMIT 1'
           ).bind(signedStudentUserId).first();
           const profileName = String(profile?.full_name || '').trim();
@@ -303,7 +315,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
     // Với học sinh đã đăng nhập, chỉ cho phép một phiên ACTIVE trên cùng một đề.
     // Khóa DB này chặn hai tab/thiết bị cùng vượt giới hạn lượt dù cả hai đã có READY token.
-    if (signedStudentUserId && examId) {
+    if (signedAttemptUserId && examId) {
       try {
         await db.prepare(`
           CREATE TABLE IF NOT EXISTS _exam_active_attempts (
@@ -315,7 +327,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             created_at TEXT NOT NULL
           )
         `).run();
-        const attemptKey = examId + ':' + signedStudentUserId;
+        const attemptKey = examId + ':' + signedAttemptUserId;
 
         // Tự-heal khóa mồ côi nếu lần nộp trước đã dọn snapshot nhưng DELETE khóa
         // ACTIVE bị lỗi tạm thời. Không xóa khóa khi session cũ vẫn còn tồn tại.
@@ -344,7 +356,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
           WHERE _exam_active_attempts.session_id = excluded.session_id
              OR _exam_active_attempts.expires_at <= ?
         `).bind(
-          attemptKey, examId, signedStudentUserId, gradingSessionId,
+          attemptKey, examId, signedAttemptUserId, gradingSessionId,
           proposedActiveExpiresAt, proposedStartedAt, proposedStartedAt
         ).run();
         if (Number(claim?.meta?.changes || 0) !== 1) {
@@ -362,6 +374,49 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       }
     }
 
+    // Record the accepted contest attempt without affecting school accounts.
+    if (contestParticipantId) {
+      try {
+        // A submission is authoritative once the results row is committed.
+        // Recover rare crashes between result INSERT and contest_attempts metadata
+        // update by exact signed grading-session ID, never by shared names.
+        await db.prepare(`
+          UPDATE contest_attempts ca
+          SET trang_thai='DA_NOP', ma_ket_qua=r.id,
+              thoi_diem_nop=COALESCE(r.created_at::timestamptz,now())
+          FROM results r
+          WHERE ca.ma_nguoi_du_thi=? AND ca.ma_de_thi=?
+            AND ca.trang_thai='DANG_LAM'
+            AND r.ma_phien_thi=ca.ma_phien_thi
+            AND r.ma_nguoi_du_thi=ca.ma_nguoi_du_thi
+            AND r.exam_id=ca.ma_de_thi
+        `).bind(contestParticipantId,examId).run();
+        // Reconcile orphaned ACTIVE rows only when the older session has
+        // demonstrably expired or been removed. Never cancel a live attempt.
+        await db.prepare(`
+          UPDATE contest_attempts SET trang_thai = 'HUY'
+          WHERE ma_nguoi_du_thi = ? AND ma_de_thi = ?
+            AND trang_thai = 'DANG_LAM' AND ma_phien_thi <> ?
+            AND NOT EXISTS (
+              SELECT 1 FROM _exam_grade_sessions gs
+              WHERE gs.session_id = contest_attempts.ma_phien_thi
+                AND gs.expires_at > ?
+                AND gs.started_at IS NOT NULL
+            )
+        `).bind(contestParticipantId,examId,gradingSessionId,new Date().toISOString()).run();
+        await db.prepare(`
+          INSERT INTO contest_attempts
+            (ma_phien_thi,ma_nguoi_du_thi,ma_de_thi,trang_thai,thoi_diem_bat_dau)
+          VALUES (?,?,?,'DANG_LAM',?)
+          ON CONFLICT (ma_phien_thi) DO NOTHING
+        `).bind(gradingSessionId,contestParticipantId,examId,proposedStartedAt).run();
+      } catch (error) {
+        console.error('Cannot bind contest attempt to verified session:',error);
+        try { await db.prepare('DELETE FROM _exam_active_attempts WHERE session_id = ?').bind(gradingSessionId).run(); } catch {}
+        return new Response(JSON.stringify({error:'Chưa thể xác nhận phiên dự thi. Vui lòng tiếp tục phiên hiện có.'}),{status:503,headers:corsHeaders});
+      }
+    }
+
     // Claim đầu tiên ghi đồng thời start + deadline + TTL kỹ thuật. Nếu lệnh này
     // thất bại trước khi đồng hồ được ghi, thu hồi khóa ACTIVE để học sinh không mắc kẹt.
     try {
@@ -369,7 +424,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         'UPDATE _exam_grade_sessions SET started_at = ?, deadline_at = ?, expires_at = ? WHERE session_id = ? AND started_at IS NULL'
       ).bind(proposedStartedAt, proposedDeadlineAt, proposedActiveExpiresAt, gradingSessionId).run();
     } catch (startClaimError) {
-      if (signedStudentUserId && examId) {
+      if (signedAttemptUserId && examId) {
         try {
           await db.prepare('DELETE FROM _exam_active_attempts WHERE session_id = ?')
             .bind(gradingSessionId).run();
@@ -386,7 +441,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     // started_at. Snapshot có thể bị dọn đúng giữa SELECT đầu và UPDATE; trong race
     // đó trả token ACTIVE sẽ tạo một phiên ảo mà save/grade không thể xác minh.
     if (!authoritative?.started_at) {
-      if (signedStudentUserId && examId) {
+      if (signedAttemptUserId && examId) {
         try {
           await db.prepare('DELETE FROM _exam_active_attempts WHERE session_id = ?')
             .bind(gradingSessionId).run();
@@ -420,7 +475,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     // retry chỉ cần bảo đảm giá trị cũ không ngắn hơn deadline + 1 giờ.
     const activeExpiresAtMs = deadlineAtMs + 60 * 60 * 1000;
     const activeExpiresAt = new Date(activeExpiresAtMs).toISOString();
-    if (signedStudentUserId && examId) {
+    if (signedAttemptUserId && examId) {
       try {
         await db.prepare(
           'UPDATE _exam_active_attempts SET expires_at = ? WHERE session_id = ?'

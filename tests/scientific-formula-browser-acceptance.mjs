@@ -161,18 +161,43 @@ try {
   for(const item of files){
     check('Actual browser export '+item.name,!item.error && item.size>500,'size='+item.size+' '+(item.error||''));
     if(!item.error){
-      const pending=page.waitForEvent('download',{timeout:30000});
-      await page.evaluate(name=>{
-        const link=document.createElement('a');
-        link.href=URL.createObjectURL(window.__qaExports[name]);
-        link.download='sample.'+name;
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
+      // Keep the real application-generated Blob, but exercise its browser
+      // download from an isolated QA page. The app's global navigation and
+      // link handlers must not interfere with this file-format acceptance test.
+      const fileDataUrl=await page.evaluate(async name=>{
+        const blob=window.__qaExports[name];
+        if(!(blob instanceof Blob))throw new Error('Missing browser export Blob: '+name);
+        return new Promise((resolve,reject)=>{
+          const reader=new FileReader();
+          reader.onload=()=>resolve(reader.result);
+          reader.onerror=()=>reject(reader.error||new Error('Cannot read generated Blob'));
+          reader.readAsDataURL(blob);
+        });
       },item.name);
-      const download=await pending;
-      await download.saveAs(root+'/sample.'+item.name);
-      report.files.push('sample.'+item.name);
+      const downloadPage=await browser.newPage({acceptDownloads:true});
+      try {
+        await downloadPage.evaluate(({dataUrl,name})=>{
+          const marker=dataUrl.indexOf(',');
+          if(marker<0)throw new Error('Invalid generated file data');
+          const mime=dataUrl.slice(5,marker).split(';')[0]||'application/octet-stream';
+          const bytes=Uint8Array.from(atob(dataUrl.slice(marker+1)),ch=>ch.charCodeAt(0));
+          const blob=new Blob([bytes],{type:mime});
+          const link=document.createElement('a');
+          link.id='qa-download-link';
+          link.href=URL.createObjectURL(blob);
+          link.download='sample.'+name;
+          link.textContent='Download '+name;
+          document.body.appendChild(link);
+        },{dataUrl:fileDataUrl,name:item.name});
+        const [download]=await Promise.all([
+          downloadPage.waitForEvent('download',{timeout:30000}),
+          downloadPage.locator('#qa-download-link').click({timeout:15000})
+        ]);
+        await download.saveAs(root+'/sample.'+item.name);
+        report.files.push('sample.'+item.name);
+      } finally {
+        await downloadPage.close();
+      }
     }
   }
   // Inspect the ACTUAL downloaded browser DOCX, rather than trusting size.

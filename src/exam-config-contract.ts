@@ -115,7 +115,7 @@ export function normalizeExamConfigInput(body: Row, old: Row | null = null) {
   const name=string(value('name',null,''),'Tên đề thi',200);
   if (!name) throw new ExamConfigInputError('Tên đề thi không được để trống.');
   const mode=string(value('chedodethi',null,'Đề công khai'),'Chế độ đề thi',50);
-  if (!['Đề công khai','Đề cho đơn vị','Đề thi cho đơn vị','Đề có mã bảo mật'].includes(mode)) {
+  if (!['Đề công khai','Đề cho đơn vị','Đề thi cho đơn vị','Đề có mã bảo mật','Cuộc thi trực tuyến'].includes(mode)) {
     throw new ExamConfigInputError('Chế độ đề thi không hợp lệ.');
   }
   const time_limit=integer(from(body,old,['time_limit','timeLimit','time'],45),'Thời gian làm bài',1,180);
@@ -134,7 +134,9 @@ export function normalizeExamConfigInput(body: Row, old: Row | null = null) {
   if (mode === 'Đề có mã bảo mật' && !mabaomatdethi) throw new ExamConfigInputError('Đề có mã bảo mật phải được đặt mật khẩu.');
   const ai_grading_key=string(value('ai_grading_key','aiGradingKey',''),'Khóa chấm AI',5000);
   if (auto_grade_essay && !ai_grading_key) throw new ExamConfigInputError('Bật chấm tự luận phải có khóa chấm AI.');
-  const publicMode=mode==='Đề công khai';
+  const publicMode=mode==='Đề công khai'||mode==='Cuộc thi trực tuyến';
+  const contest_status = string(value('contest_status','contestStatus','draft'),'Trạng thái công bố cuộc thi',20);
+  if (!['draft','published'].includes(contest_status)) throw new ExamConfigInputError('Trạng thái công bố cuộc thi không hợp lệ.');
   const target_lop=publicMode?'':string(from(body,old,['target_lop','targetLop','lop'],''),'Lớp áp dụng',1500);
   const target_donvi=publicMode?'':string(from(body,old,['target_donvi','targetDonvi','donvi'],''),'Đơn vị áp dụng',500);
   const tg_bd=string(value('tg_bd','tgBd',''),'Thời gian bắt đầu',50) || null;
@@ -159,7 +161,7 @@ export function normalizeExamConfigInput(body: Row, old: Row | null = null) {
   }
 
   return {
-    name, chedodethi:mode, mabaomatdethi, time_limit,
+    name, chedodethi:mode, contest_status:mode==='Cuộc thi trực tuyến' ? contest_status : 'draft', mabaomatdethi, time_limit,
     count_41,count_tf4,count_sq,count_tl,
     points_41,points_tf4,points_sq,points_tl,
     selected_lessons:lessons(value('selected_lessons','selectedLessons',[])),

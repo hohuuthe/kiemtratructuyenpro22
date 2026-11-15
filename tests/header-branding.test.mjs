@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { bannerPublicUrl, headerMode, validTenantBannerKey, normalizedHeaderBranding } from '../src/header-branding-policy.js';
+import { bannerPublicUrl, headerMode, validTenantBannerKey, normalizedHeaderBranding, bannerScope, bannerShownForMode } from '../src/header-branding-policy.js';
 
 const key = 'luuhinhnh/banner-he-thong/gialaithptlehoan/' + 'a'.repeat(32) + '.webp';
 const env = {
@@ -157,4 +157,33 @@ test('backend independently validates tenant-scoped image paths for all devices'
   assert.match(bootstrap,/header_banner_tablet_url: branding\.tabletUrl/);
   assert.match(bootstrap,/header_banner_mobile_url: branding\.mobileUrl/);
   assert.match(bootstrap,/catch \{[\s\S]*?Optional responsive columns/);
+});
+
+
+test('banner scope is independent for school and contest, with backward compatible default',()=>{
+  assert.equal(bannerScope(undefined),'both');
+  assert.equal(bannerScope('invalid'),'both');
+  assert.equal(normalizedHeaderBranding({header_display_mode:'text'}).scope,'both');
+  assert.equal(bannerShownForMode('both','school'),true);
+  assert.equal(bannerShownForMode('both','contest'),true);
+  assert.equal(bannerShownForMode('school','contest'),false);
+  assert.equal(bannerShownForMode('school','school'),true);
+  assert.equal(bannerShownForMode('contest','contest'),true);
+  assert.equal(bannerShownForMode('contest','school'),false);
+});
+
+test('mode-specific banner configuration is persisted, bootstrapped and reapplied on navigation',()=>{
+  assert.match(read('public/components/tab-settings.html'),/id="settings-banner-scope"/);
+  const api=read('functions/api/header-banner.ts');
+  assert.match(api,/HEADER_BANNER_SCOPES\.includes\(body\.header_banner_scope\)/);
+  assert.match(api,/header_banner_scope = \?/);
+  assert.match(read('functions/api/bootstrap.ts'),/header_banner_scope: branding\.scope/);
+  assert.match(read('server.ts'),/header_banner_scope:brand\.scope/);
+  const ui=read('src/header-branding-ui.js');
+  assert.match(ui,/bannerShownForMode\(branding\.scope, activeBannerMode\(settings\)\)/);
+  assert.match(ui,/headerBannerScope: committed\.header_banner_scope/);
+  const main=read('src/main.js');
+  assert.match(main,/headerBannerScope:d\.header_banner_scope\|\|'both'/);
+  assert.match(main,/refreshAppHeaderTitle\(\);\n\s*if \(tabName === 'contest'\)/);
+  assert.match(read('migrations/20261115_header_banner_scope.sql'),/DEFAULT 'both'/);
 });

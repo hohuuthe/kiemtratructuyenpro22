@@ -6,13 +6,15 @@ async function bootApplication() {
 
   await import('./modal-behavior.js');
   await import('./main.js');
+  await import('./contest-mode-ui.js');
   await import('./exam-invalid-pool-guard.js');
   await Promise.all([
     import('./student-attempt-history-controller.js'),
     import('./teacher-delete-ui.js'),
-    import('./batch-teacher-delete-ui.js'),
-    import('./user-selection-type-guard.js')
+    import('./batch-teacher-delete-ui.js')
   ]);
+  // The guard wraps handlers installed by the batch controller; load it last.
+  await import('./user-selection-type-guard.js');
 
   startAppVersionMonitoring();
 }

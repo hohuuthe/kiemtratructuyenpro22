@@ -1,0 +1,80 @@
+name: Contest mode release verification
+
+on:
+  pull_request:
+    paths:
+      - 'functions/api/contest/**'
+      - 'functions/api/exam/**'
+      - 'functions/api/exams.ts'
+      - 'functions/api/settings.ts'
+      - 'functions/api/bootstrap.ts'
+      - 'functions/**'
+      - 'src/contest-mode-ui.js'
+      - 'src/exam-public-contest-projection.ts'
+      - 'src/exam-config-contract.ts'
+      - 'src/main.js'
+      - 'src/bootstrap.js'
+      - 'public/components/tab-exam.html'
+      - 'public/components/tab-exam-editor.html'
+      - 'public/components/tab-settings.html'
+      - 'migrations/20261115_contest_mode.sql'
+      - 'tests/contest-mode.test.mjs'
+      - 'tests/contest-responsive.playwright.mjs'
+      - 'tests/contest-db-integrity.test.mjs'
+      - '.github/workflows/contest-mode-check.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: contest-release-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify-contest:
+    name: Syntax, legacy regression, types and production build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Parse JavaScript
+        run: |
+          node --check src/main.js
+          node --check src/contest-mode-ui.js
+          node --check src/bootstrap.js
+      - name: Contest mode contracts and exam regressions
+        run: node --import tsx --test tests/contest-db-integrity.test.mjs tests/contest-mode.test.mjs tests/exam-critical-integrity.test.ts tests/exam-config-integrity.test.ts tests/security-tenant-integration.test.ts tests/exam-grading-integrity.test.mjs tests/student-exam-start-attempt-limit.test.mjs tests/student-exam-auto-submit-guard.test.mjs
+      - name: TypeScript checks
+        run: npm run lint
+      - name: Production build
+        run: npm run build
+
+  responsive-preview:
+    name: Browser responsive verification (Preview, no writes)
+    needs: verify-contest
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Verify mobile, tablet and Full HD Preview layout
+        run: node tests/contest-responsive.playwright.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: contest-responsive-screenshots
+          path: test-artifacts/contest-responsive/
+          if-no-files-found: ignore
