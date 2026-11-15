@@ -18,7 +18,7 @@ export const onRequestPost: PagesFunction = async (context: any) => {
   const db = getDatabase(context);
   if (!db) return reply({ error: 'Không thể kết nối cơ sở dữ liệu.' }, 503);
   const auth = context.request.headers.get('Authorization') || '';
-  if (!/^Bearer \\S+$/.test(auth)) return reply({ error: 'Yêu cầu đăng nhập.' }, 401);
+  if (!/^Bearer \S+$/.test(auth)) return reply({ error: 'Yêu cầu đăng nhập.' }, 401);
 
   try {
     const secret = await getDynamicSecret(db, context.env?.JWT_SECRET);
