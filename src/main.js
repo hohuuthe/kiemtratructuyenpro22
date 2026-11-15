@@ -11461,10 +11461,15 @@ if (contentType && contentType.includes("application/json")) {
                     timestamp: new Date().toISOString()
                 };
 
-                if (Array.isArray(window.results)) {
-                    window.results.unshift(submitResult);
-                } else if (typeof results !== 'undefined' && Array.isArray(results)) {
-                    results.unshift(submitResult);
+                // School result caches must never contain public-contest
+                // participant PII. The official contest result is persisted
+                // server-side and rendered only in this attempt's result view.
+                if (window.__activeStudentExamTab !== 'contest') {
+                    if (Array.isArray(window.results)) {
+                        window.results.unshift(submitResult);
+                    } else if (typeof results !== 'undefined' && Array.isArray(results)) {
+                        results.unshift(submitResult);
+                    }
                 }
 
                 // Trả về giao diện sau khi chấm xong
