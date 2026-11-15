@@ -110,6 +110,8 @@ function setupSettings(mode) {
       // Do not reload the app while any student may have an active attempt.
     }catch(e){
       setText('application-mode-status',e?.message||'Không thể lưu chế độ.');
+    }finally{
+      // Every save attempt must release the control, including successful saves.
       if(button)button.disabled=false;
     }
   };
