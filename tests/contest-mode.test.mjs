@@ -257,3 +257,15 @@ test('Contest registration uses isolated component and starts only after ready e
  assert.match(ui,/await window\.startExam\?\.\(startButton\)/);
  assert.match(ui,/exam-start-ready-confirm/);
 });
+
+test('Saving the default landing tab unlocks the save button on both success and failure',()=>{
+ const ui=source('src/contest-mode-ui.js');
+ const begin=ui.indexOf('window.saveApplicationMode=async function()');
+ const end=ui.indexOf('async function runContestEntry()',begin);
+ assert.ok(begin>=0 && end>begin);
+ const save=ui.slice(begin,end);
+ assert.match(save,/finally\s*\{[\s\S]*?button\.disabled=false/);
+ assert.match(save,/body\?\.data\?\.success!==true/);
+ assert.match(save,/method:'PUT'/);
+ assert.match(save,/Authorization:'Bearer '\+token/);
+});
