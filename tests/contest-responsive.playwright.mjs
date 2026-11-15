@@ -3,10 +3,9 @@ import {chromium} from 'playwright';
 import {mkdirSync} from 'node:fs';
 
 const branch = String(process.env.GITHUB_HEAD_REF || process.env.GITHUB_REF_NAME || '');
-const alias = branch.toLowerCase().replace(/[^a-z0-9-]/g,'-').replace(/-+/g,'-')
-  .replace(/^-+|-+$/g,'').slice(0,28).replace(/-+$/g,'');
-assert.ok(alias && alias !== 'main','Responsive smoke must use the isolated feature Preview');
-const origin = 'https://' + alias + '.kiemtratructuyenpro.pages.dev';
+assert.ok(branch && branch !== 'main','Responsive smoke must use the isolated feature Preview');
+const origin = process.env.CONTEST_PREVIEW_URL ||
+  'https://feature-contest-mode-secure.kiemtratructuyenpro.pages.dev';
 const sizes = [
   {name:'phone-360',width:360,height:800,mobile:true},
   {name:'phone-390',width:390,height:844,mobile:true},
