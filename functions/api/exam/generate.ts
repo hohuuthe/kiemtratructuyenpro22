@@ -4,7 +4,7 @@ import {makeGradeSessionConfig, accessCodeMatches} from './security';
 import { examFlagEnabled, validateQuestionAnswer } from '../../../src/exam-grading-core.js';
 import { EXAM_SESSION_PURPOSE_PRESTART, evaluateExamAccessWindow } from '../../../src/exam-time-authority.js';
 import { publicContestExam, verifyContestTicket } from '../contest/register';
-import { selectQuestionsStrictByDifficulty } from '../../../src/exam-question-selector.js';
+import { selectQuestionsStrictByDifficulty, orderSelectedExamQuestionsByType } from '../../../src/exam-question-selector.js';
 
 interface Env {
   NEON_DATABASE_URL?: string;
@@ -697,7 +697,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             }), { status: 500, headers: corsHeaders });
         }
 
-        selectedQuestions = shuffle(selectedQuestions);
+        // Preserve 4-1 → TF4 → SQ → TL in the server snapshot while retaining
+        // random question order within each type for both exam modes.
+        selectedQuestions = orderSelectedExamQuestionsByType(selectedQuestions, shuffle);
 
         // A public contest must never deliver answer keys in question payloads.
         // Preserve the existing Immediate Feedback behaviour for school exams.
