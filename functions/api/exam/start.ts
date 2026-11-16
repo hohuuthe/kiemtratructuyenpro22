@@ -648,7 +648,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     // recoverable token; the watchdog will reconcile only proven sessions.
     try {
       await initializeExamLiveness(db,{
-        sessionId:gradingSessionId,examId,userId:signedAttemptUserId,
+        sessionId:gradingSessionId,examId,userId:signedStudentUserId,
         contestParticipantId,deadlineAt:new Date(deadlineAtMs).toISOString(),
         studentInfo:body?.studentInfo || {}
       });
