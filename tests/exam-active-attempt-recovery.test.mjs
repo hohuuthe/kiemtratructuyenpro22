@@ -150,3 +150,10 @@ test('READY preparation cannot overwrite or cancel a previously saved active ses
     source.indexOf("readyButton.focus();",source.indexOf("id('exam-start-ready-cancel')?.addEventListener")));
   assert.match(cancelRegion,/storedToken === cancelledReadyToken/);
 });
+
+test('An expired lock must not replace a still-existing server snapshot',()=>{
+  const source=readFileSync('functions/api/exam/start.ts','utf8');
+  assert.match(source,/_exam_active_attempts.expires_at <= \?/);
+  assert.match(source,/NOT EXISTS \(\s*SELECT 1 FROM _exam_grade_sessions previous/);
+  assert.match(source,/previous.session_id = _exam_active_attempts.session_id/);
+});
