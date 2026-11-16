@@ -5,7 +5,7 @@ import { matchesQuestionBankLevel, countQuestionBankLevels } from './question-ba
 import {canDeleteRankingResult} from './ranking-result-delete-policy.js';
 import { isShortAnswerCorrect, parseTF4CorrectAnswer, examFlagEnabled, clampScore, roundScore } from './exam-grading-core.js';
 import { createExamSessionId, remainingExamSeconds, remainingExamSecondsMonotonic, canAutoSubmitExam, shouldCountExamViolation } from './student-exam-session-guard.js';
-import { beginExamLifecycle, stopExamLifecycle } from './exam-lifecycle-client.js';
+import { beginExamLifecycle, stopExamLifecycle, leaveExamLifecycle } from './exam-lifecycle-client.js';
 import {questionAuthorDisplayName} from './question-creator-identity.js';
 import {examCreatorDisplayName} from './exam-creator-identity.js';
 import {connectDocumentLinks,initDocumentLinks,resetDocumentLinks} from './document-links-ui.js';
@@ -11646,7 +11646,11 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
         }
 
         window.resetExam = function resetExam(options = {}) {
-            stopExamLifecycle();
+            if (window.currentExamToken && currentExam?.deadlineAtMs && !currentExam?.submitting) {
+                leaveExamLifecycle();
+            } else {
+                stopExamLifecycle();
+            }
             try { window.__contestOnExamReset?.(); } catch (e) { console.warn('Contest UI cleanup:', e); }
             window.__contestTicket = null;
             window.__activeStudentExamTab = null;
