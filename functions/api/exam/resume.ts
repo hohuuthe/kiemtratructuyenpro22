@@ -294,6 +294,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     const responseNowMs = Date.now();
     return new Response(JSON.stringify({
       resumed: true,
+      sessionId: gradingSessionId,
       isContestAttempt: Boolean(decoded.contestParticipantId),
       expired: timing.expired,
       token: resumeToken,
