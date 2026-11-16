@@ -9246,6 +9246,7 @@ if (contentType && contentType.includes("application/json")) {
 
                         window.currentExamToken = startResult.token;
                         clearStoredActiveExamResume();
+                        try { localStorage.removeItem(window.tenantStorageKey('pending_exam_violation_events')); } catch (_) {}
                         currentExam.questions = startResult.questions;
                         currentExam.answers = {};
                         if (startResult.immediateFeedback !== undefined) {
@@ -11756,6 +11757,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             }
             window.currentExamToken = null;
             clearStoredActiveExamResume();
+            try { localStorage.removeItem(window.tenantStorageKey('pending_exam_violation_events')); } catch (_) {}
             currentExam = {
                 questions: [],
                 answers: {},
