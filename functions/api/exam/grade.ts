@@ -165,11 +165,6 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         let authenticatedDonvi = studentInfo.donvi || studentInfo.unit || '';
 
         const authHeader = request.headers.get("authorization");
-        // The scheduled finalizer is invoked in-process with a non-HTTP symbol.
-        // A JSON/header value cannot grant the same privilege.
-        if (trustedFinalizer && !decoded?.gradingSessionId) {
-            return new Response(JSON.stringify({error:"Missing trusted session"}),{status:403,headers:corsHeaders});
-        }
         if (authHeader && authHeader.startsWith("Bearer ")) {
             try {
                 const verifiedUser = await verifyAuthSession(authHeader.substring(7), SECRET, db);
@@ -189,6 +184,11 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         }
 
         const decoded = await verifyJWT(token, SECRET);
+        // The scheduled finalizer is invoked in-process with a non-HTTP symbol.
+        // A JSON/header value cannot grant the same privilege.
+        if (trustedFinalizer && !decoded?.gradingSessionId) {
+            return new Response(JSON.stringify({error:"Missing trusted session"}),{status:403,headers:corsHeaders});
+        }
         if (!decoded) {
             return new Response(JSON.stringify({ error: 'Mã phiên thi không hợp lệ hoặc đã hết hạn.' }), { status: 403, headers: corsHeaders });
         }
