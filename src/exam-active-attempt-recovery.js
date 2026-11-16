@@ -90,3 +90,37 @@ export function examAllowsFreshAttempt(maxAttempts, completedAttempts) {
   // explicitly single-attempt and must never allow an orphan reset.
   return limit === 0 || (limit > 1 && used < limit);
 }
+
+/** Auth roles are stored as either a student role or a generic "user" with
+ * a verified student target audience. A teacher/admin role never qualifies. */
+export function isAuthenticatedSchoolExamStudent(user) {
+  if (!user || typeof user !== 'object') return false;
+  const role = String(user.role || '').trim().toLocaleLowerCase('vi-VN');
+  const audience = String(user.target_audience || '').trim().toLocaleLowerCase('vi-VN');
+  return role === 'student' || role === 'học sinh' ||
+    (role === 'user' && (audience === 'học sinh' || audience === 'student'));
+}
+
+/** Inspect both the active lock's snapshot and its frozen question order before
+ * claiming that a previously-started exam can actually be restored. This check
+ * is read-only: it never deletes answers, locks or consumed attempts. */
+export function inspectActiveExamRecoveryState(session, examId, studentUserId, nowMs = Date.now()) {
+  const bad = unrecoverableExamSnapshotReason(session, examId, nowMs);
+  if (bad) return { canResume: false, reason: bad };
+  if (!session || String(session.exam_id || '') !== String(examId || '')) {
+    return { canResume: false, reason: 'snapshot_exam_mismatch' };
+  }
+  const payload = buildActiveExamRecoveryPayload({
+    session, examId, studentUserId, nowMs
+  });
+  if (!payload) return { canResume: false, reason: 'snapshot_not_activatable' };
+  let questions;
+  try { questions = JSON.parse(String(session.question_snapshot || '[]')); }
+  catch { return { canResume: false, reason: 'corrupt_snapshot' }; }
+  if (!Array.isArray(questions) ||
+      questions.length !== payload.questionIds.length ||
+      questions.some((q, i) => String(q?.id ?? q?.questionId ?? '') !== payload.questionIds[i])) {
+    return { canResume: false, reason: 'corrupt_snapshot' };
+  }
+  return { canResume: true, reason: null };
+}
