@@ -391,6 +391,13 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
           // Commit swap + revocation together. No separate "delete old then
           // create new" request can strand a student without an attempt.
           // The lock row serializes concurrent replacement requests.
+          await db.prepare(`CREATE TABLE IF NOT EXISTS _submitted_exam_tokens (
+            token_hash TEXT PRIMARY KEY, exam_id TEXT, student_name TEXT, user_id TEXT,
+            submitted_at TEXT, status TEXT, result_id TEXT, claimed_at TEXT
+          )`).run();
+          for (const column of ['status','result_id']) {
+            await db.prepare('ALTER TABLE _submitted_exam_tokens ADD COLUMN IF NOT EXISTS ' + column + ' TEXT').run();
+          }
           const submissionHash = await hashToken('exam-session:' + replacementId);
           const replaced: any = await db.prepare(`
             WITH old AS (
@@ -400,11 +407,15 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
               FOR UPDATE
             ),
             switched AS (
-              UPDATE _exam_active_attempts AS lock
+              UPDATE _exam_active_attempts AS active_lock
               SET session_id = ?, expires_at = ?, created_at = ?
               FROM old
-              WHERE lock.attempt_key = ? AND lock.session_id = old.session_id
+              WHERE active_lock.attempt_key = ? AND active_lock.session_id = old.session_id
                 AND old.session_id <> ?
+                AND EXISTS (
+                  SELECT 1 FROM _exam_grade_sessions ready
+                  WHERE ready.session_id = ? AND ready.started_at IS NULL
+                )
                 AND NOT EXISTS (
                   SELECT 1 FROM _submitted_exam_tokens s
                   WHERE s.token_hash = ? AND s.status IN ('processing','completed')
@@ -419,11 +430,18 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                 ))
               RETURNING old.session_id AS old_session_id
             ),
+            activated AS (
+              UPDATE _exam_grade_sessions AS new_session
+              SET started_at = ?, deadline_at = ?, expires_at = ?
+              FROM switched
+              WHERE new_session.session_id = ? AND new_session.started_at IS NULL
+              RETURNING switched.old_session_id
+            ),
             revoked AS (
               INSERT INTO _exam_abandoned_attempts
                 (session_id, exam_id, user_id, reason, abandoned_at)
               SELECT old_session_id, ?, ?, 'replaced_by_student', ?
-              FROM switched WHERE TRUE
+              FROM activated WHERE TRUE
               ON CONFLICT (session_id) DO UPDATE SET reason = excluded.reason
               RETURNING session_id
             )
@@ -431,10 +449,11 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
           `).bind(
             attemptKey,examId,signedStudentUserId,replacementId,
             gradingSessionId,proposedActiveExpiresAt,proposedStartedAt,
-            attemptKey,gradingSessionId,submissionHash,submissionHash,
+            attemptKey,gradingSessionId,gradingSessionId,submissionHash,submissionHash,
             Number(authoritativeExamRow?.max_attempts) || 0,
             examId,signedStudentUserId,examId,signedStudentUserId,
             Number(authoritativeExamRow?.max_attempts) || 0,
+            proposedStartedAt,proposedDeadlineAt,proposedActiveExpiresAt,gradingSessionId,
             examId,signedStudentUserId,proposedStartedAt
           ).first();
           if (!replaced?.session_id) {
