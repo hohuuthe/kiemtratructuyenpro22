@@ -1,4 +1,5 @@
 import { verifyAuthSession, verifyJWT, getDynamicSecret, hashToken, getDatabase } from './utils';
+import { examSubmissionClaimIdentity } from '../../../src/exam-submission-identity.js';
 import { evaluateTF4, isShortAnswerCorrect, examFlagEnabled, clampScore, roundScore, validateQuestionAnswer } from '../../../src/exam-grading-core.js';
 import { EXAM_SESSION_PURPOSE_PRESTART, EXAM_SESSION_PURPOSE_ACTIVE, resolveAuthoritativeExamTiming } from '../../../src/exam-time-authority.js';
 import { stripContestAnswerHints } from '../../../src/exam-public-contest-projection';
@@ -241,7 +242,8 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
         // BẢO MẬT: claim token atomically BEFORE grading so two simultaneous
         // submissions cannot both create result rows.
-        tokenHash = await hashToken(token);
+        // Reissued recovery tokens share the same atomic submission claim.
+        tokenHash = await hashToken(examSubmissionClaimIdentity(token, decoded));
         claimedResultId = crypto.randomUUID();
         try {
             await db.prepare(

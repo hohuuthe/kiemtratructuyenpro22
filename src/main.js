@@ -12,6 +12,7 @@ import {readBrowserGeminiKeys,saveBrowserGeminiKeys,prioritizeGradingKeys,splitG
 import { configureExamAccessCodeInput } from './exam-access-code-input.js';
 import { parseExamAttemptLimitError, buildExamAttemptLimitModal, buildExamReadyModal, fetchExamStartResponse } from './student-exam-start-guard.js';
 import { scrollExamSubmitIntoView } from './exam-scroll-to-submit.js';
+import { scrollExamQuestionNavigator } from './exam-question-navigator.js';
 
 import 'katex/dist/katex.min.css';
 import { renderRoleHelp, attachRoleHelpInteractions, resetRoleHelpCache } from './help-center.js';
@@ -4493,6 +4494,52 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
         // ==================== TAB NAVIGATION ====================
         window.switchTab = switchTab;
         let requestedTab = '';
+        let examLeaveDialogOpen = false;
+
+        function showActiveExamLeaveDialog(requestedTarget, ownerTab) {
+            // Do not stack confirmation modals when navigation is requested
+            // repeatedly by a click, rerender or a delayed callback.
+            if (examLeaveDialogOpen) return;
+            examLeaveDialogOpen = true;
+            showModal(`
+                <div class="p-4 sm:p-5 w-full max-w-sm mx-auto flex flex-col gap-3" data-exam-leave-dialog="true">
+                    <h3 class="text-base sm:text-lg font-bold text-amber-800">⚠️ Xác nhận chuyển chức năng</h3>
+                    <p class="text-sm text-gray-700">Bạn đang có bài thi chưa hoàn tất. Hãy chọn <strong>Tiếp tục làm bài</strong> để quay lại phiên hiện tại.</p>
+                    <div class="flex flex-col gap-2">
+                        <button id="exam-leave-stay" type="button" class="w-full min-h-11 px-4 py-3 rounded-xl bg-indigo-600 text-white font-bold">Tiếp tục làm bài</button>
+                        <button id="exam-leave-confirm" type="button" class="w-full min-h-11 px-4 py-3 rounded-xl bg-gray-100 text-red-700 font-semibold">Rời và hủy bài đang làm</button>
+                    </div>
+                </div>
+            `, 'student-exam-compact', false);
+            // showModal mounts into the current fullscreen element, if any.
+            const container = document.getElementById('modal-container');
+            if (document.fullscreenElement && container?.parentElement !== document.fullscreenElement) {
+                document.fullscreenElement.appendChild(container);
+            }
+            const stay = container?.querySelector('#exam-leave-stay');
+            const leave = container?.querySelector('#exam-leave-confirm');
+            if (!stay || !leave) {
+                closeModal();
+                showToast('Không thể mở hộp thoại. Bài làm vẫn được giữ nguyên.', 'warning');
+                return;
+            }
+            stay.addEventListener('click', () => {
+                closeModal();
+                requestedTab = ownerTab;
+                const activeExam = document.getElementById('exam-interface');
+                activeExam?.classList.remove('hidden');
+                document.getElementById('exam-form')?.classList.add('hidden');
+                document.getElementById('exam-results')?.classList.add('hidden');
+                // Never reset clock, responses or attempt on a stay action.
+            }, { once: true });
+            leave.addEventListener('click', () => {
+                closeModal();
+                resetExam();
+                switchTab(requestedTarget);
+            }, { once: true });
+            try { stay.focus({ preventScroll: true }); } catch(e) {}
+        }
+
         function switchTab(tabName) {
             const previousTab = requestedTab;
             requestedTab = tabName;
@@ -4542,11 +4589,8 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
             if (tabName !== activeExamOwnerTab && isExamInProgress && !isShowingResults) {
                 // Keep the current tab as owner if a learner declines cancellation.
                 // The earlier eager requestedTab update must not corrupt navigation.
-                requestedTab = previousTab || activeExamOwnerTab;
-                showConfirmModal('Bạn đang trong quá trình làm bài thi. Nếu chuyển sang tab khác, bài làm của bạn sẽ bị hủy. Bạn có chắc chắn muốn chuyển không?', () => {
-                    resetExam();
-                    switchTab(tabName);
-                });
+                requestedTab = activeExamOwnerTab;
+                showActiveExamLeaveDialog(tabName, activeExamOwnerTab);
                 return;
             }
 
@@ -5595,6 +5639,9 @@ if (contentType && contentType.includes("application/json")) {
 
         window.closeModal = closeModal;
         function closeModal() {
+            // Dismissal is always non-destructive. A future legitimate tab
+            // request must be able to reopen one usable dialog.
+            examLeaveDialogOpen = false;
             if (window.__mathTypeExamExportController) {
                 try { window.__mathTypeExamExportController.abort(); } catch {}
                 window.__mathTypeExamExportController = null;
@@ -8923,6 +8970,35 @@ if (contentType && contentType.includes("application/json")) {
             window.scrollTo({ top: 0, behavior: 'smooth' });
         };
 
+        // Preserve an ACTIVE token per exam even when a later READY request
+        // replaces currentExamToken. This is essential for public contests
+        // whose participants may not have a school login.
+        function activeExamRecoveryKey(examId) {
+            return window.tenantStorageKey('exam_active_recovery:' + String(examId || ''));
+        }
+        function readDeviceActiveExam(examId) {
+            if (!examId) return null;
+            try {
+                const raw = localStorage.getItem(activeExamRecoveryKey(examId));
+                const record = raw && JSON.parse(raw);
+                if (record?.phase === 'active' && record?.token &&
+                    String(record.examId) === String(examId)) return record;
+            } catch(e) {}
+            return null;
+        }
+        function rememberDeviceActiveExam(token, meta) {
+            if (!token || !meta?.examId) return;
+            try {
+                localStorage.setItem(activeExamRecoveryKey(meta.examId),
+                    JSON.stringify({ ...meta, token, phase: 'active' }));
+            } catch(e) {}
+        }
+        function forgetDeviceActiveExam(examId, token = '') {
+            const stored = readDeviceActiveExam(examId);
+            if (!stored || (token && stored.token !== token)) return;
+            try { localStorage.removeItem(activeExamRecoveryKey(examId)); } catch(e) {}
+        }
+
         function clearStoredActiveExamResume() {
             window.__EXAM_RESUME_BLOCK_NEW__ = false;
             try {
@@ -8933,25 +9009,34 @@ if (contentType && contentType.includes("application/json")) {
             } catch(e) {}
         }
 
-        async function tryResumeActiveExam() {
+        async function tryResumeActiveExam(options = {}) {
             if (isAdminLoggedIn || isTeacherLoggedIn) return false;
 
             let token = '';
             let meta = {};
             try {
-                token = localStorage.getItem(window.tenantStorageKey('currentExamToken')) || '';
+                token = options.token || localStorage.getItem(window.tenantStorageKey('currentExamToken')) || '';
                 const rawMeta = localStorage.getItem(window.tenantStorageKey('active_exam_resume_meta')) || '';
                 if (rawMeta) {
                     try { meta = JSON.parse(rawMeta) || {}; } catch(e) { meta = {}; }
                 }
+                if (options.meta) meta = { ...meta, ...options.meta };
             } catch(e) {}
             if (!token) return false;
-            // A stale tab of the same browser must not adopt another tab's
-            // active exam. Keep the server token for the legitimate original
-            // tab; never delete an unverified ongoing attempt here.
-            if (meta.writerId && meta.writerId !== getExamWriterId()) {
+            // Cross-tab resume must be explicitly requested, never silently
+            // claim an active writer on boot. The server also checks its lease.
+            if (meta.writerId && meta.writerId !== getExamWriterId() && !options.allowOtherTab) {
                 window.__EXAM_RESUME_BLOCK_NEW__ = true;
-                showToast('Phiên thi đang thuộc tab trình duyệt khác. Vui lòng quay lại tab ban đầu để tiếp tục.', 'warning');
+                showModal(`
+                    <div class="p-4 sm:p-5 text-center">
+                        <h3 class="text-lg font-bold mb-2">Đã tìm thấy phiên thi trên thiết bị</h3>
+                        <p class="text-sm text-gray-600">Bạn có thể mở lại phiên thi tại tab này. Hệ thống sẽ xác minh tab cũ còn đang lưu bài hay không.</p>
+                        <button type="button" id="exam-open-stored-attempt" class="mt-3 px-5 py-2.5 rounded-xl bg-indigo-600 text-white font-bold">Mở lại phiên thi tại đây</button>
+                    </div>
+                `, 'student-exam-compact', false);
+                document.getElementById('exam-open-stored-attempt')?.addEventListener('click', () => {
+                    void tryResumeActiveExam({ ...options, token, meta, allowOtherTab: true });
+                }, { once: true });
                 return true;
             }
 
@@ -8966,7 +9051,7 @@ if (contentType && contentType.includes("application/json")) {
                     method: 'POST',
                     headers,
                     cache: 'no-store',
-                    body: JSON.stringify({ token })
+                    body: JSON.stringify({ token, writerId: getExamWriterId() })
                 });
                 data = await response.json().catch(() => ({}));
             } catch (error) {
@@ -8975,15 +9060,26 @@ if (contentType && contentType.includes("application/json")) {
             }
 
             if (response.ok && data?.alreadySubmitted) {
+                forgetDeviceActiveExam(meta.examId, token);
                 clearStoredActiveExamResume();
                 showToast('Bài thi trước đó đã được nộp thành công.', 'success');
                 return false;
             }
 
             if (!response.ok) {
-                if (['EXAM_RESUME_INVALID','EXAM_RESUME_NOT_FOUND','EXAM_RESUME_NOT_STARTED','EXAM_RESUME_OWNER_MISMATCH'].includes(String(data?.code || '')) ||
+                if (['EXAM_RESUME_INVALID','EXAM_RESUME_NOT_FOUND','EXAM_RESUME_OWNER_MISMATCH'].includes(String(data?.code || '')) ||
                     response.status === 403) {
+                    forgetDeviceActiveExam(meta.examId, token);
+                    if (!options.token) clearStoredActiveExamResume();
+                }
+                if (data?.code === 'EXAM_RESUME_NOT_STARTED' && !options.token) {
+                    // A READY-only token never starts a timer on refresh.
+                    // Clear only the unstarted token; separately archived
+                    // ACTIVE tokens remain available for explicit recovery.
                     clearStoredActiveExamResume();
+                }
+                if (options.allowOtherTab && data?.code !== 'EXAM_SUBMISSION_PROCESSING') {
+                    showToast(data?.error || 'Chưa thể mở lại phiên thi an toàn. Vui lòng kiểm tra lại.', 'warning');
                 }
                 if (data?.code === 'EXAM_SUBMISSION_PROCESSING') {
                     window.__EXAM_RESUME_BLOCK_NEW__ = true;
@@ -9008,9 +9104,13 @@ if (contentType && contentType.includes("application/json")) {
 
             window.__EXAM_RESUME_BLOCK_NEW__ = false;
             window.currentExamToken = data.token || token;
+            meta = { ...meta, phase: 'active', writerId: getExamWriterId(),
+                examId: String(meta.examId || data.examConfig?.id || '') };
             try {
                 localStorage.setItem(window.tenantStorageKey('currentExamToken'), window.currentExamToken);
+                localStorage.setItem(window.tenantStorageKey('active_exam_resume_meta'), JSON.stringify(meta));
             } catch(e) {}
+            rememberDeviceActiveExam(window.currentExamToken, meta);
 
             if (data.examConfig && typeof data.examConfig === 'object') {
                 examConfig = { ...examConfig, ...data.examConfig };
@@ -9121,6 +9221,82 @@ if (contentType && contentType.includes("application/json")) {
             return true;
         }
         window.tryResumeActiveExam = tryResumeActiveExam;
+
+
+        function showActiveExamRecoveryRetry(message) {
+            // Never strand a learner behind a toast when the server cannot
+            // verify ownership or a different tab is still saving answers.
+            showModal(`
+                <div class="p-4 sm:p-5 text-center flex flex-col gap-3">
+                    <h3 class="text-lg font-bold text-gray-800">Phiên thi đang được bảo vệ</h3>
+                    <p id="exam-recovery-explanation" class="text-sm text-gray-600"></p>
+                    <button type="button" id="exam-recover-retry" class="w-full min-h-11 px-4 py-3 bg-indigo-600 text-white rounded-xl font-bold">Kiểm tra và mở lại phiên thi</button>
+                    <button type="button" id="exam-recover-close" class="w-full min-h-11 px-4 py-3 bg-gray-100 text-gray-800 rounded-xl font-semibold">Quay lại</button>
+                </div>
+            `, 'student-exam-compact', false);
+            const explanation = document.getElementById('exam-recovery-explanation');
+            if (explanation) explanation.textContent = String(message || 'Không thể xác minh phiên đang làm. Vui lòng thử lại.');
+            document.getElementById('exam-recover-close')?.addEventListener('click', closeModal, { once: true });
+            document.getElementById('exam-recover-retry')?.addEventListener('click', () => {
+                closeModal();
+                void window.startExam?.();
+            }, { once: true });
+        }
+
+        // Called BEFORE /api/exam/generate so an existing ACTIVE attempt never
+        // appears in a contradictory "Đề thi đã sẵn sàng" READY dialog.
+        async function offerActiveExamBeforeReady(examId, details) {
+            const saved = readDeviceActiveExam(examId);
+            if (saved?.token) {
+                const resumed = await tryResumeActiveExam({
+                    token: saved.token, meta: saved, allowOtherTab: true
+                });
+                if (resumed) return true;
+            }
+            const schoolAuth = (currentUser && localStorage.getItem(window.tenantStorageKey('auth_token'))) || '';
+            const contestTicket = window.__contestTicket && examConfig?.chedodethi === 'Cuộc thi trực tuyến'
+                ? window.__contestTicket : '';
+            if (!schoolAuth && !contestTicket) return false;
+
+            let response, recovered;
+            try {
+                response = await fetch('/api/exam/recover', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(schoolAuth && !contestTicket ? {'Authorization': 'Bearer ' + schoolAuth} : {})
+                    },
+                    cache: 'no-store',
+                    body: JSON.stringify({
+                        examId, writerId: getExamWriterId(),
+                        ...(contestTicket ? {contestTicket} : {})
+                    })
+                });
+                recovered = await response.json().catch(() => ({}));
+            } catch {
+                showActiveExamRecoveryRetry('Chưa thể xác minh phiên thi đang làm do mất kết nối. Vui lòng kiểm tra Internet và thử lại.');
+                return true;
+            }
+            if (response.status === 409 && recovered.code === 'EXAM_RECOVER_NOT_FOUND') return false;
+            if (!response.ok || !recovered?.token) {
+                // An expired or unverified lock is never mistaken for a READY exam.
+                showActiveExamRecoveryRetry(recovered?.error || 'Chưa thể xác minh phiên thi cũ. Vui lòng thử lại.');
+                return true;
+            }
+            const resumeMeta = {
+                phase: 'active',
+                examId, examName: details.examName, teacherId: details.teacherId,
+                studentName: details.name, studentLop: details.inputLop,
+                studentDonvi: details.inputDonvi, studentClass: details.studentClass,
+                entryTab: contestTicket ? 'contest' : 'exam'
+            };
+            const resumed = await tryResumeActiveExam({
+                token: recovered.token, meta: resumeMeta, allowOtherTab: true
+            });
+            if (resumed) return true;
+            showActiveExamRecoveryRetry('Đã tìm được phiên thi nhưng chưa thể mở an toàn. Hãy đóng tab cũ nếu còn mở rồi kiểm tra lại.');
+            return true;
+        }
 
         let examStartPending = false;
         window.startExam = async function startExam(btn) {
@@ -9285,6 +9461,12 @@ if (contentType && contentType.includes("application/json")) {
                     return;
                 }
 
+                // Check authoritative ACTIVE session before building a new READY
+                // snapshot, avoiding a false "ready" modal for the same exam.
+                if (await offerActiveExamBeforeReady(selectedExamId, {
+                    examName, teacherId, name, inputLop, inputDonvi, studentClass
+                })) return;
+
                 // Máy chủ kiểm tra giới hạn theo kết quả thực trong CSDL, không dùng cache trên thiết bị.
 
                 // Tải đề thi từ Backend Server (bảo mật, không có đáp án, lấy đúng số lượng theo đề thi được chọn)
@@ -9337,6 +9519,15 @@ if (contentType && contentType.includes("application/json")) {
                 // Nội dung câu hỏi chưa được gửi xuống trình duyệt ở bước này.
                 window.currentExamToken = result.token;
                 try {
+                    // Save an already ACTIVE token before this new READY token
+                    // replaces the shared browser storage location.
+                    const oldToken = localStorage.getItem(window.tenantStorageKey('currentExamToken'));
+                    const oldRawMeta = localStorage.getItem(window.tenantStorageKey('active_exam_resume_meta'));
+                    let oldMeta = {};
+                    try { oldMeta = oldRawMeta ? JSON.parse(oldRawMeta) : {}; } catch(e) {}
+                    if (oldToken && oldMeta?.phase === 'active' && oldMeta.examId) {
+                        rememberDeviceActiveExam(oldToken, oldMeta);
+                    }
                     localStorage.setItem(window.tenantStorageKey('currentExamToken'), result.token);
                     localStorage.setItem(window.tenantStorageKey('active_exam_resume_meta'), JSON.stringify({
                         phase: 'prestart',
@@ -9472,6 +9663,12 @@ if (contentType && contentType.includes("application/json")) {
                                 examName
                             }));
                         } catch(e) {}
+                        rememberDeviceActiveExam(startResult.token, {
+                            phase: 'active',
+                            entryTab: window.__contestTicket && examConfig?.chedodethi === 'Cuộc thi trực tuyến' ? 'contest' : 'exam',
+                            writerId: getExamWriterId(), studentName: name, studentLop: inputLop,
+                            studentDonvi: inputDonvi, studentClass, teacherId, examId: selectedExamId, examName
+                        });
                         currentExam.questions = startResult.questions;
                         currentExam.answers = {};
                         if (startResult.immediateFeedback !== undefined) {
@@ -9501,6 +9698,93 @@ if (contentType && contentType.includes("application/json")) {
                             }
                         } catch(e) {}
                         if (window.__contestTicket) window.__contestAfterStartRejected?.();
+                        if (error?.code === 'EXAM_ATTEMPT_ALREADY_ACTIVE') {
+                            // A READY token cannot resume the previous ACTIVE session.
+                            const recoveryAuth = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
+                            const localAttempt = readDeviceActiveExam(selectedExamId);
+                            const canServerRecover = Boolean(recoveryAuth && !window.__contestTicket);
+                            // A signed ACTIVE token on this device is sufficient to
+                            // resume a registered contest; school login is not required.
+                            const canContestRecover = Boolean(window.__contestTicket &&
+                                examConfig?.chedodethi === 'Cuộc thi trực tuyến');
+                            if (!localAttempt && !canServerRecover && !canContestRecover) {
+                                closeModal();
+                                showModal(`
+                                    <div class="p-4 sm:p-5 text-center">
+                                        <h3 class="font-bold text-gray-800 mb-2">Không tìm thấy mã phiên cũ trên thiết bị</h3>
+                                        <p class="text-sm text-gray-600">Máy chủ vẫn ghi nhận lượt thi đang làm, nhưng trình duyệt này không còn mã để mở lại an toàn. Không tự tạo lượt mới hoặc đặt lại thời gian. Vui lòng liên hệ giáo viên phụ trách để kiểm tra phiên thi.</p>
+                                        <button type="button" id="exam-recovery-no-token-close" class="mt-3 px-5 py-2.5 rounded-xl bg-gray-200 font-semibold">Đã hiểu</button>
+                                    </div>
+                                `, 'student-exam-compact', false);
+                                document.getElementById('exam-recovery-no-token-close')?.addEventListener('click', closeModal, { once: true });
+                                return;
+                            }
+                            closeModal();
+                            showModal(`
+                                <div class="p-4 sm:p-5 text-center">
+                                    <div class="text-4xl mb-2">🔄</div>
+                                    <h3 class="text-lg font-bold text-gray-800 mb-2">Bạn có bài thi chưa hoàn tất</h3>
+                                    <p class="text-sm text-gray-600 mb-3">Tiếp tục đúng phiên cũ, giữ nguyên đáp án đã lưu và thời gian còn lại. Không tính lượt mới.</p>
+                                    <p class="text-xs text-amber-700 mb-3">Nếu đang làm ở tab hoặc thiết bị khác, hãy quay lại đó hoặc đóng tab cũ trước.</p>
+                                    <div class="flex flex-wrap justify-center gap-2">
+                                        <button type="button" id="exam-recover-active-confirm" class="px-5 py-2.5 rounded-xl bg-indigo-600 text-white font-bold">Tiếp tục làm bài</button>
+                                        <button type="button" id="exam-recover-active-cancel" class="px-5 py-2.5 rounded-xl bg-gray-200 text-gray-800 font-semibold">Quay lại</button>
+                                    </div>
+                                </div>
+                            `, 'student-exam-compact', false);
+                            document.getElementById('exam-recover-active-cancel')?.addEventListener('click', closeModal, { once: true });
+                            const recoverButton = document.getElementById('exam-recover-active-confirm');
+                            recoverButton?.addEventListener('click', async () => {
+                                if (recoverButton.disabled) return;
+                                recoverButton.disabled = true;
+                                const previousText = recoverButton.textContent;
+                                recoverButton.textContent = 'Đang xác minh phiên cũ...';
+                                try {
+                                    let resumeToken = localAttempt?.token || '';
+                                    const resumeMeta = localAttempt || {
+                                        phase: 'active', entryTab: 'exam',
+                                        studentName: name, studentLop: inputLop, studentDonvi: inputDonvi,
+                                        studentClass, teacherId, examId: selectedExamId, examName
+                                    };
+                                    if (!resumeToken) {
+                                        const recoveryResponse = await fetch('/api/exam/recover', {
+                                            method: 'POST',
+                                            headers: {
+                                                'Content-Type': 'application/json',
+                                                ...(canContestRecover ? {} : { 'Authorization': 'Bearer ' + recoveryAuth })
+                                            },
+                                            cache: 'no-store',
+                                            body: JSON.stringify({
+                                                examId: selectedExamId, writerId: getExamWriterId(),
+                                                ...(canContestRecover ? { contestTicket: window.__contestTicket } : {})
+                                            })
+                                        });
+                                        const recovered = await recoveryResponse.json().catch(() => ({}));
+                                        if (!recoveryResponse.ok || !recovered?.token) {
+                                            throw new Error(recovered?.error || 'Không thể xác minh phiên thi đang làm.');
+                                        }
+                                        resumeToken = recovered.token;
+                                    }
+                                    // Verify the preserved ACTIVE token and server answer
+                                    // draft before replacing the shared current token.
+                                    const resumed = await tryResumeActiveExam({
+                                        token: resumeToken,
+                                        meta: { ...resumeMeta, entryTab: canContestRecover ? 'contest' : resumeMeta.entryTab },
+                                        allowOtherTab: true
+                                    });
+                                    if (!resumed) throw new Error('Không thể mở phiên thi cũ. Vui lòng kiểm tra lại mã phiên.');
+                                } catch (recoverError) {
+                                    showToast(recoverError?.message || 'Không thể tiếp tục bài thi.', 'error');
+                                } finally {
+                                    if (recoverButton.isConnected) {
+                                        recoverButton.disabled = false;
+                                        recoverButton.textContent = previousText;
+                                    }
+                                }
+                            });
+                            recoverButton?.focus();
+                            return;
+                        }
                         showToast(error?.message || 'Không thể bắt đầu bài thi. Vui lòng thử lại.', 'error');
                     }
                 });
@@ -9915,6 +10199,9 @@ if (contentType && contentType.includes("application/json")) {
             }
         }
 
+        // Bảng C/H only scrolls inside the current exam; it cannot leave contest mode.
+        window.openExamQuestionNavigator = () => scrollExamQuestionNavigator(document);
+
         function renderCurrentQuestion(isNewQuestion = false) {
             const container = document.getElementById('question-content-display');
             if (!container) return;
@@ -9966,7 +10253,7 @@ if (contentType && contentType.includes("application/json")) {
                                             ${questionAuthorDisplayName(q,accountsMap,currentUser)}
                                         </span></u>` : ''}
                                     </div>
-                                    <button onclick="switchTab('exam')" title="Quay về Bảng điều khiển câu hỏi" class="flex-shrink-0 p-1.5 md:px-3 md:py-1.5 bg-white text-emerald-600 rounded-xl hover:bg-emerald-50 transition-all shadow-sm border border-emerald-100 flex items-center gap-1.5 text-[10px] md:text-xs font-black hover:scale-105">
+                                    <button type="button" onclick="openExamQuestionNavigator()" title="Quay về Bảng điều khiển câu hỏi" class="flex-shrink-0 p-1.5 md:px-3 md:py-1.5 bg-white text-emerald-600 rounded-xl hover:bg-emerald-50 transition-all shadow-sm border border-emerald-100 flex items-center gap-1.5 text-[10px] md:text-xs font-black hover:scale-105">
                                         <svg class="w-3.5 h-3.5 md:w-4 md:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
                                         Bảng C/H
                                     </button>
@@ -10024,7 +10311,7 @@ if (contentType && contentType.includes("application/json")) {
                                         <span class="inline-flex px-2 py-0.5 bg-blue-500 text-white text-xs md:text-sm font-black rounded-md shadow-sm shadow-blue-200 uppercase tracking-tight">${q.type}</span></u>
                                         <span class="inline-flex px-2 py-0.5 bg-emerald-500 text-white text-xs md:text-sm font-black rounded-md shadow-sm shadow-emerald-200 uppercase tracking-tight">${q.level || 'NB'}</span></u>
                                     </div>
-                                    <button onclick="switchTab('exam')" title="Quay về Bảng điều khiển câu hỏi" class="md:hidden flex-shrink-0 px-2.5 py-1.5 bg-white text-emerald-600 rounded-lg hover:bg-emerald-50 shadow-sm border border-emerald-100 flex items-center gap-1 text-[10px] font-black">
+                                    <button type="button" onclick="openExamQuestionNavigator()" title="Quay về Bảng điều khiển câu hỏi" class="md:hidden flex-shrink-0 px-2.5 py-1.5 bg-white text-emerald-600 rounded-lg hover:bg-emerald-50 shadow-sm border border-emerald-100 flex items-center gap-1 text-[10px] font-black">
                                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
                                         Bảng C/H
                                     </button>
@@ -10039,7 +10326,7 @@ if (contentType && contentType.includes("application/json")) {
                                         ${questionAuthorDisplayName(q,accountsMap,currentUser)}
                                     </span></u>` : ''}
                                 </div>
-                                <button onclick="switchTab('exam')" title="Quay về Bảng điều khiển câu hỏi" class="hidden md:flex flex-shrink-0 p-2 md:px-3 md:py-1.5 bg-white text-emerald-600 rounded-xl hover:bg-emerald-50 transition-all shadow-sm border border-emerald-100 items-center gap-1.5 text-[10px] md:text-xs font-black">
+                                <button type="button" onclick="openExamQuestionNavigator()" title="Quay về Bảng điều khiển câu hỏi" class="hidden md:flex flex-shrink-0 p-2 md:px-3 md:py-1.5 bg-white text-emerald-600 rounded-xl hover:bg-emerald-50 transition-all shadow-sm border border-emerald-100 items-center gap-1.5 text-[10px] md:text-xs font-black">
                                     <svg class="w-4 h-4 md:w-4 md:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
                                     Bảng C/H
                                 </button>
@@ -11455,6 +11742,8 @@ if (contentType && contentType.includes("application/json")) {
                 }
 
                 const result = await response.json();
+                const submittedExamId = String(examConfig?.id || '');
+                forgetDeviceActiveExam(submittedExamId);
                 window.currentExamToken = null;
                 try {
                     localStorage.removeItem('currentExamToken');
