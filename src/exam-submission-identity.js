@@ -1,10 +1,14 @@
 /**
- * Two valid signed exam tokens can represent the same authenticated student's
- * session after a safe recovery. They must share the same atomic grade claim.
- * Preserve token-scoped identity for anonymous and public contest candidates.
+ * Signed recovery tokens issued for an already ACTIVE student/contest attempt
+ * must use the same atomic submission gate as the original signed token.
+ * Anonymous legacy tokens without stable owner identity retain token semantics.
  */
 export function examSubmissionClaimIdentity(token, claims = {}) {
-  const userId = String(claims?.studentUserId || '').trim();
   const sessionId = String(claims?.gradingSessionId || '').trim();
-  return userId && sessionId ? 'account-exam-session:' + sessionId : String(token || '');
+  const studentId = String(claims?.studentUserId || '').trim();
+  const participantId = String(claims?.contestParticipantId || '').trim();
+  if (sessionId && (studentId || participantId)) {
+    return 'exam-session:' + sessionId;
+  }
+  return String(token || '');
 }
