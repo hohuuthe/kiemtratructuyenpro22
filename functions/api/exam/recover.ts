@@ -49,6 +49,48 @@ export const onRequestPost: PagesFunction<Env> = async context => {
       return reply(400, { code: 'EXAM_RECOVERY_EXAM_REQUIRED', error: 'Thiếu mã đề thi hợp lệ.' });
     }
 
+    // Preflight is read-only: the browser must be offered a choice BEFORE
+    // /exam/generate issues any replacement PRESTART token. Only this account's
+    // exact exam key may be inspected. Final quota/access checks remain in start.
+    if (body?.mode === 'inspect') {
+      const attemptKey = examId + ':' + userId;
+      let active: any = null;
+      try {
+        active = await db.prepare(
+          'SELECT session_id FROM _exam_active_attempts WHERE attempt_key = ? AND exam_id = ? AND user_id = ?'
+        ).bind(attemptKey, examId, userId).first();
+      } catch (inspectError) {
+        console.error('Cannot inspect active attempt:', inspectError);
+        return reply(503,{ code:'EXAM_INSPECT_UNAVAILABLE', error:'Không thể kiểm tra phiên thi cũ. Chưa tạo phiên mới để tránh trùng lượt.' });
+      }
+      if (!active?.session_id) return reply(200,{ active:false });
+      const exam: any = await db.prepare(
+        'SELECT max_attempts, chedodethi FROM exam_configs WHERE id = ?'
+      ).bind(examId).first();
+      if (!exam) return reply(409,{code:'EXAM_INSPECT_EXAM_MISSING',error:'Đề thi không còn tồn tại.'});
+      await db.prepare(`CREATE TABLE IF NOT EXISTS _exam_abandoned_attempts (
+        session_id TEXT PRIMARY KEY, exam_id TEXT NOT NULL, user_id TEXT NOT NULL,
+        reason TEXT NOT NULL, abandoned_at TEXT NOT NULL
+      )`).run();
+      const completed: any = await db.prepare(
+        'SELECT COUNT(*) AS count FROM results WHERE exam_id = ? AND user_id = ?'
+      ).bind(examId,userId).first();
+      const abandoned: any = await db.prepare(
+        'SELECT COUNT(*) AS count FROM _exam_abandoned_attempts WHERE exam_id = ? AND user_id = ?'
+      ).bind(examId,userId).first();
+      const quota = Number(exam.max_attempts);
+      const used = Number(completed?.count || 0) + Number(abandoned?.count || 0);
+      // One ACTIVE attempt will become a consumed attempt if replaced.
+      const canCreateNew = String(exam.chedodethi || '') !== 'Cuộc thi trực tuyến' &&
+        Number.isInteger(quota) && (quota === 0 || (quota > 1 && used + 1 < quota));
+      return reply(200,{
+        active:true, sessionId:String(active.session_id), canCreateNew,
+        // Display hints only. The replacement operation recomputes counts
+        // including unlinked legacy results before committing the change.
+        maxAttempts:quota, usedAttempts:used, minimumConsumedOnReplace:used+1
+      });
+    }
+
     // Fail closed if the lock or its exact snapshot cannot be queried.
     const active: any = await db.prepare(
       'SELECT exam_id, user_id, session_id, expires_at FROM _exam_active_attempts WHERE attempt_key = ?'
