@@ -63,7 +63,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       }
     }
 
-    const tokenHash = await hashToken(token);
+    const tokenHash = await hashToken(decoded.gradingSessionId && decoded.purpose === EXAM_SESSION_PURPOSE_ACTIVE ? 'exam-session:' + String(decoded.gradingSessionId) : token);
     try {
       let submitted: any = await db.prepare(
         'SELECT status, result_id, claimed_at FROM _submitted_exam_tokens WHERE token_hash = ?'
