@@ -14,10 +14,11 @@ on:
       - 'functions/api/exam/violation.ts'
       - 'functions/api/exam/grade.ts'
       - 'src/exam-time-authority.js'
-      - 'functions/[slug]/api/[[path]].ts'
+      - 'functions/**/api/**'
       - 'tests/student-exam-auto-submit-guard.test.mjs'
       - '.github/workflows/student-exam-auto-submit-guard.yml'
   push:
+    branches: [main]
     paths:
       - 'src/main.js'
       - 'server.ts'
@@ -30,20 +31,27 @@ on:
       - 'functions/api/exam/violation.ts'
       - 'functions/api/exam/grade.ts'
       - 'src/exam-time-authority.js'
-      - 'functions/[slug]/api/[[path]].ts'
+      - 'functions/**/api/**'
       - 'tests/student-exam-auto-submit-guard.test.mjs'
       - '.github/workflows/student-exam-auto-submit-guard.yml'
+
+permissions:
+  contents: read
 
 jobs:
   guard:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: '22'
           cache: npm
-      - run: npm ci
-      - run: node --check src/main.js
-      - run: node --test tests/student-exam-auto-submit-guard.test.mjs
+      - run: npm ci --no-audit --no-fund
+      - name: Check student exam autosubmit safeguards
+        run: |
+          node --check src/main.js
+          node --test tests/student-exam-auto-submit-guard.test.mjs
+      - run: npm run lint
       - run: npm run build
