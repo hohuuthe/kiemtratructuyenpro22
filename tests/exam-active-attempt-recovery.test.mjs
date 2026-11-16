@@ -129,3 +129,11 @@ test('Browser offers retry only for server-confirmed irrecoverable snapshots',()
   assert.match(start,/confirm:true/);
   assert.match(start,/abandoned.body\?\.canCreateNew !== true/);
 });
+
+test('Tenant-prefixed routing exposes recovery and abandonment only within the trusted slug',()=>{
+  const router = readFileSync('functions/[slug]/api/[[path]].ts','utf8');
+  assert.match(router, /'exam\/recover': examRecover/);
+  assert.match(router, /'exam\/abandon': examAbandon/);
+  assert.match(router, /resolveTenantRoutingFromRequest/);
+  assert.match(router, /route.source !== 'path'/);
+});
