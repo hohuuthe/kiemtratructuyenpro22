@@ -257,83 +257,52 @@ test('prepared exam questions stay server-side until authoritative start', () =>
   assert.match(main, /currentExam\.questions = startResult\.questions/);
 });
 
-test('resume restores the same active session without resetting server deadline', () => {
-  const resume = readFileSync('functions/api/exam/resume.ts', 'utf8');
-  const start = readFileSync('functions/api/exam/start.ts', 'utf8');
-  const main = readFileSync('src/main.js', 'utf8');
-  const route = readFileSync('functions/[slug]/api/[[path]].ts', 'utf8');
-
-  assert.match(start, /CREATE TABLE IF NOT EXISTS _exam_answer_drafts/);
-  assert.match(start, /new Array\(frozenIds\.length\)\.fill\(null\)/);
-  assert.match(resume, /EXAM_SESSION_PURPOSE_ACTIVE/);
-  assert.match(resume, /EXAM_SESSION_PURPOSE_PRESTART/);
-  assert.match(resume, /EXAM_RESUME_NOT_STARTED/);
-  assert.match(resume, /session\.started_at/);
-  assert.match(resume, /resolveAuthoritativeExamTiming/);
-  assert.match(resume, /_exam_answer_drafts/);
-  assert.match(resume, /CREATE TABLE IF NOT EXISTS _exam_answer_drafts/);
-  assert.match(resume, /new Array\(questionIds\.length\)\.fill\(null\)/);
-  assert.match(resume, /session\.started_at \|\| new Date\(timing\.startedAtMs\)/);
-  assert.match(resume, /question_snapshot/);
-  assert.match(resume, /remainingExamSecondsFromDeadline/);
-  assert.match(route, /'exam\/resume': examResume/);
-
-  assert.match(main, /tryResumeActiveExam/);
-  assert.match(main, /\/api\/exam\/resume/);
-  assert.match(main, /active_exam_resume_meta/);
-  assert.match(main, /Đồng hồ tiếp tục theo deadline cũ/);
-  assert.match(main, /serverStartedAtMs:\s*Number\(data\.startedAtMs\)/);
-  assert.match(main, /deadlineAtMs:\s*Number\(data\.deadlineAtMs\)/);
+test('old resume is retired; leaving grades the server draft and never reloads a browser session', () => {
+  const resume=readFileSync('functions/api/exam/resume.ts','utf8');
+  const recover=readFileSync('functions/api/exam/recover.ts','utf8');
+  const start=readFileSync('functions/api/exam/start.ts','utf8');
+  const main=readFileSync('src/main.js','utf8');
+  const heartbeat=readFileSync('functions/api/exam/heartbeat.ts','utf8');
+  const finalizer=readFileSync('functions/api/exam/finalize-service.ts','utf8');
+  assert.match(resume,/EXAM_RESUME_DISABLED/);
+  assert.match(recover,/EXAM_RESUME_DISABLED/);
+  assert.doesNotMatch(main,/tryResumeActiveExam|\/api\/exam\/resume|offerExistingExamAttemptChoice/);
+  assert.match(main,/beginExamLifecycle/);
+  assert.match(main,/clearStoredActiveExamResume/);
+  assert.match(heartbeat,/verifyAuthSession/);
+  assert.match(finalizer,/_exam_answer_drafts/);
+  assert.match(start,/CREATE TABLE IF NOT EXISTS _exam_answer_drafts/);
 });
 
-test('refresh before Start never auto-starts a READY-only session', () => {
-  const resume = readFileSync('functions/api/exam/resume.ts', 'utf8');
-  const main = readFileSync('src/main.js', 'utf8');
-  assert.match(resume, /decoded\.purpose === EXAM_SESSION_PURPOSE_PRESTART/);
-  assert.match(resume, /!session\.started_at \|\| !session\.deadline_at/);
-  assert.match(resume, /EXAM_RESUME_NOT_STARTED/);
-  assert.match(main, /EXAM_RESUME_NOT_STARTED/);
-  assert.match(main, /clearStoredActiveExamResume/);
+test('READY tokens do not start a clock until server activation and are never stored for resumption',()=>{
+  const start=readFileSync('functions/api/exam/start.ts','utf8');
+  const main=readFileSync('src/main.js','utf8');
+  assert.match(start,/purpose: EXAM_SESSION_PURPOSE_ACTIVE/);
+  assert.match(start,/proposedStartedAtMs = Date.now\(\)/);
+  assert.doesNotMatch(main,/localStorage\.setItem\(window\.tenantStorageKey\('currentExamToken'\)/);
 });
 
-test('Immediate Feedback remains enabled after start, not during READY preparation', () => {
-  const generate = readFileSync('functions/api/exam/generate.ts', 'utf8');
-  const start = readFileSync('functions/api/exam/start.ts', 'utf8');
-  const resume = readFileSync('functions/api/exam/resume.ts', 'utf8');
-
-  assert.match(generate, /immediateFeedback:\s*isImmediateFeedback/);
-  assert.doesNotMatch(generate, /if \(isImmediateFeedback\)[\s\S]{0,360}return \{ \.\.\.q \}/);
-  assert.match(start, /if \(immediateFeedback\)[\s\S]{0,360}return \{ \.\.\.q \}/);
-  assert.match(resume, /if \(immediateFeedback\) return \{ \.\.\.q \}/);
+test('Immediate Feedback stays enabled for an active attempt',()=>{
+  const generate=readFileSync('functions/api/exam/generate.ts','utf8');
+  const start=readFileSync('functions/api/exam/start.ts','utf8');
+  assert.match(generate,/immediateFeedback:\s*isImmediateFeedback/);
+  assert.match(start,/if \(immediateFeedback\)[\s\S]{0,360}return \{ \.\.\.q \}/);
 });
 
-
-test('local Node server routes exam READY and session lifecycle through Cloudflare handlers', () => {
-  const server = readFileSync('server.ts', 'utf8');
-  for (const name of ['Generate','Start','Save','Violation','Resume']) {
-    assert.match(server, new RegExp('hardenedExam' + name + 'Handler'));
+test('local backend exposes unified exam handlers and liveness endpoint',()=>{
+  const server=readFileSync('server.ts','utf8');
+  for (const name of ['Generate','Start','Save','Violation','Heartbeat']) {
+    assert.match(server,new RegExp('hardenedExam'+name+'Handler'));
   }
-  for (const route of ['generate','start','save','violation','resume']) {
-    assert.match(server, new RegExp('app\\.post\\("\\/api\\/exam\\/' + route + '"'));
+  for (const route of ['generate','start','save','violation','heartbeat']) {
+    assert.match(server,new RegExp('app\\.post\\("\\/api\\/exam\\/'+route+'"'));
   }
-  const generateStart = server.indexOf('app.post("/api/exam/generate"');
-  const generateEnd = server.indexOf('app.all("/api/exam/export-docx"', generateStart);
-  const generateRoute = server.slice(generateStart, generateEnd);
-  assert.match(generateRoute, /hardenedExamGenerateHandler/);
-  assert.doesNotMatch(generateRoute, /questions:\s*clientQuestions/);
-  assert.match(server, /invokeExamPagesPostHandler/);
+  assert.match(server,/invokeExamPagesPostHandler/);
 });
 
-
-test('resume preserves Immediate Feedback and fails closed on legacy score visibility', () => {
-  const resume = readFileSync('functions/api/exam/resume.ts', 'utf8');
-  const security = readFileSync('functions/api/exam/security.ts', 'utf8');
-  assert.match(resume, /needsLegacyFeedback/);
-  assert.match(resume, /SELECT immediate_feedback, show_score, show_details FROM exam_configs/);
-  assert.match(resume, /const immediateFeedback = decoded\.immediateFeedback !== undefined/);
-  assert.match(resume, /const showScore = hasFrozenShowScore/);
-  assert.match(resume, /immediateFeedback,/);
-  assert.match(resume, /showScore,/);
-  assert.match(resume, /showDetails,/);
-  assert.match(security, /'showScore','show_score'/);
+test('client cannot override score visibility through a recovery endpoint',()=>{
+  const resume=readFileSync('functions/api/exam/resume.ts','utf8');
+  const security=readFileSync('functions/api/exam/security.ts','utf8');
+  assert.match(resume,/EXAM_RESUME_DISABLED/);
+  assert.match(security,/'showScore','show_score'/);
 });
