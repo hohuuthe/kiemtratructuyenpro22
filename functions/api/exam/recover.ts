@@ -65,6 +65,31 @@ export const onRequestPost: PagesFunction<Env> = async context => {
     if (!session || String(session.session_id) !== String(active.session_id)) {
       return reply(409, { code: 'EXAM_RECOVERY_ORPHAN', error: 'Khóa phiên thi không khớp dữ liệu bài làm. Không mở phiên mới để tránh mất bài.' });
     }
+    // Respect the autosave writer lease: a second live tab/device must not
+    // silently take over and race the original writer's in-flight answers.
+    const requestedWriterId = String(body?.writerId || '').trim();
+    if (!/^[A-Za-z0-9_-]{8,120}$/.test(requestedWriterId)) {
+      return reply(400, { code: 'EXAM_RECOVERY_WRITER_REQUIRED', error: 'Không xác minh được tab đang khôi phục bài thi.' });
+    }
+    try {
+      const draft: any = await db.prepare(
+        'SELECT writer_id, writer_seen_at FROM _exam_answer_drafts WHERE session_id = ?'
+      ).bind(String(session.session_id)).first();
+      const holder = String(draft?.writer_id || '').trim();
+      const seenAt = Date.parse(String(draft?.writer_seen_at || ''));
+      if (holder && holder !== requestedWriterId && Number.isFinite(seenAt) &&
+          seenAt > Date.now() - 15_000) {
+        return reply(409, {
+          code: 'EXAM_RECOVERY_WRITER_BUSY',
+          error: 'Phiên thi đang được lưu từ tab hoặc thiết bị khác. Vui lòng quay lại phiên đang làm hoặc thử sau khi phiên đó ngừng hoạt động.'
+        });
+      }
+    } catch (leaseError) {
+      // Older installations might not yet have the autosave lease columns.
+      // The existing /exam/save compare-and-set guard remains authoritative.
+      console.warn('Recovery draft writer lease not available:', leaseError);
+    }
+
     const tokenPayload = buildActiveExamRecoveryPayload({ session, examId, studentUserId: userId });
     if (!tokenPayload) {
       return reply(409, { code: 'EXAM_RECOVERY_UNSAFE', error: 'Dữ liệu phiên đang làm chưa đủ điều kiện khôi phục an toàn.' });
