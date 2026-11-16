@@ -66,9 +66,15 @@ export async function finalizeExamLiveness(context: any, sessionId: string, nowM
     // Result insertion is the source of truth even if a previous finalizer
     // crashed before marking its heartbeat row completed.
     const priorHash=await hashToken('exam-session:'+sessionId);
-    const committed:any=await db.prepare(
-      'SELECT id FROM results WHERE submission_token_hash=? LIMIT 1'
-    ).bind(priorHash).first();
+    let committed:any=null;
+    try {
+      committed=await db.prepare(
+        'SELECT id FROM results WHERE submission_token_hash=? LIMIT 1'
+      ).bind(priorHash).first();
+    } catch (legacyError) {
+      // Legacy tenants can lack this column before the grader initializes it.
+      // Continue via the grader's unique claim; never assume a result exists.
+    }
     if (committed?.id) {
       await db.prepare('DELETE FROM _exam_active_attempts WHERE session_id=?').bind(sessionId).run();
       await db.prepare('UPDATE _exam_attempt_liveness SET finalized_at=?,last_error=NULL WHERE session_id=?')
