@@ -139,8 +139,9 @@ export async function finalizeExamLiveness(context: any, sessionId: string, nowM
   }
 }
 
-// Safely migrate pre-upgrade ACTIVE locks only after their server deadline.
-// A missing/corrupt snapshot is never silently discarded or scored as zero.
+// Migrate old ACTIVE locks after at least 90 seconds since their START.
+// Register them with a fresh heartbeat clock, then wait 90 seconds before
+// automatic finalization. No active answer/snapshot is deleted prematurely.
 export async function registerExpiredLegacyExamAttempts(context:any, limit=20) {
   const db=getDatabase(context);
   await ensureExamLivenessSchema(db);
@@ -150,9 +151,9 @@ export async function registerExpiredLegacyExamAttempts(context:any, limit=20) {
     JOIN _exam_grade_sessions gs ON gs.session_id=a.session_id
     LEFT JOIN _exam_attempt_liveness l ON l.session_id=a.session_id
     WHERE l.session_id IS NULL AND gs.started_at IS NOT NULL
-      AND gs.deadline_at IS NOT NULL AND gs.deadline_at <= ?
-    ORDER BY gs.deadline_at ASC LIMIT ?
-  `).bind(new Date().toISOString(),Math.max(1,Math.min(limit,50))).all();
+      AND gs.deadline_at IS NOT NULL AND gs.started_at <= ?
+    ORDER BY gs.started_at ASC LIMIT ?
+  `).bind(new Date(Date.now()-90_000).toISOString(),Math.max(1,Math.min(limit,50))).all();
   for (const row of results||[]) {
     const rawUser=String(row.user_id||'');
     const isContest=rawUser.startsWith('contest:');
