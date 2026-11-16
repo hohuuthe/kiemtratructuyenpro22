@@ -8180,7 +8180,7 @@ if (contentType && contentType.includes("application/json")) {
             
             // Reset trạng thái bài thi về ban đầu nếu đang ở tab làm bài
             if (typeof resetExam === 'function') {
-                resetExam();
+                resetExam({ preserveActiveResume: true });
             }
             
             if (!teacherId) {
@@ -8343,8 +8343,7 @@ if (contentType && contentType.includes("application/json")) {
             if (typeof resetExam === 'function') {
                 // A fresh-attempt selection must not remove the existing ACTIVE
                 // recovery token until /exam/start confirms the replacement.
-                resetExam({ preserveActiveResume: Boolean(window.__pendingExamReplacement &&
-                    String(window.__pendingExamReplacement.examId) === String(selectedExamId)) });
+                resetExam({ preserveActiveResume: true });
             }
             window._studentExamLoadStatus = teacherId && selectedExamId
                 ? { teacherId: String(teacherId), examId: String(selectedExamId), status: 'loading', message: '' }
@@ -9078,22 +9077,39 @@ if (contentType && contentType.includes("application/json")) {
             // the authenticated server confirms another attempt is available.
             let resumeReplacementChoice = null;
             const resumedExamId = String(data.examConfig?.id || meta.examId || '');
+            // Show the resume confirmation immediately: the secondary quota
+            // inspection may be slow and must never block access to the old exam.
             if (!isResumedContest && authToken && resumedExamId) {
-                try {
-                    const inspected = await fetchExamStartResponse(fetch,'/api/exam/recover',{
-                        method:'POST',cache:'no-store',
-                        headers:{'Content-Type':'application/json','Authorization':'Bearer '+authToken},
-                        body:JSON.stringify({examId:resumedExamId,mode:'inspect'})
-                    },12000);
-                    if (inspected.ok && inspected.body?.active === true &&
-                        String(inspected.body?.sessionId || '') === String(data.sessionId || '')) {
-                        resumeReplacementChoice = {
-                            examId:resumedExamId,
-                            sessionId:String(inspected.body.sessionId || ''),
-                            canCreateNew:inspected.body.canCreateNew === true
-                        };
+                void (async () => {
+                    try {
+                        const inspected = await fetchExamStartResponse(fetch,'/api/exam/recover',{
+                            method:'POST',cache:'no-store',
+                            headers:{'Content-Type':'application/json','Authorization':'Bearer '+authToken},
+                            body:JSON.stringify({examId:resumedExamId,mode:'inspect'})
+                        },8000);
+                        const button = document.getElementById('exam-resume-create-new');
+                        const help = document.getElementById('exam-resume-replace-help');
+                        if (!button?.isConnected) return;
+                        if (inspected.ok && inspected.body?.active === true &&
+                            String(inspected.body?.sessionId || '') === String(data.sessionId || '')) {
+                            resumeReplacementChoice = {
+                                examId:resumedExamId,
+                                sessionId:String(inspected.body.sessionId || ''),
+                                canCreateNew:inspected.body.canCreateNew === true
+                            };
+                            button.disabled = !resumeReplacementChoice.canCreateNew;
+                            button.setAttribute('aria-disabled', String(!resumeReplacementChoice.canCreateNew));
+                            if (help) help.textContent = resumeReplacementChoice.canCreateNew
+                                ? 'Tạo bài mới sẽ tính phiên cũ là một lượt đã sử dụng.'
+                                : 'Không còn đủ lượt để tạo bài mới.';
+                        } else if (help) {
+                            help.textContent = 'Chưa xác minh được lượt mới. Bạn vẫn có thể tiếp tục bài trước.';
+                        }
+                    } catch (_) {
+                        const help = document.getElementById('exam-resume-replace-help');
+                        if (help?.isConnected) help.textContent = 'Không kiểm tra được lượt mới. Vui lòng thử lại sau.';
                     }
-                } catch (_) {}
+                })();
             }
 
             const remaining = Math.max(0, Number(data.remainingSeconds) || 0);
@@ -9111,16 +9127,13 @@ if (contentType && contentType.includes("application/json")) {
                     <button id="exam-resume-confirm" class="mt-3 px-5 py-2.5 rounded-xl bg-indigo-600 text-white font-bold hover:bg-indigo-700">
                         ${data.expired ? 'Hoàn tất bài thi' : 'Tiếp tục làm bài'}
                     </button>
-                    ${resumeReplacementChoice ? `
-                    <button id="exam-resume-create-new" type="button"
-                        ${resumeReplacementChoice.canCreateNew ? '' : 'disabled aria-disabled="true"'}
+                    ${!isResumedContest && authToken && resumedExamId ? `
+                    <button id="exam-resume-create-new" type="button" disabled aria-disabled="true"
                         class="mt-2 px-5 py-2.5 rounded-xl border border-indigo-300 text-indigo-700 font-bold">
                         Tạo bài thi mới
                     </button>
-                    <p class="text-xs text-gray-500 mt-2">
-                        ${resumeReplacementChoice.canCreateNew
-                            ? 'Phiên thi cũ sẽ được tính là một lượt đã sử dụng khi thay thành công.'
-                            : 'Không còn lượt được phép để tạo phiên thi mới.'}
+                    <p id="exam-resume-replace-help" class="text-xs text-gray-500 mt-2">
+                        Đang kiểm tra lượt được phép...
                     </p>` : ''}
                 </div>
             `, 'student-exam-compact', false);
