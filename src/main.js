@@ -12,6 +12,7 @@ import {readBrowserGeminiKeys,saveBrowserGeminiKeys,prioritizeGradingKeys,splitG
 import { configureExamAccessCodeInput } from './exam-access-code-input.js';
 import { parseExamAttemptLimitError, buildExamAttemptLimitModal, buildExamReadyModal, fetchExamStartResponse } from './student-exam-start-guard.js';
 import { scrollExamSubmitIntoView } from './exam-scroll-to-submit.js';
+import { scrollExamQuestionNavigator } from './exam-question-navigator.js';
 
 import 'katex/dist/katex.min.css';
 import { renderRoleHelp, attachRoleHelpInteractions, resetRoleHelpCache } from './help-center.js';
@@ -4493,6 +4494,52 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
         // ==================== TAB NAVIGATION ====================
         window.switchTab = switchTab;
         let requestedTab = '';
+        let examLeaveDialogOpen = false;
+
+        function showActiveExamLeaveDialog(requestedTarget, ownerTab) {
+            // Do not stack confirmation modals when navigation is requested
+            // repeatedly by a click, rerender or a delayed callback.
+            if (examLeaveDialogOpen) return;
+            examLeaveDialogOpen = true;
+            showModal(`
+                <div class="p-4 sm:p-5 w-full max-w-sm mx-auto flex flex-col gap-3" data-exam-leave-dialog="true">
+                    <h3 class="text-base sm:text-lg font-bold text-amber-800">⚠️ Xác nhận chuyển chức năng</h3>
+                    <p class="text-sm text-gray-700">Bạn đang có bài thi chưa hoàn tất. Hãy chọn <strong>Tiếp tục làm bài</strong> để quay lại phiên hiện tại.</p>
+                    <div class="flex flex-col gap-2">
+                        <button id="exam-leave-stay" type="button" class="w-full min-h-11 px-4 py-3 rounded-xl bg-indigo-600 text-white font-bold">Tiếp tục làm bài</button>
+                        <button id="exam-leave-confirm" type="button" class="w-full min-h-11 px-4 py-3 rounded-xl bg-gray-100 text-red-700 font-semibold">Rời và hủy bài đang làm</button>
+                    </div>
+                </div>
+            `, 'student-exam-compact', false);
+            // showModal mounts into the current fullscreen element, if any.
+            const container = document.getElementById('modal-container');
+            if (document.fullscreenElement && container?.parentElement !== document.fullscreenElement) {
+                document.fullscreenElement.appendChild(container);
+            }
+            const stay = container?.querySelector('#exam-leave-stay');
+            const leave = container?.querySelector('#exam-leave-confirm');
+            if (!stay || !leave) {
+                closeModal();
+                showToast('Không thể mở hộp thoại. Bài làm vẫn được giữ nguyên.', 'warning');
+                return;
+            }
+            stay.addEventListener('click', () => {
+                closeModal();
+                requestedTab = ownerTab;
+                const activeExam = document.getElementById('exam-interface');
+                activeExam?.classList.remove('hidden');
+                document.getElementById('exam-form')?.classList.add('hidden');
+                document.getElementById('exam-results')?.classList.add('hidden');
+                // Never reset clock, responses or attempt on a stay action.
+            }, { once: true });
+            leave.addEventListener('click', () => {
+                closeModal();
+                resetExam();
+                switchTab(requestedTarget);
+            }, { once: true });
+            try { stay.focus({ preventScroll: true }); } catch(e) {}
+        }
+
         function switchTab(tabName) {
             const previousTab = requestedTab;
             requestedTab = tabName;
@@ -4542,11 +4589,8 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
             if (tabName !== activeExamOwnerTab && isExamInProgress && !isShowingResults) {
                 // Keep the current tab as owner if a learner declines cancellation.
                 // The earlier eager requestedTab update must not corrupt navigation.
-                requestedTab = previousTab || activeExamOwnerTab;
-                showConfirmModal('Bạn đang trong quá trình làm bài thi. Nếu chuyển sang tab khác, bài làm của bạn sẽ bị hủy. Bạn có chắc chắn muốn chuyển không?', () => {
-                    resetExam();
-                    switchTab(tabName);
-                });
+                requestedTab = activeExamOwnerTab;
+                showActiveExamLeaveDialog(tabName, activeExamOwnerTab);
                 return;
             }
 
@@ -5595,6 +5639,9 @@ if (contentType && contentType.includes("application/json")) {
 
         window.closeModal = closeModal;
         function closeModal() {
+            // Dismissal is always non-destructive. A future legitimate tab
+            // request must be able to reopen one usable dialog.
+            examLeaveDialogOpen = false;
             if (window.__mathTypeExamExportController) {
                 try { window.__mathTypeExamExportController.abort(); } catch {}
                 window.__mathTypeExamExportController = null;
@@ -10126,6 +10173,9 @@ if (contentType && contentType.includes("application/json")) {
             }
         }
 
+        // Bảng C/H only scrolls inside the current exam; it cannot leave contest mode.
+        window.openExamQuestionNavigator = () => scrollExamQuestionNavigator(document);
+
         function renderCurrentQuestion(isNewQuestion = false) {
             const container = document.getElementById('question-content-display');
             if (!container) return;
@@ -10177,7 +10227,7 @@ if (contentType && contentType.includes("application/json")) {
                                             ${questionAuthorDisplayName(q,accountsMap,currentUser)}
                                         </span></u>` : ''}
                                     </div>
-                                    <button onclick="switchTab('exam')" title="Quay về Bảng điều khiển câu hỏi" class="flex-shrink-0 p-1.5 md:px-3 md:py-1.5 bg-white text-emerald-600 rounded-xl hover:bg-emerald-50 transition-all shadow-sm border border-emerald-100 flex items-center gap-1.5 text-[10px] md:text-xs font-black hover:scale-105">
+                                    <button type="button" onclick="openExamQuestionNavigator()" title="Quay về Bảng điều khiển câu hỏi" class="flex-shrink-0 p-1.5 md:px-3 md:py-1.5 bg-white text-emerald-600 rounded-xl hover:bg-emerald-50 transition-all shadow-sm border border-emerald-100 flex items-center gap-1.5 text-[10px] md:text-xs font-black hover:scale-105">
                                         <svg class="w-3.5 h-3.5 md:w-4 md:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
                                         Bảng C/H
                                     </button>
@@ -10235,7 +10285,7 @@ if (contentType && contentType.includes("application/json")) {
                                         <span class="inline-flex px-2 py-0.5 bg-blue-500 text-white text-xs md:text-sm font-black rounded-md shadow-sm shadow-blue-200 uppercase tracking-tight">${q.type}</span></u>
                                         <span class="inline-flex px-2 py-0.5 bg-emerald-500 text-white text-xs md:text-sm font-black rounded-md shadow-sm shadow-emerald-200 uppercase tracking-tight">${q.level || 'NB'}</span></u>
                                     </div>
-                                    <button onclick="switchTab('exam')" title="Quay về Bảng điều khiển câu hỏi" class="md:hidden flex-shrink-0 px-2.5 py-1.5 bg-white text-emerald-600 rounded-lg hover:bg-emerald-50 shadow-sm border border-emerald-100 flex items-center gap-1 text-[10px] font-black">
+                                    <button type="button" onclick="openExamQuestionNavigator()" title="Quay về Bảng điều khiển câu hỏi" class="md:hidden flex-shrink-0 px-2.5 py-1.5 bg-white text-emerald-600 rounded-lg hover:bg-emerald-50 shadow-sm border border-emerald-100 flex items-center gap-1 text-[10px] font-black">
                                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
                                         Bảng C/H
                                     </button>
@@ -10250,7 +10300,7 @@ if (contentType && contentType.includes("application/json")) {
                                         ${questionAuthorDisplayName(q,accountsMap,currentUser)}
                                     </span></u>` : ''}
                                 </div>
-                                <button onclick="switchTab('exam')" title="Quay về Bảng điều khiển câu hỏi" class="hidden md:flex flex-shrink-0 p-2 md:px-3 md:py-1.5 bg-white text-emerald-600 rounded-xl hover:bg-emerald-50 transition-all shadow-sm border border-emerald-100 items-center gap-1.5 text-[10px] md:text-xs font-black">
+                                <button type="button" onclick="openExamQuestionNavigator()" title="Quay về Bảng điều khiển câu hỏi" class="hidden md:flex flex-shrink-0 p-2 md:px-3 md:py-1.5 bg-white text-emerald-600 rounded-xl hover:bg-emerald-50 transition-all shadow-sm border border-emerald-100 items-center gap-1.5 text-[10px] md:text-xs font-black">
                                     <svg class="w-4 h-4 md:w-4 md:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
                                     Bảng C/H
                                 </button>
