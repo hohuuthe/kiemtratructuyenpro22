@@ -7,6 +7,8 @@ on:
       - 'src/main.js'
       - 'functions/api/exam/**'
       - 'workers/exam-finalizer-worker.ts'
+      - 'wrangler.exam-finalizer.toml'
+      - 'src/exam-finalizer-marker.ts'
       - 'server.ts'
       - 'tests/exam-no-resume-liveness.test.mjs'
       - '.github/workflows/exam-no-resume-release.yml'
@@ -31,3 +33,5 @@ jobs:
         run: npm run lint
       - name: Production build
         run: npm run build
+      - name: Compile isolated Cron Worker (no Cloudflare deployment)
+        run: npx --yes wrangler@4.54.0 deploy --dry-run --config wrangler.exam-finalizer.toml
