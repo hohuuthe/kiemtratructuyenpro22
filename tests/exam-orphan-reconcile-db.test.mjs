@@ -116,6 +116,7 @@ for(const [name,opts] of [
 test('start retries after an orphan cleanup and does not bypass quota check',()=>{
  const start=readFileSync('functions/api/exam/start.ts','utf8');
  assert.match(start,/reconcileExpiredLegacyOrphan\(/);
+ assert.match(start,/const orphanReleased=signedStudentUserId && !contestParticipantId/);
  assert.match(start,/EXAM_PREVIOUS_ATTEMPT_RECONCILED/);
  assert.match(start,/completed \+ usedCanceled/);
  assert.match(start,/if \(orphanReleased\) \{/);
