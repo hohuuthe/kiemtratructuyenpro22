@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { buildActiveExamRecoveryPayload } from '../src/exam-active-attempt-recovery.js';
+import { buildActiveExamRecoveryPayload, examAllowsFreshAttempt, unrecoverableExamSnapshotReason } from '../src/exam-active-attempt-recovery.js';
 
 const now = Date.parse('2026-11-16T03:00:00Z');
 const session = {
@@ -77,4 +77,55 @@ test('409 conflict uses authenticated recovery without replacing session or crea
   assert.match(endpoint, /WHERE session_id = \?/);
   assert.doesNotMatch(endpoint, /INSERT INTO _exam_grade_sessions/);
   assert.doesNotMatch(endpoint, /DELETE FROM _exam_active_attempts/);
+});
+
+test('Only proven invalid snapshots qualify for confirmed abandonment',()=>{
+  assert.equal(unrecoverableExamSnapshotReason(session,'exam-1',now),null);
+  assert.equal(unrecoverableExamSnapshotReason(null,'exam-1',now),'missing_snapshot');
+  assert.equal(unrecoverableExamSnapshotReason({...session, expires_at:new Date(now-1).toISOString()},'exam-1',now),'expired_snapshot');
+  assert.equal(unrecoverableExamSnapshotReason({...session, question_snapshot:'{broken'},'exam-1',now),'corrupt_snapshot');
+  assert.equal(unrecoverableExamSnapshotReason({...session, question_snapshot:JSON.stringify([{id:'q-2'},{id:'q-1'}])},'exam-1',now),'corrupt_snapshot');
+  assert.equal(unrecoverableExamSnapshotReason({...session, exam_id:'another-exam'},'exam-1',now),null);
+  assert.equal(unrecoverableExamSnapshotReason({...session, started_at:null},'exam-1',now),null);
+});
+
+test('A new attempt requires actual multiple-attempt availability',()=>{
+  assert.equal(examAllowsFreshAttempt(1,0),false);
+  assert.equal(examAllowsFreshAttempt(1,1),false);
+  assert.equal(examAllowsFreshAttempt(2,0),true);
+  assert.equal(examAllowsFreshAttempt(2,1),true);
+  assert.equal(examAllowsFreshAttempt(2,2),false);
+  assert.equal(examAllowsFreshAttempt(0,5),true);
+  assert.equal(examAllowsFreshAttempt(-1,0),false);
+  assert.equal(examAllowsFreshAttempt(null,0),true); // 0 means unlimited under the existing exam configuration
+});
+
+test('Abandon endpoint cannot delete old student answers or unconditionally bypass quota',()=>{
+  const source = readFileSync('functions/api/exam/abandon.ts','utf8');
+  assert.match(source,/verifyAuthSession/);
+  assert.match(source,/examAllowsFreshAttempt\(maxAttempts, completed\)/);
+  assert.match(source,/unrecoverableExamSnapshotReason\(session,examId,Date.now\(\)\)/);
+  assert.match(source,/SELECT 1 AS pending FROM _submitted_exam_tokens/);
+  assert.match(source,/DELETE FROM _exam_active_attempts/);
+  assert.match(source,/INSERT INTO _exam_abandoned_attempts/);
+  assert.doesNotMatch(source,/DELETE FROM _exam_answer_drafts/);
+  assert.doesNotMatch(source,/DELETE FROM _exam_grade_sessions/);
+  assert.doesNotMatch(source,/DELETE FROM results/);
+  assert.doesNotMatch(source,/UPDATE exam_configs SET max_attempts/);
+  for(const path of ['functions/api/exam/resume.ts','functions/api/exam/save.ts','functions/api/exam/grade.ts']){
+    const text = readFileSync(path,'utf8');
+    assert.match(text,/EXAM_ATTEMPT_ABANDONED/);
+    assert.match(text,/FROM _exam_abandoned_attempts WHERE session_id = \?/);
+  }
+});
+
+test('Browser offers retry only for server-confirmed irrecoverable snapshots',()=>{
+  const code = readFileSync('src/main.js','utf8');
+  const start = code.slice(code.indexOf("startResult.code === 'EXAM_ATTEMPT_ALREADY_ACTIVE'"),code.indexOf('window.currentExamToken = recovery.body.token;'));
+  assert.match(start,/safeAbandonCodes/);
+  assert.match(start,/EXAM_RECOVERY_SNAPSHOT_MISMATCH/);
+  assert.doesNotMatch(start,/safeAbandonCodes[^;]*EXAM_RECOVERY_WRITER_BUSY/s);
+  assert.match(start,/\/api\/exam\/abandon/);
+  assert.match(start,/confirm:true/);
+  assert.match(start,/abandoned.body\?\.canCreateNew !== true/);
 });
