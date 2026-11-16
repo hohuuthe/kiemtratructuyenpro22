@@ -1,5 +1,6 @@
 import { verifyJWT, verifyAuthSession, getDatabase, getDynamicSecret } from './utils';
 import { ensureExamLivenessSchema, finalizeExamLiveness } from './finalize-service';
+import { sanitizeDraftAnswers } from './save';
 
 interface Env {
   NEON_DATABASE_URL?: string; DATABASE_URL?: string; JWT_SECRET?: string; DB?: any;
@@ -50,6 +51,34 @@ export const onRequestPost:PagesFunction<Env>=async context=>{
     }
     await ensureExamLivenessSchema(db);
     const now=new Date().toISOString();
+
+    // The page-exit event carries small last-second answers when possible.
+    // Preserve the prior server draft if this update fails validation.
+    if (action==='leave' && Array.isArray(body?.studentAnswers)) {
+      try {
+        const answers=sanitizeDraftAnswers(body.studentAnswers);
+        const session:any=await db.prepare(
+          'SELECT question_ids FROM _exam_grade_sessions WHERE session_id=?'
+        ).bind(sessionId).first();
+        const ids=JSON.parse(String(session?.question_ids||'[]'));
+        const revision=Number(body.revision);
+        const writer=String(body.writerId||'');
+        const json=JSON.stringify(answers);
+        if (answers.length===ids.length && Number.isSafeInteger(revision) &&
+            revision>0 && revision<10_000_000 && /^[A-Za-z0-9_-]{8,120}$/.test(writer) &&
+            json.length<45_000) {
+          await db.prepare('ALTER TABLE _exam_answer_drafts ADD COLUMN IF NOT EXISTS writer_id TEXT').run();
+          await db.prepare('ALTER TABLE _exam_answer_drafts ADD COLUMN IF NOT EXISTS writer_seen_at TEXT').run();
+          await db.prepare('UPDATE _exam_answer_drafts SET answers_json=?,revision=?,saved_at=?,writer_id=?,writer_seen_at=? WHERE session_id=? AND revision<? AND (writer_id IS NULL OR writer_id=? OR writer_seen_at<?)').bind(
+            json,revision,now,writer,now,sessionId,revision,writer,
+            new Date(Date.now()-15_000).toISOString()
+          ).run();
+        }
+      } catch(saveError) {
+        console.warn('Final leave draft not accepted; preserving last confirmed autosave.');
+      }
+    }
+
     const changed:any=action==='leave'
       ? await db.prepare(`
           UPDATE _exam_attempt_liveness
