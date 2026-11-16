@@ -2,6 +2,7 @@ import { verifyAuthSession, verifyJWT, getDynamicSecret, hashToken, getDatabase 
 import { evaluateTF4, isShortAnswerCorrect, examFlagEnabled, clampScore, roundScore, validateQuestionAnswer } from '../../../src/exam-grading-core.js';
 import { EXAM_SESSION_PURPOSE_PRESTART, EXAM_SESSION_PURPOSE_ACTIVE, resolveAuthoritativeExamTiming } from '../../../src/exam-time-authority.js';
 import { stripContestAnswerHints } from '../../../src/exam-public-contest-projection';
+import { INTERNAL_EXAM_FINALIZER } from '../../../src/exam-finalizer-marker';
 
 interface Env {
   NEON_DATABASE_URL?: string;
@@ -142,6 +143,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
   const db = getDatabase(context);
     const { request, env } = context;
     const SECRET = await getDynamicSecret(db, env.JWT_SECRET);
+    const trustedFinalizer = (context as any)[INTERNAL_EXAM_FINALIZER] === true;
     let tokenHash = '';
     let tokenClaimed = false;
     let resultPersisted = false;
@@ -163,6 +165,11 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         let authenticatedDonvi = studentInfo.donvi || studentInfo.unit || '';
 
         const authHeader = request.headers.get("authorization");
+        // The scheduled finalizer is invoked in-process with a non-HTTP symbol.
+        // A JSON/header value cannot grant the same privilege.
+        if (trustedFinalizer && !decoded?.gradingSessionId) {
+            return new Response(JSON.stringify({error:"Missing trusted session"}),{status:403,headers:corsHeaders});
+        }
         if (authHeader && authHeader.startsWith("Bearer ")) {
             try {
                 const verifiedUser = await verifyAuthSession(authHeader.substring(7), SECRET, db);
@@ -213,6 +220,21 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       }), {status:503,headers:corsHeaders});
     }
 
+        if (trustedFinalizer && sessionStudentUserId) {
+            // Authentication was checked when the attempt started. Revalidate
+            // the locked attempt owner from the tenant database, not the body.
+            const owner: any = await db.prepare(
+                'SELECT user_id FROM _exam_active_attempts WHERE session_id=? AND user_id=?'
+            ).bind(String(gradingSessionId),String(sessionStudentUserId)).first();
+            if (!owner) return new Response(JSON.stringify({error:'Trusted attempt owner mismatch'}),{status:403,headers:corsHeaders});
+            authenticatedUserId = String(sessionStudentUserId);
+            const profile: any = await db.prepare(
+                'SELECT full_name, lop, donvi FROM users WHERE id=?'
+            ).bind(String(sessionStudentUserId)).first();
+            authenticatedStudentName = String(profile?.full_name || studentInfo.name || '');
+            authenticatedLop = String(profile?.lop || '');
+            authenticatedDonvi = String(profile?.donvi || '');
+        }
         const contestParticipantId = String(decoded.contestParticipantId || '').trim();
         if (contestParticipantId) {
             const candidate: any = await db.prepare('SELECT ma_nguoi_du_thi, ho_ten, don_vi FROM contest_participants WHERE ma_nguoi_du_thi = ?').bind(contestParticipantId).first();
@@ -236,7 +258,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         const verifiedRequestUserId = authenticatedUserId ? String(authenticatedUserId) : '';
         const signedStudentUserId = sessionStudentUserId ? String(sessionStudentUserId) : '';
         if (signedStudentUserId) {
-            if (!verifiedRequestUserId || verifiedRequestUserId !== signedStudentUserId) {
+            if ((!trustedFinalizer && !verifiedRequestUserId) || (verifiedRequestUserId && verifiedRequestUserId !== signedStudentUserId)) {
                 return new Response(JSON.stringify({
                     error: 'Tài khoản nộp bài không khớp tài khoản đã nhận phiên thi.'
                 }), { status: 403, headers: corsHeaders });
@@ -421,7 +443,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                 if (!snapshotRow) {
                     return new Response(JSON.stringify({ error: 'Phiên chấm điểm không tồn tại hoặc đã được thu hồi.' }), { status: 409, headers: corsHeaders });
                 }
-                if (snapshotRow.expires_at && new Date(String(snapshotRow.expires_at)).getTime() < Date.now()) {
+                if (!trustedFinalizer && snapshotRow.expires_at && new Date(String(snapshotRow.expires_at)).getTime() < Date.now()) {
                     return new Response(JSON.stringify({ error: 'Phiên chấm điểm đã hết hạn.' }), { status: 409, headers: corsHeaders });
                 }
                 const frozenIds = JSON.parse(String(snapshotRow.question_ids || '[]')).map((id: any) => String(id));
@@ -453,7 +475,22 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                             error: 'Mốc thời gian phiên thi không hợp lệ; hệ thống chưa chấm và chưa lưu kết quả.'
                         }), { status: 409, headers: corsHeaders });
                     }
-                    if (authoritativeTiming.expired) {
+                    // A leave/timeout finalization always grades the last
+                    // committed server draft, never a late browser payload.
+                    let mustUseSavedDraft = trustedFinalizer || authoritativeTiming.expired;
+                    try {
+                        const state: any = await db.prepare(
+                            'SELECT leave_requested_at, finalizing_at, finalized_at FROM _exam_attempt_liveness WHERE session_id = ?'
+                        ).bind(String(gradingSessionId)).first();
+                        if (state?.leave_requested_at || state?.finalizing_at || state?.finalized_at) {
+                            mustUseSavedDraft = true;
+                        }
+                    } catch (stateError) {
+                        if (trustedFinalizer) throw stateError;
+                        // Backward compatibility: older tenants may not yet
+                        // have the liveness table. No client-side override.
+                    }
+                    if (mustUseSavedDraft) {
                         let draftRow: any = null;
                         try {
                             draftRow = await db.prepare(
