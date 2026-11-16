@@ -169,37 +169,3 @@ test('DB: autosave cannot write with another account or wrong exam ownership',as
     assert.equal((await db.query(schoolSaveSql,args)).rowCount,0);
   }finally{await db.close();}
 });
- + (++n); })());
-assert.equal((schoolSaveSql.match(/\$\d+/g)||[]).length,11,'Review school draft-save bind contract');
-
-test('DB: an autosave that begins after replacement cannot modify revoked session answers', async()=>{
-  const {db,args} = await fixture();
-  const now=new Date('2026-11-16T03:00:00.000Z').toISOString();
-  const cutoff=new Date('2026-11-16T02:59:45.000Z').toISOString();
-  const draftArgs = ['old-session','["first"]',1,now,'writer-abc123',now,
-    'old-session','exam-1','user-1','old-session',cutoff];
-  try {
-    let saved=await db.query(schoolSaveSql,draftArgs);
-    assert.equal(saved.rowCount,1);
-    assert.equal((await db.query('SELECT answers_json FROM _exam_answer_drafts WHERE session_id=$1',['old-session'])).rows[0].answers_json,'["first"]');
-    const replaced=await db.query(replacementSql,args);
-    assert.equal(replaced.rowCount,1);
-    const rejected=await db.query(schoolSaveSql,[...draftArgs.slice(0,1),'["tampered"]',2,...draftArgs.slice(3)]);
-    assert.equal(rejected.rowCount,0);
-    const historical=await db.query('SELECT answers_json,revision FROM _exam_answer_drafts WHERE session_id=$1',['old-session']);
-    assert.equal(historical.rows[0].answers_json,'["first"]');
-    assert.equal(historical.rows[0].revision,1);
-  } finally { await db.close(); }
-});
-
-test('DB: autosave cannot write with another account or wrong exam ownership',async()=>{
-  const {db}=await fixture();
-  const now=new Date('2026-11-16T03:00:00.000Z').toISOString();
-  const args=['old-session','["wrong"]',1,now,'writer-abc123',now,
-    'old-session','exam-1','user-2','old-session',now];
-  try{
-    assert.equal((await db.query(schoolSaveSql,args)).rowCount,0);
-    args[8]='user-1';args[7]='exam-2';
-    assert.equal((await db.query(schoolSaveSql,args)).rowCount,0);
-  }finally{await db.close();}
-});
