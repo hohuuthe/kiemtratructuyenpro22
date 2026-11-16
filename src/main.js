@@ -9223,6 +9223,26 @@ if (contentType && contentType.includes("application/json")) {
         window.tryResumeActiveExam = tryResumeActiveExam;
 
 
+        function showActiveExamRecoveryRetry(message) {
+            // Never strand a learner behind a toast when the server cannot
+            // verify ownership or a different tab is still saving answers.
+            showModal(`
+                <div class="p-4 sm:p-5 text-center flex flex-col gap-3">
+                    <h3 class="text-lg font-bold text-gray-800">Phiên thi đang được bảo vệ</h3>
+                    <p id="exam-recovery-explanation" class="text-sm text-gray-600"></p>
+                    <button type="button" id="exam-recover-retry" class="w-full min-h-11 px-4 py-3 bg-indigo-600 text-white rounded-xl font-bold">Kiểm tra và mở lại phiên thi</button>
+                    <button type="button" id="exam-recover-close" class="w-full min-h-11 px-4 py-3 bg-gray-100 text-gray-800 rounded-xl font-semibold">Quay lại</button>
+                </div>
+            `, 'student-exam-compact', false);
+            const explanation = document.getElementById('exam-recovery-explanation');
+            if (explanation) explanation.textContent = String(message || 'Không thể xác minh phiên đang làm. Vui lòng thử lại.');
+            document.getElementById('exam-recover-close')?.addEventListener('click', closeModal, { once: true });
+            document.getElementById('exam-recover-retry')?.addEventListener('click', () => {
+                closeModal();
+                void window.startExam?.();
+            }, { once: true });
+        }
+
         // Called BEFORE /api/exam/generate so an existing ACTIVE attempt never
         // appears in a contradictory "Đề thi đã sẵn sàng" READY dialog.
         async function offerActiveExamBeforeReady(examId, details) {
@@ -9254,13 +9274,13 @@ if (contentType && contentType.includes("application/json")) {
                 });
                 recovered = await response.json().catch(() => ({}));
             } catch {
-                showToast('Chưa thể xác minh phiên thi đang làm. Vui lòng kiểm tra kết nối và thử lại.', 'warning');
+                showActiveExamRecoveryRetry('Chưa thể xác minh phiên thi đang làm do mất kết nối. Vui lòng kiểm tra Internet và thử lại.');
                 return true;
             }
             if (response.status === 409 && recovered.code === 'EXAM_RECOVER_NOT_FOUND') return false;
             if (!response.ok || !recovered?.token) {
                 // An expired or unverified lock is never mistaken for a READY exam.
-                showToast(recovered?.error || 'Chưa thể xác minh phiên thi cũ. Vui lòng thử lại.', 'warning');
+                showActiveExamRecoveryRetry(recovered?.error || 'Chưa thể xác minh phiên thi cũ. Vui lòng thử lại.');
                 return true;
             }
             const resumeMeta = {
@@ -9274,7 +9294,7 @@ if (contentType && contentType.includes("application/json")) {
                 token: recovered.token, meta: resumeMeta, allowOtherTab: true
             });
             if (resumed) return true;
-            showToast('Đã tìm được phiên thi nhưng chưa thể mở an toàn. Vui lòng thử lại.', 'warning');
+            showActiveExamRecoveryRetry('Đã tìm được phiên thi nhưng chưa thể mở an toàn. Hãy đóng tab cũ nếu còn mở rồi kiểm tra lại.');
             return true;
         }
 
