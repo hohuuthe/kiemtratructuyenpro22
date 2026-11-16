@@ -33,6 +33,10 @@ async function fixture({used=0, canceled=0, processing=false}={}) {
     CREATE TABLE results (
       id TEXT PRIMARY KEY,exam_id TEXT,user_id TEXT,submission_token_hash TEXT
     );
+    CREATE TABLE _exam_answer_drafts (
+      session_id TEXT PRIMARY KEY, answers_json TEXT NOT NULL, revision INTEGER NOT NULL,
+      saved_at TEXT NOT NULL, writer_id TEXT, writer_seen_at TEXT
+    );
   `);
   const now = new Date('2026-11-16T03:00:00.000Z').toISOString();
   const end = new Date('2026-11-16T03:45:00.000Z').toISOString();
@@ -124,4 +128,44 @@ test('DB replacement never revokes the old session when the new READY snapshot i
     assert.equal((await db.query('SELECT session_id FROM _exam_active_attempts')).rows[0].session_id,'old-session');
     assert.equal((await db.query('SELECT COUNT(*)::int AS count FROM _exam_abandoned_attempts')).rows[0].count,0);
   } finally { await db.close(); }
+});
+
+const saveSource = readFileSync('functions/api/exam/save.ts','utf8');
+const guardedValues = saveSource.match(/const draftValuesSql = schoolAttempt\s*\? `([\s\S]*?)`\s*:\s*'VALUES/);
+const insertTemplate = saveSource.match(/const draftSql = `([\s\S]*?)`;/);
+assert.ok(guardedValues && insertTemplate, 'Extract the actual school autosave query from production code');
+const schoolSaveSql = insertTemplate[1].replace('${draftValuesSql}', guardedValues[1])
+  .replace(/\?/g, (_m, offset, str) => '$' + str.slice(0,offset).match(/\?/g).length);
+assert.equal((schoolSaveSql.match(/\$\d+/g)||[]).length,11,'Review school draft-save bind contract');
+
+test('DB: an autosave that begins after replacement cannot modify revoked session answers', async()=>{
+  const {db,args} = await fixture();
+  const now=new Date('2026-11-16T03:00:00.000Z').toISOString();
+  const cutoff=new Date('2026-11-16T02:59:45.000Z').toISOString();
+  const draftArgs = ['old-session','["first"]',1,now,'writer-abc123',now,
+    'old-session','exam-1','user-1','old-session',cutoff];
+  try {
+    let saved=await db.query(schoolSaveSql,draftArgs);
+    assert.equal(saved.rowCount,1);
+    assert.equal((await db.query('SELECT answers_json FROM _exam_answer_drafts WHERE session_id=$1',['old-session'])).rows[0].answers_json,'["first"]');
+    const replaced=await db.query(replacementSql,args);
+    assert.equal(replaced.rowCount,1);
+    const rejected=await db.query(schoolSaveSql,[...draftArgs.slice(0,1),'["tampered"]',2,...draftArgs.slice(3)]);
+    assert.equal(rejected.rowCount,0);
+    const historical=await db.query('SELECT answers_json,revision FROM _exam_answer_drafts WHERE session_id=$1',['old-session']);
+    assert.equal(historical.rows[0].answers_json,'["first"]');
+    assert.equal(historical.rows[0].revision,1);
+  } finally { await db.close(); }
+});
+
+test('DB: autosave cannot write with another account or wrong exam ownership',async()=>{
+  const {db}=await fixture();
+  const now=new Date('2026-11-16T03:00:00.000Z').toISOString();
+  const args=['old-session','["wrong"]',1,now,'writer-abc123',now,
+    'old-session','exam-1','user-2','old-session',now];
+  try{
+    assert.equal((await db.query(schoolSaveSql,args)).rowCount,0);
+    args[8]='user-1';args[7]='exam-2';
+    assert.equal((await db.query(schoolSaveSql,args)).rowCount,0);
+  }finally{await db.close();}
 });
