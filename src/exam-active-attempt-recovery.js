@@ -69,8 +69,10 @@ export function unrecoverableExamSnapshotReason(session, examId, nowMs = Date.no
     questions = JSON.parse(String(session.question_snapshot || '[]'));
     config = JSON.parse(String(session.exam_config || '{}'));
   } catch { return 'corrupt_snapshot'; }
-  if (!config || typeof config !== 'object' || Array.isArray(config) ||
-      (config.id && String(config.id) !== String(examId))) return 'corrupt_snapshot';
+  // An ID mismatch might still be gradable by a legacy scorer, so do not
+  // release the original lock on that evidence alone.
+  if (!config || typeof config !== 'object' || Array.isArray(config)) return null;
+  if (config.id && String(config.id) !== String(examId)) return null;
   if (!Array.isArray(ids) || ids.length === 0 || !Array.isArray(questions) ||
       questions.length !== ids.length || questions.some((q, i) =>
         !q || String(q.id ?? q.questionId ?? '') !== String(ids[i]))) {
