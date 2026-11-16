@@ -1,4 +1,4 @@
-import { verifyAuthSession, getDynamicSecret, getDatabase } from './utils';
+import { verifyAuthSession, getDynamicSecret, getDatabase, hashToken } from './utils';
 import { examAllowsFreshAttempt, unrecoverableExamSnapshotReason } from '../../../src/exam-active-attempt-recovery.js';
 
 interface Env { NEON_DATABASE_URL?: string; DATABASE_URL?: string; JWT_SECRET?: string; DB?: any }
@@ -66,12 +66,17 @@ export const onRequestPost: PagesFunction<Env> = async context => {
 
     // Never release a lock when an existing submission is processing or
     // a result has already been persisted. Reconcile submission first.
+    await db.prepare(`CREATE TABLE IF NOT EXISTS _submitted_exam_tokens (
+      token_hash TEXT PRIMARY KEY, exam_id TEXT, student_name TEXT, user_id TEXT,
+      submitted_at TEXT, status TEXT, result_id TEXT, claimed_at TEXT
+    )`).run();
+    // Existing deployments may have added these fields after initial creation.
+    for (const column of ['status','result_id']) {
+      await db.prepare('ALTER TABLE _submitted_exam_tokens ADD COLUMN IF NOT EXISTS ' + column + ' TEXT').run();
+    }
     const processing:any = await db.prepare(
       'SELECT 1 AS pending FROM _submitted_exam_tokens WHERE token_hash = ? AND (status = ? OR status = ?) LIMIT 1'
-    ).bind(await (async()=>{
-      const bytes = new TextEncoder().encode('exam-session:'+String(old.session_id));
-      return [...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(x=>x.toString(16).padStart(2,'0')).join('');
-    })(), 'processing', 'completed').first();
+    ).bind(await hashToken('exam-session:' + String(old.session_id)), 'processing', 'completed').first();
     if (processing?.pending) return reply(409,{code:'EXAM_ABANDON_SUBMISSION_EXISTS',
       error:'Máy chủ đã nhận yêu cầu nộp bài hoặc đang chấm. Không được bỏ phiên để tránh tạo kết quả trùng.'});
 
