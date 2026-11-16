@@ -1,0 +1,36 @@
+name: Exam active-session recovery regression
+on:
+  pull_request:
+    paths:
+      - 'src/main.js'
+      - 'src/exam-active-attempt-recovery.js'
+      - 'functions/api/exam/**'
+      - 'tests/exam-active-attempt-recovery.test.mjs'
+      - '.github/workflows/exam-active-session-recovery.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src/main.js'
+      - 'src/exam-active-attempt-recovery.js'
+      - 'functions/api/exam/**'
+      - 'tests/exam-active-attempt-recovery.test.mjs'
+      - '.github/workflows/exam-active-session-recovery.yml'
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Syntax and recovery regression tests
+        run: |
+          node --check src/main.js
+          node --test tests/exam-active-attempt-recovery.test.mjs tests/student-exam-start-attempt-limit.test.mjs tests/student-exam-auto-submit-guard.test.mjs
+      - run: npm run lint
+      - run: npm run build
