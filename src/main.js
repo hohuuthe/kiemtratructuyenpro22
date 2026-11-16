@@ -9244,7 +9244,6 @@ if (contentType && contentType.includes("application/json")) {
                             throw error;
                         }
 
-                        window.__pendingExamReplacement = null;
                         window.currentExamToken = startResult.token;
                         clearStoredActiveExamResume();
                         currentExam.questions = startResult.questions;
@@ -26875,5 +26874,4 @@ CẤU TRÚC JSON:
 
         // Closing the document is handled by exam-lifecycle-client.js.
         // Visibility/fullscreen transitions never imply leaving the app.
-        });
     
