@@ -996,9 +996,27 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
         // Claim immediately before persistence. Two concurrent requests may both
         // calculate, but only one can cross this unique database gate and create a row.
         try {
-            const claim = await db.prepare(
-                "INSERT INTO _submitted_exam_tokens (token_hash, exam_id, student_name, user_id, submitted_at, status, result_id, claimed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (token_hash) DO NOTHING"
-            ).bind(
+            // Serialize submission against a deliberate replacement by
+            // locking the exact ACTIVE row in the SAME SQL statement as the
+            // unique submission claim. If replacement wins first, the old
+            // session cannot create a result. If submission wins first,
+            // replacement observes the processing claim and is refused.
+            const schoolAttempt = Boolean(signedStudentUserId && !contestParticipantId);
+            const claimSql = schoolAttempt
+                ? `INSERT INTO _submitted_exam_tokens
+                     (token_hash, exam_id, student_name, user_id, submitted_at, status, result_id, claimed_at)
+                   SELECT ?, ?, ?, ?, ?, ?, ?, ?
+                   WHERE EXISTS (
+                     SELECT 1 FROM _exam_active_attempts
+                     WHERE session_id = ? AND exam_id = ? AND user_id = ?
+                     FOR UPDATE
+                   )
+                   AND NOT EXISTS (
+                     SELECT 1 FROM _exam_abandoned_attempts WHERE session_id = ?
+                   )
+                   ON CONFLICT (token_hash) DO NOTHING`
+                : "INSERT INTO _submitted_exam_tokens (token_hash, exam_id, student_name, user_id, submitted_at, status, result_id, claimed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (token_hash) DO NOTHING";
+            const claim = await db.prepare(claimSql).bind(
                 tokenHash,
                 String(examConfig.id || studentInfo.examId || ''),
                 authenticatedStudentName || studentInfo.name || '',
@@ -1006,7 +1024,11 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
                 '',
                 'processing',
                 claimedResultId,
-                new Date().toISOString()
+                new Date().toISOString(),
+                ...(schoolAttempt ? [
+                    String(gradingSessionId), String(examConfig.id || studentInfo.examId || ''),
+                    signedStudentUserId, String(gradingSessionId)
+                ] : [])
             ).run();
             if (Number(claim?.meta?.changes || 0) !== 1) {
                 const existing: any = await db.prepare(
