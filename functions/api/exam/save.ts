@@ -184,8 +184,16 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
          )
          AND NOT EXISTS (
            SELECT 1 FROM _exam_abandoned_attempts WHERE session_id = ?
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM _exam_attempt_liveness
+           WHERE session_id = ? AND (leave_requested_at IS NOT NULL OR finalizing_at IS NOT NULL OR finalized_at IS NOT NULL)
          )`
-      : 'VALUES (?, ?, ?, ?, ?, ?)';
+      : `SELECT ?, ?, ?, ?, ?, ?
+         WHERE NOT EXISTS (
+           SELECT 1 FROM _exam_attempt_liveness
+           WHERE session_id = ? AND (leave_requested_at IS NOT NULL OR finalizing_at IS NOT NULL OR finalized_at IS NOT NULL)
+         )`;
     const draftSql = `
       INSERT INTO _exam_answer_drafts (session_id, answers_json, revision, saved_at, writer_id, writer_seen_at)
       ${draftValuesSql}
@@ -202,13 +210,17 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
           _exam_answer_drafts.writer_seen_at IS NULL OR
           _exam_answer_drafts.writer_seen_at < ?
         )
+        AND NOT EXISTS (
+          SELECT 1 FROM _exam_attempt_liveness
+          WHERE session_id = ? AND (leave_requested_at IS NOT NULL OR finalizing_at IS NOT NULL OR finalized_at IS NOT NULL)
+        )
     `;
     const draftWrite: any = await db.prepare(draftSql).bind(
       gradingSessionId, answersJson, revision, savedAt, writerId, savedAt,
       ...(schoolAttempt ? [
-        gradingSessionId, String(session.exam_id || ''), signedStudentUserId, gradingSessionId
-      ] : []),
-      leaseCutoff
+        gradingSessionId, String(session.exam_id || ''), signedStudentUserId, gradingSessionId, gradingSessionId
+      ] : [gradingSessionId]),
+      leaseCutoff, gradingSessionId
     ).run();
     if (schoolAttempt && Number(draftWrite?.meta?.changes || 0) === 0) {
       const active: any = await db.prepare(
