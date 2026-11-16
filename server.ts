@@ -40,6 +40,7 @@ import { onRequestPost as hardenedExamStartHandler } from './functions/api/exam/
 import { onRequestPost as hardenedExamSaveHandler } from './functions/api/exam/save';
 import { onRequestPost as hardenedExamViolationHandler } from './functions/api/exam/violation';
 import { onRequestPost as hardenedExamResumeHandler } from './functions/api/exam/resume';
+import { onRequestPost as hardenedExamRecoverHandler } from './functions/api/exam/recover';
 import { onRequestPost as hardenedUploadImageHandler } from './functions/api/upload-image';
 import { onRequestPost as uploadSystemBanner, onRequestPut as saveSystemBanner } from './functions/api/header-banner';
 import { normalizedHeaderBranding } from './src/header-branding-policy.js';
@@ -5306,6 +5307,8 @@ async function getServerSecret(): Promise<string> {
       invokeExamPagesPostHandler(req, res, hardenedExamViolationHandler, '/api/exam/violation'));
   app.post("/api/exam/resume", (req, res) =>
       invokeExamPagesPostHandler(req, res, hardenedExamResumeHandler, '/api/exam/resume'));
+  app.post("/api/exam/recover", (req, res) =>
+      invokeExamPagesPostHandler(req, res, hardenedExamRecoverHandler, '/api/exam/recover'));
 
   // Dùng duy nhất engine chấm đã được harden ở Cloudflare Functions.
   // Local/dev không duy trì một bản logic chấm riêng để tránh sai lệch điểm, thời gian,
