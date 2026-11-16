@@ -9384,6 +9384,15 @@ if (contentType && contentType.includes("application/json")) {
                 // Nội dung câu hỏi chưa được gửi xuống trình duyệt ở bước này.
                 window.currentExamToken = result.token;
                 try {
+                    // Save an already ACTIVE token before this new READY token
+                    // replaces the shared browser storage location.
+                    const oldToken = localStorage.getItem(window.tenantStorageKey('currentExamToken'));
+                    const oldRawMeta = localStorage.getItem(window.tenantStorageKey('active_exam_resume_meta'));
+                    let oldMeta = {};
+                    try { oldMeta = oldRawMeta ? JSON.parse(oldRawMeta) : {}; } catch(e) {}
+                    if (oldToken && oldMeta?.phase === 'active' && oldMeta.examId) {
+                        rememberDeviceActiveExam(oldToken, oldMeta);
+                    }
                     localStorage.setItem(window.tenantStorageKey('currentExamToken'), result.token);
                     localStorage.setItem(window.tenantStorageKey('active_exam_resume_meta'), JSON.stringify({
                         phase: 'prestart',
@@ -9561,7 +9570,9 @@ if (contentType && contentType.includes("application/json")) {
                             const canServerRecover = Boolean(recoveryAuth && !window.__contestTicket);
                             // A signed ACTIVE token on this device is sufficient to
                             // resume a registered contest; school login is not required.
-                            if (!localAttempt && !canServerRecover) {
+                            const canContestRecover = Boolean(window.__contestTicket &&
+                                examConfig?.chedodethi === 'Cuộc thi trực tuyến');
+                            if (!localAttempt && !canServerRecover && !canContestRecover) {
                                 closeModal();
                                 showModal(`
                                     <div class="p-4 sm:p-5 text-center">
@@ -9603,9 +9614,15 @@ if (contentType && contentType.includes("application/json")) {
                                     if (!resumeToken) {
                                         const recoveryResponse = await fetch('/api/exam/recover', {
                                             method: 'POST',
-                                            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + recoveryAuth },
+                                            headers: {
+                                                'Content-Type': 'application/json',
+                                                ...(canContestRecover ? {} : { 'Authorization': 'Bearer ' + recoveryAuth })
+                                            },
                                             cache: 'no-store',
-                                            body: JSON.stringify({ examId: selectedExamId, writerId: getExamWriterId() })
+                                            body: JSON.stringify({
+                                                examId: selectedExamId, writerId: getExamWriterId(),
+                                                ...(canContestRecover ? { contestTicket: window.__contestTicket } : {})
+                                            })
                                         });
                                         const recovered = await recoveryResponse.json().catch(() => ({}));
                                         if (!recoveryResponse.ok || !recovered?.token) {
@@ -9616,7 +9633,9 @@ if (contentType && contentType.includes("application/json")) {
                                     // Verify the preserved ACTIVE token and server answer
                                     // draft before replacing the shared current token.
                                     const resumed = await tryResumeActiveExam({
-                                        token: resumeToken, meta: resumeMeta, allowOtherTab: true
+                                        token: resumeToken,
+                                        meta: { ...resumeMeta, entryTab: canContestRecover ? 'contest' : resumeMeta.entryTab },
+                                        allowOtherTab: true
                                     });
                                     if (!resumed) throw new Error('Không thể mở phiên thi cũ. Vui lòng kiểm tra lại mã phiên.');
                                 } catch (recoverError) {
