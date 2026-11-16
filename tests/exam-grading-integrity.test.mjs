@@ -414,12 +414,12 @@ test('deadline does not discard unsent violation events before final grading', (
   assert.match(deadlineBranch, /persistPendingExamViolationEvents\(\)/);
 });
 
-test('active attempt locks self-heal only when the previous grading session is gone', () => {
+test('orphan active attempts cannot be silently reclaimed without counting the previous attempt', () => {
   const start = fs.readFileSync(new URL('../functions/api/exam/start.ts', import.meta.url), 'utf8');
-  assert.match(start, /SELECT session_id FROM _exam_active_attempts WHERE attempt_key = \?/);
-  assert.match(start, /SELECT session_id FROM _exam_grade_sessions WHERE session_id = \?/);
-  assert.match(start, /if \(!existingSession\)/);
-  assert.match(start, /DELETE FROM _exam_active_attempts WHERE attempt_key = \? AND session_id = \?/);
+  assert.match(start, /WITH old AS \(/);
+  assert.match(start, /INSERT INTO _exam_abandoned_attempts/);
+  assert.match(start, /WHERE _exam_active_attempts.session_id = excluded.session_id/);
+  assert.doesNotMatch(start, /DELETE FROM _exam_active_attempts WHERE attempt_key = \? AND session_id = \?/);
 });
 
 

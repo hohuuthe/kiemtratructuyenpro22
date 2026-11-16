@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { buildActiveExamRecoveryPayload, examAllowsFreshAttempt, unrecoverableExamSnapshotReason } from '../src/exam-active-attempt-recovery.js';
+import { buildActiveExamRecoveryPayload, examAllowsFreshAttempt, unrecoverableExamSnapshotReason, inspectActiveExamRecoveryState, isAuthenticatedSchoolExamStudent } from '../src/exam-active-attempt-recovery.js';
 
 const now = Date.parse('2026-11-16T03:00:00Z');
 const session = {
@@ -155,18 +155,64 @@ test('READY preparation cannot overwrite or cancel a previously saved active ses
 
 test('An expired lock must not replace a still-existing server snapshot',()=>{
   const source=readFileSync('functions/api/exam/start.ts','utf8');
-  assert.match(source,/_exam_active_attempts.expires_at <= \?/);
-  assert.match(source,/NOT EXISTS \(\s*SELECT 1 FROM _exam_grade_sessions previous/);
-  assert.match(source,/previous.session_id = _exam_active_attempts.session_id/);
+  assert.doesNotMatch(source,/DELETE FROM _exam_active_attempts WHERE attempt_key = \? AND session_id = \?/);
+  assert.match(source,/WHERE _exam_active_attempts.session_id = excluded.session_id/);
+  assert.doesNotMatch(source,/OR \(_exam_active_attempts.expires_at <= \?/);
 });
 
 test('Creating a new attempt retains the prior ACTIVE token through both form resets until server accepts start',()=>{
   const source = readFileSync('src/main.js','utf8');
   assert.match(source,/resetExam\(\{ preserveActiveResume: true \}\)/);
-  assert.match(source,/resetExam\(\{ preserveActiveResume: Boolean\(window\.__pendingExamReplacement &&/);
-  assert.match(source,/String\(window\.__pendingExamReplacement\.examId\) === String\(selectedExamId\)/);
+  assert.match(source,/resetExam\(\{ preserveActiveResume: true \}\)/);
+  assert.match(source,/const replacingThisExam = pendingReplacement &&/);
   assert.match(source,/window\.resetExam = function resetExam\(options = \{\}\)/);
   const reset = source.slice(source.indexOf('window.resetExam = function resetExam('),source.indexOf('currentExam = {',source.indexOf('window.resetExam = function resetExam(')));
   assert.match(reset,/if \(!preserveActiveResume\) clearStoredActiveExamResume\(\)/);
   assert.match(source,/startResult\.code === 'EXAM_REPLACEMENT_CONFLICT'/);
+});
+
+test('Student recovery accepts signed generic user accounts but excludes teachers and admins',()=>{
+  const student={id:'user-1',role:'user',target_audience:'Học sinh'};
+  assert.equal(isAuthenticatedSchoolExamStudent(student),true);
+  assert.equal(isAuthenticatedSchoolExamStudent({...student,role:'student'}),true);
+  assert.equal(isAuthenticatedSchoolExamStudent({...student,role:'teacher'}),false);
+  assert.equal(isAuthenticatedSchoolExamStudent({...student,role:'admin'}),false);
+  assert.equal(isAuthenticatedSchoolExamStudent({...student,target_audience:'Giáo viên'}),false);
+  assert.equal(isAuthenticatedSchoolExamStudent(null),false);
+});
+
+test('Inspect refuses the resume button for missing, corrupt, expired and not-started snapshots',()=>{
+  assert.deepEqual(inspectActiveExamRecoveryState(session,'exam-1','user-1',now),
+    {canResume:true,reason:null});
+  assert.equal(inspectActiveExamRecoveryState(null,'exam-1','user-1',now).canResume,false);
+  assert.equal(inspectActiveExamRecoveryState({...session,question_snapshot:'[]'},'exam-1','user-1',now).canResume,false);
+  assert.equal(inspectActiveExamRecoveryState({...session,started_at:null},'exam-1','user-1',now).canResume,false);
+  assert.equal(inspectActiveExamRecoveryState({...session,expires_at:new Date(now-1).toISOString()},'exam-1','user-1',now).canResume,false);
+});
+
+test('Snapshot cleanup preserves all started attempts for eventual recovery/audit',()=>{
+  const generate=readFileSync('functions/api/exam/generate.ts','utf8');
+  assert.match(generate,/DELETE FROM _exam_grade_sessions WHERE expires_at < \? AND started_at IS NULL/);
+  const inspect=readFileSync('functions/api/exam/recover.ts','utf8');
+  assert.match(inspect,/inspectActiveExamRecoveryState\(snapshot, examId, userId\)/);
+  assert.match(inspect,/canResume: recoveryState.canResume/);
+});
+
+test('Submitted-result reconciliation releases only the exact matching active lock',()=>{
+  const source=readFileSync('functions/api/exam/recover.ts','utf8');
+  assert.match(source,/SELECT id FROM results WHERE submission_token_hash = \? LIMIT 1/);
+  assert.match(source,/DELETE FROM _exam_active_attempts WHERE attempt_key = \? AND exam_id = \? AND user_id = \? AND session_id = \?/);
+  assert.match(source,/EXAM_INSPECT_STATE_CHANGED/);
+});
+
+test('Recovery failure keeps choices visible, bounded requests and durable active token',()=>{
+  const main=readFileSync('src/main.js','utf8');
+  assert.match(main,/fetchExamStartResponse\(fetch, '\/api\/exam\/resume'/);
+  assert.match(main,/\}, 15000\)/);
+  assert.match(main,/if \(!await tryResumeActiveExam\(\)\) throw/);
+  assert.match(main,/resetExam\(\{ preserveActiveResume: true \}\)/);
+  assert.match(main,/const canResume = inspection\.body\.canResume !== false/);
+  assert.match(main,/const mayReplace = !isProcessing && inspection\.body\.canCreateNew === true/);
+  assert.match(main,/\$\{canResume && !isProcessing \? '' : 'disabled aria-disabled="true"'\}/);
+  assert.match(main,/fetchExamStartResponse\(fetch, '\/api\/exam\/start'/);
 });

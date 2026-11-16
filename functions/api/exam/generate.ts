@@ -762,7 +762,10 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             }
             // Best-effort cleanup keeps the ephemeral snapshot table bounded.
             try {
-                await db.prepare('DELETE FROM _exam_grade_sessions WHERE expires_at < ?')
+                // ACTIVE snapshots are audit/recovery data even after their
+                // technical token TTL. Never garbage-collect a started exam
+                // independently of its active lock or saved answers.
+                await db.prepare('DELETE FROM _exam_grade_sessions WHERE expires_at < ? AND started_at IS NULL')
                     .bind(new Date().toISOString()).run();
             } catch (cleanupErr) {
                 console.warn('Could not clean expired grading sessions:', cleanupErr);

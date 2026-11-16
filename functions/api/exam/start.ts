@@ -466,21 +466,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         } else {
 
 
-        // Tự-heal khóa mồ côi nếu lần nộp trước đã dọn snapshot nhưng DELETE khóa
-        // ACTIVE bị lỗi tạm thời. Không xóa khóa khi session cũ vẫn còn tồn tại.
-        const existingActive: any = await db.prepare(
-          'SELECT session_id FROM _exam_active_attempts WHERE attempt_key = ?'
-        ).bind(attemptKey).first();
-        if (existingActive?.session_id && String(existingActive.session_id) !== gradingSessionId) {
-          const existingSession: any = await db.prepare(
-            'SELECT session_id FROM _exam_grade_sessions WHERE session_id = ?'
-          ).bind(String(existingActive.session_id)).first();
-          if (!existingSession) {
-            await db.prepare(
-              'DELETE FROM _exam_active_attempts WHERE attempt_key = ? AND session_id = ?'
-            ).bind(attemptKey, String(existingActive.session_id)).run();
-          }
-        }
+        // Never silently discard a stale ACTIVE lock. Even if its old
+        // snapshot vanished, the original attempt is consumed and must be
+        // explicitly replaced via the counted atomic transaction above.
 
         const claim: any = await db.prepare(`
           INSERT INTO _exam_active_attempts
@@ -491,14 +479,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             expires_at = excluded.expires_at,
             created_at = excluded.created_at
           WHERE _exam_active_attempts.session_id = excluded.session_id
-             OR (_exam_active_attempts.expires_at <= ?
-                 AND NOT EXISTS (
-                   SELECT 1 FROM _exam_grade_sessions previous
-                   WHERE previous.session_id = _exam_active_attempts.session_id
-                 ))
         `).bind(
           attemptKey, examId, signedAttemptUserId, gradingSessionId,
-          proposedActiveExpiresAt, proposedStartedAt, proposedStartedAt
+          proposedActiveExpiresAt, proposedStartedAt
         ).run();
         if (Number(claim?.meta?.changes || 0) !== 1) {
           return new Response(JSON.stringify({
