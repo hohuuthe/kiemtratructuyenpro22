@@ -65,6 +65,26 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       attemptUserId = userId;
     }
 
+    // A fresh tenant may have no exam tables yet. Use the same lock schema
+    // as /exam/start and only query grading sessions when a lock exists.
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS _exam_active_attempts (
+        attempt_key TEXT PRIMARY KEY,
+        exam_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      )
+    `).run();
+    const activeLock: any = await db.prepare(
+      'SELECT session_id FROM _exam_active_attempts WHERE attempt_key = ? AND user_id = ? AND exam_id = ?'
+    ).bind(examId + ':' + attemptUserId, attemptUserId, examId).first();
+    if (!activeLock) return json({
+      code:'EXAM_RECOVER_NOT_FOUND',
+      error:'Không tìm thấy phiên thi chưa hoàn tất của tài khoản và đề thi này.'
+    }, 409);
+
     // Tenant isolation is provided by getDatabase(context), AND the queried
     // attempt must match the live authenticated user and exact exam ID.
     const active: any = await db.prepare(`

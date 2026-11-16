@@ -9169,6 +9169,62 @@ if (contentType && contentType.includes("application/json")) {
         }
         window.tryResumeActiveExam = tryResumeActiveExam;
 
+
+        // Called BEFORE /api/exam/generate so an existing ACTIVE attempt never
+        // appears in a contradictory "Đề thi đã sẵn sàng" READY dialog.
+        async function offerActiveExamBeforeReady(examId, details) {
+            const saved = readDeviceActiveExam(examId);
+            if (saved?.token) {
+                const resumed = await tryResumeActiveExam({
+                    token: saved.token, meta: saved, allowOtherTab: true
+                });
+                if (resumed) return true;
+            }
+            const schoolAuth = (currentUser && localStorage.getItem(window.tenantStorageKey('auth_token'))) || '';
+            const contestTicket = window.__contestTicket && examConfig?.chedodethi === 'Cuộc thi trực tuyến'
+                ? window.__contestTicket : '';
+            if (!schoolAuth && !contestTicket) return false;
+
+            let response, recovered;
+            try {
+                response = await fetch('/api/exam/recover', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(schoolAuth && !contestTicket ? {'Authorization': 'Bearer ' + schoolAuth} : {})
+                    },
+                    cache: 'no-store',
+                    body: JSON.stringify({
+                        examId, writerId: getExamWriterId(),
+                        ...(contestTicket ? {contestTicket} : {})
+                    })
+                });
+                recovered = await response.json().catch(() => ({}));
+            } catch {
+                showToast('Chưa thể xác minh phiên thi đang làm. Vui lòng kiểm tra kết nối và thử lại.', 'warning');
+                return true;
+            }
+            if (response.status === 409 && recovered.code === 'EXAM_RECOVER_NOT_FOUND') return false;
+            if (!response.ok || !recovered?.token) {
+                // An expired or unverified lock is never mistaken for a READY exam.
+                showToast(recovered?.error || 'Chưa thể xác minh phiên thi cũ. Vui lòng thử lại.', 'warning');
+                return true;
+            }
+            const resumeMeta = {
+                phase: 'active',
+                examId, examName: details.examName, teacherId: details.teacherId,
+                studentName: details.name, studentLop: details.inputLop,
+                studentDonvi: details.inputDonvi, studentClass: details.studentClass,
+                entryTab: contestTicket ? 'contest' : 'exam'
+            };
+            const resumed = await tryResumeActiveExam({
+                token: recovered.token, meta: resumeMeta, allowOtherTab: true
+            });
+            if (resumed) return true;
+            showToast('Đã tìm được phiên thi nhưng chưa thể mở an toàn. Vui lòng thử lại.', 'warning');
+            return true;
+        }
+
         let examStartPending = false;
         window.startExam = async function startExam(btn) {
             const selectionId = document.getElementById('student-exam-name-filter')?.value || '';
@@ -9331,6 +9387,12 @@ if (contentType && contentType.includes("application/json")) {
                     if (startBtn) { startBtn.disabled = false; startBtn.innerHTML = originalBtnText; }
                     return;
                 }
+
+                // Check authoritative ACTIVE session before building a new READY
+                // snapshot, avoiding a false "ready" modal for the same exam.
+                if (await offerActiveExamBeforeReady(selectedExamId, {
+                    examName, teacherId, name, inputLop, inputDonvi, studentClass
+                })) return;
 
                 // Máy chủ kiểm tra giới hạn theo kết quả thực trong CSDL, không dùng cache trên thiết bị.
 
