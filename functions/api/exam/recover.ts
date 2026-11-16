@@ -92,7 +92,18 @@ export const onRequestPost: PagesFunction<Env> = async context => {
         const result: any = await db.prepare(
           'SELECT id FROM results WHERE submission_token_hash = ? LIMIT 1'
         ).bind(submissionHash).first();
-        if (result?.id) return reply(200,{active:false,alreadySubmitted:true,resultId:String(result.id)});
+        if (result?.id) {
+          // The score is already committed. Clear only this exact stale
+          // active pointer; never touch a newer attempt or any saved answers.
+          const cleared: any = await db.prepare(
+            'DELETE FROM _exam_active_attempts WHERE attempt_key = ? AND exam_id = ? AND user_id = ? AND session_id = ?'
+          ).bind(attemptKey, examId, userId, String(active.session_id)).run();
+          if (Number(cleared?.meta?.changes || 0) !== 1) {
+            return reply(409,{code:'EXAM_INSPECT_STATE_CHANGED',
+              error:'Trạng thái phiên thi vừa thay đổi. Vui lòng kiểm tra lại trước khi vào thi.'});
+          }
+          return reply(200,{active:false,alreadySubmitted:true,resultId:String(result.id)});
+        }
         const processing: any = await db.prepare(
           'SELECT status, result_id FROM _submitted_exam_tokens WHERE token_hash = ?'
         ).bind(submissionHash).first();
