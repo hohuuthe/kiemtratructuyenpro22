@@ -135,7 +135,7 @@ const guardedValues = saveSource.match(/const draftValuesSql = schoolAttempt\s*\
 const insertTemplate = saveSource.match(/const draftSql = `([\s\S]*?)`;/);
 assert.ok(guardedValues && insertTemplate, 'Extract the actual school autosave query from production code');
 const schoolSaveSql = insertTemplate[1].replace('${draftValuesSql}', guardedValues[1])
-  .replace(/\?/g, (() => { let n=0; return () => '
+  .replace(/\?/g, (() => { let n=0; return () => String.fromCharCode(36) + (++n); })());
 assert.equal((schoolSaveSql.match(/\$\d+/g)||[]).length,11,'Review school draft-save bind contract');
 
 test('DB: an autosave that begins after replacement cannot modify revoked session answers', async()=>{
