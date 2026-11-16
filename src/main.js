@@ -9337,19 +9337,32 @@ if (contentType && contentType.includes("application/json")) {
                 // Nội dung câu hỏi chưa được gửi xuống trình duyệt ở bước này.
                 window.currentExamToken = result.token;
                 try {
-                    localStorage.setItem(window.tenantStorageKey('currentExamToken'), result.token);
-                    localStorage.setItem(window.tenantStorageKey('active_exam_resume_meta'), JSON.stringify({
-                        phase: 'prestart',
-                        writerId: getExamWriterId(),
-                        entryTab: window.__contestTicket && examConfig?.chedodethi === 'Cuộc thi trực tuyến' ? 'contest' : 'exam',
-                        studentName: name,
-                        studentLop: inputLop,
-                        studentDonvi: inputDonvi,
-                        studentClass,
-                        teacherId,
-                        examId: selectedExamId,
-                        examName
-                    }));
+                    // READY for another tab must never overwrite a stored ACTIVE
+                    // attempt token belonging to the exact same exam. That token
+                    // is the only durable way the original tab can resume after
+                    // a browser crash. Replace it only after /exam/start succeeds.
+                    let previousMeta = {};
+                    try {
+                        previousMeta = JSON.parse(localStorage.getItem(window.tenantStorageKey('active_exam_resume_meta')) || '{}') || {};
+                    } catch (_) {}
+                    const previousToken = localStorage.getItem(window.tenantStorageKey('currentExamToken')) || '';
+                    const preserveActive = previousMeta.phase === 'active' &&
+                        String(previousMeta.examId || '') === String(selectedExamId) && Boolean(previousToken);
+                    if (!preserveActive) {
+                        localStorage.setItem(window.tenantStorageKey('currentExamToken'), result.token);
+                        localStorage.setItem(window.tenantStorageKey('active_exam_resume_meta'), JSON.stringify({
+                            phase: 'prestart',
+                            writerId: getExamWriterId(),
+                            entryTab: window.__contestTicket && examConfig?.chedodethi === 'Cuộc thi trực tuyến' ? 'contest' : 'exam',
+                            studentName: name,
+                            studentLop: inputLop,
+                            studentDonvi: inputDonvi,
+                            studentClass,
+                            teacherId,
+                            examId: selectedExamId,
+                            examName
+                        }));
+                    }
                 } catch(e) {}
 
                 // Cập nhật chế độ công bố kết quả ngay lập tức trực tiếp từ phản hồi máy chủ
