@@ -349,11 +349,11 @@ test('autosave response reports the revision that actually remains persisted', (
 
 test('stale processing submission claims can recover without duplicating a stored result', () => {
   const grade = fs.readFileSync(new URL('../functions/api/exam/grade.ts', import.meta.url), 'utf8');
-  const resume = fs.readFileSync(new URL('../functions/api/exam/resume.ts', import.meta.url), 'utf8');
+  const finalizer = fs.readFileSync(new URL('../functions/api/exam/finalize-service.ts', import.meta.url), 'utf8');
   assert.match(grade, /claimedAtMs < Date\.now\(\) - 5 \* 60 \* 1000/);
   assert.match(grade, /DELETE FROM _submitted_exam_tokens WHERE token_hash = \? AND status = \? AND claimed_at = \?/);
-  assert.match(resume, /claimedAtMs < Date\.now\(\) - 5 \* 60 \* 1000/);
-  assert.match(resume, /SELECT id FROM results WHERE id = \?/);
+  assert.match(finalizer, /priorHash=await hashToken/);
+  assert.match(finalizer, /committed\.id/);
 });
 
 test('autosave equal-revision races are accepted only when this exact payload was persisted', () => {
@@ -364,10 +364,12 @@ test('autosave equal-revision races are accepted only when this exact payload wa
   assert.match(save, /persistedWriterId === writerId/);
 });
 
-test('resume fails closed when authoritative violation count cannot be restored', () => {
-  const resume = fs.readFileSync(new URL('../functions/api/exam/resume.ts', import.meta.url), 'utf8');
-  assert.match(resume, /EXAM_VIOLATION_COUNT_UNAVAILABLE/);
-  assert.match(resume, /Không thể xác minh số lần vi phạm/);
+test('automatic finalization verifies server violation count before saving results', () => {
+  const grade=fs.readFileSync(new URL('../functions/api/exam/grade.ts',import.meta.url),'utf8');
+  const finalizer=fs.readFileSync(new URL('../functions/api/exam/finalize-service.ts',import.meta.url),'utf8');
+  assert.match(grade,/SELECT COUNT\(\*\) AS count FROM _exam_violation_events/);
+  assert.match(grade,/Không thể xác minh số lần vi phạm/);
+  assert.match(finalizer,/INTERNAL_EXAM_FINALIZER/);
 });
 
 test('server decides violation auto-submit threshold and browser persists unsent violation events', () => {
