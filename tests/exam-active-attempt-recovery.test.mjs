@@ -112,7 +112,7 @@ test('Abandon endpoint cannot delete old student answers or unconditionally bypa
   assert.doesNotMatch(source,/DELETE FROM _exam_grade_sessions/);
   assert.doesNotMatch(source,/DELETE FROM results/);
   assert.doesNotMatch(source,/UPDATE exam_configs SET max_attempts/);
-  for(const path of ['functions/api/exam/resume.ts','functions/api/exam/save.ts','functions/api/exam/grade.ts']){
+  for(const path of ['functions/api/exam/start.ts','functions/api/exam/resume.ts','functions/api/exam/save.ts','functions/api/exam/grade.ts']){
     const text = readFileSync(path,'utf8');
     assert.match(text,/EXAM_ATTEMPT_ABANDONED/);
     assert.match(text,/FROM _exam_abandoned_attempts WHERE session_id = \?/);
