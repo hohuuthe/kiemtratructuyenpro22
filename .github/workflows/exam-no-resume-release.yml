@@ -11,6 +11,8 @@ on:
       - 'src/exam-finalizer-marker.ts'
       - 'server.ts'
       - 'tests/exam-no-resume-liveness.test.mjs'
+      - 'tests/exam-orphan-reconcile-db.test.mjs'
+      - 'functions/api/exam/orphan-reconcile.ts'
       - '.github/workflows/exam-no-resume-release.yml'
 permissions:
   contents: read
@@ -29,6 +31,8 @@ jobs:
         run: node --check src/main.js && node --check src/exam-lifecycle-client.js
       - name: New session lifecycle and liveness regressions
         run: node --test tests/exam-no-resume-liveness.test.mjs
+      - name: Real production SQL orphan lock integration regression
+        run: node --test tests/exam-orphan-reconcile-db.test.mjs
       - name: TypeScript lint
         run: npm run lint
       - name: Production build
