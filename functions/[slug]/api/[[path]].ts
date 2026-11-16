@@ -20,6 +20,7 @@ import * as r13 from '../../api/exam/generate';
 import * as r14 from '../../api/exam/grade';
 import * as examStart from '../../api/exam/start';
 import * as examSave from '../../api/exam/save';
+import * as examHeartbeat from '../../api/exam/heartbeat';
 import * as examResume from '../../api/exam/resume';
 import * as examRecover from '../../api/exam/recover';
 import * as examAbandon from '../../api/exam/abandon';
@@ -69,6 +70,7 @@ const handlers: Record<string, any> = {
   'exam/grade': r14,
   'exam/start': examStart,
   'exam/save': examSave,
+  'exam/heartbeat': examHeartbeat,
   'exam/resume': examResume,
   'exam/recover': examRecover,
   'exam/abandon': examAbandon,
