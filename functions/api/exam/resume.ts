@@ -1,4 +1,5 @@
 import { verifyAuthSession, verifyJWT, signJWT, getDynamicSecret, getDatabase, hashToken } from './utils';
+import { examSubmissionClaimIdentity } from '../../../src/exam-submission-identity.js';
 import {
   EXAM_SESSION_PURPOSE_ACTIVE,
   EXAM_SESSION_PURPOSE_PRESTART,
@@ -63,7 +64,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       }
     }
 
-    const tokenHash = await hashToken(token);
+    const tokenHash = await hashToken(examSubmissionClaimIdentity(token, decoded));
     try {
       let submitted: any = await db.prepare(
         'SELECT status, result_id, claimed_at FROM _submitted_exam_tokens WHERE token_hash = ?'
