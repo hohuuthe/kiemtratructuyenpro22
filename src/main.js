@@ -9504,8 +9504,10 @@ if (contentType && contentType.includes("application/json")) {
                                 document.getElementById('exam-abandon-recheck')?.addEventListener('click', () => location.reload(), { once:true });
                                 document.getElementById('exam-abandon-cancel')?.addEventListener('click', () => {
                                     closeModal();
-                                    // Do not erase the original attempt or lie
-                                    // about its state; allow a later recovery.
+                                    window.__EXAM_RESUME_BLOCK_NEW__ = false;
+                                    // Keep the locked old attempt untouched. Other
+                                    // exams remain available and this exam will
+                                    // be rechecked by the server if selected again.
                                 }, {once:true});
                                 document.getElementById('exam-abandon-confirm')?.addEventListener('click', async () => {
                                     const button = document.getElementById('exam-abandon-confirm');
