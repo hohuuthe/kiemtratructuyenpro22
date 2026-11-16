@@ -530,7 +530,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         if (Number(claim?.meta?.changes || 0) !== 1) {
           return new Response(JSON.stringify({
             code: 'EXAM_ATTEMPT_ALREADY_ACTIVE',
-            error: 'Tài khoản này đang có một phiên làm bài của cùng đề chưa hoàn tất. Vui lòng tiếp tục phiên đang làm thay vì mở thêm lượt mới.'
+            error: 'Lượt thi trước của tài khoản này chưa được máy chủ kết thúc. Hệ thống đang bảo toàn bài làm và chưa thể mở lượt mới. Vui lòng thử lại; nếu tình trạng kéo dài, liên hệ giáo viên quản lý đề.'
           }), { status: 409, headers: corsHeaders });
         }
         } // regular claim; replacement claimed atomically above
