@@ -12,6 +12,7 @@ import {readBrowserGeminiKeys,saveBrowserGeminiKeys,prioritizeGradingKeys,splitG
 import { configureExamAccessCodeInput } from './exam-access-code-input.js';
 import { parseExamAttemptLimitError, buildExamAttemptLimitModal, buildExamReadyModal, fetchExamStartResponse } from './student-exam-start-guard.js';
 import { scrollExamSubmitIntoView } from './exam-scroll-to-submit.js';
+import { scrollExamQuestionNavigator } from './exam-question-navigator.js';
 
 import 'katex/dist/katex.min.css';
 import { renderRoleHelp, attachRoleHelpInteractions, resetRoleHelpCache } from './help-center.js';
@@ -9915,6 +9916,11 @@ if (contentType && contentType.includes("application/json")) {
             }
         }
 
+        // Keep Bảng C/H entirely inside the existing student exam surface.
+        // switchTab('exam') is unsafe for contest attempts because it invokes
+        // the cancel-on-leave guard; scrolling does not change the exam owner.
+        window.openExamQuestionNavigator = () => scrollExamQuestionNavigator(document);
+
         function renderCurrentQuestion(isNewQuestion = false) {
             const container = document.getElementById('question-content-display');
             if (!container) return;
@@ -9966,7 +9972,7 @@ if (contentType && contentType.includes("application/json")) {
                                             ${questionAuthorDisplayName(q,accountsMap,currentUser)}
                                         </span></u>` : ''}
                                     </div>
-                                    <button onclick="switchTab('exam')" title="Quay về Bảng điều khiển câu hỏi" class="flex-shrink-0 p-1.5 md:px-3 md:py-1.5 bg-white text-emerald-600 rounded-xl hover:bg-emerald-50 transition-all shadow-sm border border-emerald-100 flex items-center gap-1.5 text-[10px] md:text-xs font-black hover:scale-105">
+                                    <button type="button" onclick="openExamQuestionNavigator()" title="Quay về Bảng điều khiển câu hỏi" class="flex-shrink-0 p-1.5 md:px-3 md:py-1.5 bg-white text-emerald-600 rounded-xl hover:bg-emerald-50 transition-all shadow-sm border border-emerald-100 flex items-center gap-1.5 text-[10px] md:text-xs font-black hover:scale-105">
                                         <svg class="w-3.5 h-3.5 md:w-4 md:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
                                         Bảng C/H
                                     </button>
@@ -10024,7 +10030,7 @@ if (contentType && contentType.includes("application/json")) {
                                         <span class="inline-flex px-2 py-0.5 bg-blue-500 text-white text-xs md:text-sm font-black rounded-md shadow-sm shadow-blue-200 uppercase tracking-tight">${q.type}</span></u>
                                         <span class="inline-flex px-2 py-0.5 bg-emerald-500 text-white text-xs md:text-sm font-black rounded-md shadow-sm shadow-emerald-200 uppercase tracking-tight">${q.level || 'NB'}</span></u>
                                     </div>
-                                    <button onclick="switchTab('exam')" title="Quay về Bảng điều khiển câu hỏi" class="md:hidden flex-shrink-0 px-2.5 py-1.5 bg-white text-emerald-600 rounded-lg hover:bg-emerald-50 shadow-sm border border-emerald-100 flex items-center gap-1 text-[10px] font-black">
+                                    <button type="button" onclick="openExamQuestionNavigator()" title="Quay về Bảng điều khiển câu hỏi" class="md:hidden flex-shrink-0 px-2.5 py-1.5 bg-white text-emerald-600 rounded-lg hover:bg-emerald-50 shadow-sm border border-emerald-100 flex items-center gap-1 text-[10px] font-black">
                                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
                                         Bảng C/H
                                     </button>
@@ -10039,7 +10045,7 @@ if (contentType && contentType.includes("application/json")) {
                                         ${questionAuthorDisplayName(q,accountsMap,currentUser)}
                                     </span></u>` : ''}
                                 </div>
-                                <button onclick="switchTab('exam')" title="Quay về Bảng điều khiển câu hỏi" class="hidden md:flex flex-shrink-0 p-2 md:px-3 md:py-1.5 bg-white text-emerald-600 rounded-xl hover:bg-emerald-50 transition-all shadow-sm border border-emerald-100 items-center gap-1.5 text-[10px] md:text-xs font-black">
+                                <button type="button" onclick="openExamQuestionNavigator()" title="Quay về Bảng điều khiển câu hỏi" class="hidden md:flex flex-shrink-0 p-2 md:px-3 md:py-1.5 bg-white text-emerald-600 rounded-xl hover:bg-emerald-50 transition-all shadow-sm border border-emerald-100 items-center gap-1.5 text-[10px] md:text-xs font-black">
                                     <svg class="w-4 h-4 md:w-4 md:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
                                     Bảng C/H
                                 </button>
