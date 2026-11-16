@@ -138,3 +138,15 @@ test('Tenant-prefixed routing exposes recovery and abandonment only within the t
   assert.match(router, /resolveTenantRoutingFromRequest/);
   assert.match(router, /route.source !== 'path'/);
 });
+
+test('READY preparation cannot overwrite or cancel a previously saved active session',()=>{
+  const source=readFileSync('src/main.js','utf8');
+  const region=source.slice(source.indexOf("window.currentExamToken = result.token;"),
+    source.indexOf("// Cập nhật chế độ công bố kết quả",source.indexOf("window.currentExamToken = result.token;")));
+  assert.match(region,/previousMeta.phase === 'active'/);
+  assert.match(region,/String\(previousMeta.examId \|\| ''\) === String\(selectedExamId\)/);
+  assert.match(region,/if \(!preserveActive\)/);
+  const cancelRegion=source.slice(source.indexOf("id('exam-start-ready-cancel')?.addEventListener"),
+    source.indexOf("readyButton.focus();",source.indexOf("id('exam-start-ready-cancel')?.addEventListener")));
+  assert.match(cancelRegion,/storedToken === cancelledReadyToken/);
+});
