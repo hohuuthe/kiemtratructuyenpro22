@@ -9083,8 +9083,7 @@ if (contentType && contentType.includes("application/json")) {
                         body:JSON.stringify({examId:resumedExamId,mode:'inspect'})
                     },12000);
                     if (inspected.ok && inspected.body?.active === true &&
-                        String(inspected.body?.sessionId || '') === String(data.examConfig?.gradingSessionId || meta.gradingSessionId || '') ||
-                        (inspected.ok && inspected.body?.active === true && !meta.gradingSessionId)) {
+                        String(inspected.body?.sessionId || '') === String(data.sessionId || '')) {
                         resumeReplacementChoice = {
                             examId:resumedExamId,
                             sessionId:String(inspected.body.sessionId || ''),
