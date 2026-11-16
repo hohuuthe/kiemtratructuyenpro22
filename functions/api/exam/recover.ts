@@ -103,6 +103,12 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         error:'Phiên thi đã hết thời hạn khôi phục; vui lòng liên hệ giáo viên để kiểm tra.' }, 409);
     }
 
+    // A fresh /exam/start creates the draft baseline before the first save.
+    // Add writer columns before reading the lease, preserving all draft answers.
+    for (const column of ['writer_id TEXT', 'writer_seen_at TEXT']) {
+      await db.prepare('ALTER TABLE _exam_answer_drafts ADD COLUMN IF NOT EXISTS ' + column).run();
+    }
+
     // Never steal a recently active writer lease from a different tab.
     const lease: any = await db.prepare(
       'SELECT writer_id, writer_seen_at FROM _exam_answer_drafts WHERE session_id = ?'
