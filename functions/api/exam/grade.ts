@@ -193,6 +193,26 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         }
 
         const { questionIds, teacherId, gradingSessionId, studentUserId: sessionStudentUserId } = decoded;
+    // A provably unusable session explicitly abandoned by its owner is never
+    // eligible for new answers, recovery or a second grading result.
+    try {
+      await db.prepare(`CREATE TABLE IF NOT EXISTS _exam_abandoned_attempts (
+        session_id TEXT PRIMARY KEY, exam_id TEXT NOT NULL, user_id TEXT NOT NULL,
+        reason TEXT NOT NULL, abandoned_at TEXT NOT NULL
+      )`).run();
+      const abandoned: any = await db.prepare(
+        'SELECT session_id FROM _exam_abandoned_attempts WHERE session_id = ?'
+      ).bind(String(decoded.gradingSessionId || '')).first();
+      if (abandoned) return new Response(JSON.stringify({
+        code:'EXAM_ATTEMPT_ABANDONED',error:'Phiên thi cũ đã được xác nhận không thể khôi phục và ngừng sử dụng.'
+      }), {status:409,headers:corsHeaders});
+    } catch (abandonCheckError) {
+      console.error('Cannot verify exam abandonment state:',abandonCheckError);
+      return new Response(JSON.stringify({
+        code:'EXAM_ABANDON_STATUS_UNAVAILABLE',error:'Không thể kiểm tra trạng thái phiên đã bỏ; chưa tiếp tục để bảo vệ bài thi.'
+      }), {status:503,headers:corsHeaders});
+    }
+
         const contestParticipantId = String(decoded.contestParticipantId || '').trim();
         if (contestParticipantId) {
             const candidate: any = await db.prepare('SELECT ma_nguoi_du_thi, ho_ten, don_vi FROM contest_participants WHERE ma_nguoi_du_thi = ?').bind(contestParticipantId).first();
