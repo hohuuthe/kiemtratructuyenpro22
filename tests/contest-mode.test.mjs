@@ -207,7 +207,7 @@ test('Both tabs are always in guest navigation and have separate components',()=
  assert.match(main,/__activeStudentExamTab === 'contest'/);
  assert.match(main,/__contestOnExamStarted/);
  assert.match(main,/__contestOnExamReset/);
- assert.match(main,/isResumedContest = data\.isContestAttempt === true/);
+ assert.doesNotMatch(main,/tryResumeActiveExam|offerExistingExamAttemptChoice/);
  assert.match(ui,/relocateExamWidgets\(true\)/);
  assert.match(ui,/relocateExamWidgets\(false\)/);
  assert.doesNotMatch(ui,/body\[data-application-mode/);
@@ -360,9 +360,9 @@ test('Same-device attempts remain tenant and browser-tab scoped without legacy g
  const main=source('src/main.js');
  assert.doesNotMatch(main,/localStorage\.getItem\('currentExamToken'\)/);
  assert.doesNotMatch(main,/localStorage\.setItem\('currentExamToken'/);
- assert.match(main,/meta\.writerId !== getExamWriterId\(\)/);
+ assert.match(main,/getExamWriterId\(\)/);
  assert.match(main,/writerId: getExamWriterId\(\)/);
- assert.match(main,/if \(currentExam\?\.startTime && currentExam\?\.questions\?\.length/);
+ assert.match(main,/beginExamLifecycle/);
 });
 
 test("Switching from school results to contest removes the previous student's private score",()=>{
