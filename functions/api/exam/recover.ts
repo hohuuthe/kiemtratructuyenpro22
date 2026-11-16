@@ -39,7 +39,7 @@ export const onRequestPost: PagesFunction<Env> = async context => {
     }
     const user: any = await verifyAuthSession(authorization.slice(7), secret, db);
     const userId = String(user?.user_id || user?.id || '').trim();
-    if (!userId || String(user?.role || '').toLowerCase() !== 'student') {
+    if (!userId || !['student','học sinh'].includes(String(user?.role || '').trim().toLocaleLowerCase('vi-VN'))) {
       return reply(403, { code: 'EXAM_RECOVERY_FORBIDDEN', error: 'Không thể xác minh quyền khôi phục bài làm của học sinh.' });
     }
 
