@@ -58,5 +58,7 @@ test('All three Bảng C/H buttons use local navigation, not switchTab', () => {
 test('Cancellation guard remains in place for actual tab changes', () => {
   const main = readFileSync('src/main.js', 'utf8');
   assert.match(main, /if \(tabName !== activeExamOwnerTab && isExamInProgress && !isShowingResults\)/);
-  assert.match(main, /showConfirmModal\('Bạn đang trong quá trình làm bài thi/);
+  assert.match(main, /showActiveExamLeaveDialog\(tabName, activeExamOwnerTab\)/);
+  assert.match(main, /id="exam-leave-stay"/);
+  assert.match(main, /id="exam-leave-confirm"/);
 });

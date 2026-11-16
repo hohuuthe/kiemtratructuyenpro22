@@ -9072,6 +9072,12 @@ if (contentType && contentType.includes("application/json")) {
                     forgetDeviceActiveExam(meta.examId, token);
                     if (!options.token) clearStoredActiveExamResume();
                 }
+                if (data?.code === 'EXAM_RESUME_NOT_STARTED' && !options.token) {
+                    // A READY-only token never starts a timer on refresh.
+                    // Clear only the unstarted token; separately archived
+                    // ACTIVE tokens remain available for explicit recovery.
+                    clearStoredActiveExamResume();
+                }
                 if (options.allowOtherTab && data?.code !== 'EXAM_SUBMISSION_PROCESSING') {
                     showToast(data?.error || 'Chưa thể mở lại phiên thi an toàn. Vui lòng kiểm tra lại.', 'warning');
                 }
