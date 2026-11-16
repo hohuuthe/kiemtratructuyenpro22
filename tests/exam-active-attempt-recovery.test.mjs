@@ -127,8 +127,8 @@ test('Two actions are offered before generating a READY snapshot',()=>{
   assert.match(region,/exam-choice-replace/);
   assert.match(region,/mode:'inspect'/);
   assert.match(region,/mayReplace/);
-  assert.match(region,/Tạo bài thi mới/);
-  assert.match(region,/Tiếp tục bài thi trước/);
+  assert.match(region,/Bỏ phiên cũ, làm bài mới/);
+  assert.match(region,/Khôi phục phiên làm bài cũ/);
   assert.match(s,/replaceSessionId:window.__pendingExamReplacement.sessionId/);
 });
 test('Tenant-prefixed routing exposes recovery and abandonment only within the trusted slug',()=>{
@@ -215,4 +215,30 @@ test('Recovery failure keeps choices visible, bounded requests and durable activ
   assert.match(main,/const mayReplace = !isProcessing && inspection\.body\.canCreateNew === true/);
   assert.match(main,/\$\{canResume && !isProcessing \? '' : 'disabled aria-disabled="true"'\}/);
   assert.match(main,/fetchExamStartResponse\(fetch, '\/api\/exam\/start'/);
+});
+
+test('Selecting an exam checks the learner previous attempt before loading new exam configuration',()=>{
+  const source=readFileSync('src/main.js','utf8');
+  const selection=source.slice(source.indexOf('window.onStudentExamNameChange = async function'),source.indexOf('window._verifyQuestionsSeq'));
+  const choice=selection.indexOf('offerExistingExamAttemptChoice(selectedExamId, selectedExamName');
+  const config=selection.indexOf("const detailUrl = ");
+  assert.ok(choice > 0 && config > choice,'Preflight must run before new-exam detail/access restrictions');
+  assert.match(selection,/fromSelection: true/);
+  assert.match(selection,/if \(handledExisting\) \{/);
+  assert.match(selection,/window\._studentExamLoadStatus = null/);
+  const start=source.slice(source.indexOf('window.startExam = async function'),source.indexOf('function generateExamQuestions()'));
+  assert.match(start,/if \(await offerExistingExamAttemptChoice\(selectedExamId, examName\)\) return/);
+});
+
+test('Recover and replace actions belong to the exact signed student and exam, without immediate revocation',()=>{
+  const source=readFileSync('src/main.js','utf8');
+  const dialog=source.slice(source.indexOf('async function offerExistingExamAttemptChoice('),source.indexOf('let examStartPending = false'));
+  assert.match(dialog,/mode:'inspect'/);
+  assert.match(dialog,/const mayReplace = !isProcessing && inspection\.body\.canCreateNew === true/);
+  assert.match(dialog,/if \(!mayReplace \|\| !activeId\) return/);
+  assert.match(dialog,/if \(!button \|\| button\.disabled \|\| !canResume \|\| isProcessing\) return/);
+  assert.match(dialog,/__pendingExamReplacement = \{examId:selectedExamId,sessionId:activeId\}/);
+  assert.match(dialog,/if \(fromSelection\)/);
+  assert.match(dialog,/await window\.onStudentExamNameChange\(\)/);
+  assert.doesNotMatch(dialog,/DELETE FROM _exam_active_attempts/);
 });
