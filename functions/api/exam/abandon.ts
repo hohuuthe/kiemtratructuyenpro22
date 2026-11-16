@@ -102,6 +102,7 @@ export const onRequestPost: PagesFunction<Env> = async context => {
         (session_id,exam_id,user_id,reason,abandoned_at)
       SELECT session_id, ?, ?, ?, ?
       FROM released
+      WHERE TRUE
       ON CONFLICT (session_id) DO UPDATE
         SET reason = excluded.reason
       RETURNING session_id
