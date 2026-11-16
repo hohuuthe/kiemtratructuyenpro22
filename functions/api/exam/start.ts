@@ -1,5 +1,6 @@
 import { verifyAuthSession, verifyJWT, signJWT, getDynamicSecret, getDatabase, hashToken } from './utils';
 import { publicContestExam } from '../contest/register';
+import { ensureExamLivenessSchema, initializeExamLiveness, finalizeExamLiveness } from './finalize-service';
 import { stripContestAnswerHints } from '../../../src/exam-public-contest-projection';
 import {
   EXAM_SESSION_PURPOSE_PRESTART,
@@ -361,6 +362,14 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       }
     }
 
+    // Require the liveness schema before starting the clock. Failure here must
+    // not consume a student's attempt.
+    try { await ensureExamLivenessSchema(db); }
+    catch (schemaError) {
+      console.error('Cannot prepare exam liveness:',schemaError);
+      return new Response(JSON.stringify({code:'EXAM_HEARTBEAT_SCHEMA_UNAVAILABLE',error:'Chưa thể bảo đảm tự nộp bài. Phiên thi chưa bắt đầu.'}),{status:503,headers:corsHeaders});
+    }
+
     // Lấy thời điểm bắt đầu sát lệnh claim nhất, sau khi toàn bộ snapshot/draft
     // đã sẵn sàng, để không trừ thời gian của học sinh cho công việc chuẩn bị server.
     const proposedStartedAtMs = Date.now();
@@ -470,6 +479,14 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         // snapshot vanished, the original attempt is consumed and must be
         // explicitly replaced via the counted atomic transaction above.
 
+        // Before acquiring a new slot, reconcile a prior attempt only when
+        // its server heartbeat proves it has ended (not from browser storage).
+        const existingLock: any = await db.prepare(
+          'SELECT session_id FROM _exam_active_attempts WHERE attempt_key = ?'
+        ).bind(attemptKey).first();
+        if (existingLock && String(existingLock.session_id)!==gradingSessionId) {
+          await finalizeExamLiveness(context,String(existingLock.session_id));
+        }
         const claim: any = await db.prepare(`
           INSERT INTO _exam_active_attempts
             (attempt_key, exam_id, user_id, session_id, expires_at, created_at)
@@ -624,6 +641,20 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
           error: 'Không thể xác minh thời hạn kỹ thuật của phiên thi; bài thi chưa được mở.'
         }), { status: 503, headers: corsHeaders });
       }
+    }
+
+    // The liveness record is required for a started attempt. On ambiguous
+    // database failure leave the lock intact rather than issue a falsely
+    // recoverable token; the watchdog will reconcile only proven sessions.
+    try {
+      await initializeExamLiveness(db,{
+        sessionId:gradingSessionId,examId,userId:signedAttemptUserId,
+        contestParticipantId,deadlineAt:new Date(deadlineAtMs).toISOString(),
+        studentInfo:body?.studentInfo || {}
+      });
+    } catch(livenessError) {
+      console.error('Unable to register started attempt for automatic finalization:',livenessError);
+      return new Response(JSON.stringify({code:'EXAM_START_LIVENESS_UNAVAILABLE',error:'Không thể xác nhận bộ giám sát phiên thi. Vui lòng liên hệ quản trị viên.'}),{status:503,headers:corsHeaders});
     }
 
     const activePayload = {
