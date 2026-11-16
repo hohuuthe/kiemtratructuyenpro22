@@ -5,7 +5,7 @@ import { finalizeDueExamLiveness } from '../functions/api/exam/finalize-service'
  * bindings as Pages; never forward tenant data to another tenant.
  */
 export default {
-  async scheduled(_event: ScheduledEvent, env: any, ctx: ExecutionContext) {
+  async scheduled(_event: any, env: any, _ctx: any) {
     const slugs = String(env.EXAM_FINALIZER_TENANTS || '')
       .split(',').map(x=>x.trim()).filter(Boolean);
     // Default tenant is always checked; slug-based tenants require explicit
