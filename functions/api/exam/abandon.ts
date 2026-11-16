@@ -58,7 +58,7 @@ export const onRequestPost: PagesFunction<Env> = async context => {
       return reply(409,{code:'EXAM_ABANDON_SCOPE_MISMATCH',error:'Phiên thi không thuộc đúng tài khoản hoặc đề đã chọn.'});
     }
     const session:any = await db.prepare(
-      'SELECT session_id, exam_id, question_ids, question_snapshot, started_at, deadline_at, expires_at FROM _exam_grade_sessions WHERE session_id = ?'
+      'SELECT session_id, exam_id, question_ids, question_snapshot, exam_config, started_at, deadline_at, expires_at FROM _exam_grade_sessions WHERE session_id = ?'
     ).bind(String(old.session_id)).first();
     const reason = unrecoverableExamSnapshotReason(session,examId,Date.now());
     if (!reason) return reply(409,{code:'EXAM_ABANDON_RECOVERABLE',
