@@ -86,6 +86,7 @@ test('Only proven invalid snapshots qualify for confirmed abandonment',()=>{
   assert.equal(unrecoverableExamSnapshotReason({...session, question_snapshot:'{broken'},'exam-1',now),'corrupt_snapshot');
   assert.equal(unrecoverableExamSnapshotReason({...session, question_snapshot:JSON.stringify([{id:'q-2'},{id:'q-1'}])},'exam-1',now),'corrupt_snapshot');
   assert.equal(unrecoverableExamSnapshotReason({...session, exam_id:'another-exam'},'exam-1',now),null);
+  assert.equal(unrecoverableExamSnapshotReason({...session, exam_config:JSON.stringify({id:'another-exam'})},'exam-1',now),null);
   assert.equal(unrecoverableExamSnapshotReason({...session, started_at:null},'exam-1',now),null);
 });
 
