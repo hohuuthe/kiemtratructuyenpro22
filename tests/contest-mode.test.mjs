@@ -238,7 +238,7 @@ test('Contest tab follows server-attested resume and never loses active student 
  assert.match(resume,/isContestAttempt: Boolean\(decoded\.contestParticipantId\)/);
  assert.match(main,/window\.__activeStudentExamTab = isResumedContest \? 'contest' : 'exam'/);
  assert.match(main,/tabName !== activeExamOwnerTab && isExamInProgress/);
- assert.match(main,/requestedTab = previousTab \|\| activeExamOwnerTab/);
+ assert.match(main,/requestedTab = activeExamOwnerTab/);
  assert.match(main,/window\.__contestOnExamStarted\?\.\(\)/);
  assert.match(main,/window\.__contestCanShowExam\?\.\(\)/);
  assert.match(ui,/relocateExamWidgets\(true\)/);
