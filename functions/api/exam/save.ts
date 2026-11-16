@@ -32,7 +32,7 @@ function normalizeDraftImage(value: unknown): string {
   throw new Error('EXAM_DRAFT_IMAGE_INVALID');
 }
 
-function sanitizeDraftAnswers(answers: any[]): any[] {
+export function sanitizeDraftAnswers(answers: any[]): any[] {
   return answers.map((answer: any) => {
     if (!answer || typeof answer !== 'object' || Array.isArray(answer)) return answer;
     const copy = { ...answer };
