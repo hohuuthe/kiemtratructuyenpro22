@@ -97,7 +97,7 @@ test('generation uses grouped order before freezing signed IDs and grading snaps
   assert.ok(ordered>=0 && ids>ordered && snapshot>ids);
   assert.doesNotMatch(source,/selectedQuestions = shuffle\(selectedQuestions\)/);
   const start=readFileSync('functions/api/exam/start.ts','utf8');
-  const resume=readFileSync('functions/api/exam/resume.ts','utf8');
+  const finalizer=readFileSync('functions/api/exam/finalize-service.ts','utf8');
   assert.match(start,/const clientQuestions = frozenQuestions\.map/);
-  assert.match(resume,/const questions = frozenQuestions\.map/);
+  assert.match(finalizer,/questions\.some\(\(q:any,i:number\)=>String\(q\?\.id/);
 });
