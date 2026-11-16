@@ -1,4 +1,5 @@
 import { verifyAuthSession, verifyJWT, getDynamicSecret, getDatabase } from './utils';
+import { ensureExamLivenessSchema } from './finalize-service';
 import {
   EXAM_SESSION_PURPOSE_ACTIVE,
   resolveAuthoritativeExamTiming,
@@ -169,6 +170,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       'ALTER TABLE _exam_answer_drafts ADD COLUMN IF NOT EXISTS writer_seen_at TEXT'
     ]) await db.prepare(sql).run();
 
+    // Some in-progress attempts predate this migration; their autosave must
+    // remain safe even before the scheduled legacy-session sweep.
+    await ensureExamLivenessSchema(db);
     const savedAt = new Date(nowMs).toISOString();
     const leaseCutoff = new Date(nowMs - 15_000).toISOString();
     // Serialize school autosaves with an intentional attempt replacement.
