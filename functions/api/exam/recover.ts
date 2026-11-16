@@ -56,6 +56,13 @@ export const onRequestPost: PagesFunction<Env> = async context => {
       const attemptKey = examId + ':' + userId;
       let active: any = null;
       try {
+        // A first-time tenant may not have issued any ACTIVE exam yet.
+        // Create the same compatibility table as /exam/start before reading.
+        await db.prepare(`CREATE TABLE IF NOT EXISTS _exam_active_attempts (
+          attempt_key TEXT PRIMARY KEY,
+          exam_id TEXT NOT NULL, user_id TEXT NOT NULL, session_id TEXT NOT NULL,
+          expires_at TEXT NOT NULL, created_at TEXT NOT NULL
+        )`).run();
         active = await db.prepare(
           'SELECT session_id FROM _exam_active_attempts WHERE attempt_key = ? AND exam_id = ? AND user_id = ?'
         ).bind(attemptKey, examId, userId).first();
