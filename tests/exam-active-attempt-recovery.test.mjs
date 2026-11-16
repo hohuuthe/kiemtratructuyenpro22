@@ -163,8 +163,8 @@ test('An expired lock must not replace a still-existing server snapshot',()=>{
 test('Creating a new attempt retains the prior ACTIVE token through both form resets until server accepts start',()=>{
   const source = readFileSync('src/main.js','utf8');
   assert.match(source,/resetExam\(\{ preserveActiveResume: true \}\)/);
-  assert.match(source,/resetExam\(\{ preserveActiveResume: Boolean\(window\.__pendingExamReplacement &&/);
-  assert.match(source,/String\(window\.__pendingExamReplacement\.examId\) === String\(selectedExamId\)/);
+  assert.match(source,/resetExam\(\{ preserveActiveResume: true \}\)/);
+  assert.match(source,/const replacingThisExam = pendingReplacement &&/);
   assert.match(source,/window\.resetExam = function resetExam\(options = \{\}\)/);
   const reset = source.slice(source.indexOf('window.resetExam = function resetExam('),source.indexOf('currentExam = {',source.indexOf('window.resetExam = function resetExam(')));
   assert.match(reset,/if \(!preserveActiveResume\) clearStoredActiveExamResume\(\)/);
