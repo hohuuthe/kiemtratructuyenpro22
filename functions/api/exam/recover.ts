@@ -1,5 +1,5 @@
-import { getDatabase, getDynamicSecret, signJWT, verifyAuthSession } from './utils';
-import { buildActiveExamRecoveryPayload } from '../../../src/exam-active-attempt-recovery.js';
+import { getDatabase, getDynamicSecret, signJWT, verifyAuthSession, hashToken } from './utils';
+import { buildActiveExamRecoveryPayload, inspectActiveExamRecoveryState, isAuthenticatedSchoolExamStudent } from '../../../src/exam-active-attempt-recovery.js';
 
 interface Env {
   NEON_DATABASE_URL?: string;
@@ -39,7 +39,7 @@ export const onRequestPost: PagesFunction<Env> = async context => {
     }
     const user: any = await verifyAuthSession(authorization.slice(7), secret, db);
     const userId = String(user?.user_id || user?.id || '').trim();
-    if (!userId || !['student','học sinh'].includes(String(user?.role || '').trim().toLocaleLowerCase('vi-VN'))) {
+    if (!userId || !isAuthenticatedSchoolExamStudent(user)) {
       return reply(403, { code: 'EXAM_RECOVERY_FORBIDDEN', error: 'Không thể xác minh quyền khôi phục bài làm của học sinh.' });
     }
 
@@ -71,6 +71,40 @@ export const onRequestPost: PagesFunction<Env> = async context => {
         return reply(503,{ code:'EXAM_INSPECT_UNAVAILABLE', error:'Không thể kiểm tra phiên thi cũ. Chưa tạo phiên mới để tránh trùng lượt.' });
       }
       if (!active?.session_id) return reply(200,{ active:false });
+      // A lock by itself does NOT prove that a session is recoverable. Older
+      // deployments could delete an expired grading snapshot but leave its
+      // ACTIVE lock, trapping the student at the resume button forever.
+      let snapshot: any;
+      try {
+        snapshot = await db.prepare(
+          'SELECT session_id, exam_id, teacher_id, question_ids, question_snapshot, exam_config, started_at, deadline_at, expires_at FROM _exam_grade_sessions WHERE session_id = ?'
+        ).bind(String(active.session_id)).first();
+      } catch (snapshotError) {
+        console.error('Cannot inspect existing exam snapshot:', snapshotError);
+        return reply(503,{code:'EXAM_INSPECT_SNAPSHOT_UNAVAILABLE',
+          error:'Chưa thể xác minh dữ liệu phiên thi cũ. Hệ thống không hủy bài; vui lòng thử lại.'});
+      }
+      const recoveryState = inspectActiveExamRecoveryState(snapshot, examId, userId);
+      // Submission is always authoritative even when its old lock has not
+      // yet been removed. Do not offer resume or replace for an actual result.
+      try {
+        const submissionHash = await hashToken('exam-session:' + String(active.session_id));
+        const result: any = await db.prepare(
+          'SELECT id FROM results WHERE submission_token_hash = ? LIMIT 1'
+        ).bind(submissionHash).first();
+        if (result?.id) return reply(200,{active:false,alreadySubmitted:true,resultId:String(result.id)});
+        const processing: any = await db.prepare(
+          'SELECT status, result_id FROM _submitted_exam_tokens WHERE token_hash = ?'
+        ).bind(submissionHash).first();
+        if (processing?.status === 'processing') {
+          return reply(200,{active:true,canResume:false,canCreateNew:false,
+            status:'submission_processing',sessionId:String(active.session_id)});
+        }
+      } catch (submissionCheckError) {
+        console.error('Cannot verify stale submission status during recovery:', submissionCheckError);
+        return reply(503,{code:'EXAM_INSPECT_SUBMISSION_UNAVAILABLE',
+          error:'Không thể xác minh trạng thái nộp của phiên cũ. Chưa tạo lượt thi mới.'});
+      }
       const exam: any = await db.prepare(
         'SELECT max_attempts, chedodethi FROM exam_configs WHERE id = ?'
       ).bind(examId).first();
@@ -118,7 +152,11 @@ export const onRequestPost: PagesFunction<Env> = async context => {
       const canCreateNew = String(exam.chedodethi || '') !== 'Cuộc thi trực tuyến' &&
         Number.isInteger(quota) && (quota === 0 || (quota > 1 && used + 1 < quota));
       return reply(200,{
-        active:true, sessionId:String(active.session_id), canCreateNew,
+        active:true, sessionId:String(active.session_id),
+        canResume: recoveryState.canResume,
+        recoveryReason: recoveryState.reason,
+        status: recoveryState.canResume ? 'active_recoverable' : 'active_unrecoverable',
+        canCreateNew,
         // Display hints only. The replacement operation recomputes counts
         // including unlinked legacy results before committing the change.
         maxAttempts:quota, usedAttempts:used, minimumConsumedOnReplace:used+1
