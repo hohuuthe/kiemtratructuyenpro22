@@ -135,8 +135,13 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     // Explicit same-device recovery must not silently take over a live
     // answer-writer lease from another tab. Legacy resume without writerId
     // retains existing behavior; saved answers remain server-authoritative.
+    // A baseline draft may predate the writer-lease columns. Upgrade safely
+    // before verifying a writer claim; never discard the saved answer payload.
     const requestedWriterId = String(body?.writerId || '').trim();
     if (requestedWriterId) {
+      for (const column of ['writer_id TEXT', 'writer_seen_at TEXT']) {
+        await db.prepare('ALTER TABLE _exam_answer_drafts ADD COLUMN IF NOT EXISTS ' + column).run();
+      }
       if (!/^[A-Za-z0-9_-]{8,120}$/.test(requestedWriterId)) {
         return new Response(JSON.stringify({ code: 'EXAM_RESUME_WRITER_INVALID', error: 'Mã tab khôi phục không hợp lệ.' }), { status: 400, headers: corsHeaders });
       }
