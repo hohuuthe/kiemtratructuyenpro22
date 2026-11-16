@@ -9447,6 +9447,44 @@ if (contentType && contentType.includes("application/json")) {
                             body: JSON.stringify({ token: window.currentExamToken })
                         });
                         const startResult = await response.json().catch(() => ({}));
+                        if (response.status === 409 && startResult.code === 'EXAM_ATTEMPT_ALREADY_ACTIVE') {
+                            // A different ACTIVE session already owns this exam; resume
+                            // its server-frozen questions, answers and deadline.
+                            const recovery = await fetchExamStartResponse(fetch, '/api/exam/recover', {
+                                method: 'POST', headers, cache: 'no-store',
+                                body: JSON.stringify({ examId: selectedExamId })
+                            }, 15000);
+                            if (!recovery.ok || !recovery.body?.recovered || !recovery.body?.token) {
+                                throw new Error(recovery.body?.error || 'Không thể xác minh phiên đang làm; không được mở lượt thi mới.');
+                            }
+                            const storedMeta = (() => {
+                                try { return JSON.parse(localStorage.getItem(window.tenantStorageKey('active_exam_resume_meta')) || '{}'); }
+                                catch (_) { return {}; }
+                            })();
+                            if (storedMeta.writerId && storedMeta.writerId !== getExamWriterId()) {
+                                throw new Error('Phiên thi đang thuộc tab khác. Vui lòng quay lại tab ban đầu để tiếp tục.');
+                            }
+                            window.currentExamToken = recovery.body.token;
+                            localStorage.setItem(window.tenantStorageKey('currentExamToken'), recovery.body.token);
+                            localStorage.setItem(window.tenantStorageKey('active_exam_resume_meta'), JSON.stringify({
+                                ...storedMeta, phase: 'active', entryTab: 'exam',
+                                writerId: getExamWriterId(), examId: selectedExamId
+                            }));
+                            // READY already requested fullscreen, but the resume modal
+                            // must be visible before the learner re-enters fullscreen.
+                            try {
+                                if (document.fullscreenElement && document.exitFullscreen) {
+                                    window.intentionalFullscreenExit = true;
+                                    await document.exitFullscreen();
+                                    setTimeout(() => { window.intentionalFullscreenExit = false; }, 300);
+                                }
+                            } catch (_) {}
+                            closeModal();
+                            if (!await tryResumeActiveExam()) {
+                                throw new Error('Không thể mở giao diện khôi phục. Bài làm cũ vẫn được giữ nguyên; vui lòng tải lại trang.');
+                            }
+                            return;
+                        }
                         if (!response.ok || !startResult.token ||
                             !Array.isArray(startResult.questions) || startResult.questions.length === 0 ||
                             (currentExam.expectedQuestionCount > 0 && startResult.questions.length !== currentExam.expectedQuestionCount)) {
