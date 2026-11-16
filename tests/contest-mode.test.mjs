@@ -231,12 +231,12 @@ test('Default choice changes landing only; contest APIs remain published-only fo
  assert.match(settings,/Cả hai chức năng/);
 });
 
-test('Contest tab follows server-attested resume and never loses active student exam on navigation',()=>{
+test('Contest tab stays isolated and leaving does not offer old session recovery',()=>{
  const main=source('src/main.js');
  const resume=source('functions/api/exam/resume.ts');
  const ui=source('src/contest-mode-ui.js');
- assert.match(resume,/isContestAttempt: Boolean\(decoded\.contestParticipantId\)/);
- assert.match(main,/window\.__activeStudentExamTab = isResumedContest \? 'contest' : 'exam'/);
+ assert.match(resume,/EXAM_RESUME_DISABLED/);
+ assert.doesNotMatch(main,/tryResumeActiveExam|offerExistingExamAttemptChoice/);
  assert.match(main,/tabName !== activeExamOwnerTab && isExamInProgress/);
  assert.match(main,/requestedTab = previousTab \|\| activeExamOwnerTab/);
  assert.match(main,/window\.__contestOnExamStarted\?\.\(\)/);
@@ -383,19 +383,15 @@ test('Finishing a contest clears guest identity and restores only authenticated 
  assert.match(ui,/for\(const \[id,value\] of Object\.entries\(restore\)\)/);
 });
 
-test('Restoring a contest mounts its DOM BEFORE fullscreen and handles expired drafts',()=>{
+test('Contest start mounts its DOM before fullscreen and does not restore a finished session',()=>{
  const ui=source('src/contest-mode-ui.js');
  const main=source('src/main.js');
- assert.match(ui,/window\.__contestOnExamResumed=function\(\)/);
- assert.match(ui,/if\(!relocateExamWidgets\(true\)\)return false/);
- const click=main.indexOf("resumeButton.addEventListener('click'");
- const resume=main.indexOf('window.__contestOnExamResumed?.()',click);
- const expired=main.indexOf('if (data.expired)',click);
- const fullscreen=main.indexOf('window.enterExamFullscreen()',click);
- assert.ok(click>=0 && resume>click && expired>resume && fullscreen>expired);
- assert.doesNotMatch(main.slice(click,fullscreen+100),/isResumedContest\) window\.__contestOnExamStarted/);
+ assert.match(ui,/window\.__contestBeforeFullscreen/);
+ assert.match(main,/window\.__contestBeforeFullscreen\?\.\(\)/);
+ assert.match(main,/window\.__contestOnExamStarted\?\.\(\)/);
+ assert.match(main,/beginExamLifecycle/);
+ assert.doesNotMatch(main,/resumeButton\.addEventListener/);
 });
-
 test('Mobile registration keeps the start action visible with independently scrollable fields',()=>{
  const html=source('public/components/tab-contest.html');
  const css=source('src/style.css');
