@@ -262,6 +262,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         // BẢO MẬT: claim token atomically BEFORE grading so two simultaneous
         // submissions cannot both create result rows.
         tokenHash = await hashToken(gradingSessionId && decoded.purpose === EXAM_SESSION_PURPOSE_ACTIVE ? 'exam-session:' + String(gradingSessionId) : token);
+        // A result submitted before rollout was keyed by the original JWT.
+        // Check that legacy key as well to avoid replaying a completed old exam.
+        const legacyTokenHash = await hashToken(token);
         claimedResultId = crypto.randomUUID();
         try {
             await db.prepare(
@@ -277,8 +280,8 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             }
 
             let existing: any = await db.prepare(
-                "SELECT token_hash, status, result_id, claimed_at FROM _submitted_exam_tokens WHERE token_hash = ?"
-            ).bind(tokenHash).first();
+                "SELECT token_hash, status, result_id, claimed_at FROM _submitted_exam_tokens WHERE token_hash = ? OR token_hash = ? ORDER BY CASE WHEN token_hash = ? THEN 0 ELSE 1 END LIMIT 1"
+            ).bind(tokenHash, legacyTokenHash, legacyTokenHash).first();
             if (existing) {
                 if (existing.result_id) {
                     const stored: any = await db.prepare(
