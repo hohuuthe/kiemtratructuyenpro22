@@ -241,7 +241,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
         // BẢO MẬT: claim token atomically BEFORE grading so two simultaneous
         // submissions cannot both create result rows.
-        tokenHash = await hashToken(token);
+        tokenHash = await hashToken(gradingSessionId && decoded.purpose === EXAM_SESSION_PURPOSE_ACTIVE ? 'exam-session:' + String(gradingSessionId) : token);
         claimedResultId = crypto.randomUUID();
         try {
             await db.prepare(
