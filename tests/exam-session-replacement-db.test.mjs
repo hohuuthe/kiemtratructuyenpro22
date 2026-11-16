@@ -169,3 +169,26 @@ test('DB: autosave cannot write with another account or wrong exam ownership',as
     assert.equal((await db.query(schoolSaveSql,args)).rowCount,0);
   }finally{await db.close();}
 });
+
+test('DB orphan lock with missing old snapshot is replaced atomically but still consumes its attempt',async()=>{
+  const {db,args}=await fixture();
+  try {
+    await db.query("DELETE FROM _exam_grade_sessions WHERE session_id='old-session'");
+    const changed=await db.query(replacementSql,args);
+    assert.equal(changed.rowCount,1);
+    assert.equal(changed.rows[0].session_id,'old-session');
+    assert.equal((await db.query('SELECT session_id FROM _exam_active_attempts')).rows[0].session_id,'new-session');
+    assert.equal((await db.query("SELECT reason FROM _exam_abandoned_attempts WHERE session_id='old-session'")).rows[0].reason,'replaced_by_student');
+    assert.equal((await db.query("SELECT started_at FROM _exam_grade_sessions WHERE session_id='new-session'")).rows[0].started_at!==null,true);
+  } finally { await db.close(); }
+});
+
+test('DB orphan lock with no remaining attempts is preserved without creating a free attempt',async()=>{
+  const {db,args}=await fixture({used:2});
+  try {
+    await db.query("DELETE FROM _exam_grade_sessions WHERE session_id='old-session'");
+    assert.equal((await db.query(replacementSql,args)).rowCount,0);
+    assert.equal((await db.query('SELECT session_id FROM _exam_active_attempts')).rows[0].session_id,'old-session');
+    assert.equal((await db.query('SELECT COUNT(*)::int AS total FROM _exam_abandoned_attempts')).rows[0].total,0);
+  } finally { await db.close(); }
+});
