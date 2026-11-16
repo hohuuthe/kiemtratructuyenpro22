@@ -64,21 +64,17 @@ test('Recovered and original ACTIVE tokens share same submission deduplication k
   assert.match(grade, /ON CONFLICT \(token_hash\) DO NOTHING/);
 });
 
-test('409 conflict uses authenticated recovery without replacing session or creating another start', () => {
-  const main = readFileSync('src/main.js','utf8');
-  const section = main.slice(main.indexOf("const startResult = await response.json().catch(() => ({}));"),
-    main.indexOf("window.currentExamToken = startResult.token;"));
-  assert.match(section, /startResult.code === 'EXAM_ATTEMPT_ALREADY_ACTIVE'/);
-  assert.match(section, /fetchExamStartResponse\(fetch, '\/api\/exam\/recover'/);
-  assert.match(section, /await tryResumeActiveExam\(\)/);
-  const endpoint = readFileSync('functions/api/exam/recover.ts','utf8');
-  assert.match(endpoint, /verifyAuthSession\(/);
-  assert.match(endpoint, /WHERE attempt_key = \?/);
-  assert.match(endpoint, /WHERE session_id = \?/);
-  assert.doesNotMatch(endpoint, /INSERT INTO _exam_grade_sessions/);
-  assert.doesNotMatch(endpoint, /DELETE FROM _exam_active_attempts/);
+test('Conflicting start returns to the two-choice dialog without deleting the prior attempt', () => {
+  const main=readFileSync('src/main.js','utf8');
+  const fragment=main.slice(main.indexOf("startResult.code === 'EXAM_ATTEMPT_ALREADY_ACTIVE'"),
+    main.indexOf("if (!response.ok || !startResult.token ||"));
+  assert.match(fragment,/window.__pendingExamReplacement = null/);
+  assert.match(fragment,/window.startExam\(\)/);
+  assert.doesNotMatch(fragment,/api\/exam\/abandon/);
+  const inspection=readFileSync('functions/api/exam/recover.ts','utf8');
+  assert.match(inspection,/body\?\.mode === 'inspect'/);
+  assert.match(inspection,/SELECT session_id FROM _exam_active_attempts/);
 });
-
 test('Only proven invalid snapshots qualify for confirmed abandonment',()=>{
   assert.equal(unrecoverableExamSnapshotReason(session,'exam-1',now),null);
   assert.equal(unrecoverableExamSnapshotReason(null,'exam-1',now),'missing_snapshot');
@@ -101,36 +97,40 @@ test('A new attempt requires actual multiple-attempt availability',()=>{
   assert.equal(examAllowsFreshAttempt(null,0),true); // 0 means unlimited under the existing exam configuration
 });
 
-test('Abandon endpoint cannot delete old student answers or unconditionally bypass quota',()=>{
-  const source = readFileSync('functions/api/exam/abandon.ts','utf8');
-  assert.match(source,/verifyAuthSession/);
-  assert.match(source,/examAllowsFreshAttempt\(maxAttempts, completed\)/);
-  assert.match(source,/unrecoverableExamSnapshotReason\(session,examId,Date.now\(\)\)/);
-  assert.match(source,/SELECT 1 AS pending FROM _submitted_exam_tokens/);
-  assert.match(source,/DELETE FROM _exam_active_attempts/);
-  assert.match(source,/INSERT INTO _exam_abandoned_attempts/);
-  assert.doesNotMatch(source,/DELETE FROM _exam_answer_drafts/);
-  assert.doesNotMatch(source,/DELETE FROM _exam_grade_sessions/);
-  assert.doesNotMatch(source,/DELETE FROM results/);
-  assert.doesNotMatch(source,/UPDATE exam_configs SET max_attempts/);
-  for(const path of ['functions/api/exam/start.ts','functions/api/exam/resume.ts','functions/api/exam/save.ts','functions/api/exam/grade.ts']){
-    const text = readFileSync(path,'utf8');
-    assert.match(text,/EXAM_ATTEMPT_ABANDONED/);
-    assert.match(text,/FROM _exam_abandoned_attempts WHERE session_id = \?/);
-  }
+test('Replacement is atomic, counted and protected against submission races',()=>{
+  const start=readFileSync('functions/api/exam/start.ts','utf8');
+  const grade=readFileSync('functions/api/exam/grade.ts','utf8');
+  assert.match(start,/replaceSessionId/);
+  assert.match(start,/usedCanceled/);
+  assert.match(start,/completed \+ usedCanceled \+ \(replacement \? 1 : 0\)/);
+  assert.match(start,/WITH old AS \(/);
+  assert.match(start,/FOR UPDATE/);
+  assert.match(start,/switched AS \(/);
+  assert.match(start,/activated AS \(/);
+  assert.match(start,/revoked AS \(/);
+  assert.match(start,/INSERT INTO _exam_abandoned_attempts/);
+  assert.match(start,/FROM activated WHERE TRUE/);
+  assert.match(start,/EXAM_REPLACEMENT_CONFLICT/);
+  assert.match(grade,/schoolAttempt/);
+  assert.match(grade,/FROM _exam_active_attempts/);
+  assert.match(grade,/FOR UPDATE/);
+  const retired=readFileSync('functions/api/exam/abandon.ts','utf8');
+  assert.match(retired,/EXAM_DIRECT_ABANDON_DISABLED/);
+  assert.doesNotMatch(retired,/DELETE FROM _exam_active_attempts/);
 });
 
-test('Browser offers retry only for server-confirmed irrecoverable snapshots',()=>{
-  const code = readFileSync('src/main.js','utf8');
-  const start = code.slice(code.indexOf("startResult.code === 'EXAM_ATTEMPT_ALREADY_ACTIVE'"),code.indexOf('window.currentExamToken = recovery.body.token;'));
-  assert.match(start,/safeAbandonCodes/);
-  assert.match(start,/EXAM_RECOVERY_SNAPSHOT_MISMATCH/);
-  assert.doesNotMatch(start,/safeAbandonCodes[^;]*EXAM_RECOVERY_WRITER_BUSY/s);
-  assert.match(start,/\/api\/exam\/abandon/);
-  assert.match(start,/confirm:true/);
-  assert.match(start,/abandoned.body\?\.canCreateNew !== true/);
+test('Two actions are offered before generating a READY snapshot',()=>{
+  const s=readFileSync('src/main.js','utf8');
+  const region=s.slice(s.indexOf('const pendingReplacement = window.__pendingExamReplacement;'),
+    s.indexOf('const payload = {',s.indexOf('const pendingReplacement = window.__pendingExamReplacement;')));
+  assert.match(region,/exam-choice-resume/);
+  assert.match(region,/exam-choice-replace/);
+  assert.match(region,/mode:'inspect'/);
+  assert.match(region,/mayReplace/);
+  assert.match(region,/Tạo bài thi mới/);
+  assert.match(region,/Tiếp tục bài thi trước/);
+  assert.match(s,/replaceSessionId:window.__pendingExamReplacement.sessionId/);
 });
-
 test('Tenant-prefixed routing exposes recovery and abandonment only within the trusted slug',()=>{
   const router = readFileSync('functions/[slug]/api/[[path]].ts','utf8');
   assert.match(router, /'exam\/recover': examRecover/);
