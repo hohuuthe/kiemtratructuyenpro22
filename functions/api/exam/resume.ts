@@ -1,5 +1,6 @@
 import { verifyAuthSession, verifyJWT, signJWT, getDynamicSecret, getDatabase, hashToken } from './utils';
 import { examSubmissionClaimIdentity } from '../../../src/exam-submission-identity.js';
+import { stripContestAnswerHints } from '../../../src/exam-public-contest-projection';
 import {
   EXAM_SESSION_PURPOSE_ACTIVE,
   EXAM_SESSION_PURPOSE_PRESTART,
@@ -131,6 +132,35 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       }), { status: 409, headers: corsHeaders });
     }
 
+    // Explicit same-device recovery must not silently take over a live
+    // answer-writer lease from another tab. Legacy resume without writerId
+    // retains existing behavior; saved answers remain server-authoritative.
+    const requestedWriterId = String(body?.writerId || '').trim();
+    if (requestedWriterId) {
+      if (!/^[A-Za-z0-9_-]{8,120}$/.test(requestedWriterId)) {
+        return new Response(JSON.stringify({ code: 'EXAM_RESUME_WRITER_INVALID', error: 'Mã tab khôi phục không hợp lệ.' }), { status: 400, headers: corsHeaders });
+      }
+      try {
+        const existingDraft: any = await db.prepare(
+          'SELECT writer_id, writer_seen_at FROM _exam_answer_drafts WHERE session_id = ?'
+        ).bind(gradingSessionId).first();
+        const writerSeenAtMs = Date.parse(String(existingDraft?.writer_seen_at || ''));
+        if (existingDraft?.writer_id && String(existingDraft.writer_id) !== requestedWriterId &&
+            Number.isFinite(writerSeenAtMs) && writerSeenAtMs > nowMs - 15_000) {
+          return new Response(JSON.stringify({
+            code: 'EXAM_RESUME_WRITER_ACTIVE',
+            error: 'Phiên thi đang được lưu ở tab khác. Vui lòng đóng tab đó rồi chọn mở lại tại đây.'
+          }), { status: 409, headers: corsHeaders });
+        }
+      } catch (leaseError) {
+        console.error('Cannot verify exam recovery writer lease:', leaseError);
+        return new Response(JSON.stringify({
+          code: 'EXAM_RESUME_WRITER_UNAVAILABLE',
+          error: 'Chưa thể xác minh tab đang lưu bài; vui lòng thử lại để tránh ghi đè đáp án.'
+        }), { status: 503, headers: corsHeaders });
+      }
+    }
+
     const timing = resolveAuthoritativeExamTiming(decoded, session, nowMs);
     if (!timing.valid) {
       return new Response(JSON.stringify({ error: 'Mốc thời gian phiên thi không hợp lệ; không thể khôi phục.' }), { status: 409, headers: corsHeaders });
@@ -190,6 +220,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         const { answerImage, ...safeOptions } = withoutAnswer.options;
         withoutAnswer.options = safeOptions;
       }
+      if (decoded.contestParticipantId) return stripContestAnswerHints(withoutAnswer);
       return withoutAnswer;
     });
 
