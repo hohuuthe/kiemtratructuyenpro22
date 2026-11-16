@@ -669,12 +669,14 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       // No ACTIVE token has been issued to the browser. Revert only our exact
       // unexposed start attempt; never delete a completed result or draft.
       try {
-        await db.prepare('UPDATE _exam_grade_sessions SET started_at=NULL,deadline_at=NULL WHERE session_id=? AND started_at=?')
+        const rolledBack: any = await db.prepare('UPDATE _exam_grade_sessions SET started_at=NULL,deadline_at=NULL WHERE session_id=? AND started_at=?')
           .bind(gradingSessionId,new Date(startedAtMs).toISOString()).run();
-        await db.prepare('DELETE FROM _exam_active_attempts WHERE session_id=?').bind(gradingSessionId).run();
-        if (contestParticipantId) {
-          await db.prepare("DELETE FROM contest_attempts WHERE ma_phien_thi=? AND trang_thai='DANG_LAM'")
-            .bind(gradingSessionId).run();
+        if (Number(rolledBack?.meta?.changes || 0) === 1) {
+          await db.prepare('DELETE FROM _exam_active_attempts WHERE session_id=?').bind(gradingSessionId).run();
+          if (contestParticipantId) {
+            await db.prepare("DELETE FROM contest_attempts WHERE ma_phien_thi=? AND trang_thai='DANG_LAM'")
+              .bind(gradingSessionId).run();
+          }
         }
       } catch (rollbackError) {
         console.error('Unable to roll back unexposed exam start:',rollbackError);
