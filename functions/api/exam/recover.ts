@@ -79,7 +79,34 @@ export const onRequestPost: PagesFunction<Env> = async context => {
         'SELECT COUNT(*) AS count FROM _exam_abandoned_attempts WHERE exam_id = ? AND user_id = ?'
       ).bind(examId,userId).first();
       const quota = Number(exam.max_attempts);
-      const used = Number(completed?.count || 0) + Number(abandoned?.count || 0);
+      let legacyAttempts = 0;
+      const studentProfile: any = await db.prepare(
+        'SELECT full_name, lop, donvi FROM users WHERE id = ? LIMIT 1'
+      ).bind(userId).first();
+      const profileName = String(studentProfile?.full_name || '').trim();
+      const profileClass = String(studentProfile?.lop || '').trim();
+      const profileUnit = String(studentProfile?.donvi || '').trim();
+      if (profileName && profileClass && profileUnit) {
+        const normalizeLegacyUnit = (value:any):string => String(value || '')
+          .normalize('NFKC').toLocaleLowerCase('vi-VN').normalize('NFD')
+          .replace(/[\u0300-\u036f]/g,'').replace(/đ/g,'d')
+          .trim().replace(/^truong\s+/u,'').replace(/^trung\s+hoc\s+pho\s+thong\s+/u,'')
+          .replace(/^thpt\s+/u,'').replace(/^truong\s+thpt\s+/u,'').replace(/\s+/g,' ');
+        const unit = normalizeLegacyUnit(profileUnit);
+        const {results: matchedProfiles} = await db.prepare(
+          "SELECT id, donvi FROM users WHERE LOWER(TRIM(full_name)) = LOWER(TRIM(?)) AND LOWER(TRIM(COALESCE(lop,''))) = LOWER(TRIM(?))"
+        ).bind(profileName,profileClass).all();
+        const owners = (matchedProfiles || []).filter((entry:any) =>
+          normalizeLegacyUnit(entry?.donvi) === unit);
+        if (owners.length === 1 && String(owners[0]?.id) === userId) {
+          const {results: legacyRows} = await db.prepare(
+            "SELECT don_vi FROM results WHERE exam_id = ? AND (user_id IS NULL OR TRIM(user_id) = '') AND LOWER(TRIM(student_name)) = LOWER(TRIM(?)) AND LOWER(TRIM(COALESCE(lop,''))) = LOWER(TRIM(?))"
+          ).bind(examId,profileName,profileClass).all();
+          legacyAttempts = (legacyRows || []).filter((row:any) =>
+            normalizeLegacyUnit(row?.don_vi) === unit).length;
+        }
+      }
+      const used = Number(completed?.count || 0) + Number(abandoned?.count || 0) + legacyAttempts;
       // One ACTIVE attempt will become a consumed attempt if replaced.
       const canCreateNew = String(exam.chedodethi || '') !== 'Cuộc thi trực tuyến' &&
         Number.isInteger(quota) && (quota === 0 || (quota > 1 && used + 1 < quota));
