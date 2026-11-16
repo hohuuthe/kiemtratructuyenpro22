@@ -38,6 +38,7 @@ import { onRequestPost as hardenedExamGenerateHandler } from './functions/api/ex
 import { onRequestPost as hardenedExamGradeHandler } from './functions/api/exam/grade';
 import { onRequestPost as hardenedExamStartHandler } from './functions/api/exam/start';
 import { onRequestPost as hardenedExamSaveHandler } from './functions/api/exam/save';
+import { onRequestPost as hardenedExamHeartbeatHandler } from './functions/api/exam/heartbeat';
 import { onRequestPost as hardenedExamViolationHandler } from './functions/api/exam/violation';
 import { onRequestPost as hardenedExamResumeHandler } from './functions/api/exam/resume';
 import { onRequestPost as hardenedUploadImageHandler } from './functions/api/upload-image';
@@ -5302,6 +5303,8 @@ async function getServerSecret(): Promise<string> {
       invokeExamPagesPostHandler(req, res, hardenedExamStartHandler, '/api/exam/start'));
   app.post("/api/exam/save", (req, res) =>
       invokeExamPagesPostHandler(req, res, hardenedExamSaveHandler, '/api/exam/save'));
+  app.post("/api/exam/heartbeat", (req, res) =>
+      invokeExamPagesPostHandler(req, res, hardenedExamHeartbeatHandler, '/api/exam/heartbeat'));
   app.post("/api/exam/violation", (req, res) =>
       invokeExamPagesPostHandler(req, res, hardenedExamViolationHandler, '/api/exam/violation'));
   app.post("/api/exam/resume", (req, res) =>
