@@ -9,7 +9,7 @@ assert.ok(match, 'The test must use the exact production replacement SQL, never 
 const exactSql = match[1];
 let argNumber = 0;
 const replacementSql = exactSql.replace(/\?/g, () => '$' + (++argNumber));
-assert.equal(argNumber, 24, 'Replacement statement bind contract changed; review query and test');
+assert.equal(argNumber, 25, 'Replacement statement bind contract changed; review query and test');
 
 async function fixture({used=0, canceled=0, processing=false}={}) {
   const db = new PGlite();
