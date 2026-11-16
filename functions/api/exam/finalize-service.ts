@@ -100,7 +100,7 @@ export async function finalizeExamLiveness(context: any, sessionId: string, nowM
     const gradeRequest = new Request(context.request.url, {
       method:'POST',headers:{'content-type':'application/json'},
       body:JSON.stringify({
-        token,studentAnswers:answers,clientQuestions:questions.map((q:any)=>({id:q.id??q.questionId})),
+        token,studentAnswers:answers,clientQuestions:questions,
         studentInfo:info,timeTaken:Math.max(0,Math.round((nowMs-start)/1000))
       })
     });
