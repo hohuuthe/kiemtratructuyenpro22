@@ -723,7 +723,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         // the JWT because a signed JWT is readable by the browser.
         const gradeSessionConfig = {
             ...makeGradeSessionConfig(activeExamConfig),
-            examRevision: String(activeExamConfig.updated_at || activeExamConfig.examRevision || '')
+            examRevision: String(activeExamConfig.updated_at || activeExamConfig.examRevision || ''),
+            resumeImmediateFeedback: isImmediateFeedback,
+            resumeMaxCheatWarnings: maxCheatWarningsFromDB
         };
         if (registeredContest) {
             // Contest participants cannot reveal official answer keys via Immediate
