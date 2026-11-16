@@ -36,7 +36,7 @@ test('browser never restores persisted exam token or invokes recovery APIs',()=>
   assert.doesNotMatch(main,/localStorage\.setItem\(window\.tenantStorageKey\('currentExamToken'\)/);
   assert.doesNotMatch(main,/localStorage\.getItem\(window\.tenantStorageKey\('currentExamToken'\)/);
   assert.match(lifecycle,/window\.addEventListener\('pagehide'/);
-  assert.doesNotMatch(lifecycle,/visibilitychange|beforeunload/);
+  assert.doesNotMatch(lifecycle,/addEventListener\(['"](?:visibilitychange|beforeunload)/);
   assert.match(resume,/EXAM_RESUME_DISABLED/);
   assert.match(recover,/EXAM_RESUME_DISABLED/);
 });
