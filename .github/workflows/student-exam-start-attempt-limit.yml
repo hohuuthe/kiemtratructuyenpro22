@@ -5,6 +5,12 @@ on:
   pull_request:
     paths:
       - 'src/student-exam-start-guard.js'
+      - 'src/exam-submission-identity.js'
+      - 'functions/api/exam/recover.ts'
+      - 'functions/api/exam/resume.ts'
+      - 'functions/api/exam/start.ts'
+      - 'functions/api/exam/grade.ts'
+      - 'tests/student-exam-active-recovery.test.mjs'
       - 'src/main.js'
       - 'functions/api/exam/generate.ts'
       - 'server.ts'
@@ -21,6 +27,6 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci --no-audit --no-fund
-      - run: node --test tests/student-exam-start-attempt-limit.test.mjs
+      - run: node --test tests/student-exam-start-attempt-limit.test.mjs tests/student-exam-active-recovery.test.mjs
       - run: npm run lint
       - run: npm run build
