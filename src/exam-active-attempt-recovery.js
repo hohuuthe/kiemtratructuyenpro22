@@ -63,11 +63,14 @@ export function unrecoverableExamSnapshotReason(session, examId, nowMs = Date.no
   if (Number.isFinite(expires) && expires <= nowMs) return 'expired_snapshot';
   // A missing or invalid timestamp alone can be a transient /start race;
   // never discard this session before the server's technical TTL.
-  let ids, questions;
+  let ids, questions, config;
   try {
     ids = JSON.parse(String(session.question_ids || '[]'));
     questions = JSON.parse(String(session.question_snapshot || '[]'));
+    config = JSON.parse(String(session.exam_config || '{}'));
   } catch { return 'corrupt_snapshot'; }
+  if (!config || typeof config !== 'object' || Array.isArray(config) ||
+      (config.id && String(config.id) !== String(examId))) return 'corrupt_snapshot';
   if (!Array.isArray(ids) || ids.length === 0 || !Array.isArray(questions) ||
       questions.length !== ids.length || questions.some((q, i) =>
         !q || String(q.id ?? q.questionId ?? '') !== String(ids[i]))) {
