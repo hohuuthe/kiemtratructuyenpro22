@@ -112,7 +112,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     }
 
     const session: any = await db.prepare(
-      'SELECT question_ids, expires_at, started_at, deadline_at FROM _exam_grade_sessions WHERE session_id = ?'
+      'SELECT exam_id, question_ids, expires_at, started_at, deadline_at FROM _exam_grade_sessions WHERE session_id = ?'
     ).bind(gradingSessionId).first();
     if (!session) {
       return new Response(JSON.stringify({ error: 'Phiên thi không tồn tại.' }), { status: 409, headers: corsHeaders });
@@ -171,9 +171,24 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
     const savedAt = new Date(nowMs).toISOString();
     const leaseCutoff = new Date(nowMs - 15_000).toISOString();
-    await db.prepare(`
+    // Serialize school autosaves with an intentional attempt replacement.
+    // A revoked token must not update historical answers even when an
+    // in-flight request passed the earlier status preflight.
+    const schoolAttempt = Boolean(signedStudentUserId && !decoded.contestParticipantId);
+    const draftValuesSql = schoolAttempt
+      ? `SELECT ?, ?, ?, ?, ?, ?
+         WHERE EXISTS (
+           SELECT 1 FROM _exam_active_attempts
+           WHERE session_id = ? AND exam_id = ? AND user_id = ?
+           FOR UPDATE
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM _exam_abandoned_attempts WHERE session_id = ?
+         )`
+      : 'VALUES (?, ?, ?, ?, ?, ?)';
+    const draftSql = `
       INSERT INTO _exam_answer_drafts (session_id, answers_json, revision, saved_at, writer_id, writer_seen_at)
-      VALUES (?, ?, ?, ?, ?, ?)
+      ${draftValuesSql}
       ON CONFLICT (session_id) DO UPDATE SET
         answers_json = excluded.answers_json,
         revision = excluded.revision,
@@ -187,7 +202,23 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
           _exam_answer_drafts.writer_seen_at IS NULL OR
           _exam_answer_drafts.writer_seen_at < ?
         )
-    `).bind(gradingSessionId, answersJson, revision, savedAt, writerId, savedAt, leaseCutoff).run();
+    `;
+    const draftWrite: any = await db.prepare(draftSql).bind(
+      gradingSessionId, answersJson, revision, savedAt, writerId, savedAt,
+      ...(schoolAttempt ? [
+        gradingSessionId, String(session.exam_id || ''), signedStudentUserId, gradingSessionId
+      ] : []),
+      leaseCutoff
+    ).run();
+    if (schoolAttempt && Number(draftWrite?.meta?.changes || 0) === 0) {
+      const active: any = await db.prepare(
+        'SELECT session_id FROM _exam_active_attempts WHERE session_id = ? AND exam_id = ? AND user_id = ?'
+      ).bind(gradingSessionId, String(session.exam_id || ''), signedStudentUserId).first();
+      if (!active) return new Response(JSON.stringify({
+        code:'EXAM_ATTEMPT_REVOKED',
+        error:'Phiên thi này đã được thay thế. Không thể tiếp tục lưu vào bài thi cũ.'
+      }), {status:409,headers:corsHeaders});
+    }
 
     const persistedDraft: any = await db.prepare(
       'SELECT answers_json, revision, saved_at, writer_id, writer_seen_at FROM _exam_answer_drafts WHERE session_id = ?'
