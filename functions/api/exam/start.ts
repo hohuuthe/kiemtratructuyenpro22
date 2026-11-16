@@ -376,7 +376,11 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             expires_at = excluded.expires_at,
             created_at = excluded.created_at
           WHERE _exam_active_attempts.session_id = excluded.session_id
-             OR _exam_active_attempts.expires_at <= ?
+             OR (_exam_active_attempts.expires_at <= ?
+                 AND NOT EXISTS (
+                   SELECT 1 FROM _exam_grade_sessions previous
+                   WHERE previous.session_id = _exam_active_attempts.session_id
+                 ))
         `).bind(
           attemptKey, examId, signedAttemptUserId, gradingSessionId,
           proposedActiveExpiresAt, proposedStartedAt, proposedStartedAt
