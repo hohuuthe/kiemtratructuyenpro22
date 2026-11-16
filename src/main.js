@@ -4543,8 +4543,8 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
                 // Keep the current tab as owner if a learner declines cancellation.
                 // The earlier eager requestedTab update must not corrupt navigation.
                 requestedTab = previousTab || activeExamOwnerTab;
-                showConfirmModal('Bạn đang trong quá trình làm bài thi. Nếu chuyển sang tab khác, bài làm của bạn sẽ bị hủy. Bạn có chắc chắn muốn chuyển không?', () => {
-                    resetExam();
+                showConfirmModal('Phiên thi vẫn được giữ trên máy chủ và thời gian tiếp tục tính. Nếu rời phòng thi bạn phải khôi phục để làm tiếp. Bạn có muốn rời giao diện hiện tại?', () => {
+                    resetExam({ preserveActiveResume: true });
                     switchTab(tabName);
                 });
                 return;
@@ -4574,7 +4574,8 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
                 // Teacher directory loads on selector interaction only.
                 // Nếu đang hiển thị kết quả hoặc bài thi đã bị hủy/chưa bắt đầu
                 if (isShowingResults || !isExamInProgress) {
-                    resetExam();
+                    // Passive navigation must not erase the saved ACTIVE attempt.
+                    resetExam({ preserveActiveResume: true });
                     
                     const elTeacher = document.getElementById('student-teacher-filter');
                     if (elTeacher) {
@@ -8965,15 +8966,14 @@ if (contentType && contentType.includes("application/json")) {
             let response;
             let data = {};
             try {
-                response = await fetch('/api/exam/resume', {
-                    method: 'POST',
-                    headers,
-                    cache: 'no-store',
-                    body: JSON.stringify({ token })
-                });
-                data = await response.json().catch(() => ({}));
+                const resumed = await fetchExamStartResponse(fetch, '/api/exam/resume', {
+                    method: 'POST', headers, cache: 'no-store', body: JSON.stringify({ token })
+                }, 15000);
+                response = { ok: resumed.ok, status: resumed.status };
+                data = resumed.body || {};
             } catch (error) {
                 console.warn('[ExamResume] Không thể kiểm tra phiên đang làm:', error);
+                showToast('Không thể tải phiên thi cũ. Dữ liệu được giữ lại, vui lòng thử lại.', 'warning');
                 return false;
             }
 
@@ -9214,13 +9214,15 @@ if (contentType && contentType.includes("application/json")) {
                 const selectedExamId = examSelectEl?.value || '';
                 const examName = examSelectEl?.options[examSelectEl.selectedIndex]?.dataset?.name || examSelectEl?.options[examSelectEl.selectedIndex]?.textContent || examConfig?.name || '';
 
-                if (!name) {
+                const authenticatedStudent = Boolean(currentUser && !isAdminLoggedIn && !isTeacherLoggedIn &&
+                    localStorage.getItem(window.tenantStorageKey('auth_token')));
+                if (!name && !authenticatedStudent) {
                     showToast('Vui lòng nhập họ và tên!', 'error');
                     document.getElementById('guest_data_1')?.focus();
                     return;
                 }
                 // Nếu học sinh không có đăng nhập, học sinh tự do thì chỉ cần cho phép nhập lớp hoặc đơn vị là có thể tham gia làm bài
-                if (!inputLop && !inputDonvi) {
+                if (!inputLop && !inputDonvi && !authenticatedStudent) {
                     showToast('Vui lòng nhập lớp hoặc đơn vị!', 'error');
                     const targetFocus = !inputLop ? (document.getElementById('guest_data_lop') || document.getElementById('guest_data_2')) : document.getElementById('guest_data_donvi');
                     targetFocus?.focus();
@@ -9367,9 +9369,12 @@ if (contentType && contentType.includes("application/json")) {
                             showToast(inspection.body?.error || 'Chưa thể kiểm tra phiên thi trước. Vui lòng thử lại.', 'error');
                             return;
                         }
+                        if (inspection.body?.alreadySubmitted) showToast('Bài thi cũ đã nộp. Vui lòng kiểm tra kết quả.', 'info');
                         if (inspection.body?.active === true) {
                             const activeId = String(inspection.body.sessionId || '');
-                            const mayReplace = inspection.body.canCreateNew === true;
+                            const canResume = inspection.body.canResume !== false;
+                            const isProcessing = inspection.body.status === 'submission_processing';
+                            const mayReplace = !isProcessing && inspection.body.canCreateNew === true;
                             // Escape supplied exam labels: dialogs render HTML.
                             const safeExamName = String(examName || '').replace(/[&<>"']/g, ch =>
                                 ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
@@ -9381,10 +9386,11 @@ if (contentType && contentType.includes("application/json")) {
                                     </div>
                                     <p class="student-exam-dialog-note">
                                         Đề <strong>${safeExamName}</strong> có một phiên chưa hoàn tất.
-                                        Vui lòng chọn tiếp tục hoặc tạo lượt mới.
+                                        ${isProcessing ? 'Bài đang xử lý nộp, vui lòng kiểm tra lại.' : canResume ? 'Chọn tiếp tục hoặc tạo lượt mới.' : 'Bản lưu cũ không thể khôi phục. Bạn có thể tạo lượt mới nếu còn lượt.'}
                                     </p>
                                     <div class="student-exam-dialog-actions">
-                                        <button type="button" id="exam-choice-resume" class="student-exam-dialog-primary">
+                                        <button type="button" id="exam-choice-resume" class="student-exam-dialog-primary"
+                                            ${canResume && !isProcessing ? '' : 'disabled aria-disabled="true"'}>
                                             Tiếp tục bài thi trước
                                         </button>
                                         <button type="button" id="exam-choice-replace" class="student-exam-dialog-secondary"
@@ -9393,14 +9399,12 @@ if (contentType && contentType.includes("application/json")) {
                                         </button>
                                     </div>
                                     <p class="student-exam-dialog-footnote">
-                                      ${mayReplace
-                                        ? 'Nếu tạo bài mới, phiên hiện tại sẽ bị hủy và tính là một lượt đã sử dụng.'
-                                        : 'Không còn đủ lượt để thay phiên thi này. Bạn chỉ có thể tiếp tục phiên trước.'}
+                                      ${isProcessing ? 'Máy chủ đang xử lý nộp bài; chưa được tạo lượt mới.' : mayReplace ? 'Tạo bài mới sẽ tính phiên cũ là một lượt đã dùng.' : canResume ? 'Không còn lượt tạo bài mới. Vui lòng tiếp tục bài cũ.' : 'Không thể khôi phục hoặc tạo bài mới. Vui lòng liên hệ giáo viên.'}
                                     </p>
                                 </section>`, 'student-exam-compact', false);
                             document.getElementById('exam-choice-resume')?.addEventListener('click', async () => {
                                 const button = document.getElementById('exam-choice-resume');
-                                if (!button || button.disabled) return;
+                                if (!button || button.disabled || !canResume || isProcessing) return;
                                 button.disabled = true;
                                 try {
                                     const result = await fetchExamStartResponse(fetch,'/api/exam/recover',{
@@ -9419,8 +9423,8 @@ if (contentType && contentType.includes("application/json")) {
                                         examId:selectedExamId, examName,
                                         studentName:name,studentLop:inputLop,studentDonvi:inputDonvi,studentClass
                                     }));
-                                    closeModal();
-                                    if (!await tryResumeActiveExam()) throw new Error('Phiên cũ chưa thể khôi phục; vui lòng kiểm tra lại.');
+                                    // Preserve choice dialog until the recovered exam is mounted.
+                                    if (!await tryResumeActiveExam()) throw new Error('Chưa thể khôi phục phiên cũ. Vui lòng thử lại hoặc chọn tạo bài mới.');
                                 } catch(error) {
                                     showToast(error?.message || 'Không thể khôi phục phiên cũ.', 'error');
                                 } finally {
@@ -9613,12 +9617,12 @@ if (contentType && contentType.includes("application/json")) {
                         const authToken = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
                         const headers = { 'Content-Type': 'application/json' };
                         if (authToken) headers['Authorization'] = 'Bearer ' + authToken;
-                        const response = await fetch('/api/exam/start', {
-                            method: 'POST',
-                            headers,
+                        // A timed-out start may have committed; do not auto-retry.
+                        const response = await fetchExamStartResponse(fetch, '/api/exam/start', {
+                            method: 'POST', headers, cache:'no-store',
                             body: JSON.stringify({ token: window.currentExamToken, ...(window.__pendingExamReplacement && String(window.__pendingExamReplacement.examId) === String(selectedExamId) ? {replaceSessionId:window.__pendingExamReplacement.sessionId} : {}) })
-                        });
-                        const startResult = await response.json().catch(() => ({}));
+                        }, 20000);
+                        const startResult = response.body || {};
                         if (response.status === 409 && (startResult.code === 'EXAM_ATTEMPT_ALREADY_ACTIVE' || startResult.code === 'EXAM_REPLACEMENT_CONFLICT')) {
                             // A concurrent tab/device may have started after
                             // preflight. Return to the same two-choice selector,
