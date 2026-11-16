@@ -102,7 +102,8 @@ export const onRequestPost: PagesFunction<Env> = async context => {
         (session_id,exam_id,user_id,reason,abandoned_at)
       SELECT session_id, ?, ?, ?, ?
       FROM released
-      ON CONFLICT (session_id) DO NOTHING
+      ON CONFLICT (session_id) DO UPDATE
+        SET reason = excluded.reason
       RETURNING session_id
     `).bind(key,String(old.session_id),examId,userId,
       examId,userId,reason,new Date().toISOString()).run();
