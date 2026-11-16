@@ -63,6 +63,18 @@ export async function finalizeExamLiveness(context: any, sessionId: string, nowM
   if (Number(claim?.meta?.changes || 0)!==1) return {status:'claimed_elsewhere'};
 
   try {
+    // Result insertion is the source of truth even if a previous finalizer
+    // crashed before marking its heartbeat row completed.
+    const priorHash=await hashToken('exam-session:'+sessionId);
+    const committed:any=await db.prepare(
+      'SELECT id FROM results WHERE submission_token_hash=? LIMIT 1'
+    ).bind(priorHash).first();
+    if (committed?.id) {
+      await db.prepare('DELETE FROM _exam_active_attempts WHERE session_id=?').bind(sessionId).run();
+      await db.prepare('UPDATE _exam_attempt_liveness SET finalized_at=?,last_error=NULL WHERE session_id=?')
+        .bind(new Date().toISOString(),sessionId).run();
+      return {status:'finalized',resultId:String(committed.id)};
+    }
     const session:any=await db.prepare(
       'SELECT session_id, exam_id, teacher_id, question_ids, question_snapshot, exam_config, started_at, deadline_at, expires_at FROM _exam_grade_sessions WHERE session_id=?'
     ).bind(sessionId).first();
