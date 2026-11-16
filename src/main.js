@@ -9455,7 +9455,89 @@ if (contentType && contentType.includes("application/json")) {
                                 body: JSON.stringify({ examId: selectedExamId, writerId: getExamWriterId() })
                             }, 15000);
                             if (!recovery.ok || !recovery.body?.recovered || !recovery.body?.token) {
-                                throw new Error(recovery.body?.error || 'Không thể xác minh phiên đang làm; không được mở lượt thi mới.');
+                                // A timeout or a busy writer is NOT a reason to
+                                // discard the earlier attempt. Only authoritative,
+                                // provably irrecoverable snapshot codes may offer
+                                // an explicit request to create a new attempt.
+                                const safeAbandonCodes = new Set([
+                                    'EXAM_RECOVERY_EXPIRED', 'EXAM_RECOVERY_ORPHAN',
+                                    'EXAM_RECOVERY_UNSAFE', 'EXAM_RECOVERY_SNAPSHOT_MISMATCH',
+                                    'EXAM_RECOVERY_SNAPSHOT_INVALID'
+                                ]);
+                                if (!safeAbandonCodes.has(String(recovery.body?.code || ''))) {
+                                    throw new Error(recovery.body?.error || 'Chưa thể kiểm tra phiên đang làm. Vui lòng thử lại.');
+                                }
+                                try {
+                                    if (document.fullscreenElement && document.exitFullscreen) {
+                                        window.intentionalFullscreenExit = true;
+                                        await document.exitFullscreen();
+                                        setTimeout(() => { window.intentionalFullscreenExit = false; }, 300);
+                                    }
+                                } catch (_) {}
+                                window.__EXAM_RESUME_BLOCK_NEW__ = true;
+                                showModal(`
+                                    <section class="student-exam-compact-body" role="dialog" aria-modal="true">
+                                        <div class="student-exam-dialog-head">
+                                            <span class="student-exam-dialog-icon student-exam-dialog-icon-warning">⚠️</span>
+                                            <h3 class="student-exam-dialog-title">Không thể khôi phục phiên cũ</h3>
+                                        </div>
+                                        <p class="student-exam-dialog-note">
+                                            Máy chủ không thể khôi phục bản đề của lượt trước. Nếu đề thi cho phép
+                                            nhiều lượt và bạn còn lượt, có thể yêu cầu bỏ phiên cũ để thi lại.
+                                        </p>
+                                        <p class="student-exam-dialog-footnote">
+                                            Lượt thi trước sẽ không được chấm và dữ liệu đã lưu vẫn được giữ
+                                            để giáo viên đối soát. Hệ thống không tự ý cộng thêm lượt thi.
+                                        </p>
+                                        <div class="student-exam-dialog-actions">
+                                            <button type="button" id="exam-abandon-confirm" class="student-exam-dialog-primary">
+                                                Bỏ phiên lỗi và tạo lượt mới
+                                            </button>
+                                            <button type="button" id="exam-abandon-recheck" class="student-exam-dialog-secondary">
+                                                Thử khôi phục lại
+                                            </button>
+                                            <button type="button" id="exam-abandon-cancel" class="student-exam-dialog-secondary">
+                                                Quay lại chọn đề
+                                            </button>
+                                        </div>
+                                    </section>`, 'student-exam-compact', false);
+                                document.getElementById('exam-abandon-recheck')?.addEventListener('click', () => location.reload(), { once:true });
+                                document.getElementById('exam-abandon-cancel')?.addEventListener('click', () => {
+                                    closeModal();
+                                    // Do not erase the original attempt or lie
+                                    // about its state; allow a later recovery.
+                                }, {once:true});
+                                document.getElementById('exam-abandon-confirm')?.addEventListener('click', async () => {
+                                    const button = document.getElementById('exam-abandon-confirm');
+                                    if (!button || button.disabled) return;
+                                    button.disabled = true;
+                                    button.textContent = 'Đang kiểm tra quyền tạo lượt mới...';
+                                    try {
+                                        const abandoned = await fetchExamStartResponse(fetch, '/api/exam/abandon', {
+                                            method:'POST', headers, cache:'no-store',
+                                            body:JSON.stringify({examId:selectedExamId,confirm:true})
+                                        },15000);
+                                        if (!abandoned.ok || abandoned.body?.canCreateNew !== true) {
+                                            throw new Error(abandoned.body?.error || 'Chưa thể xác nhận quyền thi lại. Phiên cũ được giữ nguyên.');
+                                        }
+                                        clearStoredActiveExamResume();
+                                        window.currentExamToken = null;
+                                        currentExam = null;
+                                        closeModal();
+                                        showToast('Phiên không thể khôi phục đã được xử lý. Bạn có thể bắt đầu lượt thi mới theo cấu hình đề.', 'success');
+                                        // Start a fresh READY flow. The final
+                                        // /exam/start still checks attempt quota.
+                                        void window.startExam();
+                                    } catch (error) {
+                                        showToast(error?.message || 'Không thể tạo lượt mới an toàn.', 'error');
+                                    } finally {
+                                        if (button.isConnected) {
+                                            button.disabled = false;
+                                            button.textContent = 'Bỏ phiên lỗi và tạo lượt mới';
+                                        }
+                                    }
+                                }, {once:true});
+                                return;
                             }
                             const storedMeta = (() => {
                                 try { return JSON.parse(localStorage.getItem(window.tenantStorageKey('active_exam_resume_meta')) || '{}'); }
