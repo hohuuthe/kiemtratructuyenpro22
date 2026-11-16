@@ -62,7 +62,7 @@ test('guest/student exam filters never wipe teacher bank or editor draft', () =>
   }
   const tab = section('function switchTab(tabName)', '// ====================',);
   assert.match(tab, /if \(!\(isAdminLoggedIn \|\| isTeacherLoggedIn\)\)/);
-  const reset = section('function resetExam()', '// ==================== QUESTIONS MANAGEMENT');
+  const reset = section('function resetExam(', '// ==================== QUESTIONS MANAGEMENT');
   assert.match(reset, /if \(!\(isAdminLoggedIn \|\| isTeacherLoggedIn\)\)/);
 });
 

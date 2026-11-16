@@ -63,7 +63,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       }
     }
 
-    const tokenHash = await hashToken(token);
+    const tokenHash = await hashToken(decoded.gradingSessionId && decoded.purpose === EXAM_SESSION_PURPOSE_ACTIVE ? 'exam-session:' + String(decoded.gradingSessionId) : token);
     try {
       let submitted: any = await db.prepare(
         'SELECT status, result_id, claimed_at FROM _submitted_exam_tokens WHERE token_hash = ?'
@@ -107,6 +107,26 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     }
 
     const gradingSessionId = String(decoded.gradingSessionId || '').trim();
+    // A provably unusable session explicitly abandoned by its owner is never
+    // eligible for new answers, recovery or a second grading result.
+    try {
+      await db.prepare(`CREATE TABLE IF NOT EXISTS _exam_abandoned_attempts (
+        session_id TEXT PRIMARY KEY, exam_id TEXT NOT NULL, user_id TEXT NOT NULL,
+        reason TEXT NOT NULL, abandoned_at TEXT NOT NULL
+      )`).run();
+      const abandoned: any = await db.prepare(
+        'SELECT session_id FROM _exam_abandoned_attempts WHERE session_id = ?'
+      ).bind(gradingSessionId).first();
+      if (abandoned) return new Response(JSON.stringify({
+        code:'EXAM_ATTEMPT_ABANDONED',error:'Phiên thi cũ đã được xác nhận không thể khôi phục và ngừng sử dụng.'
+      }), {status:409,headers:corsHeaders});
+    } catch (abandonCheckError) {
+      console.error('Cannot verify exam abandonment state:',abandonCheckError);
+      return new Response(JSON.stringify({
+        code:'EXAM_ABANDON_STATUS_UNAVAILABLE',error:'Không thể kiểm tra trạng thái phiên đã bỏ; chưa tiếp tục để bảo vệ bài thi.'
+      }), {status:503,headers:corsHeaders});
+    }
+
     if (!gradingSessionId) {
       return new Response(JSON.stringify({ error: 'Phiên thi thiếu mã snapshot.' }), { status: 409, headers: corsHeaders });
     }
@@ -274,6 +294,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     const responseNowMs = Date.now();
     return new Response(JSON.stringify({
       resumed: true,
+      sessionId: gradingSessionId,
       isContestAttempt: Boolean(decoded.contestParticipantId),
       expired: timing.expired,
       token: resumeToken,

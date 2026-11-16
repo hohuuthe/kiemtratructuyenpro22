@@ -8340,7 +8340,10 @@ if (contentType && contentType.includes("application/json")) {
             window.examAvailableCounts = null;
             
             if (typeof resetExam === 'function') {
-                resetExam();
+                // A fresh-attempt selection must not remove the existing ACTIVE
+                // recovery token until /exam/start confirms the replacement.
+                resetExam({ preserveActiveResume: Boolean(window.__pendingExamReplacement &&
+                    String(window.__pendingExamReplacement.examId) === String(selectedExamId)) });
             }
             window._studentExamLoadStatus = teacherId && selectedExamId
                 ? { teacherId: String(teacherId), examId: String(selectedExamId), status: 'loading', message: '' }
@@ -8950,9 +8953,9 @@ if (contentType && contentType.includes("application/json")) {
             // active exam. Keep the server token for the legitimate original
             // tab; never delete an unverified ongoing attempt here.
             if (meta.writerId && meta.writerId !== getExamWriterId()) {
-                window.__EXAM_RESUME_BLOCK_NEW__ = true;
-                showToast('Phiên thi đang thuộc tab trình duyệt khác. Vui lòng quay lại tab ban đầu để tiếp tục.', 'warning');
-                return true;
+                window.__EXAM_RESUME_BLOCK_NEW__ = false;
+                showToast('Phiên thi đang hoạt động ở tab khác. Bạn có thể trở lại tab đó hoặc lựa chọn phiên thi khi vào phòng thi.', 'warning');
+                return false;
             }
 
             const authToken = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
@@ -9070,6 +9073,29 @@ if (contentType && contentType.includes("application/json")) {
             if (lopInput && currentExam.studentLop) lopInput.value = currentExam.studentLop;
             if (donviInput && currentExam.studentDonvi) donviInput.value = currentExam.studentDonvi;
 
+            // Display both actions on refresh/resume too, not just on a
+            // fresh room-entry click. The second action is enabled only when
+            // the authenticated server confirms another attempt is available.
+            let resumeReplacementChoice = null;
+            const resumedExamId = String(data.examConfig?.id || meta.examId || '');
+            if (!isResumedContest && authToken && resumedExamId) {
+                try {
+                    const inspected = await fetchExamStartResponse(fetch,'/api/exam/recover',{
+                        method:'POST',cache:'no-store',
+                        headers:{'Content-Type':'application/json','Authorization':'Bearer '+authToken},
+                        body:JSON.stringify({examId:resumedExamId,mode:'inspect'})
+                    },12000);
+                    if (inspected.ok && inspected.body?.active === true &&
+                        String(inspected.body?.sessionId || '') === String(data.sessionId || '')) {
+                        resumeReplacementChoice = {
+                            examId:resumedExamId,
+                            sessionId:String(inspected.body.sessionId || ''),
+                            canCreateNew:inspected.body.canCreateNew === true
+                        };
+                    }
+                } catch (_) {}
+            }
+
             const remaining = Math.max(0, Number(data.remainingSeconds) || 0);
             const mins = Math.floor(remaining / 60);
             const secs = String(remaining % 60).padStart(2, '0');
@@ -9085,8 +9111,43 @@ if (contentType && contentType.includes("application/json")) {
                     <button id="exam-resume-confirm" class="mt-3 px-5 py-2.5 rounded-xl bg-indigo-600 text-white font-bold hover:bg-indigo-700">
                         ${data.expired ? 'Hoàn tất bài thi' : 'Tiếp tục làm bài'}
                     </button>
+                    ${resumeReplacementChoice ? `
+                    <button id="exam-resume-create-new" type="button"
+                        ${resumeReplacementChoice.canCreateNew ? '' : 'disabled aria-disabled="true"'}
+                        class="mt-2 px-5 py-2.5 rounded-xl border border-indigo-300 text-indigo-700 font-bold">
+                        Tạo bài thi mới
+                    </button>
+                    <p class="text-xs text-gray-500 mt-2">
+                        ${resumeReplacementChoice.canCreateNew
+                            ? 'Phiên thi cũ sẽ được tính là một lượt đã sử dụng khi thay thành công.'
+                            : 'Không còn lượt được phép để tạo phiên thi mới.'}
+                    </p>` : ''}
                 </div>
             `, 'student-exam-compact', false);
+
+            document.getElementById('exam-resume-create-new')?.addEventListener('click', async () => {
+                if (!resumeReplacementChoice?.canCreateNew || !resumeReplacementChoice.sessionId) return;
+                const chosenExamId = resumeReplacementChoice.examId;
+                window.__pendingExamReplacement = {
+                    examId:chosenExamId,
+                    sessionId:resumeReplacementChoice.sessionId
+                };
+                closeModal();
+                resetExam({ preserveActiveResume: true });
+                const teacherSelect = document.getElementById('student-teacher-filter');
+                const examSelect = document.getElementById('student-exam-name-filter');
+                const neededTeacher = String(meta.teacherId || data.examConfig?.creatorId || '');
+                if (neededTeacher && teacherSelect?.querySelector('option[value="' + CSS.escape(neededTeacher) + '"]')) {
+                    teacherSelect.value = neededTeacher;
+                }
+                if (examSelect && [...examSelect.options].some(o => String(o.value) === chosenExamId)) {
+                    examSelect.value = chosenExamId;
+                    await window.onStudentExamNameChange();
+                    setTimeout(() => { void window.startExam(); },0);
+                } else {
+                    showToast('Hãy chọn lại đúng đề thi và bấm Bắt đầu. Hệ thống sẽ tạo lượt mới khi đủ điều kiện.', 'info');
+                }
+            }, {once:true});
 
             const resumeButton = document.getElementById('exam-resume-confirm');
             if (resumeButton) {
@@ -9285,6 +9346,104 @@ if (contentType && contentType.includes("application/json")) {
                     return;
                 }
 
+                // Inspect before generating a READY token. Show the two explicit
+                // learner choices for any unfinished school exam attempt.
+                const pendingReplacement = window.__pendingExamReplacement;
+                const replacingThisExam = pendingReplacement &&
+                    String(pendingReplacement.examId) === String(selectedExamId);
+                if (!replacingThisExam && !window.__contestTicket) {
+                    const inspectionAuth = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
+                    if (inspectionAuth) {
+                        const inspection = await fetchExamStartResponse(fetch, '/api/exam/recover', {
+                            method:'POST',
+                            cache:'no-store',
+                            headers:{
+                                'Content-Type':'application/json',
+                                'Authorization':'Bearer ' + inspectionAuth
+                            },
+                            body:JSON.stringify({examId:selectedExamId,mode:'inspect'})
+                        },15000);
+                        if (!inspection.ok) {
+                            showToast(inspection.body?.error || 'Chưa thể kiểm tra phiên thi trước. Vui lòng thử lại.', 'error');
+                            return;
+                        }
+                        if (inspection.body?.active === true) {
+                            const activeId = String(inspection.body.sessionId || '');
+                            const mayReplace = inspection.body.canCreateNew === true;
+                            // Escape supplied exam labels: dialogs render HTML.
+                            const safeExamName = String(examName || '').replace(/[&<>"']/g, ch =>
+                                ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+                            showModal(`
+                                <section class="student-exam-compact-body" role="dialog" aria-modal="true">
+                                    <div class="student-exam-dialog-head">
+                                        <span class="student-exam-dialog-icon">🔄</span>
+                                        <h3 class="student-exam-dialog-title">Đã có phiên thi trước đó</h3>
+                                    </div>
+                                    <p class="student-exam-dialog-note">
+                                        Đề <strong>${safeExamName}</strong> có một phiên chưa hoàn tất.
+                                        Vui lòng chọn tiếp tục hoặc tạo lượt mới.
+                                    </p>
+                                    <div class="student-exam-dialog-actions">
+                                        <button type="button" id="exam-choice-resume" class="student-exam-dialog-primary">
+                                            Tiếp tục bài thi trước
+                                        </button>
+                                        <button type="button" id="exam-choice-replace" class="student-exam-dialog-secondary"
+                                            ${mayReplace ? '' : 'disabled aria-disabled="true"'}>
+                                            Tạo bài thi mới
+                                        </button>
+                                    </div>
+                                    <p class="student-exam-dialog-footnote">
+                                      ${mayReplace
+                                        ? 'Nếu tạo bài mới, phiên hiện tại sẽ bị hủy và tính là một lượt đã sử dụng.'
+                                        : 'Không còn đủ lượt để thay phiên thi này. Bạn chỉ có thể tiếp tục phiên trước.'}
+                                    </p>
+                                </section>`, 'student-exam-compact', false);
+                            document.getElementById('exam-choice-resume')?.addEventListener('click', async () => {
+                                const button = document.getElementById('exam-choice-resume');
+                                if (!button || button.disabled) return;
+                                button.disabled = true;
+                                try {
+                                    const result = await fetchExamStartResponse(fetch,'/api/exam/recover',{
+                                        method:'POST',cache:'no-store',
+                                        headers:{'Content-Type':'application/json','Authorization':'Bearer '+inspectionAuth},
+                                        body:JSON.stringify({examId:selectedExamId,writerId:getExamWriterId()})
+                                    },15000);
+                                    if (!result.ok || !result.body?.token) {
+                                        throw new Error(result.body?.error || 'Không thể khôi phục phiên cũ.');
+                                    }
+                                    window.__pendingExamReplacement = null;
+                                    window.currentExamToken = result.body.token;
+                                    localStorage.setItem(window.tenantStorageKey('currentExamToken'),result.body.token);
+                                    localStorage.setItem(window.tenantStorageKey('active_exam_resume_meta'),JSON.stringify({
+                                        phase:'active', writerId:getExamWriterId(), entryTab:'exam',
+                                        examId:selectedExamId, examName,
+                                        studentName:name,studentLop:inputLop,studentDonvi:inputDonvi,studentClass
+                                    }));
+                                    closeModal();
+                                    if (!await tryResumeActiveExam()) throw new Error('Phiên cũ chưa thể khôi phục; vui lòng kiểm tra lại.');
+                                } catch(error) {
+                                    showToast(error?.message || 'Không thể khôi phục phiên cũ.', 'error');
+                                } finally {
+                                    if(button.isConnected) button.disabled=false;
+                                }
+                            });
+                            document.getElementById('exam-choice-replace')?.addEventListener('click', () => {
+                                if (!mayReplace || !activeId) return;
+                                window.__pendingExamReplacement = {examId:selectedExamId,sessionId:activeId};
+                                closeModal();
+                                // Defer until the original startExam finally block
+                                // releases its duplicate-click guard.
+                                setTimeout(() => { void window.startExam(); },0);
+                            }, {once:true});
+                            return;
+                        }
+                    }
+                }
+                if (window.__pendingExamReplacement &&
+                    String(window.__pendingExamReplacement.examId) !== String(selectedExamId)) {
+                    window.__pendingExamReplacement = null;
+                }
+
                 // Máy chủ kiểm tra giới hạn theo kết quả thực trong CSDL, không dùng cache trên thiết bị.
 
                 // Tải đề thi từ Backend Server (bảo mật, không có đáp án, lấy đúng số lượng theo đề thi được chọn)
@@ -9337,19 +9496,32 @@ if (contentType && contentType.includes("application/json")) {
                 // Nội dung câu hỏi chưa được gửi xuống trình duyệt ở bước này.
                 window.currentExamToken = result.token;
                 try {
-                    localStorage.setItem(window.tenantStorageKey('currentExamToken'), result.token);
-                    localStorage.setItem(window.tenantStorageKey('active_exam_resume_meta'), JSON.stringify({
-                        phase: 'prestart',
-                        writerId: getExamWriterId(),
-                        entryTab: window.__contestTicket && examConfig?.chedodethi === 'Cuộc thi trực tuyến' ? 'contest' : 'exam',
-                        studentName: name,
-                        studentLop: inputLop,
-                        studentDonvi: inputDonvi,
-                        studentClass,
-                        teacherId,
-                        examId: selectedExamId,
-                        examName
-                    }));
+                    // READY for another tab must never overwrite a stored ACTIVE
+                    // attempt token belonging to the exact same exam. That token
+                    // is the only durable way the original tab can resume after
+                    // a browser crash. Replace it only after /exam/start succeeds.
+                    let previousMeta = {};
+                    try {
+                        previousMeta = JSON.parse(localStorage.getItem(window.tenantStorageKey('active_exam_resume_meta')) || '{}') || {};
+                    } catch (_) {}
+                    const previousToken = localStorage.getItem(window.tenantStorageKey('currentExamToken')) || '';
+                    const preserveActive = previousMeta.phase === 'active' &&
+                        String(previousMeta.examId || '') === String(selectedExamId) && Boolean(previousToken);
+                    if (!preserveActive) {
+                        localStorage.setItem(window.tenantStorageKey('currentExamToken'), result.token);
+                        localStorage.setItem(window.tenantStorageKey('active_exam_resume_meta'), JSON.stringify({
+                            phase: 'prestart',
+                            writerId: getExamWriterId(),
+                            entryTab: window.__contestTicket && examConfig?.chedodethi === 'Cuộc thi trực tuyến' ? 'contest' : 'exam',
+                            studentName: name,
+                            studentLop: inputLop,
+                            studentDonvi: inputDonvi,
+                            studentClass,
+                            teacherId,
+                            examId: selectedExamId,
+                            examName
+                        }));
+                    }
                 } catch(e) {}
 
                 // Cập nhật chế độ công bố kết quả ngay lập tức trực tiếp từ phản hồi máy chủ
@@ -9444,9 +9616,26 @@ if (contentType && contentType.includes("application/json")) {
                         const response = await fetch('/api/exam/start', {
                             method: 'POST',
                             headers,
-                            body: JSON.stringify({ token: window.currentExamToken })
+                            body: JSON.stringify({ token: window.currentExamToken, ...(window.__pendingExamReplacement && String(window.__pendingExamReplacement.examId) === String(selectedExamId) ? {replaceSessionId:window.__pendingExamReplacement.sessionId} : {}) })
                         });
                         const startResult = await response.json().catch(() => ({}));
+                        if (response.status === 409 && (startResult.code === 'EXAM_ATTEMPT_ALREADY_ACTIVE' || startResult.code === 'EXAM_REPLACEMENT_CONFLICT')) {
+                            // A concurrent tab/device may have started after
+                            // preflight. Return to the same two-choice selector,
+                            // never silently submit or delete the prior session.
+                            window.__pendingExamReplacement = null;
+                            try {
+                                if (document.fullscreenElement && document.exitFullscreen) {
+                                    window.intentionalFullscreenExit = true;
+                                    await document.exitFullscreen();
+                                    setTimeout(() => { window.intentionalFullscreenExit = false; }, 300);
+                                }
+                            } catch (_) {}
+                            closeModal();
+                            showToast('Đã phát hiện phiên thi khác. Vui lòng chọn tiếp tục hoặc tạo bài mới.', 'warning');
+                            setTimeout(() => { void window.startExam(); }, 0);
+                            return;
+                        }
                         if (!response.ok || !startResult.token ||
                             !Array.isArray(startResult.questions) || startResult.questions.length === 0 ||
                             (currentExam.expectedQuestionCount > 0 && startResult.questions.length !== currentExam.expectedQuestionCount)) {
@@ -9455,6 +9644,7 @@ if (contentType && contentType.includes("application/json")) {
                             throw error;
                         }
 
+                        window.__pendingExamReplacement = null;
                         window.currentExamToken = startResult.token;
                         try {
                             localStorage.setItem(window.tenantStorageKey('currentExamToken'), startResult.token);
@@ -9505,8 +9695,15 @@ if (contentType && contentType.includes("application/json")) {
                     }
                 });
                 document.getElementById('exam-start-ready-cancel')?.addEventListener('click', () => {
+                    const cancelledReadyToken = window.currentExamToken;
                     window.currentExamToken = null;
-                    clearStoredActiveExamResume();
+                    window.__pendingExamReplacement = null;
+                    try {
+                        // Do not erase an unrelated, already-ACTIVE session
+                        // previously saved by the original browser tab.
+                        const storedToken = localStorage.getItem(window.tenantStorageKey('currentExamToken')) || '';
+                        if (!storedToken || storedToken === cancelledReadyToken) clearStoredActiveExamResume();
+                    } catch (_) {}
                     window.__contestOnReadyCancelled?.();
                     closeModal();
                 }, { once: true });
@@ -11870,7 +12067,8 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             renderRanking();
         }
 
-        window.resetExam = function resetExam() {
+        window.resetExam = function resetExam(options = {}) {
+            const preserveActiveResume = options?.preserveActiveResume === true;
             try { window.__contestOnExamReset?.(); } catch (e) { console.warn('Contest UI cleanup:', e); }
             window.__contestTicket = null;
             window.__activeStudentExamTab = null;
@@ -11975,7 +12173,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 questionBankRevision++;
             }
             window.currentExamToken = null;
-            clearStoredActiveExamResume();
+            if (!preserveActiveResume) clearStoredActiveExamResume();
             currentExam = {
                 questions: [],
                 answers: {},

@@ -723,6 +723,10 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         // the JWT because a signed JWT is readable by the browser.
         const gradeSessionConfig = {
             ...makeGradeSessionConfig(activeExamConfig),
+            // Preserve the policy at issue time: recovering a lost token must
+            // never derive Immediate Feedback from later exam configuration.
+            immediateFeedback: isImmediateFeedback,
+            maxCheatWarnings: maxCheatWarningsFromDB,
             examRevision: String(activeExamConfig.updated_at || activeExamConfig.examRevision || '')
         };
         if (registeredContest) {
