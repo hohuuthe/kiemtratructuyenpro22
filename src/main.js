@@ -9452,7 +9452,7 @@ if (contentType && contentType.includes("application/json")) {
                             // its server-frozen questions, answers and deadline.
                             const recovery = await fetchExamStartResponse(fetch, '/api/exam/recover', {
                                 method: 'POST', headers, cache: 'no-store',
-                                body: JSON.stringify({ examId: selectedExamId })
+                                body: JSON.stringify({ examId: selectedExamId, writerId: getExamWriterId() })
                             }, 15000);
                             if (!recovery.ok || !recovery.body?.recovered || !recovery.body?.token) {
                                 throw new Error(recovery.body?.error || 'Không thể xác minh phiên đang làm; không được mở lượt thi mới.');
