@@ -121,9 +121,52 @@ export async function finalizeExamLiveness(context: any, sessionId: string, nowM
   }
 }
 
+// Safely migrate pre-upgrade ACTIVE locks only after their server deadline.
+// A missing/corrupt snapshot is never silently discarded or scored as zero.
+export async function registerExpiredLegacyExamAttempts(context:any, limit=20) {
+  const db=getDatabase(context);
+  await ensureExamLivenessSchema(db);
+  const {results}=await db.prepare(`
+    SELECT a.session_id,a.exam_id,a.user_id,gs.deadline_at
+    FROM _exam_active_attempts a
+    JOIN _exam_grade_sessions gs ON gs.session_id=a.session_id
+    LEFT JOIN _exam_attempt_liveness l ON l.session_id=a.session_id
+    WHERE l.session_id IS NULL AND gs.started_at IS NOT NULL
+      AND gs.deadline_at IS NOT NULL AND gs.deadline_at <= ?
+    ORDER BY gs.deadline_at ASC LIMIT ?
+  `).bind(new Date().toISOString(),Math.max(1,Math.min(limit,50))).all();
+  for (const row of results||[]) {
+    const rawUser=String(row.user_id||'');
+    const isContest=rawUser.startsWith('contest:');
+    const userId=isContest?'':rawUser;
+    const contestParticipantId=isContest?rawUser.slice('contest:'.length):'';
+    let info:any={examId:String(row.exam_id)};
+    try {
+      if (isContest) {
+        const candidate:any=await db.prepare(
+          'SELECT ho_ten,don_vi FROM contest_participants WHERE ma_nguoi_du_thi=?'
+        ).bind(contestParticipantId).first();
+        info={...info,name:String(candidate?.ho_ten||''),donvi:String(candidate?.don_vi||'')};
+      } else {
+        const student:any=await db.prepare(
+          'SELECT full_name,lop,donvi FROM users WHERE id=?'
+        ).bind(userId).first();
+        info={...info,name:String(student?.full_name||''),lop:String(student?.lop||''),donvi:String(student?.donvi||'')};
+      }
+      await initializeExamLiveness(db,{
+        sessionId:String(row.session_id),examId:String(row.exam_id),
+        userId,contestParticipantId,deadlineAt:String(row.deadline_at),studentInfo:info
+      });
+    } catch (error) {
+      console.warn('Expired legacy attempt needs manual reconciliation:',String(row.session_id));
+    }
+  }
+}
+
 export async function finalizeDueExamLiveness(context:any, limit=20) {
   const db=getDatabase(context);
   await ensureExamLivenessSchema(db);
+  await registerExpiredLegacyExamAttempts(context,limit);
   const now=new Date().toISOString();
   const idle=new Date(Date.now()-EXAM_IDLE_TIMEOUT_MS).toISOString();
   const retry=new Date(Date.now()-EXAM_FINALIZER_RETRY_MS).toISOString();
