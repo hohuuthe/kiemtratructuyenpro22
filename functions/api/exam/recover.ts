@@ -1,6 +1,7 @@
 import { verifyAuthSession, signJWT, getDynamicSecret, getDatabase } from './utils';
 import { makeGradeSessionConfig } from './security';
 import { examBoolean, EXAM_SESSION_PURPOSE_ACTIVE } from '../../../src/exam-time-authority.js';
+import { verifyContestTicket } from '../contest/register';
 
 interface Env {
   NEON_DATABASE_URL?: string;
@@ -32,19 +33,36 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
   try {
     const SECRET = await getDynamicSecret(db, env.JWT_SECRET);
     const authHeader = request.headers.get('authorization') || '';
-    if (!authHeader.startsWith('Bearer ')) {
-      return json({ code:'EXAM_RECOVER_LOGIN_REQUIRED',
-        error:'Vui lòng đăng nhập đúng tài khoản đã bắt đầu bài thi.' }, 401);
-    }
-    const user: any = await verifyAuthSession(authHeader.slice(7), SECRET, db);
-    const userId = String(user?.user_id || user?.id || '').trim();
-    if (!userId) return json({ code:'EXAM_RECOVER_UNAUTHORIZED', error:'Tài khoản không còn hợp lệ.' }, 403);
-
     const body: any = await request.json();
     const examId = String(body?.examId || '').trim();
     const writerId = String(body?.writerId || '').trim();
     if (!examId || examId.length > 160 || !/^[A-Za-z0-9_-]{8,120}$/.test(writerId)) {
       return json({ code:'EXAM_RECOVER_INVALID', error:'Thiếu mã đề thi hoặc mã tab hợp lệ.' }, 400);
+    }
+
+    // Registered contest users prove participant identity through their signed,
+    // exam-bound ticket. School users prove identity through their live account.
+    const contestTicket = String(body?.contestTicket || '');
+    const contest = contestTicket
+      ? await verifyContestTicket(db, SECRET, contestTicket, examId)
+      : null;
+    if (contestTicket && !contest) return json({
+      code:'EXAM_RECOVER_CONTEST_UNAUTHORIZED', error:'Vé dự thi không hợp lệ hoặc đã hết hạn.'
+    }, 403);
+    let userId = '';
+    let attemptUserId = '';
+    if (contest) {
+      attemptUserId = 'contest:' + contest.participantId;
+    } else {
+      if (!authHeader.startsWith('Bearer ')) {
+        return json({ code:'EXAM_RECOVER_LOGIN_REQUIRED',
+          error:'Vui lòng đăng nhập đúng tài khoản đã bắt đầu bài thi.' }, 401);
+      }
+      const user: any = await verifyAuthSession(authHeader.slice(7), SECRET, db);
+      userId = String(user?.user_id || user?.id || '').trim();
+      if (!userId) return json({ code:'EXAM_RECOVER_UNAUTHORIZED',
+        error:'Tài khoản không còn hợp lệ.' }, 403);
+      attemptUserId = userId;
     }
 
     // Tenant isolation is provided by getDatabase(context), AND the queried
@@ -58,10 +76,19 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       WHERE aa.attempt_key = ? AND aa.user_id = ? AND aa.exam_id = ?
         AND gs.exam_id = ? AND gs.started_at IS NOT NULL AND gs.deadline_at IS NOT NULL
       LIMIT 1
-    `).bind(examId + ':' + userId, userId, examId, examId).first();
+    `).bind(examId + ':' + attemptUserId, attemptUserId, examId, examId).first();
     if (!active) {
       return json({ code:'EXAM_RECOVER_NOT_FOUND',
         error:'Không tìm thấy phiên thi chưa hoàn tất thuộc tài khoản và đề thi này.' }, 409);
+    }
+    if (contest) {
+      const registered: any = await db.prepare(`
+        SELECT ma_phien_thi FROM contest_attempts
+        WHERE ma_phien_thi = ? AND ma_nguoi_du_thi = ? AND ma_de_thi = ?
+          AND trang_thai = 'DANG_LAM' LIMIT 1
+      `).bind(String(active.session_id), contest.participantId, examId).first();
+      if (!registered) return json({ code:'EXAM_RECOVER_CONTEST_MISMATCH',
+        error:'Phiên thi không thuộc lượt tham gia đã đăng ký.' }, 403);
     }
     const nowMs = Date.now();
     const startedAtMs = Date.parse(String(active.started_at || ''));
@@ -110,9 +137,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       ).bind(examId).first();
       if (row && String(row.updated_at || '') === String(frozen.examRevision || '')) legacy = row;
     }
-    const immediateFeedback = frozen.resumeImmediateFeedback !== undefined
+    const immediateFeedback = !contest && (frozen.resumeImmediateFeedback !== undefined
       ? examBoolean(frozen.resumeImmediateFeedback, false)
-      : examBoolean(legacy?.immediate_feedback, false);
+      : examBoolean(legacy?.immediate_feedback, false));
     const warnings = Number(frozen.resumeMaxCheatWarnings ?? legacy?.max_cheat_warnings);
     const maxCheatWarnings = Number.isFinite(warnings) && warnings > 0 ? Math.floor(warnings) : 5;
     const timeLimitSeconds = Math.max(1, Math.round((deadlineAtMs - startedAtMs) / 1000));
@@ -126,8 +153,8 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       purpose: EXAM_SESSION_PURPOSE_ACTIVE,
       questionIds,
       gradingSessionId: String(active.session_id),
-      studentUserId: userId,
-      contestParticipantId: null,
+      studentUserId: contest ? null : userId,
+      contestParticipantId: contest?.participantId || null,
       examConfig,
       maxCheatWarnings,
       timeLimitSeconds,
