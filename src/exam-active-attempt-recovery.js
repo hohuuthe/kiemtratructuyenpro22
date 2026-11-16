@@ -44,8 +44,44 @@ export function buildActiveExamRecoveryPayload({
     teacherId: String(session.teacher_id || ''),
     examConfig: { ...safeConfig, id: expectedExamId },
     maxCheatWarnings: Math.max(1, Number(frozenConfig.maxCheatWarnings || maxCheatWarnings) || 5),
-    // For older snapshots, fail closed instead of reading a changed live policy.\n    immediateFeedback: feedback === true || feedback === 1 || feedback === 'true',
+    // For older snapshots, fail closed instead of reading a changed live policy.
+    immediateFeedback: feedback === true || feedback === 1 || feedback === 'true',
     startedAtMs, deadlineAtMs, timestamp: startedAtMs, timeLimitSeconds,
     exp: Math.floor(expiresAtMs / 1000)
   };
+}
+
+/**
+ * Abandonment is only available when the old session is demonstrably NOT
+ * recoverable/gradable. Never infer that from a browser timeout or refusal.
+ * Existing snapshots and autosaved answers are preserved for audit.
+ */
+export function unrecoverableExamSnapshotReason(session, examId, nowMs = Date.now()) {
+  if (!session) return 'missing_snapshot';
+  if (String(session.exam_id || '') !== String(examId || '')) return null;
+  const expires = Date.parse(String(session.expires_at || ''));
+  if (Number.isFinite(expires) && expires <= nowMs) return 'expired_snapshot';
+  // A missing or invalid timestamp alone can be a transient /start race;
+  // never discard this session before the server's technical TTL.
+  let ids, questions;
+  try {
+    ids = JSON.parse(String(session.question_ids || '[]'));
+    questions = JSON.parse(String(session.question_snapshot || '[]'));
+  } catch { return 'corrupt_snapshot'; }
+  if (!Array.isArray(ids) || ids.length === 0 || !Array.isArray(questions) ||
+      questions.length !== ids.length || questions.some((q, i) =>
+        !q || String(q.id ?? q.questionId ?? '') !== String(ids[i]))) {
+    return 'corrupt_snapshot';
+  }
+  return null;
+}
+
+export function examAllowsFreshAttempt(maxAttempts, completedAttempts) {
+  const limit = Number(maxAttempts);
+  const used = Number(completedAttempts);
+  if (!Number.isInteger(limit) || limit < 0 ||
+      !Number.isInteger(used) || used < 0) return false;
+  // 0 is the existing system's unlimited-attempt configuration. 1 is
+  // explicitly single-attempt and must never allow an orphan reset.
+  return limit === 0 || (limit > 1 && used < limit);
 }
