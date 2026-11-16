@@ -43,8 +43,8 @@ export function buildActiveExamRecoveryPayload({
     contestParticipantId: participantId || null,
     teacherId: String(session.teacher_id || ''),
     examConfig: { ...safeConfig, id: expectedExamId },
-    maxCheatWarnings: Math.max(1, Number(maxCheatWarnings) || 5),
-    ...(feedback === undefined ? {} : { immediateFeedback: feedback === true || feedback === 1 || feedback === 'true' }),
+    maxCheatWarnings: Math.max(1, Number(frozenConfig.maxCheatWarnings || maxCheatWarnings) || 5),
+    // For older snapshots, fail closed instead of reading a changed live policy.\n    immediateFeedback: feedback === true || feedback === 1 || feedback === 'true',
     startedAtMs, deadlineAtMs, timestamp: startedAtMs, timeLimitSeconds,
     exp: Math.floor(expiresAtMs / 1000)
   };
