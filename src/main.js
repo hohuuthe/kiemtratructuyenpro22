@@ -9640,8 +9640,14 @@ if (contentType && contentType.includes("application/json")) {
                     }
                 });
                 document.getElementById('exam-start-ready-cancel')?.addEventListener('click', () => {
+                    const cancelledReadyToken = window.currentExamToken;
                     window.currentExamToken = null;
-                    clearStoredActiveExamResume();
+                    try {
+                        // Do not erase an unrelated, already-ACTIVE session
+                        // previously saved by the original browser tab.
+                        const storedToken = localStorage.getItem(window.tenantStorageKey('currentExamToken')) || '';
+                        if (!storedToken || storedToken === cancelledReadyToken) clearStoredActiveExamResume();
+                    } catch (_) {}
                     window.__contestOnReadyCancelled?.();
                     closeModal();
                 }, { once: true });
