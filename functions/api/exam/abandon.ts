@@ -24,7 +24,7 @@ export const onRequestPost: PagesFunction<Env> = async context => {
     if (!authorization.startsWith('Bearer ')) return reply(401, {code:'EXAM_ABANDON_AUTH_REQUIRED',error:'Vui lòng đăng nhập để kiểm tra quyền tạo lượt thi mới.'});
     const user:any = await verifyAuthSession(authorization.slice(7), secret, db);
     const userId = String(user?.user_id || user?.id || '').trim();
-    if (!userId || String(user?.role || '').toLowerCase() !== 'student') {
+    if (!userId || !['student','học sinh'].includes(String(user?.role || '').trim().toLocaleLowerCase('vi-VN'))) {
       return reply(403,{code:'EXAM_ABANDON_FORBIDDEN',error:'Tài khoản không có quyền thao tác phiên thi này.'});
     }
     const data:any = await context.request.json().catch(() => ({}));
