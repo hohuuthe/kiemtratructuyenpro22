@@ -1,6 +1,7 @@
 import { verifyAuthSession, verifyJWT, signJWT, getDynamicSecret, getDatabase, hashToken } from './utils';
 import { publicContestExam } from '../contest/register';
 import { ensureExamLivenessSchema, initializeExamLiveness, finalizeExamLiveness } from './finalize-service';
+import { reconcileExpiredLegacyOrphan } from './orphan-reconcile';
 import { stripContestAnswerHints } from '../../../src/exam-public-contest-projection';
 import {
   EXAM_SESSION_PURPOSE_PRESTART,
@@ -490,6 +491,18 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
           'SELECT session_id FROM _exam_active_attempts WHERE attempt_key = ?'
         ).bind(attemptKey).first();
         if (existingLock && String(existingLock.session_id)!==gradingSessionId) {
+          // The old schema can leave ACTIVE locks whose frozen session has
+          // already vanished. Archive only verifiably expired orphan locks,
+          // then require a fresh quota check on the next start request.
+          const orphanReleased=await reconcileExpiredLegacyOrphan(
+            db,attemptKey,String(existingLock.session_id)
+          );
+          if (orphanReleased) {
+            return new Response(JSON.stringify({
+              code:'EXAM_PREVIOUS_ATTEMPT_RECONCILED',
+              error:'Lượt thi cũ không còn bản đề gốc đã được ghi nhận để đối soát. Vui lòng bấm bắt đầu lại; hệ thống sẽ kiểm tra lượt còn lại.'
+            }),{status:409,headers:corsHeaders});
+          }
           const prior=await finalizeExamLiveness(context,String(existingLock.session_id));
           if (prior.status==='finalized') {
             // Quota must be checked again against the newly persisted result.
