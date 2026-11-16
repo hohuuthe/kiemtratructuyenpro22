@@ -105,3 +105,23 @@ test('DB replacement counts earlier canceled sessions, never grants unlimited fr
     assert.equal((await db.query('SELECT session_id FROM _exam_active_attempts')).rows[0].session_id,'old-session');
   } finally { await db.close(); }
 });
+
+test('DB replacement never revokes the old session when the new READY snapshot vanished',async()=>{
+  const {db,args}=await fixture();
+  try {
+    await db.query("DELETE FROM _exam_grade_sessions WHERE session_id='new-session'");
+    assert.equal((await db.query(replacementSql,args)).rowCount,0);
+    assert.equal((await db.query('SELECT session_id FROM _exam_active_attempts')).rows[0].session_id,'old-session');
+    assert.equal((await db.query('SELECT COUNT(*)::int AS count FROM _exam_abandoned_attempts')).rows[0].count,0);
+  } finally { await db.close(); }
+});
+
+test('DB replacement never revokes the old session when the new READY snapshot is already started',async()=>{
+  const {db,args}=await fixture();
+  try {
+    await db.query("UPDATE _exam_grade_sessions SET started_at=$1 WHERE session_id='new-session'",[args[18]]);
+    assert.equal((await db.query(replacementSql,args)).rowCount,0);
+    assert.equal((await db.query('SELECT session_id FROM _exam_active_attempts')).rows[0].session_id,'old-session');
+    assert.equal((await db.query('SELECT COUNT(*)::int AS count FROM _exam_abandoned_attempts')).rows[0].count,0);
+  } finally { await db.close(); }
+});

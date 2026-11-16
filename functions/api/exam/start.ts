@@ -415,6 +415,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                 AND EXISTS (
                   SELECT 1 FROM _exam_grade_sessions ready
                   WHERE ready.session_id = ? AND ready.started_at IS NULL
+                  FOR UPDATE
                 )
                 AND NOT EXISTS (
                   SELECT 1 FROM _submitted_exam_tokens s

@@ -146,8 +146,10 @@ test('READY preparation cannot overwrite or cancel a previously saved active ses
   assert.match(region,/previousMeta.phase === 'active'/);
   assert.match(region,/String\(previousMeta.examId \|\| ''\) === String\(selectedExamId\)/);
   assert.match(region,/if \(!preserveActive\)/);
-  const cancelRegion=source.slice(source.indexOf("id('exam-start-ready-cancel')?.addEventListener"),
-    source.indexOf("readyButton.focus();",source.indexOf("id('exam-start-ready-cancel')?.addEventListener")));
+  const cancelStart = source.indexOf("document.getElementById('exam-start-ready-cancel')?.addEventListener");
+  assert.ok(cancelStart >= 0, 'Cancel button must have an actual event listener');
+  const cancelRegion=source.slice(cancelStart, source.indexOf('readyButton.focus();',cancelStart));
+  assert.match(cancelRegion,/cancelledReadyToken = window.currentExamToken/);
   assert.match(cancelRegion,/storedToken === cancelledReadyToken/);
 });
 
@@ -156,4 +158,15 @@ test('An expired lock must not replace a still-existing server snapshot',()=>{
   assert.match(source,/_exam_active_attempts.expires_at <= \?/);
   assert.match(source,/NOT EXISTS \(\s*SELECT 1 FROM _exam_grade_sessions previous/);
   assert.match(source,/previous.session_id = _exam_active_attempts.session_id/);
+});
+
+test('Creating a new attempt retains the prior ACTIVE token through both form resets until server accepts start',()=>{
+  const source = readFileSync('src/main.js','utf8');
+  assert.match(source,/resetExam\(\{ preserveActiveResume: true \}\)/);
+  assert.match(source,/resetExam\(\{ preserveActiveResume: Boolean\(window\.__pendingExamReplacement &&/);
+  assert.match(source,/String\(window\.__pendingExamReplacement\.examId\) === String\(selectedExamId\)/);
+  assert.match(source,/window\.resetExam = function resetExam\(options = \{\}\)/);
+  const reset = source.slice(source.indexOf('window.resetExam = function resetExam('),source.indexOf('currentExam = {',source.indexOf('window.resetExam = function resetExam(')));
+  assert.match(reset,/if \(!preserveActiveResume\) clearStoredActiveExamResume\(\)/);
+  assert.match(source,/startResult\.code === 'EXAM_REPLACEMENT_CONFLICT'/);
 });

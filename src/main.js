@@ -8340,7 +8340,10 @@ if (contentType && contentType.includes("application/json")) {
             window.examAvailableCounts = null;
             
             if (typeof resetExam === 'function') {
-                resetExam();
+                // A fresh-attempt selection must not remove the existing ACTIVE
+                // recovery token until /exam/start confirms the replacement.
+                resetExam({ preserveActiveResume: Boolean(window.__pendingExamReplacement &&
+                    String(window.__pendingExamReplacement.examId) === String(selectedExamId)) });
             }
             window._studentExamLoadStatus = teacherId && selectedExamId
                 ? { teacherId: String(teacherId), examId: String(selectedExamId), status: 'loading', message: '' }
@@ -9130,7 +9133,7 @@ if (contentType && contentType.includes("application/json")) {
                     sessionId:resumeReplacementChoice.sessionId
                 };
                 closeModal();
-                resetExam();
+                resetExam({ preserveActiveResume: true });
                 const teacherSelect = document.getElementById('student-teacher-filter');
                 const examSelect = document.getElementById('student-exam-name-filter');
                 const neededTeacher = String(meta.teacherId || data.examConfig?.creatorId || '');
@@ -9616,7 +9619,7 @@ if (contentType && contentType.includes("application/json")) {
                             body: JSON.stringify({ token: window.currentExamToken, ...(window.__pendingExamReplacement && String(window.__pendingExamReplacement.examId) === String(selectedExamId) ? {replaceSessionId:window.__pendingExamReplacement.sessionId} : {}) })
                         });
                         const startResult = await response.json().catch(() => ({}));
-                        if (response.status === 409 && startResult.code === 'EXAM_ATTEMPT_ALREADY_ACTIVE') {
+                        if (response.status === 409 && (startResult.code === 'EXAM_ATTEMPT_ALREADY_ACTIVE' || startResult.code === 'EXAM_REPLACEMENT_CONFLICT')) {
                             // A concurrent tab/device may have started after
                             // preflight. Return to the same two-choice selector,
                             // never silently submit or delete the prior session.
@@ -12064,7 +12067,8 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             renderRanking();
         }
 
-        window.resetExam = function resetExam() {
+        window.resetExam = function resetExam(options = {}) {
+            const preserveActiveResume = options?.preserveActiveResume === true;
             try { window.__contestOnExamReset?.(); } catch (e) { console.warn('Contest UI cleanup:', e); }
             window.__contestTicket = null;
             window.__activeStudentExamTab = null;
@@ -12169,7 +12173,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 questionBankRevision++;
             }
             window.currentExamToken = null;
-            clearStoredActiveExamResume();
+            if (!preserveActiveResume) clearStoredActiveExamResume();
             currentExam = {
                 questions: [],
                 answers: {},
