@@ -494,9 +494,11 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
           // The old schema can leave ACTIVE locks whose frozen session has
           // already vanished. Archive only verifiably expired orphan locks,
           // then require a fresh quota check on the next start request.
-          const orphanReleased=await reconcileExpiredLegacyOrphan(
-            db,attemptKey,String(existingLock.session_id)
-          );
+          const orphanReleased=signedStudentUserId && !contestParticipantId
+            ? await reconcileExpiredLegacyOrphan(
+                db,attemptKey,String(existingLock.session_id)
+              )
+            : false;
           if (orphanReleased) {
             return new Response(JSON.stringify({
               code:'EXAM_PREVIOUS_ATTEMPT_RECONCILED',
