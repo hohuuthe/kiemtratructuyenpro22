@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { buildActiveExamRecoveryPayload, examAllowsFreshAttempt, unrecoverableExamSnapshotReason } from '../src/exam-active-attempt-recovery.js';
+import { buildActiveExamRecoveryPayload, examAllowsFreshAttempt, unrecoverableExamSnapshotReason, inspectActiveExamRecoveryState, isAuthenticatedSchoolExamStudent } from '../src/exam-active-attempt-recovery.js';
 
 const now = Date.parse('2026-11-16T03:00:00Z');
 const session = {
@@ -155,9 +155,9 @@ test('READY preparation cannot overwrite or cancel a previously saved active ses
 
 test('An expired lock must not replace a still-existing server snapshot',()=>{
   const source=readFileSync('functions/api/exam/start.ts','utf8');
-  assert.match(source,/_exam_active_attempts.expires_at <= \?/);
-  assert.match(source,/NOT EXISTS \(\s*SELECT 1 FROM _exam_grade_sessions previous/);
-  assert.match(source,/previous.session_id = _exam_active_attempts.session_id/);
+  assert.doesNotMatch(source,/DELETE FROM _exam_active_attempts WHERE attempt_key = \? AND session_id = \?/);
+  assert.match(source,/WHERE _exam_active_attempts.session_id = excluded.session_id/);
+  assert.doesNotMatch(source,/OR \(_exam_active_attempts.expires_at <= \?/);
 });
 
 test('Creating a new attempt retains the prior ACTIVE token through both form resets until server accepts start',()=>{
@@ -169,4 +169,31 @@ test('Creating a new attempt retains the prior ACTIVE token through both form re
   const reset = source.slice(source.indexOf('window.resetExam = function resetExam('),source.indexOf('currentExam = {',source.indexOf('window.resetExam = function resetExam(')));
   assert.match(reset,/if \(!preserveActiveResume\) clearStoredActiveExamResume\(\)/);
   assert.match(source,/startResult\.code === 'EXAM_REPLACEMENT_CONFLICT'/);
+});
+
+test('Student recovery accepts signed generic user accounts but excludes teachers and admins',()=>{
+  const student={id:'user-1',role:'user',target_audience:'Học sinh'};
+  assert.equal(isAuthenticatedSchoolExamStudent(student),true);
+  assert.equal(isAuthenticatedSchoolExamStudent({...student,role:'student'}),true);
+  assert.equal(isAuthenticatedSchoolExamStudent({...student,role:'teacher'}),false);
+  assert.equal(isAuthenticatedSchoolExamStudent({...student,role:'admin'}),false);
+  assert.equal(isAuthenticatedSchoolExamStudent({...student,target_audience:'Giáo viên'}),false);
+  assert.equal(isAuthenticatedSchoolExamStudent(null),false);
+});
+
+test('Inspect refuses the resume button for missing, corrupt, expired and not-started snapshots',()=>{
+  assert.deepEqual(inspectActiveExamRecoveryState(session,'exam-1','user-1',now),
+    {canResume:true,reason:null});
+  assert.equal(inspectActiveExamRecoveryState(null,'exam-1','user-1',now).canResume,false);
+  assert.equal(inspectActiveExamRecoveryState({...session,question_snapshot:'[]'},'exam-1','user-1',now).canResume,false);
+  assert.equal(inspectActiveExamRecoveryState({...session,started_at:null},'exam-1','user-1',now).canResume,false);
+  assert.equal(inspectActiveExamRecoveryState({...session,expires_at:new Date(now-1).toISOString()},'exam-1','user-1',now).canResume,false);
+});
+
+test('Snapshot cleanup preserves all started attempts for eventual recovery/audit',()=>{
+  const generate=readFileSync('functions/api/exam/generate.ts','utf8');
+  assert.match(generate,/DELETE FROM _exam_grade_sessions WHERE expires_at < \? AND started_at IS NULL/);
+  const inspect=readFileSync('functions/api/exam/recover.ts','utf8');
+  assert.match(inspect,/inspectActiveExamRecoveryState\(snapshot, examId, userId\)/);
+  assert.match(inspect,/canResume: recoveryState.canResume/);
 });
