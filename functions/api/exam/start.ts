@@ -1,4 +1,4 @@
-import { verifyAuthSession, verifyJWT, signJWT, getDynamicSecret, getDatabase } from './utils';
+import { verifyAuthSession, verifyJWT, signJWT, getDynamicSecret, getDatabase, hashToken } from './utils';
 import { publicContestExam } from '../contest/register';
 import { stripContestAnswerHints } from '../../../src/exam-public-contest-projection';
 import {
@@ -249,6 +249,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
     const timeLimitSeconds = normalizeExamTimeLimitSeconds(decoded.timeLimitSeconds);
 
+    let completedAttemptsForQuota = 0;
     // Chốt quyền lượt làm LẦN CUỐI ngay trước khi bắt đầu đồng hồ. Generate chỉ là
     // bước READY; nhiều READY token song song không được phép tiêu thụ nhiều lượt.
     if (signedAttemptUserId && examId) {
@@ -308,6 +309,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             }
           }
 
+          completedAttemptsForQuota = completedAttempts;
           if (completedAttempts >= maxAttempts) {
             return new Response(JSON.stringify({
               code: 'EXAM_ATTEMPT_LIMIT_REACHED',
@@ -323,6 +325,39 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             error: 'Không thể xác minh số lần làm ngay trước khi bắt đầu. Hệ thống chưa chạy đồng hồ để bảo vệ quyền lợi học sinh.'
           }), { status: 503, headers: corsHeaders });
         }
+      }
+    }
+
+    // A canceled ACTIVE attempt consumes its original attempt. The currently
+    // active attempt also consumes one slot when explicitly replaced. Results
+    // already submitted are counted separately as before.
+    if (signedStudentUserId && !contestParticipantId) {
+      try {
+        await db.prepare(`CREATE TABLE IF NOT EXISTS _exam_abandoned_attempts (
+          session_id TEXT PRIMARY KEY, exam_id TEXT NOT NULL, user_id TEXT NOT NULL,
+          reason TEXT NOT NULL, abandoned_at TEXT NOT NULL
+        )`).run();
+        const canceled: any = await db.prepare(
+          'SELECT COUNT(*) AS count FROM _exam_abandoned_attempts WHERE exam_id = ? AND user_id = ?'
+        ).bind(examId, signedStudentUserId).first();
+        const usedCanceled = Math.max(0, Number(canceled?.count) || 0);
+        const completed = Math.max(0, Number(completedAttemptsForQuota) || 0);
+        const replacement = String(body?.replaceSessionId || '').trim();
+        const maxAttempts = Number(authoritativeExamRow?.max_attempts);
+        if (!Number.isInteger(maxAttempts) || maxAttempts < 0) {
+          return new Response(JSON.stringify({code:'EXAM_ATTEMPT_CONFIG_INVALID',error:'Giới hạn lượt thi không hợp lệ.'}),{status:409,headers:corsHeaders});
+        }
+        if (maxAttempts > 0 && completed + usedCanceled + (replacement ? 1 : 0) >= maxAttempts) {
+          return new Response(JSON.stringify({
+            code:'EXAM_ATTEMPT_LIMIT_REACHED',
+            attemptCount:completed + usedCanceled + (replacement ? 1 : 0),maxAttempts,
+            error:'Bạn không còn đủ lượt làm bài để tạo phiên mới.'
+          }),{status:403,headers:corsHeaders});
+        }
+      } catch (quotaError) {
+        console.error('Cannot validate canceled attempt count:',quotaError);
+        return new Response(JSON.stringify({code:'EXAM_ATTEMPT_COUNT_UNAVAILABLE',
+          error:'Không thể xác minh đầy đủ lượt đã sử dụng. Bài thi chưa bắt đầu.'}),{status:503,headers:corsHeaders});
       }
     }
 
@@ -350,6 +385,66 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
           )
         `).run();
         const attemptKey = examId + ':' + signedAttemptUserId;
+        const replacementId = signedStudentUserId && !contestParticipantId
+          ? String(body?.replaceSessionId || '').trim() : '';
+        if (replacementId) {
+          // Commit swap + revocation together. No separate "delete old then
+          // create new" request can strand a student without an attempt.
+          // The lock row serializes concurrent replacement requests.
+          const submissionHash = await hashToken('exam-session:' + replacementId);
+          const replaced: any = await db.prepare(`
+            WITH old AS (
+              SELECT session_id
+              FROM _exam_active_attempts
+              WHERE attempt_key = ? AND exam_id = ? AND user_id = ? AND session_id = ?
+              FOR UPDATE
+            ),
+            switched AS (
+              UPDATE _exam_active_attempts AS lock
+              SET session_id = ?, expires_at = ?, created_at = ?
+              FROM old
+              WHERE lock.attempt_key = ? AND lock.session_id = old.session_id
+                AND old.session_id <> ?
+                AND NOT EXISTS (
+                  SELECT 1 FROM _submitted_exam_tokens s
+                  WHERE s.token_hash = ? AND s.status IN ('processing','completed')
+                )
+                AND NOT EXISTS (
+                  SELECT 1 FROM results result WHERE result.submission_token_hash = ?
+                )
+                AND (? = 0 OR (
+                  (SELECT COUNT(*) FROM results WHERE exam_id = ? AND user_id = ?) +
+                  (SELECT COUNT(*) FROM _exam_abandoned_attempts WHERE exam_id = ? AND user_id = ?) +
+                  1 < ?
+                ))
+              RETURNING old.session_id AS old_session_id
+            ),
+            revoked AS (
+              INSERT INTO _exam_abandoned_attempts
+                (session_id, exam_id, user_id, reason, abandoned_at)
+              SELECT old_session_id, ?, ?, 'replaced_by_student', ?
+              FROM switched WHERE TRUE
+              ON CONFLICT (session_id) DO UPDATE SET reason = excluded.reason
+              RETURNING session_id
+            )
+            SELECT session_id FROM revoked LIMIT 1
+          `).bind(
+            attemptKey,examId,signedStudentUserId,replacementId,
+            gradingSessionId,proposedActiveExpiresAt,proposedStartedAt,
+            attemptKey,gradingSessionId,submissionHash,submissionHash,
+            Number(authoritativeExamRow?.max_attempts) || 0,
+            examId,signedStudentUserId,examId,signedStudentUserId,
+            Number(authoritativeExamRow?.max_attempts) || 0,
+            examId,signedStudentUserId,proposedStartedAt
+          ).first();
+          if (!replaced?.session_id) {
+            return new Response(JSON.stringify({
+              code:'EXAM_REPLACEMENT_CONFLICT',
+              error:'Phiên thi hoặc số lượt đã thay đổi; vui lòng kiểm tra lại. Phiên cũ chưa bị hủy.'
+            }),{status:409,headers:corsHeaders});
+          }
+        } else {
+
 
         // Tự-heal khóa mồ côi nếu lần nộp trước đã dọn snapshot nhưng DELETE khóa
         // ACTIVE bị lỗi tạm thời. Không xóa khóa khi session cũ vẫn còn tồn tại.
@@ -391,6 +486,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             error: 'Tài khoản này đang có một phiên làm bài của cùng đề chưa hoàn tất. Vui lòng tiếp tục phiên đang làm thay vì mở thêm lượt mới.'
           }), { status: 409, headers: corsHeaders });
         }
+        } // regular claim; replacement claimed atomically above
       } catch (activeClaimError) {
         console.error('Cannot claim active exam attempt:', activeClaimError);
         return new Response(JSON.stringify({
