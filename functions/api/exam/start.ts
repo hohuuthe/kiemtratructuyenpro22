@@ -35,6 +35,11 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
   try {
     const body: any = await request.json();
     const token = String(body?.token || '').trim();
+    if (body?.replaceSessionId) {
+      return new Response(JSON.stringify({code:'EXAM_REPLACEMENT_DISABLED',
+        error:'Không hỗ trợ bỏ phiên cũ để mở phiên mới. Bài trước phải được nộp và chấm điểm.'}),
+        {status:409,headers:corsHeaders});
+    }
     if (!token) {
       return new Response(JSON.stringify({ error: 'Thiếu mã phiên chuẩn bị thi.' }), { status: 400, headers: corsHeaders });
     }
@@ -485,7 +490,14 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
           'SELECT session_id FROM _exam_active_attempts WHERE attempt_key = ?'
         ).bind(attemptKey).first();
         if (existingLock && String(existingLock.session_id)!==gradingSessionId) {
-          await finalizeExamLiveness(context,String(existingLock.session_id));
+          const prior=await finalizeExamLiveness(context,String(existingLock.session_id));
+          if (prior.status==='finalized') {
+            // Quota must be checked again against the newly persisted result.
+            // Do not consume a stale READY token in the same request.
+            return new Response(JSON.stringify({code:'EXAM_PREVIOUS_ATTEMPT_FINALIZED',
+              error:'Bài thi trước vừa được tự động nộp. Vui lòng bấm bắt đầu lại để kiểm tra số lượt còn lại.'}),
+              {status:409,headers:corsHeaders});
+          }
         }
         const claim: any = await db.prepare(`
           INSERT INTO _exam_active_attempts
@@ -654,7 +666,20 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       });
     } catch(livenessError) {
       console.error('Unable to register started attempt for automatic finalization:',livenessError);
-      return new Response(JSON.stringify({code:'EXAM_START_LIVENESS_UNAVAILABLE',error:'Không thể xác nhận bộ giám sát phiên thi. Vui lòng liên hệ quản trị viên.'}),{status:503,headers:corsHeaders});
+      // No ACTIVE token has been issued to the browser. Revert only our exact
+      // unexposed start attempt; never delete a completed result or draft.
+      try {
+        await db.prepare('UPDATE _exam_grade_sessions SET started_at=NULL,deadline_at=NULL WHERE session_id=? AND started_at=?')
+          .bind(gradingSessionId,new Date(startedAtMs).toISOString()).run();
+        await db.prepare('DELETE FROM _exam_active_attempts WHERE session_id=?').bind(gradingSessionId).run();
+        if (contestParticipantId) {
+          await db.prepare("DELETE FROM contest_attempts WHERE ma_phien_thi=? AND trang_thai='DANG_LAM'")
+            .bind(gradingSessionId).run();
+        }
+      } catch (rollbackError) {
+        console.error('Unable to roll back unexposed exam start:',rollbackError);
+      }
+      return new Response(JSON.stringify({code:'EXAM_START_LIVENESS_UNAVAILABLE',error:'Không thể xác nhận bộ giám sát phiên thi. Máy chủ chưa cho phép mở bài.'}),{status:503,headers:corsHeaders});
     }
 
     const activePayload = {
