@@ -197,3 +197,22 @@ test('Snapshot cleanup preserves all started attempts for eventual recovery/audi
   assert.match(inspect,/inspectActiveExamRecoveryState\(snapshot, examId, userId\)/);
   assert.match(inspect,/canResume: recoveryState.canResume/);
 });
+
+test('Submitted-result reconciliation releases only the exact matching active lock',()=>{
+  const source=readFileSync('functions/api/exam/recover.ts','utf8');
+  assert.match(source,/SELECT id FROM results WHERE submission_token_hash = \? LIMIT 1/);
+  assert.match(source,/DELETE FROM _exam_active_attempts WHERE attempt_key = \? AND exam_id = \? AND user_id = \? AND session_id = \?/);
+  assert.match(source,/EXAM_INSPECT_STATE_CHANGED/);
+});
+
+test('Recovery failure keeps choices visible, bounded requests and durable active token',()=>{
+  const main=readFileSync('src/main.js','utf8');
+  assert.match(main,/fetchExamStartResponse\(fetch, '\/api\/exam\/resume'/);
+  assert.match(main,/\}, 15000\)/);
+  assert.match(main,/if \(!await tryResumeActiveExam\(\)\) throw/);
+  assert.match(main,/resetExam\(\{ preserveActiveResume: true \}\)/);
+  assert.match(main,/const canResume = inspection\.body\.canResume !== false/);
+  assert.match(main,/const mayReplace = !isProcessing && inspection\.body\.canCreateNew === true/);
+  assert.match(main,/\$\{canResume && !isProcessing \? '' : 'disabled aria-disabled="true"'\}/);
+  assert.match(main,/fetchExamStartResponse\(fetch, '\/api\/exam\/start'/);
+});
