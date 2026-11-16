@@ -56,9 +56,9 @@ export const onRequestPost: PagesFunction<Env> = async context => {
     if (!active || String(active.exam_id) !== examId || String(active.user_id) !== userId) {
       return reply(404, { code: 'EXAM_RECOVERY_NOT_FOUND', error: 'Không tìm thấy phiên đang làm hợp lệ của đề thi này.' });
     }
-    if (new Date(String(active.expires_at)).getTime() <= Date.now()) {
-      return reply(409, { code: 'EXAM_RECOVERY_EXPIRED', error: 'Phiên làm bài đã hết thời hạn kỹ thuật; cần giáo viên kiểm tra.' });
-    }
+    // The active-lock TTL is a concurrency guard, not the authoritative
+    // lifetime of the grading snapshot. An old lock can expire early after
+    // deployment or a worker crash while the snapshot is still recoverable.
     const session: any = await db.prepare(
       'SELECT session_id, exam_id, teacher_id, question_ids, question_snapshot, exam_config, started_at, deadline_at, expires_at FROM _exam_grade_sessions WHERE session_id = ?'
     ).bind(String(active.session_id)).first();
