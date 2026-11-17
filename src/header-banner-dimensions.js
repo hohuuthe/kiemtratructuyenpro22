@@ -1,13 +1,14 @@
 /** Recommended source image sizes, not rigid upload restrictions. */
 export const RECOMMENDED_BANNER_SIZES = Object.freeze({
-  desktop: Object.freeze({ width: 1920, height: 320, name: 'máy tính' }),
+  desktop: Object.freeze({ width: 1920, height: 256, name: 'máy tính' }),
   tablet: Object.freeze({ width: 1200, height: 300, name: 'máy tính bảng' }),
   mobile: Object.freeze({ width: 750, height: 360, name: 'điện thoại' })
 });
 
 /**
  * Returns advisory feedback only. A banner never fails to upload solely because
- * of image proportions: the browser always displays it with object-fit:contain.
+ * of image proportions: desktop uses object-fit:cover to fill the available width,
+ * while tablet and mobile retain object-fit:contain.
  */
 export function bannerDimensionFeedback(device, width, height) {
   const target = RECOMMENDED_BANNER_SIZES[device];
@@ -22,10 +23,12 @@ export function bannerDimensionFeedback(device, width, height) {
   }
   const reason = width < target.width * 0.65
     ? 'Ảnh khá nhỏ, có thể thiếu nét khi trình chiếu.'
-    : 'Tỷ lệ ảnh khác tỷ lệ đề xuất, có thể xuất hiện khoảng trống hai bên.';
+    : device === 'desktop'
+      ? 'Tỷ lệ ảnh khác tỷ lệ đề xuất, trên máy tính có thể bị cắt phần mép để phủ hết chiều rộng.'
+      : 'Tỷ lệ ảnh khác tỷ lệ đề xuất, có thể xuất hiện khoảng trống hai bên.';
   return {
     status: 'warning',
     text: dimensions + ' • ' + reason + ' Khuyến nghị ' + recommended +
-      '; hệ thống vẫn giữ nguyên toàn bộ ảnh, không cắt hoặc kéo méo.'
+      '; ảnh gốc không bị thay đổi, hệ thống hiển thị co giãn theo thiết bị.'
   };
 }
