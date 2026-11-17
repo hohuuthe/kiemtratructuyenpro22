@@ -2,11 +2,11 @@
  * Always starts a fresh, signed exam session. An old ACTIVE lock is never a
  * reason to block the next start or attempt to resume a browser session.
  *
- * The previous in-progress attempt is archived (including frozen questions
- * and answers), then atomically superseded by the new lock. Its old token is
- * revoked by the exact-session lock/contest checks in save/grade/heartbeat.
- * Results previously committed remain authoritative for quota calculation.
- * Never supersede an attempt while its submission claim is processing.
+ * The previous in-progress attempt is archived for audit, then atomically
+ * superseded by the new lock. Its frozen question/answer snapshot MUST stay
+ * in the database until its result is committed or manually reviewed.
+ * A former grading claim never blocks admission to a new eligible attempt.
+ * The old browser token is revoked, but the internal finalizer can finish it.
  */
 export const FRESH_EXAM_ATTEMPT_CLAIM_SQL = `
 WITH previous AS MATERIALIZED (
@@ -23,55 +23,15 @@ WITH previous AS MATERIALIZED (
     AND r.exam_id=p.exam_id
     AND (t.result_id IS NULL OR r.id=t.result_id)
   RETURNING t.token_hash
-), stale_processing AS (
-  UPDATE _submitted_exam_tokens t SET status='superseded'
-  FROM previous p
-  WHERE t.token_hash=encode(sha256(convert_to('exam-session:'||p.session_id,'UTF8')),'hex')
-    AND t.status='processing'
-    AND (
-      (NULLIF(t.claimed_at,'') IS NOT NULL
-        AND t.claimed_at::timestamptz < now()-interval '5 minutes')
-      OR (NULLIF(t.claimed_at,'') IS NULL
-        AND p.created_at::timestamptz < now()-interval '5 minutes')
-    )
-    AND NOT EXISTS(
-      SELECT 1 FROM results r
-      WHERE r.submission_token_hash=t.token_hash
-         OR (t.result_id IS NOT NULL AND r.id=t.result_id)
-    )
-    AND NOT EXISTS(
-      SELECT 1 FROM _exam_attempt_liveness l
-      WHERE l.session_id=p.session_id AND l.finalized_at IS NULL
-        AND (
-          (l.finalizing_at IS NOT NULL
-            AND l.finalizing_at::timestamptz>now()-interval '5 minutes')
-          OR l.last_seen_at::timestamptz>now()-interval '90 seconds'
-        )
-    )
-  RETURNING t.token_hash,t.result_id,t.claimed_at,p.session_id
 ), safe_previous AS MATERIALIZED (
   SELECT p.*,to_jsonb(gs) AS frozen,to_jsonb(d) AS draft,to_jsonb(ca) AS contest
   FROM previous p
   LEFT JOIN _exam_grade_sessions gs ON gs.session_id=p.session_id
   LEFT JOIN _exam_answer_drafts d ON d.session_id=p.session_id
   LEFT JOIN contest_attempts ca ON ca.ma_phien_thi=p.session_id
-  WHERE NOT EXISTS (
-    SELECT 1 FROM _submitted_exam_tokens t
-    WHERE t.token_hash=encode(sha256(convert_to('exam-session:'||p.session_id,'UTF8')),'hex')
-      AND t.status='processing'
-      AND NOT EXISTS(
-        SELECT 1 FROM stale_processing sp WHERE sp.token_hash=t.token_hash
-      )
-      AND NOT EXISTS(
-        SELECT 1 FROM committed_processing cp WHERE cp.token_hash=t.token_hash
-      )
-  )
-  AND NOT EXISTS (
-    SELECT 1 FROM _exam_attempt_liveness l
-    WHERE l.session_id=p.session_id AND l.finalized_at IS NULL
-      AND l.finalizing_at IS NOT NULL
-      AND l.finalizing_at::timestamptz>now()-interval '5 minutes'
-  )
+  -- Previous submitted/finalizing sessions must remain available for
+  -- grading. A NEW attempt does not wait for an old grading claim: the
+  -- immutable claim and snapshot are independent of the ACTIVE pointer.
 ), archived AS (
   INSERT INTO _exam_discarded_session_archive
     (session_id,kind,source_data,reason)
@@ -83,12 +43,6 @@ WITH previous AS MATERIALIZED (
     ('fresh_draft',COALESCE(p.draft,'{}'::jsonb)),
     ('fresh_contest',COALESCE(p.contest,'{}'::jsonb))
   ) item(kind,data)
-  UNION ALL
-  SELECT sp.session_id,'fresh_stale_claim',
-    jsonb_build_object('token_hash',sp.token_hash,'status_before','processing',
-      'claimed_at',sp.claimed_at,'result_id',sp.result_id),
-    'superseded_by_new_exam_start'
-  FROM stale_processing sp
   ON CONFLICT (session_id,kind) DO UPDATE
     SET archived_at=_exam_discarded_session_archive.archived_at
   RETURNING session_id,kind
@@ -129,28 +83,27 @@ WITH previous AS MATERIALIZED (
   WHERE ca.ma_phien_thi=a.session_id AND ca.trang_thai='DANG_LAM'
     AND EXISTS(SELECT 1 FROM claimed)
   RETURNING ca.ma_phien_thi
-), stopped_heartbeat AS (
-  UPDATE _exam_attempt_liveness l
-  SET finalized_at=COALESCE(l.finalized_at,now()::text),
-      last_error='superseded_by_new_exam_start'
-  FROM audited a WHERE l.session_id=a.session_id
+), queued_for_grading AS (
+  INSERT INTO _exam_attempt_liveness
+    (session_id,exam_id,user_id,contest_participant_id,student_info_json,
+     last_seen_at,deadline_at,leave_requested_at)
+  SELECT p.session_id,p.exam_id,
+    CASE WHEN p.user_id LIKE 'contest:%' THEN '' ELSE p.user_id END,
+    CASE WHEN p.user_id LIKE 'contest:%' THEN substring(p.user_id FROM 9) ELSE '' END,
+    '{}',COALESCE(gs.started_at,p.created_at),gs.deadline_at,now()::text
+  FROM safe_previous p
+  JOIN _exam_grade_sessions gs ON gs.session_id=p.session_id
+  WHERE gs.started_at IS NOT NULL AND gs.deadline_at IS NOT NULL
     AND EXISTS(SELECT 1 FROM claimed)
-  RETURNING l.session_id
-), removed_frozen AS (
-  DELETE FROM _exam_grade_sessions g USING audited a
-  WHERE g.session_id=a.session_id
-    AND EXISTS(SELECT 1 FROM claimed)
-  RETURNING g.session_id
-), removed_draft AS (
-  DELETE FROM _exam_answer_drafts d USING audited a
-  WHERE d.session_id=a.session_id
-    AND EXISTS(SELECT 1 FROM claimed)
-  RETURNING d.session_id
+  ON CONFLICT(session_id) DO UPDATE SET
+    leave_requested_at=COALESCE(_exam_attempt_liveness.leave_requested_at,
+      EXCLUDED.leave_requested_at),
+    last_error='superseded_pending_auto_grade'
+  WHERE _exam_attempt_liveness.finalized_at IS NULL
+  RETURNING session_id
 )
 SELECT session_id,(SELECT COUNT(*) FROM retired_contest) AS contests_retired,
- (SELECT COUNT(*) FROM stopped_heartbeat) AS heartbeats_stopped,
- (SELECT COUNT(*) FROM removed_frozen) AS snapshots_removed,
- (SELECT COUNT(*) FROM removed_draft) AS drafts_removed
+ (SELECT COUNT(*) FROM queued_for_grading) AS previous_pending_grade
 FROM claimed
 `;
 
