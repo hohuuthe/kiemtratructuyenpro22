@@ -3,11 +3,28 @@
  * Previous sessions are NEVER restored, compared, replaced or used as locks.
  * Historical contest rows/results are used solely as consumed-attempt totals.
  */
-const securedContestClaimsDatabases = new Set<string>();
+// One schema check per tenant per Worker instance. Concurrent requests share
+// the same promise, and a failed check is never cached permanently.
+const contestSchemaChecks = new Map<string, Promise<void>>();
 
-export async function ensureContestStartClaimsSchema(db: any): Promise<void> {
-  const dbKey = String(db?.connectionUrl || '');
-  if (dbKey && securedContestClaimsDatabases.has(dbKey)) return;
+async function contestStartSchemaReady(db: any): Promise<boolean> {
+  const row: any = await db.prepare([
+    'SELECT (',
+    "EXISTS (SELECT 1 FROM pg_class t WHERE t.oid = to_regclass('public._contest_start_claims') AND t.relrowsecurity)",
+    "AND EXISTS (SELECT 1 FROM pg_constraint c WHERE c.conrelid = to_regclass('public._contest_start_claims') AND c.contype = 'p')",
+    'AND EXISTS (SELECT 1 FROM pg_index i JOIN pg_class idx ON idx.oid = i.indexrelid',
+    "WHERE i.indrelid = to_regclass('public._contest_start_claims')",
+    "AND idx.relname = 'uq_contest_start_claim_slot' AND i.indisunique)",
+    ') AS ready'
+  ].join(' ')).bind().first();
+  return row?.ready === true || row?.ready === 1;
+}
+
+async function initializeContestStartClaimsSchema(db: any): Promise<void> {
+  // Pre-migrated tenants do only a read-only preflight, never DDL on START.
+  if (await contestStartSchemaReady(db)) return;
+  // Backward-compatible fallback for tenants not yet pre-migrated.
+  // This fallback is fail-closed; a partially configured table must not be used.
   await db.prepare([
     'CREATE TABLE IF NOT EXISTS _contest_start_claims (',
     'session_id TEXT PRIMARY KEY, participant_id TEXT NOT NULL,',
@@ -15,8 +32,7 @@ export async function ensureContestStartClaimsSchema(db: any): Promise<void> {
     'created_at TIMESTAMPTZ NOT NULL,',
     'CONSTRAINT uq_contest_start_claim_slot UNIQUE (exam_id, participant_id, attempt_no))'
   ].join(' ')).run();
-  // This is a private, server-only attempt ledger; never expose candidate IDs
-  // through a Supabase Data API role even if the default grants change.
+  await db.prepare('CREATE UNIQUE INDEX IF NOT EXISTS uq_contest_start_claim_slot ON _contest_start_claims(exam_id, participant_id, attempt_no)').run();
   await db.prepare('ALTER TABLE _contest_start_claims ENABLE ROW LEVEL SECURITY').run();
   await db.prepare('REVOKE ALL ON _contest_start_claims FROM PUBLIC').run();
   await db.prepare([
@@ -27,7 +43,26 @@ export async function ensureContestStartClaimsSchema(db: any): Promise<void> {
     'REVOKE ALL ON _contest_start_claims FROM authenticated; END IF;',
     'END $guard$'
   ].join(' ')).run();
-  if (dbKey) securedContestClaimsDatabases.add(dbKey);
+  if (!await contestStartSchemaReady(db)) {
+    throw new Error('CONTEST_START_CLAIMS_SCHEMA_INCOMPLETE');
+  }
+}
+
+export async function ensureContestStartClaimsSchema(db: any): Promise<void> {
+  const dbKey = String(db?.connectionUrl || '');
+  // Without a trusted connection identifier never share state across tenants.
+  if (!dbKey) return initializeContestStartClaimsSchema(db);
+  let pending = contestSchemaChecks.get(dbKey);
+  if (!pending) {
+    pending = initializeContestStartClaimsSchema(db);
+    contestSchemaChecks.set(dbKey, pending);
+  }
+  try {
+    await pending;
+  } catch (error) {
+    if (contestSchemaChecks.get(dbKey) === pending) contestSchemaChecks.delete(dbKey);
+    throw error;
+  }
 }
 
 const quotaSQL = [
