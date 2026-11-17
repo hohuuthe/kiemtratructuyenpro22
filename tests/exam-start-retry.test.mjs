@@ -33,6 +33,16 @@ test('only a server-confirmed ACTIVE conflict retries; no infinite block',async(
  assert.equal(waits,3);
 });
 
+test('the default retry policy cannot leave the READY dialog stuck for 100 seconds',async()=>{
+ let calls=0,totalDelay=0;
+ const response=await activateExamAfterPreviousFinalization(async()=>{
+   calls++;return reply(409,{code:'EXAM_ATTEMPT_ALREADY_ACTIVE'});
+ },'/api/exam/start',{}, {sleep:async ms=>{totalDelay+=ms;}});
+ assert.equal(response.status,409);
+ assert.equal(calls,3);
+ assert.equal(totalDelay,2000);
+});
+
 test('other errors and quota exhaustion must not retry',async()=>{
  for (const [status,code] of [[403,'EXAM_ATTEMPT_LIMIT_REACHED'],[409,'EXAM_ACCESS_REVOKED'],[503,'EXAM_PREVIOUS_ATTEMPT_FINALIZE_RETRY']]) {
   let calls=0;
