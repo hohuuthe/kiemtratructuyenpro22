@@ -20,7 +20,7 @@ const oldSession='old-session',newSession='new-session';
 const args=[key,'exam1',user,newSession,key,'exam1',user,newSession,exp,now];
 const tokenHash=createHash('sha256').update('exam-session:'+oldSession).digest('hex');
 
-async function fixture({old=false,contest=false,processing=false,committed=false,finalizing=false,staleProcessing=false,committedProcessing=false}={}){
+async function fixture({old=false,contest=false,processing=false,committed=false,finalizing=false,staleProcessing=false,committedProcessing=false,missingClaimedAt=false}={}){
  const db=new PGlite();
  await db.exec(`
  CREATE TABLE _exam_active_attempts(attempt_key TEXT PRIMARY KEY,exam_id TEXT,user_id TEXT,session_id TEXT,expires_at TEXT,created_at TEXT);
@@ -38,7 +38,7 @@ async function fixture({old=false,contest=false,processing=false,committed=false
   await db.query('INSERT INTO _exam_answer_drafts VALUES($1,$2,$3,$4)',[oldSession,'["A"]',3,now]);
   await db.query('INSERT INTO _exam_attempt_liveness (session_id,finalized_at,last_error,finalizing_at) VALUES($1,$2,$3,$4)',[oldSession,null,null,finalizing?new Date().toISOString():null]);
   if(contest)await db.query('INSERT INTO contest_attempts VALUES($1,$2,$3,$4,$5,$6)',[oldSession,'student1','exam1','DANG_LAM',null,null]);
-  if(processing||staleProcessing||committedProcessing) await db.query('INSERT INTO _submitted_exam_tokens VALUES($1,$2,$3,$4)',[tokenHash,'processing',staleProcessing?'2026-01-01T00:00:00Z':new Date().toISOString(),committedProcessing?'result1':null]);
+  if(processing||staleProcessing||committedProcessing) await db.query('INSERT INTO _submitted_exam_tokens VALUES($1,$2,$3,$4)',[tokenHash,'processing',missingClaimedAt?null:staleProcessing?'2026-01-01T00:00:00Z':new Date().toISOString(),committedProcessing?'result1':null]);
   if(committed||committedProcessing)await db.query('INSERT INTO results VALUES($1,$2,$3,$4,$5,$6)',['result1',oldSession,'student1','exam1',now,committedProcessing?tokenHash:null]);
  }
  return db;
@@ -109,6 +109,16 @@ test('old claim from crashed Worker older than five minutes does not block a fre
   assert.equal((await db.query('SELECT status FROM _submitted_exam_tokens')).rows[0].status,'superseded');
   assert.equal((await db.query("SELECT COUNT(*)::int n FROM _exam_discarded_session_archive WHERE kind='fresh_stale_claim'")).rows[0].n,1);
   assert.equal((await db.query('SELECT COUNT(*)::int n FROM results')).rows[0].n,0);
+ }finally{await db.close();}
+});
+
+test('old legacy processing claim with missing claim timestamp cannot block indefinitely',async()=>{
+ const db=await fixture({old:true,contest:true,staleProcessing:true,missingClaimedAt:true});
+ try{
+  await db.query('UPDATE _exam_active_attempts SET created_at=$1',['2026-01-01T00:00:00Z']);
+  const row=await db.query(sql,args);
+  assert.equal(row.rows[0]?.session_id,newSession);
+  assert.equal((await db.query('SELECT status FROM _submitted_exam_tokens')).rows[0].status,'superseded');
  }finally{await db.close();}
 });
 
