@@ -23,13 +23,15 @@ test('old browser tokens are deleted and never re-adopted on application boot',(
   assert.doesNotMatch(main,/bootExamResumeToken|bootExamResumeMeta/);
 });
 
-test('same-exam concurrent start cannot replace or revoke another active result',()=>{
+test('same-exam reentry atomically replaces only a nonprocessing old attempt',()=>{
   const start=source('functions/api/exam/start.ts');
-  assert.match(start,/EXAM_REPLACEMENT_DISABLED/);
-  assert.match(start,/_exam_active_attempts/);
-  assert.match(start,/EXAM_ATTEMPT_ALREADY_ACTIVE/);
-  assert.match(start,/EXAM_PREVIOUS_ATTEMPT_FINALIZED/);
+  const fresh=source('functions/api/exam/fresh-attempt.ts');
+  assert.match(start,/claimFreshExamAttempt\(db,/);
   assert.match(start,/EXAM_ATTEMPT_LIMIT_REACHED/);
+  assert.match(fresh,/ON CONFLICT \(attempt_key\) DO UPDATE SET/);
+  assert.match(fresh,/status='processing'/);
+  assert.match(fresh,/fresh_draft/);
+  assert.doesNotMatch(start,/EXAM_PREVIOUS_ATTEMPT_FINALIZED/);
 });
 
 test('timeout closes a server attempt but temporary disconnect never counts as completion',()=>{
