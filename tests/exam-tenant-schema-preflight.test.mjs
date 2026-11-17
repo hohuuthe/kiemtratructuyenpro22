@@ -72,4 +72,9 @@ test('school and contest preflights are cached per tenant, retry failures, and b
   assert.match(school,/to_regclass\('public\._exam_abandoned_attempts'\)/);
   const start=readFileSync('functions/api/exam/start.ts','utf8');
   assert.doesNotMatch(start,/CREATE TABLE IF NOT EXISTS _exam_abandoned_attempts/);
+  const handler=start.slice(start.indexOf('export const onRequestPost:'));
+  assert.doesNotMatch(handler,/CREATE TABLE IF NOT EXISTS _exam_grade_sessions/);
+  assert.match(start,/async function ensureGradeSessionSchema\(db: any\)/);
+  assert.match(handler,/await ensureGradeSessionSchema\(db\)/);
+  assert.match(handler,/if \(String\(decoded\.studentUserId \|\| ''\)\.trim\(\)\)/);
 });
