@@ -69,4 +69,7 @@ test('school and contest preflights are cached per tenant, retry failures, and b
   assert.match(contest,/relrowsecurity/);
   assert.match(contest,/uq_contest_start_claim_slot/);
   assert.match(school,/uq_results_school_attempt_no/);
+  assert.match(school,/to_regclass\('public\._exam_abandoned_attempts'\)/);
+  const start=readFileSync('functions/api/exam/start.ts','utf8');
+  assert.doesNotMatch(start,/CREATE TABLE IF NOT EXISTS _exam_abandoned_attempts/);
 });
