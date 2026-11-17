@@ -256,6 +256,40 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
     const timeLimitSeconds = normalizeExamTimeLimitSeconds(decoded.timeLimitSeconds);
 
+    // Reconcile a past attempt BEFORE checking remaining quota. If its result
+    // was just committed, the fresh quota query below must count it. A frozen
+    // attempt that cannot be safely graded remains locked; never invent marks.
+    // This also makes a new exam start independent of a deployed Cron schedule
+    // when the student returns after the 90-second timeout.
+    if (signedStudentUserId && !contestParticipantId && examId) {
+      try {
+        await ensureExamLivenessSchema(db);
+        const oldKey = examId + ':' + signedStudentUserId;
+        const locked: any = await db.prepare(
+          'SELECT session_id FROM _exam_active_attempts WHERE attempt_key = ?'
+        ).bind(oldKey).first();
+        const oldId = String(locked?.session_id || '');
+        if (oldId && oldId !== gradingSessionId) {
+          const archived = await reconcileExpiredLegacyOrphan(db, oldKey, oldId);
+          if (!archived) {
+            const closed = await finalizeExamLiveness(context, oldId);
+            if (closed.status === 'retry_required') {
+              return new Response(JSON.stringify({
+                code:'EXAM_PREVIOUS_ATTEMPT_FINALIZE_RETRY',
+                error:'Máy chủ chưa thể lưu kết quả bài trước. Hệ thống giữ bài làm để đối soát, không mở phiên mới làm mất dữ liệu.'
+              }),{status:503,headers:corsHeaders});
+            }
+          }
+        }
+      } catch (reconciliationError) {
+        console.error('Cannot reconcile prior attempt before new quota check:',reconciliationError);
+        return new Response(JSON.stringify({
+          code:'EXAM_PREVIOUS_ATTEMPT_RECONCILIATION_UNAVAILABLE',
+          error:'Máy chủ chưa xác minh được trạng thái nộp bài trước; vui lòng thử lại.'
+        }),{status:503,headers:corsHeaders});
+      }
+    }
+
     let completedAttemptsForQuota = 0;
     // Chốt quyền lượt làm LẦN CUỐI ngay trước khi bắt đầu đồng hồ. Generate chỉ là
     // bước READY; nhiều READY token song song không được phép tiêu thụ nhiều lượt.
