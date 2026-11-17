@@ -173,6 +173,20 @@ test('already-committed result is preserved and counted once while new session s
   assert.equal((await db.query('SELECT COUNT(*)::int n FROM results')).rows[0].n,1);
  }finally{await db.close();}
 });
+test('grader serializes score insert with still-active claim, preventing late score writes',()=>{
+ const grade=readFileSync('functions/api/exam/grade.ts','utf8');
+ assert.match(grade,/WHERE EXISTS \(SELECT 1 FROM _submitted_exam_tokens t/);
+ assert.match(grade,/t\.token_hash=\? AND t\.status='processing' AND t\.result_id=\?/);
+ assert.match(grade,/FOR UPDATE\)/);
+ assert.match(grade,/RETURNING id/);
+ assert.match(grade,/if \(!committedByThisClaim\?\.id\)/);
+ const fresh=readFileSync('functions/api/exam/fresh-attempt.ts','utf8');
+ assert.match(fresh,/SET status='superseded'/);
+ assert.match(fresh,/SET status='completed'/);
+ assert.match(fresh,/interval '5 minutes'/);
+ assert.match(fresh,/fresh_stale_claim/);
+});
+
 test('start code does not wait for prior grade, legacy session or recovery token',()=>{
  assert.match(start,/claimFreshExamAttempt\(db,/);
  assert.doesNotMatch(start,/finalizeExamLiveness|reconcileExpiredLegacyOrphan|reconcileExpiredContestOrphan|registerExpiredLegacyExamAttemptById/);
