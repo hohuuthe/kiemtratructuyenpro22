@@ -1080,7 +1080,7 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
                      WHERE a.session_id=? AND a.exam_id=? AND a.user_id=?
                        AND ca.ma_de_thi=a.exam_id AND ca.ma_nguoi_du_thi=?
                        AND ca.trang_thai='DANG_LAM'
-                     FOR UPDATE OF a,ca
+                     FOR UPDATE OF a
                    )
                    ON CONFLICT(token_hash) DO NOTHING`
                 : "INSERT INTO _submitted_exam_tokens (token_hash, exam_id, student_name, user_id, submitted_at, status, result_id, claimed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (token_hash) DO NOTHING";
