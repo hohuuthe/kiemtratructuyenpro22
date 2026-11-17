@@ -1,6 +1,7 @@
 import { verifyAuthSession, verifyJWT, getDynamicSecret, hashToken, getDatabase } from './utils';
 import { evaluateTF4, isShortAnswerCorrect, examFlagEnabled, clampScore, roundScore, validateQuestionAnswer } from '../../../src/exam-grading-core.js';
 import { EXAM_SESSION_PURPOSE_PRESTART, EXAM_SESSION_PURPOSE_ACTIVE, resolveAuthoritativeExamTiming } from '../../../src/exam-time-authority.js';
+import { findSchoolResultBySession, isSchoolResultProvisional } from './school-result-lifecycle';
 import { stripContestAnswerHints } from '../../../src/exam-public-contest-projection';
 
 interface Env {
@@ -146,6 +147,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     let tokenClaimed = false;
     let resultPersisted = false;
     let claimedResultId = '';
+    let schoolReservation: any = null;
 
     try {
         const body: any = await request.json();
@@ -266,6 +268,26 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         // Check that legacy key as well to avoid replaying a completed old exam.
         const legacyTokenHash = await hashToken(token);
         claimedResultId = crypto.randomUUID();
+        const schoolAttemptForGrade = Boolean(signedStudentUserId && !contestParticipantId);
+        if (schoolAttemptForGrade) {
+          try {
+            schoolReservation = await findSchoolResultBySession(
+              db,tokenHash,String(decoded?.examConfig?.id || ''),signedStudentUserId
+            );
+            if (!schoolReservation || String(schoolReservation.grading_status).toUpperCase() === 'ABANDONED') {
+              return new Response(JSON.stringify({
+                code:'EXAM_ATTEMPT_CLOSED',
+                error:'Lượt thi đã kết thúc hoặc không hợp lệ. Không thể nộp bài của phiên cũ.'
+              }),{status:409,headers:corsHeaders});
+            }
+            claimedResultId = String(schoolReservation.id);
+          } catch (reservationError) {
+            console.error('Cannot verify reserved school result:',reservationError);
+            return new Response(JSON.stringify({
+              code:'EXAM_RESULT_RESERVATION_UNAVAILABLE',error:'Không thể xác minh lượt thi đã ghi nhận.'
+            }),{status:503,headers:corsHeaders});
+          }
+        }
         try {
             await db.prepare(
                 "CREATE TABLE IF NOT EXISTS _submitted_exam_tokens (token_hash TEXT PRIMARY KEY, exam_id TEXT, student_name TEXT, user_id TEXT, submitted_at TEXT)"
@@ -285,9 +307,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             if (existing) {
                 if (existing.result_id) {
                     const stored: any = await db.prepare(
-                        "SELECT id, score, correct_count, total_questions, details, cheat_warning_count FROM results WHERE id = ?"
+                        "SELECT id, score, correct_count, total_questions, details, cheat_warning_count, grading_status FROM results WHERE id = ?"
                     ).bind(String(existing.result_id)).first();
-                    if (stored) {
+                    if (stored && !isSchoolResultProvisional(stored.grading_status)) {
                         let storedDetails: any[] = [];
                         try {
                             storedDetails = Array.isArray(stored.details)
@@ -1001,18 +1023,21 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
             // unique submission claim. If replacement wins first, the old
             // session cannot create a result. If submission wins first,
             // replacement observes the processing claim and is refused.
-            const schoolAttempt = Boolean(signedStudentUserId && !contestParticipantId);
+            const schoolAttempt = schoolAttemptForGrade;
             const claimSql = schoolAttempt
                 ? `INSERT INTO _submitted_exam_tokens
                      (token_hash, exam_id, student_name, user_id, submitted_at, status, result_id, claimed_at)
                    SELECT ?, ?, ?, ?, ?, ?, ?, ?
                    WHERE EXISTS (
-                     SELECT 1 FROM _exam_active_attempts
-                     WHERE session_id = ? AND exam_id = ? AND user_id = ?
+                     SELECT 1 FROM results reserved
+                     WHERE reserved.submission_token_hash = ? AND reserved.exam_id = ? AND reserved.user_id = ?
+                       AND reserved.grading_status = 'IN_PROGRESS'
+                       AND NOT EXISTS (
+                         SELECT 1 FROM results newer
+                         WHERE newer.exam_id = reserved.exam_id AND newer.user_id = reserved.user_id
+                           AND newer.attempt_no > reserved.attempt_no
+                       )
                      FOR UPDATE
-                   )
-                   AND NOT EXISTS (
-                     SELECT 1 FROM _exam_abandoned_attempts WHERE session_id = ?
                    )
                    ON CONFLICT (token_hash) DO NOTHING`
                 : "INSERT INTO _submitted_exam_tokens (token_hash, exam_id, student_name, user_id, submitted_at, status, result_id, claimed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (token_hash) DO NOTHING";
@@ -1026,8 +1051,8 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
                 claimedResultId,
                 new Date().toISOString(),
                 ...(schoolAttempt ? [
-                    String(gradingSessionId), String(examConfig.id || studentInfo.examId || ''),
-                    signedStudentUserId, String(gradingSessionId)
+                    tokenHash, String(examConfig.id || studentInfo.examId || ''),
+                    signedStudentUserId
                 ] : [])
             ).run();
             if (Number(claim?.meta?.changes || 0) !== 1) {
@@ -1036,9 +1061,9 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
                 ).bind(tokenHash).first();
                 if (existing?.result_id) {
                     const stored: any = await db.prepare(
-                        "SELECT id, score, correct_count, total_questions, details, cheat_warning_count FROM results WHERE id = ?"
+                        "SELECT id, score, correct_count, total_questions, details, cheat_warning_count, grading_status FROM results WHERE id = ?"
                     ).bind(String(existing.result_id)).first();
-                    if (stored) {
+                    if (stored && !isSchoolResultProvisional(stored.grading_status)) {
                         let storedDetails: any[] = [];
                         try {
                             storedDetails = Array.isArray(stored.details)
@@ -1133,31 +1158,56 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
 
             const gradingStatus = hasPendingEssayGrades ? 'PENDING' : 'FINAL';
             const finalizedAt = hasPendingEssayGrades ? null : new Date().toISOString();
-            await db.prepare(
-                `INSERT INTO results (id, user_id, student_name, student_class, lop, don_vi, exam_name, exam_id, score, time_taken, correct_count, total_questions, details, loai_thi_sinh, cheat_warning_count, submission_token_hash, grading_status, score_finalized_at, ma_nguoi_du_thi, ma_phien_thi, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-            ).bind(
-                resultId,
-                authenticatedUserId || null,
-                authenticatedStudentName || studentInfo.name || '',
-                contestParticipantId ? '' : (authenticatedLop || studentInfo.lop || studentInfo.studentClass || ''),
-                contestParticipantId ? '' : (authenticatedLop || studentInfo.lop || ''),
-                authenticatedDonvi || studentInfo.donvi || studentInfo.unit || '',
-                String(examConfig.name || studentInfo.examName || ''),
-                String(examConfig.id || studentInfo.examId || ''),
-                finalScore,
-                authoritativeTimeTaken,
-                correctCount,
-                clientQuestions.length,
-                JSON.stringify(detailedResults),
-                contestParticipantId ? 'Cuộc thi trực tuyến' : (studentInfo.loaiThiSinh || (authenticatedUserId ? 'Đã đăng nhập' : 'Tự do')),
-                cheatWarningCount,
-                tokenHash,
-                gradingStatus,
-                finalizedAt,
-                contestParticipantId || null,
-                contestParticipantId ? String(gradingSessionId || '') : null,
-                new Date().toISOString()
-            ).run();
+            if (schoolAttemptForGrade) {
+                const saved: any = await db.prepare(`
+                  UPDATE results AS reserved SET
+                    score = ?,time_taken = ?,correct_count = ?,total_questions = ?,
+                    details = ?,cheat_warning_count = ?,grading_status = ?,
+                    score_finalized_at = ?
+                  WHERE reserved.id = ? AND reserved.user_id = ? AND reserved.exam_id = ?
+                    AND reserved.submission_token_hash = ?
+                    AND reserved.grading_status = 'IN_PROGRESS'
+                    AND NOT EXISTS (
+                      SELECT 1 FROM results newer
+                      WHERE newer.exam_id = reserved.exam_id AND newer.user_id = reserved.user_id
+                        AND newer.attempt_no > reserved.attempt_no
+                    )
+                  RETURNING reserved.id
+                `).bind(
+                  finalScore,authoritativeTimeTaken,correctCount,clientQuestions.length,
+                  JSON.stringify(detailedResults),cheatWarningCount,gradingStatus,finalizedAt,
+                  claimedResultId,signedStudentUserId,
+                  String(examConfig.id || studentInfo.examId || ''),tokenHash
+                ).first();
+                if (!saved?.id) throw new Error('EXAM_RESULT_NOT_ACTIVE');
+                resultId = String(saved.id);
+            } else {
+                await db.prepare(
+                    `INSERT INTO results (id, user_id, student_name, student_class, lop, don_vi, exam_name, exam_id, score, time_taken, correct_count, total_questions, details, loai_thi_sinh, cheat_warning_count, submission_token_hash, grading_status, score_finalized_at, ma_nguoi_du_thi, ma_phien_thi, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                ).bind(
+                    resultId,
+                    authenticatedUserId || null,
+                    authenticatedStudentName || studentInfo.name || '',
+                    contestParticipantId ? '' : (authenticatedLop || studentInfo.lop || studentInfo.studentClass || ''),
+                    contestParticipantId ? '' : (authenticatedLop || studentInfo.lop || ''),
+                    authenticatedDonvi || studentInfo.donvi || studentInfo.unit || '',
+                    String(examConfig.name || studentInfo.examName || ''),
+                    String(examConfig.id || studentInfo.examId || ''),
+                    finalScore,
+                    authoritativeTimeTaken,
+                    correctCount,
+                    clientQuestions.length,
+                    JSON.stringify(detailedResults),
+                    contestParticipantId ? 'Cuộc thi trực tuyến' : (studentInfo.loaiThiSinh || (authenticatedUserId ? 'Đã đăng nhập' : 'Tự do')),
+                    cheatWarningCount,
+                    tokenHash,
+                    gradingStatus,
+                    finalizedAt,
+                    contestParticipantId || null,
+                    contestParticipantId ? String(gradingSessionId || '') : null,
+                    new Date().toISOString()
+                ).run();
+                }
             resultPersisted = true;
         } catch (dbErr) {
             console.error("Lỗi khi lưu kết quả bài thi vào CSDL:", dbErr);
@@ -1167,7 +1217,7 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
             // the submission claim when this verification itself is unavailable.
             try {
                 const committed: any = await db.prepare(
-                    'SELECT id FROM results WHERE id = ? OR submission_token_hash = ? LIMIT 1'
+                    "SELECT id FROM results WHERE (id = ? OR submission_token_hash = ?) AND COALESCE(grading_status, 'FINAL') NOT IN ('IN_PROGRESS','ABANDONED') LIMIT 1"
                 ).bind(resultId, tokenHash).first();
                 if (committed?.id) {
                     resultId = String(committed.id);
@@ -1261,7 +1311,7 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
             // committed. If verification fails, keep the claim fail-closed.
             try {
                 const committed: any = claimedResultId
-                    ? await db.prepare('SELECT id FROM results WHERE id = ? OR submission_token_hash = ? LIMIT 1')
+                    ? await db.prepare("SELECT id FROM results WHERE (id = ? OR submission_token_hash = ?) AND COALESCE(grading_status, 'FINAL') NOT IN ('IN_PROGRESS','ABANDONED') LIMIT 1")
                         .bind(claimedResultId, tokenHash).first()
                     : null;
                 if (!committed?.id) {
