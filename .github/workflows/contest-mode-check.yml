@@ -48,7 +48,7 @@ jobs:
           node --check src/contest-mode-ui.js
           node --check src/bootstrap.js
       - name: Contest mode contracts and exam regressions
-        run: node --import tsx --test tests/contest-db-integrity.test.mjs tests/contest-mode.test.mjs tests/exam-critical-integrity.test.ts tests/exam-config-integrity.test.ts tests/security-tenant-integration.test.ts tests/exam-grading-integrity.test.mjs tests/student-exam-start-attempt-limit.test.mjs tests/student-exam-auto-submit-guard.test.mjs
+        run: node --import tsx --test tests/contest-db-integrity.test.mjs tests/contest-start-claims-db.test.mjs tests/contest-mode.test.mjs tests/exam-critical-integrity.test.ts tests/exam-config-integrity.test.ts tests/security-tenant-integration.test.ts tests/exam-grading-integrity.test.mjs tests/student-exam-start-attempt-limit.test.mjs tests/student-exam-auto-submit-guard.test.mjs
       - name: TypeScript checks
         run: npm run lint
       - name: Production build
