@@ -25,7 +25,12 @@ export async function ensureContestStartClaimsSchema(db: any): Promise<void> {
     'REVOKE ALL ON _contest_start_claims FROM anon; END IF;',
     "IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN",
     'REVOKE ALL ON _contest_start_claims FROM authenticated; END IF;',
-    'END $guard = [
+    'END $guard$'
+  ].join(' ')).run();
+  if (dbKey) securedContestClaimsDatabases.add(dbKey);
+}
+
+const quotaSQL = [
   '(',
   'SELECT',
   '(SELECT COUNT(*) FROM contest_attempts ca WHERE ca.ma_nguoi_du_thi = ? AND ca.ma_de_thi = ?)',
