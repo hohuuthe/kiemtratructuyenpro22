@@ -137,7 +137,7 @@ test('device breakpoints keep desktop banner fallback, independent image preview
     'settings-banner-preview-desktop','settings-banner-preview-tablet',
     'settings-banner-preview-mobile'
   ]) assert.ok(html.includes('id="'+id+'"'),id);
-  for(const px of ['1920 × 320','1200 × 300','750 × 360']) assert.ok(html.includes(px),px);
+  for(const px of ['1920 × 256','1200 × 300','750 × 360']) assert.ok(html.includes(px),px);
 });
 
 test('backend independently validates tenant-scoped image paths for all devices',()=>{
