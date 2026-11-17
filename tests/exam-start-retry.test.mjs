@@ -49,6 +49,8 @@ test('expired READY token prepares a new unstarted exam, no old resume',()=>{
  const backend=readFileSync('functions/api/exam/start.ts','utf8');
  const frontend=readFileSync('src/main.js','utf8');
  assert.match(backend,/EXAM_READY_REGENERATE_REQUIRED/);
+ assert.match(backend,/if \(snapshot.started_at\)/);
+ assert.match(backend,/PRESTART token must never reopen a session/);
  const branch=frontend.slice(frontend.indexOf("if (error?.code === 'EXAM_READY_REGENERATE_REQUIRED')"));
  assert.ok(branch.length>0);
  assert.match(branch,/window.currentExamToken = null/);
