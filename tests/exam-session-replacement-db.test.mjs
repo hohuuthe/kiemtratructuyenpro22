@@ -16,7 +16,8 @@ async function fixture({used=0, canceled=0, processing=false}={}) {
   await db.exec(`
     CREATE TABLE _exam_active_attempts (
       attempt_key TEXT PRIMARY KEY,exam_id TEXT NOT NULL,user_id TEXT NOT NULL,
-      session_id TEXT NOT NULL,expires_at TEXT NOT NULL,created_at TEXT NOT NULL
+      session_id TEXT NOT NULL,expires_at TEXT NOT NULL,created_at TEXT NOT NULL,
+      last_seen_at TIMESTAMPTZ DEFAULT NOW()
     );
     CREATE TABLE _exam_grade_sessions (
       session_id TEXT PRIMARY KEY,exam_id TEXT,teacher_id TEXT,question_ids TEXT NOT NULL,
@@ -123,7 +124,7 @@ test('DB replacement never revokes the old session when the new READY snapshot v
 test('DB replacement never revokes the old session when the new READY snapshot is already started',async()=>{
   const {db,args}=await fixture();
   try {
-    await db.query("UPDATE _exam_grade_sessions SET started_at=$1 WHERE session_id='new-session'",[args[18]]);
+    await db.query("UPDATE _exam_grade_sessions SET started_at=$1 WHERE session_id='new-session'",[args[19]]);
     assert.equal((await db.query(replacementSql,args)).rowCount,0);
     assert.equal((await db.query('SELECT session_id FROM _exam_active_attempts')).rows[0].session_id,'old-session');
     assert.equal((await db.query('SELECT COUNT(*)::int AS count FROM _exam_abandoned_attempts')).rows[0].count,0);
