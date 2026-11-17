@@ -50,10 +50,26 @@ WITH previous AS MATERIALIZED (
   SELECT p.session_id FROM safe_previous p
   WHERE (SELECT COUNT(*) FROM archived ar WHERE ar.session_id=p.session_id
     AND ar.kind IN ('fresh_lock','fresh_frozen','fresh_draft','fresh_contest'))=4
+), quota_admission AS (
+  INSERT INTO _exam_attempt_quota_guard
+    (attempt_key,used_attempts,last_session_id,updated_at)
+  SELECT ?,?+1,?,now()::text
+  WHERE ?>0 AND ?<?
+  ON CONFLICT(attempt_key) DO UPDATE SET
+    used_attempts=_exam_attempt_quota_guard.used_attempts+1,
+    last_session_id=excluded.last_session_id,
+    updated_at=excluded.updated_at
+  WHERE _exam_attempt_quota_guard.used_attempts<? AND
+    _exam_attempt_quota_guard.last_session_id<>excluded.last_session_id
+  RETURNING attempt_key
+), admission AS (
+  SELECT 1 AS allowed WHERE ?=0
+  UNION ALL
+  SELECT 1 FROM quota_admission WHERE ?>0
 ), claimed AS (
   INSERT INTO _exam_active_attempts
     (attempt_key,exam_id,user_id,session_id,expires_at,created_at)
-  VALUES (?,?,?,?,?,?)
+  SELECT ?,?,?,?,?,? FROM admission
   ON CONFLICT (attempt_key) DO UPDATE SET
     session_id=excluded.session_id,
     expires_at=excluded.expires_at,
@@ -109,7 +125,7 @@ FROM claimed
 
 export async function claimFreshExamAttempt(db:any,args:{
   attemptKey:string; examId:string; userId:string; sessionId:string;
-  expiresAt:string; startedAt:string
+  expiresAt:string; startedAt:string; maxAttempts:number; baselineUsed:number
 }):Promise<boolean>{
   // Additive, compatible with existing Neon tenants.
   await db.prepare(`CREATE TABLE IF NOT EXISTS _exam_discarded_session_archive(
@@ -124,9 +140,37 @@ export async function claimFreshExamAttempt(db:any,args:{
   await db.prepare('ALTER TABLE _submitted_exam_tokens ADD COLUMN IF NOT EXISTS status TEXT').run();
   await db.prepare('ALTER TABLE _submitted_exam_tokens ADD COLUMN IF NOT EXISTS claimed_at TEXT').run();
   await db.prepare('ALTER TABLE _submitted_exam_tokens ADD COLUMN IF NOT EXISTS result_id TEXT').run();
+  await db.prepare(`CREATE TABLE IF NOT EXISTS _exam_attempt_quota_guard (
+    attempt_key TEXT PRIMARY KEY,
+    used_attempts INTEGER NOT NULL,
+    last_session_id TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`).run();
+  const max=Math.max(0,Math.floor(args.maxAttempts||0));
+  const baseline=Math.max(0,Math.floor(args.baselineUsed||0));
   const result:any=await db.prepare(FRESH_EXAM_ATTEMPT_CLAIM_SQL).bind(
     args.attemptKey,args.examId,args.userId,args.sessionId,
+    args.attemptKey,baseline,args.sessionId,max,baseline,max,max,max,max,
     args.attemptKey,args.examId,args.userId,args.sessionId,args.expiresAt,args.startedAt
   ).first();
-  return String(result?.session_id||'')===args.sessionId;
+  if (String(result?.session_id||'')===args.sessionId) return true;
+  // The quota reservation may have succeeded while the ACTIVE swap failed.
+  // Revert this exact unfinished reservation only; do not alter other sessions.
+  if(max>0) await releaseUnusedExamQuotaSlot(db,args.sessionId);
+  return false;
+}
+
+/** A failed-to-start attempt must not consume a quota reservation. */
+export async function releaseUnusedExamQuotaSlot(db:any,sessionId:string) {
+  if(!sessionId) return;
+  await db.prepare(`
+    UPDATE _exam_attempt_quota_guard q
+    SET used_attempts=GREATEST(0,q.used_attempts-1),
+        last_session_id='',updated_at=now()::text
+    WHERE q.last_session_id=? AND q.used_attempts>0
+      AND NOT EXISTS (
+        SELECT 1 FROM _exam_grade_sessions gs
+        WHERE gs.session_id=? AND gs.started_at IS NOT NULL
+      )
+  `).bind(sessionId,sessionId).run();
 }
