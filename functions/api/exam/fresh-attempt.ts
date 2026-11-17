@@ -25,6 +25,12 @@ WITH previous AS MATERIALIZED (
     WHERE t.token_hash=encode(sha256(convert_to('exam-session:'||p.session_id,'UTF8')),'hex')
       AND t.status='processing'
   )
+  AND NOT EXISTS (
+    SELECT 1 FROM _exam_attempt_liveness l
+    WHERE l.session_id=p.session_id AND l.finalized_at IS NULL
+      AND l.finalizing_at IS NOT NULL
+      AND l.finalizing_at::timestamptz>now()-interval '5 minutes'
+  )
 ), archived AS (
   INSERT INTO _exam_discarded_session_archive
     (session_id,kind,source_data,reason)
