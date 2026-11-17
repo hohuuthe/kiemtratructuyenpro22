@@ -1,4 +1,4 @@
-import { verifyJWT, verifyAuthSession, getDynamicSecret, getDatabase } from './utils';
+import { verifyJWT, verifyAuthSession, getDynamicSecret, getDatabase, hashToken } from './utils';
 import { EXAM_DISCONNECT_GRACE_MS, EXAM_HEARTBEAT_INTERVAL_MS } from '../../../src/exam-connection-lifecycle.js';
 
 interface Env {
@@ -48,26 +48,26 @@ export const onRequestPost: PagesFunction<Env> = async context => {
       return reply(403, { code: 'EXAM_HEARTBEAT_FORBIDDEN', error: 'Phiên thi không thuộc tài khoản đăng nhập.' });
     }
 
-    await db.prepare('ALTER TABLE _exam_active_attempts ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ DEFAULT NOW()').run();
     const nowMs = Date.now();
     const now = new Date(nowMs).toISOString();
     const cutoff = new Date(nowMs - EXAM_DISCONNECT_GRACE_MS).toISOString();
+    const tokenHash = await hashToken('exam-session:' + sessionId);
+    // Heartbeat serves the current reserved result, not an unfinished
+    // session lock. Missing old attempts can never block a fresh start.
     const refreshed: any = await db.prepare(`
-      UPDATE _exam_active_attempts AS active_lock
-         SET last_seen_at = ?::timestamptz
-       WHERE active_lock.attempt_key = ? AND active_lock.exam_id = ? AND active_lock.user_id = ? AND active_lock.session_id = ?
-         AND COALESCE(active_lock.last_seen_at, active_lock.created_at::timestamptz) > ?::timestamptz
-         AND active_lock.expires_at::timestamptz > ?::timestamptz
-         AND NOT EXISTS (
-           SELECT 1 FROM _exam_abandoned_attempts abandoned WHERE abandoned.session_id = active_lock.session_id
-         )
-         AND EXISTS (
-           SELECT 1 FROM _exam_grade_sessions s
-            WHERE s.session_id = active_lock.session_id AND s.exam_id = active_lock.exam_id
-              AND s.started_at IS NOT NULL AND s.deadline_at IS NOT NULL
-         )
-       RETURNING session_id
-    `).bind(now, examId + ':' + userId, examId, userId, sessionId, cutoff, now).first();
+      UPDATE results AS current_attempt SET last_seen_at = ?::timestamptz
+      WHERE current_attempt.submission_token_hash = ?
+        AND current_attempt.exam_id = ? AND current_attempt.user_id = ?
+        AND current_attempt.grading_status = 'IN_PROGRESS'
+        AND current_attempt.last_seen_at > ?::timestamptz
+        AND NOT EXISTS (
+          SELECT 1 FROM results newer
+          WHERE newer.exam_id = current_attempt.exam_id
+            AND newer.user_id = current_attempt.user_id
+            AND newer.attempt_no > current_attempt.attempt_no
+        )
+      RETURNING current_attempt.id
+    `).bind(now, tokenHash, examId, userId, cutoff).first();
 
     if (!refreshed?.session_id) {
       return reply(409, {
