@@ -238,7 +238,14 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         const contestParticipantId = String(decoded.contestParticipantId || '').trim();
         if (contestParticipantId) {
             const candidate: any = await db.prepare('SELECT ma_nguoi_du_thi, ho_ten, don_vi FROM contest_participants WHERE ma_nguoi_du_thi = ?').bind(contestParticipantId).first();
-            const attempt: any = await db.prepare('SELECT ma_phien_thi FROM contest_attempts WHERE ma_phien_thi = ? AND ma_nguoi_du_thi = ? AND ma_de_thi = ?').bind(String(gradingSessionId || ''),contestParticipantId,String(decoded?.examConfig?.id || '')).first();
+            const attempt: any = await db.prepare(`
+                SELECT ca.ma_phien_thi FROM contest_attempts ca
+                WHERE ca.ma_phien_thi=? AND ca.ma_nguoi_du_thi=?
+                  AND ca.ma_de_thi=? AND ca.trang_thai='DANG_LAM'
+                  AND EXISTS(SELECT 1 FROM _exam_active_attempts a
+                    WHERE a.session_id=ca.ma_phien_thi AND a.exam_id=ca.ma_de_thi
+                      AND a.user_id='contest:'||ca.ma_nguoi_du_thi)
+            `).bind(String(gradingSessionId || ''),contestParticipantId,String(decoded?.examConfig?.id || '')).first();
             if (!candidate || !attempt) return new Response(JSON.stringify({error:'Không xác minh được người dự thi hoặc phiên dự thi đã đăng ký.'}),{status:403,headers:corsHeaders});
             authenticatedUserId = null;
             authenticatedStudentName = String(candidate.ho_ten);
