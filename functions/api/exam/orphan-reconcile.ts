@@ -84,30 +84,22 @@ SELECT session_id FROM released
  * exact obsolete lock, never create a second abandoned-attempt record.
  */
 export const EXPIRED_SUBMITTED_ORPHAN_SQL = `
-WITH eligible AS (
-  SELECT a.attempt_key, a.session_id
-  FROM _exam_active_attempts a
-  WHERE a.attempt_key = ? AND a.session_id = ?
-    AND a.expires_at::timestamptz < ?::timestamptz
-    AND NOT EXISTS (
-      SELECT 1 FROM _exam_grade_sessions g WHERE g.session_id = a.session_id
-    )
-    AND NOT EXISTS (
-      SELECT 1 FROM _exam_attempt_liveness l WHERE l.session_id = a.session_id
-    )
-    AND EXISTS (
-      SELECT 1 FROM results r
-      WHERE r.submission_token_hash = ?
-        AND r.exam_id = a.exam_id AND r.user_id = a.user_id
-    )
-  FOR UPDATE
-), released AS (
-  DELETE FROM _exam_active_attempts a
-  USING eligible e
-  WHERE a.attempt_key = e.attempt_key AND a.session_id = e.session_id
-  RETURNING a.session_id
-)
-SELECT session_id FROM released
+DELETE FROM _exam_active_attempts a
+WHERE a.attempt_key=? AND a.session_id=?
+  AND a.user_id NOT LIKE 'contest:%'
+  AND a.expires_at::timestamptz < ?::timestamptz
+  AND NOT EXISTS (
+    SELECT 1 FROM _exam_grade_sessions gs WHERE gs.session_id=a.session_id
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM _exam_attempt_liveness l WHERE l.session_id=a.session_id
+  )
+  AND EXISTS (
+    SELECT 1 FROM results r
+    WHERE r.submission_token_hash=?
+      AND r.exam_id=a.exam_id AND r.user_id=a.user_id
+  )
+RETURNING a.session_id
 `;
 
 export async function reconcileExpiredLegacyOrphan(
