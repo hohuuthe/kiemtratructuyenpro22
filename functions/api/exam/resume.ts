@@ -63,6 +63,15 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       }
     }
 
+    // Only public contests still support resume. School attempts are finalized
+    // from server drafts after disconnect and may not be reopened.
+    if (decoded.studentUserId && !decoded.contestParticipantId) {
+      return new Response(JSON.stringify({
+        code:'EXAM_RESUME_RETIRED',
+        error:'Phiên thi trường học không còn hỗ trợ khôi phục sau khi rời bài.'
+      }), {status:410,headers:corsHeaders});
+    }
+
     const tokenHash = await hashToken(decoded.gradingSessionId && decoded.purpose === EXAM_SESSION_PURPOSE_ACTIVE ? 'exam-session:' + String(decoded.gradingSessionId) : token);
     try {
       let submitted: any = await db.prepare(
