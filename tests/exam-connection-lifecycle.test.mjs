@@ -21,23 +21,22 @@ test('30-second heartbeat with strict 90-second offline limit', () => {
   assert.equal(isSchoolExamHeartbeatStale({},now),false);
 });
 
-test('Heartbeat rejects revoked attempts, mismatched owners and expired leases', () => {
+test('Heartbeat rejects closed provisional attempts and mismatched authenticated owners', () => {
   const source=readFileSync('functions/api/exam/heartbeat.ts','utf8');
   assert.match(source,/verifyAuthSession/);
   assert.match(source,/verifyJWT/);
   assert.match(source,/claims\.studentUserId/);
-  assert.match(source,/active_lock\.attempt_key = \?/);
-  assert.match(source,/active_lock\.user_id = \?/);
-  assert.match(source,/active_lock\.session_id = \?/);
-  assert.match(source,/COALESCE\(active_lock\.last_seen_at/);
+  assert.match(source,/current_attempt\.exam_id = \?/);
+  assert.match(source,/current_attempt\.user_id = \?/);
+  assert.match(source,/current_attempt\.grading_status = 'IN_PROGRESS'/);
+  assert.match(source,/current_attempt\.last_seen_at > \?/);
   assert.match(source,/EXAM_SESSION_CLOSED/);
+  assert.doesNotMatch(source,/_exam_active_attempts/);
 });
 
-test('Only a new accepted ACTIVE start may revoke the old school attempt',()=>{
-  const source=readFileSync('functions/api/exam/start.ts','utf8');
-  assert.match(source,/oldSchoolAttemptSessionId/);
-  assert.match(source,/WITH old AS \(/);
-  assert.match(source,/FROM activated WHERE TRUE/);
-  assert.match(source,/SELECT session_id FROM revoked LIMIT 1/);
-  assert.doesNotMatch(source,/body\?\.replaceSessionId/);
+test('Only a new result reservation consumes a school attempt; old locks are irrelevant',()=>{
+  const start=readFileSync('functions/api/exam/start.ts','utf8');
+  assert.match(start,/claimSchoolResultAtStart/);
+  assert.match(start,/schoolReserved/);
+  assert.doesNotMatch(start,/oldSchoolAttemptSessionId/);
 });
