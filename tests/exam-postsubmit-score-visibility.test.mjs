@@ -15,7 +15,7 @@ function postSubmitViewSource() {
 
 test('student result statistics require both published server permission and enabled exam setting', () => {
   const view = postSubmitViewSource();
-  assert.match(view, /const showScore = result\.canViewScore === true &&\s*examFlagEnabled\(examConfig\.showScore \?\? examConfig\.show_score, false\)/);
+  assert.match(view, /const showScore = result\.canViewScore === true &&\s*examFlagEnabled\(examConfig\.showScore \?\? examConfig\.show_score, true\)/);
   assert.match(view, /\$\{showScore \? statsDetailedHtml : ''\}/);
   assert.match(view, /\$\{showScore && result\.totalTF4Statements > 0 \?/);
   assert.match(main, /canViewScore: result\.canViewScore === true/);
