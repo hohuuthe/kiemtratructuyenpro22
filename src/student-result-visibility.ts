@@ -11,7 +11,7 @@ export function isExamSettingEnabled(value: unknown): boolean {
 
 function studentGradingLifecycle(row: any) {
   const grading_status = String(row?.grading_status || 'FINAL').trim().toUpperCase() || 'FINAL';
-  const score_finalized = grading_status !== 'PENDING' && grading_status !== 'REVIEW_REQUIRED';
+  const score_finalized = !['PENDING','REVIEW_REQUIRED','IN_PROGRESS','ABANDONED'].includes(grading_status);
   return { grading_status, score_finalized };
 }
 
@@ -19,7 +19,7 @@ export function studentExamVisibility(row: any) {
   const lifecycle = studentGradingLifecycle(row);
   return {
     can_view_score: lifecycle.score_finalized && isExamSettingEnabled(row?.exam_show_score),
-    can_view_details: isExamSettingEnabled(row?.exam_show_details)
+    can_view_details: lifecycle.score_finalized && isExamSettingEnabled(row?.exam_show_details)
   };
 }
 
