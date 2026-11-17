@@ -414,14 +414,15 @@ test('deadline does not discard unsent violation events before final grading', (
   assert.match(deadlineBranch, /persistPendingExamViolationEvents\(\)/);
 });
 
-test('orphan active attempts cannot be silently reclaimed without counting the previous attempt', () => {
+test('unfinished school attempts count once using a provisional result, never an old lock',()=>{
   const start = fs.readFileSync(new URL('../functions/api/exam/start.ts', import.meta.url), 'utf8');
-  assert.match(start, /WITH old AS \(/);
-  assert.match(start, /INSERT INTO _exam_abandoned_attempts/);
-  assert.match(start, /WHERE _exam_active_attempts.session_id = excluded.session_id/);
-  assert.doesNotMatch(start, /DELETE FROM _exam_active_attempts WHERE attempt_key = \? AND session_id = \?/);
+  const helper = fs.readFileSync(new URL('../functions/api/exam/school-result-lifecycle.ts', import.meta.url), 'utf8');
+  assert.match(start,/claimSchoolResultAtStart/);
+  assert.match(helper,/grading_status = 'ABANDONED'/);
+  assert.match(helper,/uq_results_school_attempt_no/);
+  assert.match(helper,/COUNT\(\*\)::integer AS used/);
+  assert.doesNotMatch(helper,/_exam_active_attempts/);
 });
-
 
 test('final audit: REAL-backed max scores are canonicalized before grading comparisons', () => {
   const grade = fs.readFileSync(new URL('../functions/api/exam/grade.ts', import.meta.url), 'utf8');

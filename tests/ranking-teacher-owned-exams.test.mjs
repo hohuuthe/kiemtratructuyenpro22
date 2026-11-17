@@ -17,7 +17,7 @@ async function fixture({sameExamIdOwnedByB=false}={}) {
     'CREATE TABLE accounts(id text PRIMARY KEY,user_id text,username text);',
     'CREATE TABLE users(id text PRIMARY KEY,full_name text,donvi text);',
     'CREATE TABLE exam_configs(id text PRIMARY KEY,name text,creator_id text);',
-    'CREATE TABLE results(id text PRIMARY KEY,user_id text,student_name text,student_class text,score numeric,correct_count int,total_questions int,time_taken int,exam_name text,exam_id text,created_at text,loai_thi_sinh text,cheat_warning_count int,ai_grading_summary text,lop text,don_vi text);',
+    'CREATE TABLE results(id text PRIMARY KEY,user_id text,student_name text,student_class text,score numeric,correct_count int,total_questions int,time_taken int,exam_name text,exam_id text,created_at text,loai_thi_sinh text,cheat_warning_count int,ai_grading_summary text,lop text,don_vi text,grading_status text DEFAULT \'FINAL\');',
     "INSERT INTO accounts VALUES ('account-A','profile-A','teacher.a'),('account-B','profile-B','teacher.b');",
     "INSERT INTO users VALUES ('profile-A','Teacher A','School X'),('profile-B','Teacher B','School X');",
     "INSERT INTO exam_configs VALUES ('exam-A-legacy','Đề cũ','profile-A'),('exam-A-empty','Chưa có bài làm','account-A'),('exam-B','Cùng tên','account-B'),('exam-B-only','Đề riêng B','profile-B');",
@@ -45,6 +45,16 @@ test('Two teachers sharing a class and an exam title see only their own exam IDs
       ['result-B','result-B-only'].sort());
     const all=resultsPageQuery(page,admin);
     assert.equal((await query(all.rowsSQL,all.rowsArgs)).rows.length,5);
+  }finally{await db.close();}
+});
+
+test('Provisional zero-score and abandoned attempts never enter the ranking while ownership remains scoped',async()=>{
+  const {db,query}=await fixture();
+  try{
+    await db.query("INSERT INTO results(id,exam_id,exam_name,student_name,grading_status,score) VALUES ('draft-A','exam-A','Cùng tên','Student 1','IN_PROGRESS',0),('abandoned-A','exam-A','Cùng tên','Student 2','ABANDONED',0)");
+    const q=resultsPageQuery(parseManagementPage('https://app.test/api/results-page'),teacherA);
+    assert.deepEqual((await query(q.rowsSQL,q.rowsArgs)).rows.map(x=>x.id).sort(),['result-A','result-legacy']);
+    assert.equal(Number((await query(q.countSQL,q.countArgs)).rows[0].total),2);
   }finally{await db.close();}
 });
 

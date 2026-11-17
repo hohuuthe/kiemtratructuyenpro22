@@ -27,7 +27,7 @@ export const onRequestOptions: PagesFunction<Env> = async () => {
 // Helper parse details JSON
 function parseResultRow(row: any, includeDetails = false, hidePendingScore = false) {
   let details = [];
-  if (includeDetails && row.details) {
+  if (includeDetails && row.details && !['IN_PROGRESS','ABANDONED'].includes(String(row.grading_status || '').trim().toUpperCase())) {
     if (typeof row.details === 'string') {
       try {
         details = JSON.parse(row.details);
@@ -43,8 +43,9 @@ function parseResultRow(row: any, includeDetails = false, hidePendingScore = fal
   const donVi = row.don_vi || row.donvi || row.user_don_vi || row.student_class || '';
 
   const gradingStatus = String(row.grading_status || 'FINAL').trim().toUpperCase() || 'FINAL';
-  const scoreFinalized = gradingStatus !== 'PENDING' && gradingStatus !== 'REVIEW_REQUIRED';
-  const exposeScore = !hidePendingScore || scoreFinalized;
+  const provisional = gradingStatus === 'IN_PROGRESS' || gradingStatus === 'ABANDONED';
+  const scoreFinalized = !['PENDING','REVIEW_REQUIRED','IN_PROGRESS','ABANDONED'].includes(gradingStatus);
+  const exposeScore = !provisional && (!hidePendingScore || scoreFinalized);
 
   return {
     id: row.id,
@@ -332,12 +333,13 @@ export const onRequestGet: PagesFunction<Env> = async (context) => {
           LEFT JOIN accounts a ON (r.user_id = a.id OR r.user_id = a.user_id)
           LEFT JOIN users u2 ON (a.user_id = u2.id)
           WHERE r.exam_id = ? 
+            ${!user ? "AND COALESCE(r.grading_status,'FINAL') NOT IN ('IN_PROGRESS','ABANDONED')" : ''}
           ORDER BY r.created_at DESC, r.id DESC 
           ${paginationClause}
         `).bind(examIdParam).all();
         results = res.results || [];
       } catch (err) {
-        const res = await db.prepare(`SELECT * FROM results WHERE exam_id = ? ORDER BY created_at DESC, id DESC ${paginationClause}`).bind(examIdParam).all();
+        const res = await db.prepare(`SELECT * FROM results WHERE exam_id = ? ${!user ? "AND COALESCE(grading_status,'FINAL') NOT IN ('IN_PROGRESS','ABANDONED')" : ''} ORDER BY created_at DESC, id DESC ${paginationClause}`).bind(examIdParam).all();
         results = res.results || [];
       }
 
@@ -460,7 +462,7 @@ export const onRequestPut: PagesFunction<Env> = async (context) => {
     }
 
     const stored: any = await db.prepare(`
-      SELECT r.id, r.details, r.exam_id, e.creator_id, e.points_tl
+      SELECT r.id, r.details, r.exam_id, r.grading_status, e.creator_id, e.points_tl
       FROM results r
       LEFT JOIN exam_configs e ON r.exam_id = e.id
       WHERE r.id = ?
@@ -468,6 +470,9 @@ export const onRequestPut: PagesFunction<Env> = async (context) => {
     `).bind(id).first();
     if (!stored) {
       return new Response(JSON.stringify({ error: "Không tìm thấy bài thi cần cập nhật" }), { status: 404, headers: corsHeaders });
+    }
+    if (['IN_PROGRESS','ABANDONED'].includes(String(stored.grading_status || '').toUpperCase())) {
+      return new Response(JSON.stringify({error:'Bài chưa nộp hoặc đã bỏ không được chấm sửa điểm.'}),{status:409,headers:corsHeaders});
     }
 
     if (isTeacher && !isAdmin) {

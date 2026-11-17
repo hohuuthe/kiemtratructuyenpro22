@@ -63,6 +63,15 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       }
     }
 
+    // School-exam resume is retired: start a new counted attempt instead.
+    // Registered public contests retain their separate recovery contract.
+    if (!String(decoded.contestParticipantId || '').trim()) {
+      return new Response(JSON.stringify({
+        code:'EXAM_RECOVERY_RETIRED',
+        error:'Phiên cũ không được khôi phục. Vui lòng nhận đề và bắt đầu lượt mới khi còn lượt.'
+      }),{status:410,headers:corsHeaders});
+    }
+
     const tokenHash = await hashToken(decoded.gradingSessionId && decoded.purpose === EXAM_SESSION_PURPOSE_ACTIVE ? 'exam-session:' + String(decoded.gradingSessionId) : token);
     try {
       let submitted: any = await db.prepare(

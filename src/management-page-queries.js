@@ -39,7 +39,7 @@ export function accountsPageQuery(page) {
 export function resultsPageQuery(page, actor) {
   if(!actor?.id) throw new Error('Login required');
   const isAdmin=String(actor.role||'').toLowerCase()==='admin';
-  const predicates=[],args=[];
+  const predicates=["COALESCE(r.grading_status, 'FINAL') NOT IN ('IN_PROGRESS','ABANDONED')"],args=[];
   if(!isAdmin){
     // Results AND their exam names must belong to this authenticated teacher.
     // Class assignments never grant access to another teacher's exam/result.
