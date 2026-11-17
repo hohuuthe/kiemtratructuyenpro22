@@ -66,7 +66,8 @@ WITH previous AS MATERIALIZED (
   UNION ALL
   SELECT sp.session_id,'fresh_stale_claim',
     jsonb_build_object('token_hash',sp.token_hash,'status_before','processing',
-      'claimed_at',sp.claimed_at,'result_id',sp.result_id)
+      'claimed_at',sp.claimed_at,'result_id',sp.result_id),
+    'superseded_by_new_exam_start'
   FROM stale_processing sp
   ON CONFLICT (session_id,kind) DO UPDATE
     SET archived_at=_exam_discarded_session_archive.archived_at
