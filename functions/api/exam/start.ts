@@ -337,37 +337,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       }
     }
 
-    // A canceled ACTIVE attempt consumes its original attempt. The currently
-    // active attempt also consumes one slot when explicitly replaced. Results
-    // already submitted are counted separately as before.
-    if (signedStudentUserId && !contestParticipantId) {
-      try {
-        await db.prepare(`CREATE TABLE IF NOT EXISTS _exam_abandoned_attempts (
-          session_id TEXT PRIMARY KEY, exam_id TEXT NOT NULL, user_id TEXT NOT NULL,
-          reason TEXT NOT NULL, abandoned_at TEXT NOT NULL
-        )`).run();
-        const canceled: any = await db.prepare(
-          'SELECT COUNT(*) AS count FROM _exam_abandoned_attempts WHERE exam_id = ? AND user_id = ?'
-        ).bind(examId, signedStudentUserId).first();
-        const usedCanceled = Math.max(0, Number(canceled?.count) || 0);
-        const completed = Math.max(0, Number(completedAttemptsForQuota) || 0);
-        const maxAttempts = Number(authoritativeExamRow?.max_attempts);
-        if (!Number.isInteger(maxAttempts) || maxAttempts < 0) {
-          return new Response(JSON.stringify({code:'EXAM_ATTEMPT_CONFIG_INVALID',error:'Giới hạn lượt thi không hợp lệ.'}),{status:409,headers:corsHeaders});
-        }
-        if (maxAttempts > 0 && completed + usedCanceled >= maxAttempts) {
-          return new Response(JSON.stringify({
-            code:'EXAM_ATTEMPT_LIMIT_REACHED',
-            attemptCount:completed + usedCanceled,maxAttempts,
-            error:'Bạn không còn đủ lượt làm bài để tạo phiên mới.'
-          }),{status:403,headers:corsHeaders});
-        }
-      } catch (quotaError) {
-        console.error('Cannot validate canceled attempt count:',quotaError);
-        return new Response(JSON.stringify({code:'EXAM_ATTEMPT_COUNT_UNAVAILABLE',
-          error:'Không thể xác minh đầy đủ lượt đã sử dụng. Bài thi chưa bắt đầu.'}),{status:503,headers:corsHeaders});
-      }
-    }
+    // An abandoned or superseded UNGRADED session is not a completed attempt.
+    // The authoritative quota above counts only server-persisted results;
+    // leftover legacy cancellation rows must never block a fresh exam.
 
     // Require the liveness schema before starting the clock. Failure here must
     // not consume a student's attempt.
@@ -468,19 +440,26 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             AND r.ma_nguoi_du_thi=ca.ma_nguoi_du_thi
             AND r.exam_id=ca.ma_de_thi
         `).bind(contestParticipantId,examId).run();
-        // Reconcile orphaned ACTIVE rows only when the older session has
-        // demonstrably expired or been removed. Never cancel a live attempt.
+        // A new signed exam invalidates an earlier unfinished contest attempt.
+        // Old results have already been reconciled above. Never touch a
+        // submission whose unique token claim is still processing.
         await db.prepare(`
           UPDATE contest_attempts SET trang_thai = 'HUY'
           WHERE ma_nguoi_du_thi = ? AND ma_de_thi = ?
             AND trang_thai = 'DANG_LAM' AND ma_phien_thi <> ?
             AND NOT EXISTS (
-              SELECT 1 FROM _exam_grade_sessions gs
-              WHERE gs.session_id = contest_attempts.ma_phien_thi
-                AND gs.expires_at > ?
-                AND gs.started_at IS NOT NULL
+              SELECT 1 FROM _submitted_exam_tokens t
+              WHERE t.token_hash=encode(sha256(
+                convert_to('exam-session:'||contest_attempts.ma_phien_thi,'UTF8')
+              ),'hex') AND t.status='processing'
             )
-        `).bind(contestParticipantId,examId,gradingSessionId,new Date().toISOString()).run();
+            AND NOT EXISTS (
+              SELECT 1 FROM results r
+              WHERE r.ma_phien_thi=contest_attempts.ma_phien_thi
+                AND r.ma_nguoi_du_thi=contest_attempts.ma_nguoi_du_thi
+                AND r.exam_id=contest_attempts.ma_de_thi
+            )
+        `).bind(contestParticipantId,examId,gradingSessionId).run();
         await db.prepare(`
           INSERT INTO contest_attempts
             (ma_phien_thi,ma_nguoi_du_thi,ma_de_thi,trang_thai,thoi_diem_bat_dau)
