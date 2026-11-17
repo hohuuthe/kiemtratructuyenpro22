@@ -15,7 +15,10 @@ test('Policy is 30-second heartbeat and 90-second disconnect',()=>{
   assert.match(main,/\},30000\)/);
 });
 test('Old session cannot be resumed after browser reload',()=>{
-  assert.match(main,/async function tryResumeActiveExam\(\) \{\s*clearStoredActiveExamResume\(\);\s*return false;/);
+  const loader = main.slice(main.indexOf('async function tryResumeActiveExam()'),main.indexOf('let token =',main.indexOf('async function tryResumeActiveExam()')));
+  assert.match(loader,/savedEntryTab !== 'contest'/);
+  assert.match(loader,/clearStoredActiveExamResume\(\)/);
+  assert.match(loader,/return false/);
   const choice = main.slice(main.indexOf('async function offerExistingExamAttemptChoice('),main.indexOf('let examStartPending = false;'));
   assert.doesNotMatch(choice,/exam-choice-resume|api\/exam\/recover|__pendingExamReplacement = \{/);
   assert.match(choice,/api\/exam\/lifecycle/);
