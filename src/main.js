@@ -9677,6 +9677,13 @@ if (contentType && contentType.includes("application/json")) {
                                 examId: selectedExamId,
                                 examName
                             }));
+                            // School exams never persist an ACTIVE or resumable
+                            // session across browser restarts. The live token is
+                            // held in memory only until submission.
+                            if (!(window.__contestTicket && examConfig?.chedodethi === 'Cuộc thi trực tuyến')) {
+                                localStorage.removeItem(window.tenantStorageKey('currentExamToken'));
+                                localStorage.removeItem(window.tenantStorageKey('active_exam_resume_meta'));
+                            }
                         } catch(e) {}
                         currentExam.questions = startResult.questions;
                         currentExam.answers = {};
