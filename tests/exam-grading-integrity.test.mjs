@@ -416,14 +416,16 @@ test('deadline does not discard unsent violation events before final grading', (
   assert.match(deadlineBranch, /persistPendingExamViolationEvents\(\)/);
 });
 
-test('orphan active attempts cannot be silently reclaimed without counting the previous attempt', () => {
-  const start = fs.readFileSync(new URL('../functions/api/exam/start.ts', import.meta.url), 'utf8');
-  assert.match(start, /WITH old AS \(/);
-  assert.match(start, /INSERT INTO _exam_abandoned_attempts/);
-  assert.match(start, /WHERE _exam_active_attempts.session_id = excluded.session_id/);
-  assert.doesNotMatch(start, /DELETE FROM _exam_active_attempts WHERE attempt_key = \? AND session_id = \?/);
+test('fresh attempt archives old session and serializes submission without counting an ungraded abandonment', () => {
+  const start=fs.readFileSync(new URL('../functions/api/exam/start.ts',import.meta.url),'utf8');
+  const claim=fs.readFileSync(new URL('../functions/api/exam/fresh-attempt.ts',import.meta.url),'utf8');
+  assert.match(start,/claimFreshExamAttempt\(db,/);
+  assert.match(claim,/FOR UPDATE/);
+  assert.match(claim,/fresh_draft/);
+  assert.match(claim,/INSERT INTO _exam_discarded_session_archive/);
+  assert.match(claim,/status='processing'/);
+  assert.doesNotMatch(start,/INSERT INTO _exam_abandoned_attempts/);
 });
-
 
 test('final audit: REAL-backed max scores are canonicalized before grading comparisons', () => {
   const grade = fs.readFileSync(new URL('../functions/api/exam/grade.ts', import.meta.url), 'utf8');
