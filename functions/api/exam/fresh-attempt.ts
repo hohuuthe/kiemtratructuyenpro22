@@ -27,7 +27,12 @@ WITH previous AS MATERIALIZED (
   FROM previous p
   WHERE t.token_hash=encode(sha256(convert_to('exam-session:'||p.session_id,'UTF8')),'hex')
     AND t.status='processing'
-    AND NULLIF(t.claimed_at,'')::timestamptz < now()-interval '5 minutes'
+    AND (
+      (NULLIF(t.claimed_at,'') IS NOT NULL
+        AND t.claimed_at::timestamptz < now()-interval '5 minutes')
+      OR (NULLIF(t.claimed_at,'') IS NULL
+        AND p.created_at::timestamptz < now()-interval '5 minutes')
+    )
     AND NOT EXISTS(
       SELECT 1 FROM results r
       WHERE r.submission_token_hash=t.token_hash
