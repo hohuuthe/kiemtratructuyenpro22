@@ -100,13 +100,13 @@ test('wrong attempt key or stale session ID cannot release another lock',async()
 test('a committed result with exact session hash releases a stale lock without counting another attempt',async()=>{
  const {db,args}=await fixture({submittedResult:true});
  try{
-  const got=await db.query(verifiedSql,[args[0],args[1],args[2],args[3]]);
+  const got=await db.query(verifiedSql,[args[0],args[1],args[2],args[5]]);
   assert.equal(got.rows[0]?.session_id,'oldsession');
   assert.equal((await db.query('SELECT COUNT(*)::int AS n FROM _exam_active_attempts')).rows[0].n,0);
   assert.equal((await db.query('SELECT COUNT(*)::int AS n FROM _exam_abandoned_attempts')).rows[0].n,0);
   assert.equal((await db.query('SELECT COUNT(*)::int AS n FROM results')).rows[0].n,1);
   assert.equal((await db.query('SELECT answers_json FROM _exam_answer_drafts WHERE session_id=$1',['oldsession'])).rows[0].answers_json,'["work remains"]');
-  assert.equal((await db.query(verifiedSql,[args[0],args[1],args[2],args[3]])).rowCount,0);
+  assert.equal((await db.query(verifiedSql,[args[0],args[1],args[2],args[5]])).rowCount,0);
  }finally{await db.close();}
 });
 
@@ -119,7 +119,7 @@ for(const [name,opts] of [
  test('cannot release completed-result lock if '+name,async()=>{
   const {db,args}=await fixture(opts);
   try{
-   assert.equal((await db.query(verifiedSql,[args[0],args[1],args[2],args[3]])).rowCount,0);
+   assert.equal((await db.query(verifiedSql,[args[0],args[1],args[2],args[5]])).rowCount,0);
    assert.equal((await db.query('SELECT COUNT(*)::int AS n FROM _exam_active_attempts')).rows[0].n,1);
   }finally{await db.close();}
  });
