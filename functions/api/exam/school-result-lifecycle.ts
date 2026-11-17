@@ -10,7 +10,8 @@ const schoolSchemaChecks = new Map<string, Promise<void>>();
 async function schoolResultSchemaReady(db: any): Promise<boolean> {
   const row: any = await db.prepare([
     'SELECT (',
-    '(SELECT COUNT(*) FROM information_schema.columns',
+    "to_regclass('public._exam_abandoned_attempts') IS NOT NULL",
+    'AND (SELECT COUNT(*) FROM information_schema.columns',
     "WHERE table_schema = 'public' AND table_name = 'results'",
     "AND column_name IN ('user_id','lop','don_vi','submission_token_hash',",
     "'grading_status','score_finalized_at','attempt_no','last_seen_at')) = 8",
@@ -26,6 +27,10 @@ async function schoolResultSchemaReady(db: any): Promise<boolean> {
 async function initializeSchoolResultReservationSchema(db: any): Promise<void> {
   if (await schoolResultSchemaReady(db)) return;
   // Backward-compatible additive setup for a tenant that missed migration.
+  await db.prepare(`CREATE TABLE IF NOT EXISTS _exam_abandoned_attempts (
+    session_id TEXT PRIMARY KEY, exam_id TEXT NOT NULL, user_id TEXT NOT NULL,
+    reason TEXT NOT NULL, abandoned_at TEXT NOT NULL
+  )`).run();
 
   await db.prepare(`CREATE TABLE IF NOT EXISTS results (
     id TEXT PRIMARY KEY, user_id TEXT, student_name TEXT, student_class TEXT,
