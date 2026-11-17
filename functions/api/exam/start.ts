@@ -25,6 +25,50 @@ const corsHeaders = {
   'Content-Type': 'application/json'
 };
 
+// Never perform repeated grade-session DDL on each student START.
+// Cache only successful checks, strictly keyed by the tenant connection.
+const gradeSchemaChecks = new Map<string, Promise<void>>();
+
+async function initializeGradeSessionSchema(db: any): Promise<void> {
+  const schemaReady = async () => {
+    const row: any = await db.prepare([
+      'SELECT (SELECT COUNT(*) FROM information_schema.columns',
+      "WHERE table_schema='public' AND table_name='_exam_grade_sessions'",
+      "AND column_name IN ('session_id','exam_id','question_ids',",
+      "'question_snapshot','exam_config','created_at','expires_at',",
+      "'started_at','deadline_at')) = 9 AS ready"
+    ].join(' ')).bind().first();
+    return row?.ready === true || row?.ready === 1;
+  };
+  if (await schemaReady()) return;
+  await db.prepare(`
+    CREATE TABLE IF NOT EXISTS _exam_grade_sessions (
+      session_id TEXT PRIMARY KEY, exam_id TEXT, teacher_id TEXT,
+      question_ids TEXT NOT NULL, question_snapshot TEXT NOT NULL,
+      exam_config TEXT NOT NULL, created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL, started_at TEXT, deadline_at TEXT
+    )
+  `).run();
+  await db.prepare('ALTER TABLE _exam_grade_sessions ADD COLUMN IF NOT EXISTS started_at TEXT').run();
+  await db.prepare('ALTER TABLE _exam_grade_sessions ADD COLUMN IF NOT EXISTS deadline_at TEXT').run();
+  if (!await schemaReady()) throw new Error('EXAM_GRADE_SESSION_SCHEMA_INCOMPLETE');
+}
+
+async function ensureGradeSessionSchema(db: any): Promise<void> {
+  const key = String(db?.connectionUrl || '');
+  if (!key) return initializeGradeSessionSchema(db);
+  let pending = gradeSchemaChecks.get(key);
+  if (!pending) {
+    pending = initializeGradeSessionSchema(db);
+    gradeSchemaChecks.set(key, pending);
+  }
+  try { await pending; }
+  catch (error) {
+    if (gradeSchemaChecks.get(key) === pending) gradeSchemaChecks.delete(key);
+    throw error;
+  }
+}
+
 export const onRequestOptions: PagesFunction<Env> = async () =>
   new Response(null, { status: 204, headers: corsHeaders });
 
@@ -87,26 +131,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       }
     }
 
-    await db.prepare(`
-      CREATE TABLE IF NOT EXISTS _exam_grade_sessions (
-        session_id TEXT PRIMARY KEY,
-        exam_id TEXT,
-        teacher_id TEXT,
-        question_ids TEXT NOT NULL,
-        question_snapshot TEXT NOT NULL,
-        exam_config TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        expires_at TEXT NOT NULL,
-        started_at TEXT,
-        deadline_at TEXT
-      )
-    `).run();
-    for (const sql of [
-      'ALTER TABLE _exam_grade_sessions ADD COLUMN IF NOT EXISTS started_at TEXT',
-      'ALTER TABLE _exam_grade_sessions ADD COLUMN IF NOT EXISTS deadline_at TEXT'
-    ]) {
-      try { await db.prepare(sql).run(); } catch {}
-    }
+    await ensureGradeSessionSchema(db);
 
     const snapshot: any = await db.prepare(
       'SELECT session_id, exam_id, question_ids, question_snapshot, exam_config, expires_at, started_at, deadline_at FROM _exam_grade_sessions WHERE session_id = ?'
