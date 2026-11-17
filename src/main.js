@@ -11,7 +11,7 @@ import {examCreatorDisplayName} from './exam-creator-identity.js';
 import {connectDocumentLinks,initDocumentLinks,resetDocumentLinks} from './document-links-ui.js';
 import {readBrowserGeminiKeys,saveBrowserGeminiKeys,prioritizeGradingKeys,splitGeminiKeys} from './essay-browser-ai-keys.js';
 import { configureExamAccessCodeInput } from './exam-access-code-input.js';
-import { parseExamAttemptLimitError, buildExamAttemptLimitModal, buildExamReadyModal, fetchExamStartResponse, activateExamAfterPreviousFinalization } from './student-exam-start-guard.js';
+import { parseExamAttemptLimitError, buildExamAttemptLimitModal, buildExamReadyModal, fetchExamStartResponse } from './student-exam-start-guard.js';
 import { scrollExamSubmitIntoView } from './exam-scroll-to-submit.js';
 
 import 'katex/dist/katex.min.css';
@@ -9226,21 +9226,18 @@ if (contentType && contentType.includes("application/json")) {
                         const authToken = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
                         const headers = { 'Content-Type': 'application/json' };
                         if (authToken) headers['Authorization'] = 'Bearer ' + authToken;
-                        // Retry ONLY confirmed 409 "old attempt still finishing" responses.
-                        // Ambiguous network timeouts are never retried: the start
-                        // might have committed at the database.
+                        // Exactly one server start request. Never inspect, resume,
+                        // wait for, or retry a previous exam session from the UI.
+                        // An ambiguous timeout might have committed a new attempt.
                         const readyToken=window.currentExamToken;
-                        const response = await activateExamAfterPreviousFinalization(fetch, '/api/exam/start', {
+                        const response = await fetchExamStartResponse(fetch, '/api/exam/start', {
                             method: 'POST', headers, cache:'no-store',
                             body: JSON.stringify({ token: readyToken, studentInfo: {
                                 name,lop:inputLop,donvi:inputDonvi,unit:inputDonvi,studentClass,
                                 teacherId,examId:selectedExamId,examName,
                                 loaiThiSinh:currentUser ? (currentUser.target_audience || 'Đã đăng nhập') : 'Tự do'
                             } })
-                        }, {
-                            isCancelled:()=>window.currentExamToken!==readyToken,
-                            onRetry:()=>{ readyButton.innerHTML='<span>⏳</span> Đang hoàn tất lượt thi trước...'; }
-                        });
+                        }, 20000);
                         const startResult = response.body || {};
                         if (!response.ok || !startResult.token ||
                             !Array.isArray(startResult.questions) || startResult.questions.length === 0 ||
