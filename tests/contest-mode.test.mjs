@@ -190,11 +190,16 @@ test('Contest start ignores the old session while verifying current READY snapsh
 test('All score submission and idempotent replay paths redact nested marking data',()=>{
  const grade=source('functions/api/exam/grade.ts');
  assert.match(grade,/isContest \? stripContestAnswerHints\(safeD\) : safeD/);
- for(const tag of ['replayShowDetails','showDetailsOnReplay','shouldShowDetails']){
-   assert.ok(grade.includes('sanitizeGradingDetailForClient(d, '+tag+', Boolean(contestParticipantId))'),
+ for(const [tag, scoreTag] of [
+   ['replayShowDetails', 'replayShowScore'],
+   ['showDetailsOnReplay', 'showScoreOnReplay'],
+   ['shouldShowDetails', 'shouldShowScore']
+ ]){
+   assert.ok(grade.includes('sanitizeGradingDetailForClient(d, '+tag+', Boolean(contestParticipantId), '+scoreTag+')'),
      'Missing contest projection in '+tag);
  }
- assert.match(grade,/if \(showDetails && !isContest\) return detail/);
+ assert.match(grade,/if \(showDetails && !isContest\) \{/);
+ assert.match(grade,/if \(!showScore\) delete safeD\.score/);
 });
 
 test('Both tabs are always in guest navigation and have separate components',()=>{
@@ -320,7 +325,8 @@ test('School exam results retain their historical display and scoring behavior',
  const grade=source('functions/api/exam/grade.ts');
  assert.match(main,/window\.__activeStudentExamTab === 'contest'\s*\? \(result\.statsByType/);
  assert.match(main,/: statsByType,/);
- assert.match(grade,/if \(showDetails && !isContest\) return detail/);
+ assert.match(grade,/if \(showDetails && !isContest\) \{/);
+ assert.match(grade,/safeD = \{ \.\.\.detail \}/);
 });
 
 test('Contest participant result is not mixed into school ranking caches',()=>{
