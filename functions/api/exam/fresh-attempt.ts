@@ -14,6 +14,24 @@ WITH previous AS MATERIALIZED (
   WHERE a.attempt_key=? AND a.exam_id=? AND a.user_id=?
     AND a.session_id<>?
   FOR UPDATE
+), stale_processing AS (
+  UPDATE _submitted_exam_tokens t SET status='superseded'
+  FROM previous p
+  WHERE t.token_hash=encode(sha256(convert_to('exam-session:'||p.session_id,'UTF8')),'hex')
+    AND t.status='processing'
+    AND NULLIF(t.claimed_at,'')::timestamptz < now()-interval '5 minutes'
+    AND NOT EXISTS(
+      SELECT 1 FROM results r
+      WHERE r.submission_token_hash=t.token_hash
+         OR (t.result_id IS NOT NULL AND r.id=t.result_id)
+    )
+    AND NOT EXISTS(
+      SELECT 1 FROM _exam_attempt_liveness l
+      WHERE l.session_id=p.session_id AND l.finalized_at IS NULL
+        AND l.finalizing_at IS NOT NULL
+        AND l.finalizing_at::timestamptz>now()-interval '5 minutes'
+    )
+  RETURNING t.token_hash,t.result_id,t.claimed_at,p.session_id
 ), safe_previous AS MATERIALIZED (
   SELECT p.*,to_jsonb(gs) AS frozen,to_jsonb(d) AS draft,to_jsonb(ca) AS contest
   FROM previous p
@@ -24,6 +42,9 @@ WITH previous AS MATERIALIZED (
     SELECT 1 FROM _submitted_exam_tokens t
     WHERE t.token_hash=encode(sha256(convert_to('exam-session:'||p.session_id,'UTF8')),'hex')
       AND t.status='processing'
+      AND NOT EXISTS(
+        SELECT 1 FROM stale_processing sp WHERE sp.token_hash=t.token_hash
+      )
   )
   AND NOT EXISTS (
     SELECT 1 FROM _exam_attempt_liveness l
@@ -42,12 +63,18 @@ WITH previous AS MATERIALIZED (
     ('fresh_draft',COALESCE(p.draft,'{}'::jsonb)),
     ('fresh_contest',COALESCE(p.contest,'{}'::jsonb))
   ) item(kind,data)
+  UNION ALL
+  SELECT sp.session_id,'fresh_stale_claim',
+    jsonb_build_object('token_hash',sp.token_hash,'status_before','processing',
+      'claimed_at',sp.claimed_at,'result_id',sp.result_id)
+  FROM stale_processing sp
   ON CONFLICT (session_id,kind) DO UPDATE
     SET archived_at=_exam_discarded_session_archive.archived_at
   RETURNING session_id,kind
 ), audited AS (
   SELECT p.session_id FROM safe_previous p
-  WHERE (SELECT COUNT(*) FROM archived ar WHERE ar.session_id=p.session_id)=4
+  WHERE (SELECT COUNT(*) FROM archived ar WHERE ar.session_id=p.session_id
+    AND ar.kind IN ('fresh_lock','fresh_frozen','fresh_draft','fresh_contest'))=4
 ), claimed AS (
   INSERT INTO _exam_active_attempts
     (attempt_key,exam_id,user_id,session_id,expires_at,created_at)
@@ -121,6 +148,8 @@ export async function claimFreshExamAttempt(db:any,args:{
     submitted_at TEXT,status TEXT,result_id TEXT,claimed_at TEXT
   )`).run();
   await db.prepare('ALTER TABLE _submitted_exam_tokens ADD COLUMN IF NOT EXISTS status TEXT').run();
+  await db.prepare('ALTER TABLE _submitted_exam_tokens ADD COLUMN IF NOT EXISTS claimed_at TEXT').run();
+  await db.prepare('ALTER TABLE _submitted_exam_tokens ADD COLUMN IF NOT EXISTS result_id TEXT').run();
   const result:any=await db.prepare(FRESH_EXAM_ATTEMPT_CLAIM_SQL).bind(
     args.attemptKey,args.examId,args.userId,args.sessionId,
     args.attemptKey,args.examId,args.userId,args.sessionId,args.expiresAt,args.startedAt
