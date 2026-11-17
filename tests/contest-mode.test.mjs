@@ -115,7 +115,7 @@ test('Registered results use server-owned identity, class and exam ID',()=>{
  assert.match(grade,/candidate\.ho_ten/);
  assert.match(grade,/contestParticipantId \? '' : \(authenticatedLop/);
  assert.match(grade,/contestParticipantId \? 'Cuộc thi trực tuyến'/);
- assert.match(grade,/AND ma_de_thi = \?/);
+ assert.match(grade,/ca\.ma_de_thi=\?/);
 });
 test('Participant identity and encryption keys stay stable across JWT rotations',()=>{
  const register=source('functions/api/contest/register.ts');
@@ -175,10 +175,13 @@ test('Shared family telephone does not merge different named contestants',()=>{
  assert.match(register,/v\.unit\.toLocaleLowerCase\('vi-VN'\)/);
  assert.doesNotMatch(register,/Số điện thoại này đã được dùng với hồ sơ dự thi khác/);
 });
-test('Prestart crash recovery reclaims reservation only if earlier clock never started',()=>{
+test('contest READY tokens cannot reopen started attempts and new exam supersedes old contest session',()=>{
  const start=source('functions/api/exam/start.ts');
- assert.match(start,/gs\.started_at IS NOT NULL/);
- assert.match(start,/AND gs\.expires_at > \?/);
+ const fresh=source('functions/api/exam/fresh-attempt.ts');
+ assert.match(start,/if \(snapshot.started_at\)/);
+ assert.match(start,/EXAM_READY_REGENERATE_REQUIRED/);
+ assert.match(fresh,/retired_contest AS/);
+ assert.match(fresh,/trang_thai='DANG_LAM'/);
 });
 
 test('All score submission and idempotent replay paths redact nested marking data',()=>{
