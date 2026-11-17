@@ -342,10 +342,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     // exclusively consume a results row and never create canceled-lock rows.
     if (signedStudentUserId && !contestParticipantId) {
       try {
-        await db.prepare(`CREATE TABLE IF NOT EXISTS _exam_abandoned_attempts (
-          session_id TEXT PRIMARY KEY, exam_id TEXT NOT NULL, user_id TEXT NOT NULL,
-          reason TEXT NOT NULL, abandoned_at TEXT NOT NULL
-        )`).run();
+        await ensureSchoolResultReservationSchema(db);
         const canceled: any = await db.prepare(
           'SELECT COUNT(*) AS count FROM _exam_abandoned_attempts WHERE exam_id = ? AND user_id = ?'
         ).bind(examId,signedStudentUserId).first();
