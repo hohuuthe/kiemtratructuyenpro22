@@ -1,6 +1,6 @@
-import { getDatabase, getDynamicSecret, signJWT, hashToken } from './utils';
+import { getDatabase, getDynamicSecret, signJWT, hashToken, verifyAuthSession } from './utils';
 import { buildActiveExamRecoveryPayload } from '../../../src/exam-active-attempt-recovery.js';
-import { finalizeSchoolExamFromServer } from './grade';
+import { onRequestPost as gradeSchoolExam } from './grade';
 
 // Server receipt time is authoritative; no browser clock or localStorage state.
 export const EXAM_HEARTBEAT_MS = 30_000;
@@ -118,19 +118,20 @@ export async function settleInactiveSchoolExam(
       if (!signedPayload) return { state: 'unavailable' };
       const secret = await getDynamicSecret(db, context.env.JWT_SECRET);
       const token = await signJWT({ ...signedPayload, exp: Math.floor((now + 300_000) / 1000) }, secret);
+      const authorization = context.request.headers.get('authorization') || '';
+      if (!authorization.startsWith('Bearer ')) return { state: 'unavailable' };
       const gradeRequest = new Request(context.request.url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Authorization': authorization },
         body: JSON.stringify({
           token, studentAnswers: answers, clientQuestions: questions,
           studentInfo: { examId, examName: '', name: '', lop: '', donvi: '', loaiThiSinh: 'Đã đăng nhập' },
           timeTaken: Math.max(0, Math.floor((now - saneIso(session.started_at)) / 1000))
         })
       });
-      const response: Response = await finalizeSchoolExamFromServer(
-        { ...context, request: gradeRequest }, userId
+      const response: Response = await gradeSchoolExam(
+        { ...context, request: gradeRequest }
       );
-      gradeSucceeded = response.ok;
       if (!response.ok) {
         console.warn('Deferred exam submission did not finish:', response.status);
         return { state: 'unavailable' };
@@ -140,6 +141,7 @@ export async function settleInactiveSchoolExam(
         'SELECT id FROM results WHERE submission_token_hash = ? LIMIT 1'
       ).bind(submissionHash).first();
       if (!stored?.id) return { state: 'unavailable' };
+      gradeSucceeded = true;
       return { state: 'ready', resultId: String(stored.id) };
     } finally {
       if (!gradeSucceeded) {
@@ -159,3 +161,74 @@ export async function settleInactiveSchoolExam(
     return { state: 'unavailable' };
   }
 }
+
+const headers = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Content-Type': 'application/json',
+  'Cache-Control': 'no-store'
+};
+function reply(status: number, payload: unknown): Response {
+  return new Response(JSON.stringify(payload), {status, headers});
+}
+export const onRequestOptions: PagesFunction = async () =>
+  new Response(null, {status:204, headers});
+
+export const onRequestPost: PagesFunction<any> = async context => {
+  const db = getDatabase(context);
+  try {
+    const auth = context.request.headers.get('authorization') || '';
+    if (!auth.startsWith('Bearer ')) return reply(401,{code:'EXAM_LOGIN_REQUIRED'});
+    const secret = await getDynamicSecret(db, context.env.JWT_SECRET);
+    const actor: any = await verifyAuthSession(auth.slice(7),secret,db);
+    const userId = String(actor?.user_id || actor?.id || '');
+    const role = String(actor?.role || '').toLowerCase();
+    const audience = String(actor?.target_audience || '').toLocaleLowerCase('vi-VN');
+    if (!userId || !(['student','học sinh'].includes(role) ||
+      (role === 'user' && ['học sinh','student'].includes(audience)))) {
+      return reply(403,{code:'EXAM_STUDENT_REQUIRED'});
+    }
+    const body: any = await context.request.json().catch(() => ({}));
+    if (body?.mode === 'heartbeat') {
+      const token = String(body?.token || '');
+      const {verifyJWT} = await import('./utils');
+      const decoded: any = token ? await verifyJWT(token,secret) : null;
+      const examId = String(decoded?.examConfig?.id || '');
+      const sessionId = String(decoded?.gradingSessionId || '');
+      if (!examId || !sessionId || String(decoded?.studentUserId || '') !== userId ||
+        decoded?.purpose !== 'exam_active') return reply(403,{code:'EXAM_HEARTBEAT_FORBIDDEN'});
+      await ensureExamLifecycleColumns(db);
+      const now = new Date().toISOString();
+      // A heartbeat can never revive an expired or finalizing session.
+      const updated: any = await db.prepare(`
+        UPDATE _exam_active_attempts
+        SET heartbeat_at = ?
+        WHERE attempt_key = ? AND exam_id = ? AND user_id = ? AND session_id = ?
+          AND finalizing_at IS NULL
+          AND EXISTS (SELECT 1 FROM _exam_grade_sessions gs
+            WHERE gs.session_id = ? AND gs.started_at IS NOT NULL
+              AND gs.deadline_at > ? AND gs.expires_at > ?)
+          AND NOT EXISTS (
+            SELECT 1 FROM _submitted_exam_tokens sub
+            WHERE sub.token_hash = ? AND sub.status IN ('processing','completed')
+          )
+        RETURNING session_id
+      `).bind(now,examId+':'+userId,examId,userId,sessionId,sessionId,now,now,
+        await hashToken('exam-session:'+sessionId)).first();
+      return updated?.session_id ? reply(200,{ok:true,serverNow:now}) :
+        reply(409,{code:'EXAM_SESSION_TERMINATED',error:'Phiên thi đã kết thúc hoặc đang nộp.'});
+    }
+    if (body?.mode !== 'settle') return reply(400,{code:'EXAM_LIFECYCLE_MODE_REQUIRED'});
+    const examId = String(body?.examId || '').trim();
+    if (!examId || examId.length > 200) return reply(400,{code:'EXAM_ID_REQUIRED'});
+    const state = await settleInactiveSchoolExam(context,examId,userId);
+    if (state.state === 'unavailable') {
+      return reply(503,{code:'EXAM_FINALIZATION_UNAVAILABLE',error:'Chưa xác minh được việc chấm bài cũ. Vui lòng thử lại.'});
+    }
+    return reply(200,state);
+  } catch(error) {
+    console.error('Exam lifecycle request failed:',error);
+    return reply(503,{code:'EXAM_LIFECYCLE_UNAVAILABLE'});
+  }
+};
