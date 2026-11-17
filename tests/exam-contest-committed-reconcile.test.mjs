@@ -57,8 +57,7 @@ test('a different contest participant cannot modify this session',async()=>{
   assert.equal((await db.query('SELECT COUNT(*)::int AS n FROM _exam_active_attempts')).rows[0].n,1);
  }finally{await db.close();}
 });
-test('contest reconciliation is invoked before new quota count and does not use browser identity',()=>{
- assert.match(start,/reconcileCommittedContestResult\(\s*db,oldKey,oldId,signedAttemptUserId/);
- assert.ok(start.indexOf('reconcileCommittedContestResult(')<start.indexOf('let completedAttemptsForQuota = 0;'));
- assert.match(start,/if \(contestParticipantId\)/);
+test('fresh claim safely owns contest replacement instead of old lookup',()=>{
+ assert.doesNotMatch(start,/reconcileCommittedContestResult\(/);
+ assert.match(start,/claimFreshExamAttempt\(db,/);
 });
