@@ -19,7 +19,7 @@ const sha=s=>createHash('sha256').update(s).digest('hex');
 const expiry=new Date('2026-11-10T00:00:00Z').toISOString();
 const started=new Date('2026-11-07T00:00:00Z').toISOString();
 const now=new Date('2026-11-17T00:00:00Z').toISOString();
-async function fixture({snapshot=false,liveness=false,completed=false,processing=false,laterResult=false,submittedResult=false,wrongResultOwner=false,expiryAt=expiry}={}) {
+async function fixture({snapshot=false,liveness=false,completed=false,processing=false,laterResult=false,submittedResult=false,wrongResultOwner=false,expiryAt=expiry,createdAt=started,savedAt=started}={}) {
   const db=new PGlite();
   await db.exec(`
     CREATE TABLE _exam_active_attempts (attempt_key TEXT PRIMARY KEY, exam_id TEXT NOT NULL,user_id TEXT NOT NULL,session_id TEXT NOT NULL,expires_at TEXT NOT NULL,created_at TEXT NOT NULL);
@@ -31,8 +31,8 @@ async function fixture({snapshot=false,liveness=false,completed=false,processing
     CREATE TABLE _exam_answer_drafts(session_id TEXT PRIMARY KEY,answers_json TEXT,revision INT,saved_at TEXT,writer_id TEXT,writer_seen_at TEXT);
     CREATE TABLE _exam_failed_attempt_cleanup_audit(session_id TEXT PRIMARY KEY,attempt_key TEXT NOT NULL,exam_id TEXT NOT NULL,user_id TEXT NOT NULL,lock_data JSONB NOT NULL,draft_data JSONB,reason TEXT NOT NULL,archived_at TIMESTAMPTZ NOT NULL DEFAULT now());
   `);
-  await db.query('INSERT INTO _exam_active_attempts VALUES ($1,$2,$3,$4,$5,$6)', ['exam1:user1','exam1','user1','oldsession',expiryAt,started]);
-  await db.query('INSERT INTO _exam_answer_drafts VALUES ($1,$2,$3)',['oldsession','["work remains"]',7]);
+  await db.query('INSERT INTO _exam_active_attempts VALUES ($1,$2,$3,$4,$5,$6)', ['exam1:user1','exam1','user1','oldsession',expiryAt,createdAt]);
+  await db.query('INSERT INTO _exam_answer_drafts (session_id,answers_json,revision,saved_at) VALUES ($1,$2,$3,$4)',['oldsession','["work remains"]',7,savedAt]);
   if(snapshot) await db.query('INSERT INTO _exam_grade_sessions VALUES ($1)',['oldsession']);
   if(liveness) await db.query('INSERT INTO _exam_attempt_liveness VALUES ($1)',['oldsession']);
   if(completed||processing)await db.query('INSERT INTO _submitted_exam_tokens VALUES ($1,$2)',[sha('exam-session:oldsession'),processing?'processing':'completed']);
@@ -66,7 +66,7 @@ for(const [name,opts] of [
  ['submission is already completed',{completed:true}],
  ['submission is processing',{processing:true}],
  ['the same account/exam has a later result',{laterResult:true}],
- ['lock has not expired',{expiryAt:'2026-12-17T00:00:00Z'}],
+ ['lock has not expired and is still within the 90s grace',{expiryAt:'2026-12-17T00:00:00Z',createdAt:'2026-11-16T23:59:45Z',savedAt:'2026-11-16T23:59:45Z'}],
 ]){
  test('orphan reconciliation refuses when '+name,async()=>{
   const {db,args}=await fixture(opts);
@@ -77,6 +77,16 @@ for(const [name,opts] of [
   }finally{await db.close();}
  });
 }
+
+test('stale incomplete save with future technical TTL is cleared after 90s',async()=>{
+ const {db,args}=await fixture({expiryAt:'2026-12-17T00:00:00Z'});
+ try{
+  const result=await db.query(sql,args);
+  assert.equal(result.rows[0]?.session_id,'oldsession');
+  assert.equal((await db.query('SELECT COUNT(*)::int AS n FROM _exam_abandoned_attempts')).rows[0].n,0);
+  assert.equal((await db.query('SELECT COUNT(*)::int AS n FROM _exam_answer_drafts')).rows[0].n,0);
+ }finally{await db.close();}
+});
 
 test('wrong attempt key or stale session ID cannot release another lock',async()=>{
  const {db,args}=await fixture();
