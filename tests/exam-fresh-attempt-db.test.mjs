@@ -93,6 +93,37 @@ test('two READY tokens for the same account cannot keep two ACTIVE sessions',asy
  }finally{await db.close();}
 });
 
+test('atomic server quota permits exactly the configured number of started attempts',async()=>{
+ const db=await fixture();
+ const quotaArgs=(id,max,baseline=0)=>[
+  key,'exam1',user,id,key,baseline,id,max,baseline,max,max,max,max,
+  key,'exam1',user,id,exp,now
+ ];
+ try {
+  const first=await db.query(sql,quotaArgs('first-quota',2));
+  assert.equal(first.rows[0]?.session_id,'first-quota');
+  const second=await db.query(sql,quotaArgs('second-quota',2));
+  assert.equal(second.rows[0]?.session_id,'second-quota');
+  const third=await db.query(sql,quotaArgs('third-quota',2));
+  assert.equal(third.rowCount,0);
+  assert.equal((await db.query('SELECT used_attempts::int AS used FROM _exam_attempt_quota_guard')).rows[0].used,2);
+  assert.equal((await db.query('SELECT session_id FROM _exam_active_attempts')).rows[0].session_id,'second-quota');
+ } finally {await db.close();}
+});
+
+test('existing graded result baseline counts before a fresh attempt is admitted',async()=>{
+ const db=await fixture();
+ const quotaArgs=(id,baseline)=>[
+  key,'exam1',user,id,key,baseline,id,2,baseline,2,2,2,2,
+  key,'exam1',user,id,exp,now
+ ];
+ try {
+  assert.equal((await db.query(sql,quotaArgs('first-after-grade',1))).rows[0]?.session_id,'first-after-grade');
+  assert.equal((await db.query(sql,quotaArgs('should-be-denied',1))).rowCount,0);
+  assert.equal((await db.query('SELECT used_attempts::int AS used FROM _exam_attempt_quota_guard')).rows[0].used,2);
+ } finally {await db.close();}
+});
+
 test('an in-flight submission is retained and cannot block a new eligible attempt',async()=>{
  const db=await fixture({old:true,contest:true,processing:true});
  try{
