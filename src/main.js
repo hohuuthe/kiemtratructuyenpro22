@@ -11374,6 +11374,7 @@ if (contentType && contentType.includes("application/json")) {
                     examName: examName,
                     examCreator: (accountsMap && accountsMap[examConfig.creatorId]) ? accountsMap[examConfig.creatorId] : '',
                     score: score,
+                    canViewScore: result.canViewScore === true,
                     timeTaken: serverTimeTaken,
                     correctCount: correctCount,
                     totalQuestions: totalQuestions,
@@ -11496,7 +11497,9 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
             const formattedEndTime = endDateTime.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
             const formattedEndDate = endDateTime.toLocaleDateString('vi-VN');
 
-            const showScore = examConfig.showScore !== undefined ? examConfig.showScore : true;
+            // The server owns score publication. Never trust only cached exam settings.
+            const showScore = result.canViewScore === true &&
+                examFlagEnabled(examConfig.showScore ?? examConfig.show_score, true);
             // Public contest outcomes never expose per-question correctness or keys.
             // The server computes any published category aggregates independently.
             const showDetails = window.__activeStudentExamTab === 'contest'
@@ -11692,7 +11695,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                     <div class="p-3 bg-green-50 rounded-lg text-center shadow-sm relative border border-green-100/50 flex flex-col justify-center">
                         <p class="text-2xl sm:text-3xl lg:text-4xl font-black text-green-600 leading-tight">${showScore ? result.correctCount + '/' + result.totalQuestions : '***'}</p>
                         <p class="text-xs md:text-sm text-green-500 uppercase font-bold tracking-widest mt-0.5">Số câu đúng</p>
-                        ${result.totalTF4Statements > 0 ? `<p class="text-xs md:text-sm text-green-700 mt-1 font-bold bg-white/50 py-1 px-2.5 rounded-full inline-block border border-green-200">Ý đúng: <b>${result.totalTF4CorrectStatements}</b>/${result.totalTF4Statements}</p>` : ''}
+                        ${showScore && result.totalTF4Statements > 0 ? `<p class="text-xs md:text-sm text-green-700 mt-1 font-bold bg-white/50 py-1 px-2.5 rounded-full inline-block border border-green-200">Ý đúng: <b>${result.totalTF4CorrectStatements}</b>/${result.totalTF4Statements}</p>` : ''}
                         ${!showScore ? '<div class="absolute inset-0 bg-green-50/90 backdrop-blur-sm flex items-center justify-center rounded-lg font-bold text-green-800">Đã ẩn</div>' : ''}
                     </div>
                     <div class="col-span-2 md:col-span-1 p-3 bg-purple-50 rounded-lg text-center shadow-sm border border-purple-100/50 flex flex-col justify-center">
@@ -11709,7 +11712,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                     </span></u>
                     <span class="font-bold text-amber-900 bg-amber-100/80 px-2 py-0.5 rounded-md border border-amber-200">${result.cheatWarningCount} lần</span></u>
                 </div>` : ''}
-                ${statsDetailedHtml}
+                ${showScore ? statsDetailedHtml : ''}
                 ${showDetails ? detailsSection : `<div class="p-3 bg-gray-50 border border-gray-200 rounded-xl text-center text-[11px] md:text-sm text-gray-600 font-medium mb-2 shadow-inner">Giáo viên đã thiết lập không hiển thị chi tiết bài làm.</div>`}
                 <button onclick="resetExam()" class="w-full py-1.5 md:py-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-bold text-sm md:text-base rounded-lg hover:from-purple-700 hover:to-pink-700 transition shadow-md">
                     🔄 Làm bài mới

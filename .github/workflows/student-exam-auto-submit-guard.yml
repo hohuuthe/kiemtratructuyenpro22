@@ -16,6 +16,7 @@ on:
       - 'src/exam-time-authority.js'
       - 'functions/**/api/**'
       - 'tests/student-exam-auto-submit-guard.test.mjs'
+      - 'tests/exam-postsubmit-score-visibility.test.mjs'
       - '.github/workflows/student-exam-auto-submit-guard.yml'
   push:
     branches: [main]
@@ -52,6 +53,6 @@ jobs:
       - name: Check student exam autosubmit safeguards
         run: |
           node --check src/main.js
-          node --test tests/student-exam-auto-submit-guard.test.mjs
+          node --test tests/student-exam-auto-submit-guard.test.mjs tests/exam-postsubmit-score-visibility.test.mjs
       - run: npm run lint
       - run: npm run build

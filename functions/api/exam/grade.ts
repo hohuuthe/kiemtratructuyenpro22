@@ -38,16 +38,24 @@ const normalizeType = (type: any): string => {
     return String(type || '4-1');
 };
 
-function sanitizeGradingDetailForClient(detail: any, showDetails: boolean, isContest = false): any {
-    if (showDetails && !isContest) return detail;
-    const { correctAnswer, aiFeedback, isCorrect, correctStatements, ...safeD } = detail || {};
-    const question = safeD.question && typeof safeD.question === 'object' ? safeD.question : {};
-    const { answer, ...safeQuestion } = question;
-    if (safeQuestion.options && typeof safeQuestion.options === 'object') {
-        const { answerImage, correctAnswer: optionCorrectAnswer, ...safeOptions } = safeQuestion.options;
-        safeQuestion.options = safeOptions;
+function sanitizeGradingDetailForClient(
+    detail: any, showDetails: boolean, isContest = false, showScore = true
+): any {
+    let safeD: any;
+    if (showDetails && !isContest) {
+        safeD = { ...detail };
+    } else {
+        const { correctAnswer, aiFeedback, isCorrect, correctStatements, ...redacted } = detail || {};
+        const question = redacted.question && typeof redacted.question === 'object' ? redacted.question : {};
+        const { answer, ...safeQuestion } = question;
+        if (safeQuestion.options && typeof safeQuestion.options === 'object') {
+            const { answerImage, correctAnswer: optionCorrectAnswer, ...safeOptions } = safeQuestion.options;
+            safeQuestion.options = safeOptions;
+        }
+        safeD = { ...redacted, question: safeQuestion };
     }
-    safeD.question = safeQuestion;
+    // A hidden final grade must not leak question-level point values either.
+    if (!showScore) delete safeD.score;
     return isContest ? stripContestAnswerHints(safeD) : safeD;
 }
 
@@ -320,21 +328,25 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                             decoded?.examConfig?.showDetails ?? decoded?.examConfig?.show_details,
                             false
                         );
+                        const replayShowScore = examFlagEnabled(
+                            decoded?.examConfig?.showScore ?? decoded?.examConfig?.show_score, true
+                        );
                         const replayDetails = storedDetails.map((d: any) =>
-                            sanitizeGradingDetailForClient(d, replayShowDetails, Boolean(contestParticipantId))
+                            sanitizeGradingDetailForClient(d, replayShowDetails, Boolean(contestParticipantId), replayShowScore)
                         );
                         return new Response(JSON.stringify({
                             resultId: stored.id,
-                            score: Number(stored.score) || 0,
-                            rawEarnedScore: Number(stored.score) || 0,
-                            correctCount: Number(stored.correct_count) || 0,
+                            canViewScore: replayShowScore,
+                            score: replayShowScore ? Number(stored.score) || 0 : null,
+                            rawEarnedScore: replayShowScore ? Number(stored.score) || 0 : null,
+                            correctCount: replayShowScore ? Number(stored.correct_count) || 0 : null,
                             totalQuestions: Number(stored.total_questions) || 0,
                             cheatWarningCount: Number(stored.cheat_warning_count) || 0,
                             gradingPending: hasPendingEssayGrading(storedDetails),
                             scoreFinalized: !hasPendingEssayGrading(storedDetails),
                             detailedResults: replayDetails,
                             ...(contestParticipantId ? {
-                                statsByType: contestTypeStatsFromTrustedDetails(storedDetails),
+                                statsByType: replayShowScore ? contestTypeStatsFromTrustedDetails(storedDetails) : {},
                                 contestStudentName: authenticatedStudentName,
                                 contestStudentUnit: authenticatedDonvi
                             } : {}),
@@ -1074,22 +1086,26 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
                             examConfig.showDetails ?? examConfig.show_details,
                             false
                         );
+                        const showScoreOnReplay = examFlagEnabled(
+                            examConfig.showScore ?? examConfig.show_score, true
+                        );
                         const safeDetails = storedDetails.map((d: any) =>
-                            sanitizeGradingDetailForClient(d, showDetailsOnReplay, Boolean(contestParticipantId))
+                            sanitizeGradingDetailForClient(d, showDetailsOnReplay, Boolean(contestParticipantId), showScoreOnReplay)
                         );
                         const replayGradingPending = hasPendingEssayGrading(storedDetails);
                         return new Response(JSON.stringify({
                             resultId: stored.id,
-                            score: Number(stored.score) || 0,
-                            rawEarnedScore: Number(stored.score) || 0,
-                            correctCount: Number(stored.correct_count) || 0,
+                            canViewScore: showScoreOnReplay,
+                            score: showScoreOnReplay ? Number(stored.score) || 0 : null,
+                            rawEarnedScore: showScoreOnReplay ? Number(stored.score) || 0 : null,
+                            correctCount: showScoreOnReplay ? Number(stored.correct_count) || 0 : null,
                             totalQuestions: Number(stored.total_questions) || 0,
                             cheatWarningCount: Number(stored.cheat_warning_count) || 0,
                             gradingPending: replayGradingPending,
                             scoreFinalized: !replayGradingPending,
                             detailedResults: safeDetails,
                             ...(contestParticipantId ? {
-                                statsByType: contestTypeStatsFromTrustedDetails(storedDetails),
+                                statsByType: showScoreOnReplay ? contestTypeStatsFromTrustedDetails(storedDetails) : {},
                                 contestStudentName: authenticatedStudentName,
                                 contestStudentUnit: authenticatedDonvi
                             } : {}),
@@ -1277,17 +1293,19 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
 
         // BẢO MẬT: Nếu cấu hình không cho xem chi tiết đáp án, loại bỏ hoàn toàn correctAnswer và ảnh đáp án trước khi trả về client
         const shouldShowDetails = examFlagEnabled(examConfig.showDetails ?? examConfig.show_details, false);
+        const shouldShowScore = examFlagEnabled(examConfig.showScore ?? examConfig.show_score, true);
         const clientDetailedResults = detailedResults.map((d: any) =>
-            sanitizeGradingDetailForClient(d, shouldShowDetails, Boolean(contestParticipantId))
+            sanitizeGradingDetailForClient(d, shouldShowDetails, Boolean(contestParticipantId), shouldShowScore)
         );
 
         return new Response(JSON.stringify({
             resultId,
-            score: finalScore,
-            rawEarnedScore: calculatedRaw,
-            totalMaxScore: roundScore(totalMaxScore, 4),
-            scale10Score: calculatedScale10,
-            correctCount,
+            canViewScore: shouldShowScore,
+            score: shouldShowScore ? finalScore : null,
+            rawEarnedScore: shouldShowScore ? calculatedRaw : null,
+            totalMaxScore: shouldShowScore ? roundScore(totalMaxScore, 4) : null,
+            scale10Score: shouldShowScore ? calculatedScale10 : null,
+            correctCount: shouldShowScore ? correctCount : null,
             cheatWarningCount,
             timeTaken: authoritativeTimeTaken,
             deadlineSnapshotUsed: usedDeadlineDraft,
@@ -1295,7 +1313,7 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
             scoreFinalized: !hasPendingEssayGrades,
             detailedResults: clientDetailedResults,
             ...(contestParticipantId ? {
-                statsByType: contestTypeStatsFromTrustedDetails(detailedResults),
+                statsByType: shouldShowScore ? contestTypeStatsFromTrustedDetails(detailedResults) : {},
                 contestStudentName: authenticatedStudentName,
                 contestStudentUnit: authenticatedDonvi
             } : {})
