@@ -8353,20 +8353,6 @@ if (contentType && contentType.includes("application/json")) {
             updateCurrentExamInfo();
             if (!teacherId || !selectedExamId) return;
 
-            // Inspect the existing ACTIVE attempt immediately on exam selection,
-            // before any new exam access-window or password challenge.
-            const handledExisting = await offerExistingExamAttemptChoice(selectedExamId, selectedExamName, {
-                fromSelection: true,
-                isCurrent: () => currentExamSeq === window._studentExamChangeSeq &&
-                    String(document.getElementById('student-exam-name-filter')?.value || '') === String(selectedExamId)
-            });
-            if (currentExamSeq !== window._studentExamChangeSeq) return;
-            if (handledExisting) {
-                window._studentExamLoadStatus = null;
-                updateCurrentExamInfo();
-                return;
-            }
-
             try {
                 let data = null;
                 let serverNowMs = 0;
@@ -8866,6 +8852,16 @@ if (contentType && contentType.includes("application/json")) {
         }
 
         window.startExamUI = function startExamUI(fullscreenAlreadyRequested = false) {
+            // Never mount an empty exam shell (00:00 / question 1/0 / spinner).
+            // A READY or partially activated session is not a valid exam UI.
+            if (!Array.isArray(currentExam?.questions) || currentExam.questions.length === 0 ||
+                currentExam.questions.some(q => !q || !String(q.id ?? q.questionId ?? '').trim()) ||
+                !Number.isFinite(Number(currentExam?.deadlineAtMs)) ||
+                Number(currentExam.deadlineAtMs) <= 0) {
+                showToast('Không nhận đủ câu hỏi hoặc thời gian làm bài. Vui lòng tải lại đề để bắt đầu lượt mới.', 'error');
+                if (typeof window.resetExam === 'function') window.resetExam();
+                return;
+            }
             if (window.appVersionManager && typeof window.appVersionManager.setCriticalActivity === 'function') {
                 window.appVersionManager.setCriticalActivity('studentExam', true);
             } else {
@@ -9219,7 +9215,6 @@ if (contentType && contentType.includes("application/json")) {
 
         // A school attempt is never restored through the browser. Choosing
         // Start is the explicit request to replace any prior unfinished attempt.
-        async function offerExistingExamAttemptChoice() { return false; }
 
         let schoolExamHeartbeatTimer = null;
         let schoolExamHeartbeatInFlight = false;
@@ -9442,7 +9437,6 @@ if (contentType && contentType.includes("application/json")) {
                     return;
                 }
 
-                if (await offerExistingExamAttemptChoice(selectedExamId, examName)) return;
                 if (window.__pendingExamReplacement &&
                     String(window.__pendingExamReplacement.examId) !== String(selectedExamId)) {
                     window.__pendingExamReplacement = null;
