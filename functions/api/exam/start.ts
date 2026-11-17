@@ -1,6 +1,6 @@
 import { verifyAuthSession, verifyJWT, signJWT, getDynamicSecret, getDatabase, hashToken } from './utils';
 import { publicContestExam } from '../contest/register';
-import { ensureExamLivenessSchema, initializeExamLiveness, finalizeExamLiveness, registerExpiredLegacyExamAttemptById } from './finalize-service';
+import { ensureExamLivenessSchema, initializeExamLiveness, finalizeExamLiveness, registerExpiredLegacyExamAttemptById, reconcileCommittedContestResult } from './finalize-service';
 import { reconcileExpiredLegacyOrphan } from './orphan-reconcile';
 import { stripContestAnswerHints } from '../../../src/exam-public-contest-projection';
 import {
@@ -277,6 +277,19 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         ).bind(oldKey).first();
         const oldId = String(locked?.session_id || '');
         if (oldId && oldId !== gradingSessionId) {
+          if (contestParticipantId) {
+            const resultAlreadySaved=await reconcileCommittedContestResult(
+              db,oldKey,oldId,signedAttemptUserId
+            );
+            if (resultAlreadySaved) {
+              // Count the committed contest result on the next quota query.
+              // Do not reuse a pre-start token that belongs to an old exam.
+              return new Response(JSON.stringify({
+                code:'EXAM_PREVIOUS_ATTEMPT_FINALIZED',
+                error:'Đã xác nhận kết quả lượt trước; hệ thống đang kiểm tra lượt còn lại.'
+              }),{status:409,headers:corsHeaders});
+            }
+          }
           const archived = signedStudentUserId && !contestParticipantId
             ? await reconcileExpiredLegacyOrphan(db, oldKey, oldId)
             : false;
