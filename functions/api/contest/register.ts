@@ -1,6 +1,7 @@
 import { getDatabase, getDynamicSecret, signJWT, verifyJWT, verifyAuthSession } from '../exam/utils';
 import { consumeSecurityAttempt } from '../../../src/security-rate-limit';
 import { evaluateExamAccessWindow } from '../../../src/exam-time-authority.js';
+import { countContestUsedAttempts } from '../exam/contest-start-claims';
 
 export const CONTEST_MODE = 'contest';
 export const CONTEST_EXAM_MODE = 'Cuộc thi trực tuyến';
@@ -217,10 +218,8 @@ export const onRequestPost: PagesFunction = async (context: any) => {
     }
     const maxAttempts = Math.max(0,Number(exam.max_attempts)||0);
     if (maxAttempts) {
-      const done: any = await db.prepare(
-        'SELECT COUNT(*) AS count FROM results WHERE exam_id = ? AND ma_nguoi_du_thi = ?'
-      ).bind(exam.id,candidateId).first();
-      if ((Number(done?.count) || 0) >= maxAttempts) {
+      const usedAttempts = await countContestUsedAttempts(db, candidateId, String(exam.id));
+      if (usedAttempts >= maxAttempts) {
         return respond({code:'EXAM_ATTEMPT_LIMIT_REACHED',error:'Bạn đã hết số lượt tham gia cuộc thi này.'},403);
       }
     }
