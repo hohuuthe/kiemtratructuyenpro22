@@ -1,0 +1,12 @@
+name = "kiemtratructuyen-exam-finalizer"
+main = "workers/exam-finalizer-worker.ts"
+compatibility_date = "2026-11-16"
+compatibility_flags = ["nodejs_compat"]
+
+[triggers]
+crons = ["* * * * *"]
+
+# Bind the SAME exact tenant DB secrets as Cloudflare Pages, privately on
+# this Worker, before deploying. Runtime secret EXAM_FINALIZER_TENANTS is a
+# comma-separated allowlist of tenant slugs, e.g. "v1,csdla".
+# The default tenant requires NEON_DATABASE_URL or DATABASE_URL.

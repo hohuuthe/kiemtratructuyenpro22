@@ -86,16 +86,17 @@ test('unit-scoped exams require authenticated exact unit and exact class members
 });
 
 
-test('start revalidates max attempts and atomically allows only one active session per student and exam', () => {
-  const start=readFileSync('functions/api/exam/start.ts','utf8');
-  assert.match(start,/SELECT COUNT\(\*\) AS count FROM results WHERE exam_id = \? AND user_id = \?/);
-  assert.match(start,/_exam_active_attempts/);
-  assert.match(start,/attemptKey = examId \+ ':' \+ signedAttemptUserId/);
-  assert.match(start,/contestParticipantId \? 'contest:'\+contestParticipantId/);
-  assert.match(start,/ON CONFLICT \(attempt_key\) DO UPDATE SET/);
-  assert.match(start,/EXAM_ATTEMPT_ALREADY_ACTIVE/);
-  assert.match(start,/EXAM_ATTEMPT_COUNT_UNAVAILABLE/);
-  assert.match(start,/EXAM_REVOKED_BEFORE_START/);
+test('start revalidates server result quota and replaces old active attempt atomically',()=>{
+ const start=readFileSync('functions/api/exam/start.ts','utf8');
+ const fresh=readFileSync('functions/api/exam/fresh-attempt.ts','utf8');
+ assert.match(start,/SELECT COUNT\(\*\) AS count FROM results WHERE exam_id = \? AND user_id = \?/);
+ assert.match(start,/attemptKey = examId \+ ':' \+ signedAttemptUserId/);
+ assert.match(start,/contestParticipantId \? 'contest:'\+contestParticipantId/);
+ assert.match(start,/EXAM_ATTEMPT_COUNT_UNAVAILABLE/);
+ assert.match(start,/EXAM_REVOKED_BEFORE_START/);
+ assert.match(start,/claimFreshExamAttempt\(db,/);
+ assert.match(fresh,/ON CONFLICT \(attempt_key\) DO UPDATE SET/);
+ assert.doesNotMatch(start,/EXAM_ATTEMPT_ALREADY_ACTIVE/);
 });
 
 test('legacy attempt counting is only used for one canonical profile and normalized unit aliases', () => {

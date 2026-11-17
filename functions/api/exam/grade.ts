@@ -2,6 +2,7 @@ import { verifyAuthSession, verifyJWT, getDynamicSecret, hashToken, getDatabase 
 import { evaluateTF4, isShortAnswerCorrect, examFlagEnabled, clampScore, roundScore, validateQuestionAnswer } from '../../../src/exam-grading-core.js';
 import { EXAM_SESSION_PURPOSE_PRESTART, EXAM_SESSION_PURPOSE_ACTIVE, resolveAuthoritativeExamTiming } from '../../../src/exam-time-authority.js';
 import { stripContestAnswerHints } from '../../../src/exam-public-contest-projection';
+import { INTERNAL_EXAM_FINALIZER } from '../../../src/exam-finalizer-marker';
 
 interface Env {
   NEON_DATABASE_URL?: string;
@@ -142,6 +143,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
   const db = getDatabase(context);
     const { request, env } = context;
     const SECRET = await getDynamicSecret(db, env.JWT_SECRET);
+    const trustedFinalizer = (context as any)[INTERNAL_EXAM_FINALIZER] === true;
     let tokenHash = '';
     let tokenClaimed = false;
     let resultPersisted = false;
@@ -182,6 +184,11 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         }
 
         const decoded = await verifyJWT(token, SECRET);
+        // The scheduled finalizer is invoked in-process with a non-HTTP symbol.
+        // A JSON/header value cannot grant the same privilege.
+        if (trustedFinalizer && !decoded?.gradingSessionId) {
+            return new Response(JSON.stringify({error:"Missing trusted session"}),{status:403,headers:corsHeaders});
+        }
         if (!decoded) {
             return new Response(JSON.stringify({ error: 'Mã phiên thi không hợp lệ hoặc đã hết hạn.' }), { status: 403, headers: corsHeaders });
         }
@@ -213,10 +220,63 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       }), {status:503,headers:corsHeaders});
     }
 
+        if (trustedFinalizer && sessionStudentUserId) {
+            // Authentication was checked when the attempt started. Revalidate
+            // the locked attempt owner from the tenant database, not the body.
+            const owner: any = await db.prepare(`
+                SELECT user_id FROM _exam_active_attempts
+                WHERE session_id=? AND user_id=?
+                UNION ALL
+                SELECT source_data->>'user_id' AS user_id
+                FROM _exam_discarded_session_archive
+                WHERE session_id=? AND kind='fresh_lock'
+                  AND source_data->>'user_id'=?
+                  AND source_data->>'exam_id'=?
+                  AND EXISTS(SELECT 1 FROM _exam_grade_sessions gs
+                    WHERE gs.session_id=? AND gs.exam_id=? AND gs.started_at IS NOT NULL)
+            `).bind(String(gradingSessionId),String(sessionStudentUserId),
+                String(gradingSessionId),String(sessionStudentUserId),
+                String(decoded?.examConfig?.id||''),String(gradingSessionId),
+                String(decoded?.examConfig?.id||'')).first();
+            if (!owner) return new Response(JSON.stringify({error:'Trusted attempt owner mismatch'}),{status:403,headers:corsHeaders});
+            authenticatedUserId = String(sessionStudentUserId);
+            const profile: any = await db.prepare(
+                'SELECT full_name, lop, donvi FROM users WHERE id=?'
+            ).bind(String(sessionStudentUserId)).first();
+            authenticatedStudentName = String(profile?.full_name || studentInfo.name || '');
+            authenticatedLop = String(profile?.lop || '');
+            authenticatedDonvi = String(profile?.donvi || '');
+        }
         const contestParticipantId = String(decoded.contestParticipantId || '').trim();
         if (contestParticipantId) {
             const candidate: any = await db.prepare('SELECT ma_nguoi_du_thi, ho_ten, don_vi FROM contest_participants WHERE ma_nguoi_du_thi = ?').bind(contestParticipantId).first();
-            const attempt: any = await db.prepare('SELECT ma_phien_thi FROM contest_attempts WHERE ma_phien_thi = ? AND ma_nguoi_du_thi = ? AND ma_de_thi = ?').bind(String(gradingSessionId || ''),contestParticipantId,String(decoded?.examConfig?.id || '')).first();
+            const attempt: any = await db.prepare(`
+                SELECT ca.ma_phien_thi FROM contest_attempts ca
+                WHERE ca.ma_phien_thi=? AND ca.ma_nguoi_du_thi=?
+                  AND ca.ma_de_thi=?
+                  AND (
+                    (ca.trang_thai='DANG_LAM' AND EXISTS(
+                      SELECT 1 FROM _exam_active_attempts a
+                      WHERE a.session_id=ca.ma_phien_thi AND a.exam_id=ca.ma_de_thi
+                        AND a.user_id='contest:'||ca.ma_nguoi_du_thi
+                    ))
+                    OR (ca.trang_thai='HUY' AND ?=1 AND EXISTS(
+                      SELECT 1 FROM _exam_discarded_session_archive ar
+                      WHERE ar.session_id=ca.ma_phien_thi AND ar.kind='fresh_lock'
+                        AND ar.source_data->>'user_id'='contest:'||ca.ma_nguoi_du_thi
+                        AND ar.source_data->>'exam_id'=ca.ma_de_thi
+                    ) AND EXISTS(
+                      SELECT 1 FROM _exam_grade_sessions gs
+                      WHERE gs.session_id=ca.ma_phien_thi AND gs.started_at IS NOT NULL
+                    ))
+                    OR (ca.trang_thai='DA_NOP' AND EXISTS(
+                      SELECT 1 FROM results r
+                      WHERE r.ma_phien_thi=ca.ma_phien_thi
+                        AND r.ma_nguoi_du_thi=ca.ma_nguoi_du_thi
+                        AND r.exam_id=ca.ma_de_thi
+                    ))
+                  )
+            `).bind(String(gradingSessionId || ''),contestParticipantId,String(decoded?.examConfig?.id || ''),trustedFinalizer?1:0).first();
             if (!candidate || !attempt) return new Response(JSON.stringify({error:'Không xác minh được người dự thi hoặc phiên dự thi đã đăng ký.'}),{status:403,headers:corsHeaders});
             authenticatedUserId = null;
             authenticatedStudentName = String(candidate.ho_ten);
@@ -236,7 +296,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         const verifiedRequestUserId = authenticatedUserId ? String(authenticatedUserId) : '';
         const signedStudentUserId = sessionStudentUserId ? String(sessionStudentUserId) : '';
         if (signedStudentUserId) {
-            if (!verifiedRequestUserId || verifiedRequestUserId !== signedStudentUserId) {
+            if ((!trustedFinalizer && !verifiedRequestUserId) || (verifiedRequestUserId && verifiedRequestUserId !== signedStudentUserId)) {
                 return new Response(JSON.stringify({
                     error: 'Tài khoản nộp bài không khớp tài khoản đã nhận phiên thi.'
                 }), { status: 403, headers: corsHeaders });
@@ -421,7 +481,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                 if (!snapshotRow) {
                     return new Response(JSON.stringify({ error: 'Phiên chấm điểm không tồn tại hoặc đã được thu hồi.' }), { status: 409, headers: corsHeaders });
                 }
-                if (snapshotRow.expires_at && new Date(String(snapshotRow.expires_at)).getTime() < Date.now()) {
+                if (!trustedFinalizer && snapshotRow.expires_at && new Date(String(snapshotRow.expires_at)).getTime() < Date.now()) {
                     return new Response(JSON.stringify({ error: 'Phiên chấm điểm đã hết hạn.' }), { status: 409, headers: corsHeaders });
                 }
                 const frozenIds = JSON.parse(String(snapshotRow.question_ids || '[]')).map((id: any) => String(id));
@@ -453,7 +513,22 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                             error: 'Mốc thời gian phiên thi không hợp lệ; hệ thống chưa chấm và chưa lưu kết quả.'
                         }), { status: 409, headers: corsHeaders });
                     }
-                    if (authoritativeTiming.expired) {
+                    // A leave/timeout finalization always grades the last
+                    // committed server draft, never a late browser payload.
+                    let mustUseSavedDraft = trustedFinalizer || authoritativeTiming.expired;
+                    try {
+                        const state: any = await db.prepare(
+                            'SELECT leave_requested_at, finalizing_at, finalized_at FROM _exam_attempt_liveness WHERE session_id = ?'
+                        ).bind(String(gradingSessionId)).first();
+                        if (state?.leave_requested_at || state?.finalizing_at || state?.finalized_at) {
+                            mustUseSavedDraft = true;
+                        }
+                    } catch (stateError) {
+                        if (trustedFinalizer) throw stateError;
+                        // Backward compatibility: older tenants may not yet
+                        // have the liveness table. No client-side override.
+                    }
+                    if (mustUseSavedDraft) {
                         let draftRow: any = null;
                         try {
                             draftRow = await db.prepare(
@@ -1002,19 +1077,53 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
             // session cannot create a result. If submission wins first,
             // replacement observes the processing claim and is refused.
             const schoolAttempt = Boolean(signedStudentUserId && !contestParticipantId);
+            const contestAttempt = Boolean(contestParticipantId);
             const claimSql = schoolAttempt
                 ? `INSERT INTO _submitted_exam_tokens
                      (token_hash, exam_id, student_name, user_id, submitted_at, status, result_id, claimed_at)
                    SELECT ?, ?, ?, ?, ?, ?, ?, ?
-                   WHERE EXISTS (
-                     SELECT 1 FROM _exam_active_attempts
-                     WHERE session_id = ? AND exam_id = ? AND user_id = ?
-                     FOR UPDATE
+                   WHERE (
+                     EXISTS (
+                       SELECT 1 FROM _exam_active_attempts
+                       WHERE session_id = ? AND exam_id = ? AND user_id = ?
+                       FOR UPDATE
+                     )
+                     OR (?=1 AND EXISTS (
+                       SELECT 1 FROM _exam_discarded_session_archive ar
+                       WHERE ar.session_id=? AND ar.kind='fresh_lock'
+                         AND ar.source_data->>'user_id'=?
+                         AND ar.source_data->>'exam_id'=?
+                         AND EXISTS(SELECT 1 FROM _exam_grade_sessions gs
+                           WHERE gs.session_id=ar.session_id AND gs.started_at IS NOT NULL)
+                     ))
                    )
                    AND NOT EXISTS (
                      SELECT 1 FROM _exam_abandoned_attempts WHERE session_id = ?
                    )
                    ON CONFLICT (token_hash) DO NOTHING`
+                : contestAttempt
+                ? `INSERT INTO _submitted_exam_tokens
+                     (token_hash, exam_id, student_name, user_id, submitted_at, status, result_id, claimed_at)
+                   SELECT ?, ?, ?, ?, ?, ?, ?, ?
+                   WHERE (EXISTS (
+                     SELECT 1 FROM _exam_active_attempts a
+                     JOIN contest_attempts ca ON ca.ma_phien_thi=a.session_id
+                     WHERE a.session_id=? AND a.exam_id=? AND a.user_id=?
+                       AND ca.ma_de_thi=a.exam_id AND ca.ma_nguoi_du_thi=?
+                       AND ca.trang_thai='DANG_LAM'
+                     FOR UPDATE OF a
+                   )
+                   OR (?=1 AND EXISTS(
+                     SELECT 1 FROM contest_attempts ca
+                     JOIN _exam_discarded_session_archive ar
+                       ON ar.session_id=ca.ma_phien_thi AND ar.kind='fresh_lock'
+                     JOIN _exam_grade_sessions gs ON gs.session_id=ca.ma_phien_thi
+                     WHERE ca.ma_phien_thi=? AND ca.ma_de_thi=?
+                       AND ca.ma_nguoi_du_thi=? AND ca.trang_thai='HUY'
+                       AND ar.source_data->>'user_id'='contest:'||ca.ma_nguoi_du_thi
+                       AND gs.started_at IS NOT NULL
+                   )))
+                   ON CONFLICT(token_hash) DO NOTHING`
                 : "INSERT INTO _submitted_exam_tokens (token_hash, exam_id, student_name, user_id, submitted_at, status, result_id, claimed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (token_hash) DO NOTHING";
             const claim = await db.prepare(claimSql).bind(
                 tokenHash,
@@ -1027,10 +1136,51 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
                 new Date().toISOString(),
                 ...(schoolAttempt ? [
                     String(gradingSessionId), String(examConfig.id || studentInfo.examId || ''),
-                    signedStudentUserId, String(gradingSessionId)
+                    signedStudentUserId,
+                    trustedFinalizer?1:0,String(gradingSessionId),signedStudentUserId,
+                    String(examConfig.id||studentInfo.examId||''),
+                    String(gradingSessionId)
+                ] : contestAttempt ? [
+                    String(gradingSessionId),String(examConfig.id||studentInfo.examId||''),
+                    'contest:'+contestParticipantId,contestParticipantId,
+                    trustedFinalizer?1:0,String(gradingSessionId),
+                    String(examConfig.id||studentInfo.examId||''),contestParticipantId
                 ] : [])
             ).run();
-            if (Number(claim?.meta?.changes || 0) !== 1) {
+            // A crashed Worker may leave a processing claim after its lease.
+            // Only the INTERNAL finalizer may take over that claim, and only
+            // after proving no result was committed. Rotate the preallocated
+            // result ID atomically: a late old Worker cannot persist its score.
+            let ownsClaim = Number(claim?.meta?.changes || 0) === 1;
+            if (!ownsClaim && trustedFinalizer && gradingSessionId) {
+                const takeover: any = await db.prepare(`
+                    UPDATE _submitted_exam_tokens t
+                    SET claimed_at=?, result_id=?
+                    WHERE t.token_hash=? AND t.status='processing'
+                      AND (
+                        (NULLIF(t.claimed_at,'') IS NOT NULL AND
+                         t.claimed_at::timestamptz<now()-interval '5 minutes')
+                        OR (NULLIF(t.claimed_at,'') IS NULL AND EXISTS(
+                          SELECT 1 FROM _exam_grade_sessions gs
+                          WHERE gs.session_id=? AND gs.started_at::timestamptz
+                            <now()-interval '5 minutes'
+                        ))
+                      )
+                      AND NOT EXISTS (
+                        SELECT 1 FROM results r
+                        WHERE r.submission_token_hash=t.token_hash
+                          OR r.id=t.result_id
+                      )
+                      AND EXISTS (
+                        SELECT 1 FROM _exam_grade_sessions gs
+                        WHERE gs.session_id=? AND gs.started_at IS NOT NULL
+                      )
+                    RETURNING token_hash
+                `).bind(new Date().toISOString(),claimedResultId,
+                    tokenHash,String(gradingSessionId),String(gradingSessionId)).first();
+                ownsClaim = Boolean(takeover?.token_hash);
+            }
+            if (!ownsClaim) {
                 const existing: any = await db.prepare(
                     "SELECT result_id FROM _submitted_exam_tokens WHERE token_hash = ?"
                 ).bind(tokenHash).first();
@@ -1134,7 +1284,12 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
             const gradingStatus = hasPendingEssayGrades ? 'PENDING' : 'FINAL';
             const finalizedAt = hasPendingEssayGrades ? null : new Date().toISOString();
             await db.prepare(
-                `INSERT INTO results (id, user_id, student_name, student_class, lop, don_vi, exam_name, exam_id, score, time_taken, correct_count, total_questions, details, loai_thi_sinh, cheat_warning_count, submission_token_hash, grading_status, score_finalized_at, ma_nguoi_du_thi, ma_phien_thi, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                `INSERT INTO results (id, user_id, student_name, student_class, lop, don_vi, exam_name, exam_id, score, time_taken, correct_count, total_questions, details, loai_thi_sinh, cheat_warning_count, submission_token_hash, grading_status, score_finalized_at, ma_nguoi_du_thi, ma_phien_thi, created_at)
+                 SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                 WHERE EXISTS (SELECT 1 FROM _submitted_exam_tokens t
+                   WHERE t.token_hash=? AND t.status='processing' AND t.result_id=?
+                   FOR UPDATE)
+                 RETURNING id`
             ).bind(
                 resultId,
                 authenticatedUserId || null,
@@ -1156,8 +1311,18 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
                 finalizedAt,
                 contestParticipantId || null,
                 contestParticipantId ? String(gradingSessionId || '') : null,
-                new Date().toISOString()
-            ).run();
+                new Date().toISOString(),
+                tokenHash,claimedResultId
+            ).first();
+            // A superseded/expired claim must not insert a late score. A
+            // missing RETURNING row is proof that this attempt was revoked.
+            // Do not reuse an earlier result ID for another session.
+            const committedByThisClaim = await db.prepare(
+                'SELECT id FROM results WHERE id=? AND submission_token_hash=? LIMIT 1'
+            ).bind(resultId,tokenHash).first();
+            if (!committedByThisClaim?.id) {
+                throw new Error('EXAM_SUBMISSION_CLAIM_REVOKED');
+            }
             resultPersisted = true;
         } catch (dbErr) {
             console.error("Lỗi khi lưu kết quả bài thi vào CSDL:", dbErr);
@@ -1265,8 +1430,8 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
                         .bind(claimedResultId, tokenHash).first()
                     : null;
                 if (!committed?.id) {
-                    await db.prepare("DELETE FROM _submitted_exam_tokens WHERE token_hash = ? AND status = ?")
-                        .bind(tokenHash, 'processing').run();
+                    await db.prepare("DELETE FROM _submitted_exam_tokens WHERE token_hash = ? AND status = ? AND result_id = ?")
+                        .bind(tokenHash, 'processing', claimedResultId).run();
                 }
             } catch (releaseErr) {
                 console.error('Keeping submission claim because commit state could not be proven:', releaseErr);

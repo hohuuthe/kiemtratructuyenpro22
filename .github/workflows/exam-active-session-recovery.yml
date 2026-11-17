@@ -1,4 +1,4 @@
-name: Exam active-session recovery regression
+name: Exam session lifecycle regression
 on:
   pull_request:
     paths:
@@ -6,7 +6,7 @@ on:
       - 'src/exam-active-attempt-recovery.js'
       - 'functions/api/exam/**'
       - 'tests/exam-active-attempt-recovery.test.mjs'
-      - 'tests/exam-session-replacement-db.test.mjs'
+      - 'tests/exam-no-resume-liveness.test.mjs'
       - '.github/workflows/exam-active-session-recovery.yml'
   push:
     branches: [main]
@@ -15,6 +15,7 @@ on:
       - 'src/exam-active-attempt-recovery.js'
       - 'functions/api/exam/**'
       - 'tests/exam-active-attempt-recovery.test.mjs'
+      - 'tests/exam-no-resume-liveness.test.mjs'
       - '.github/workflows/exam-active-session-recovery.yml'
 permissions:
   contents: read
@@ -29,9 +30,9 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci --no-audit --no-fund
-      - name: Syntax and recovery regression tests
+      - name: Syntax and no-resume lifecycle regression tests
         run: |
           node --check src/main.js
-          node --test tests/exam-active-attempt-recovery.test.mjs tests/exam-session-replacement-db.test.mjs tests/student-exam-start-attempt-limit.test.mjs tests/student-exam-auto-submit-guard.test.mjs
+          node --test tests/exam-active-attempt-recovery.test.mjs tests/exam-no-resume-liveness.test.mjs tests/student-exam-start-attempt-limit.test.mjs tests/student-exam-auto-submit-guard.test.mjs
       - run: npm run lint
       - run: npm run build

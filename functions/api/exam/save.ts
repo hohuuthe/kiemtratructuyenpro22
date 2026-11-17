@@ -1,4 +1,5 @@
 import { verifyAuthSession, verifyJWT, getDynamicSecret, getDatabase } from './utils';
+import { ensureExamLivenessSchema } from './finalize-service';
 import {
   EXAM_SESSION_PURPOSE_ACTIVE,
   resolveAuthoritativeExamTiming,
@@ -32,7 +33,7 @@ function normalizeDraftImage(value: unknown): string {
   throw new Error('EXAM_DRAFT_IMAGE_INVALID');
 }
 
-function sanitizeDraftAnswers(answers: any[]): any[] {
+export function sanitizeDraftAnswers(answers: any[]): any[] {
   return answers.map((answer: any) => {
     if (!answer || typeof answer !== 'object' || Array.isArray(answer)) return answer;
     const copy = { ...answer };
@@ -169,12 +170,16 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       'ALTER TABLE _exam_answer_drafts ADD COLUMN IF NOT EXISTS writer_seen_at TEXT'
     ]) await db.prepare(sql).run();
 
+    // Some in-progress attempts predate this migration; their autosave must
+    // remain safe even before the scheduled legacy-session sweep.
+    await ensureExamLivenessSchema(db);
     const savedAt = new Date(nowMs).toISOString();
     const leaseCutoff = new Date(nowMs - 15_000).toISOString();
     // Serialize school autosaves with an intentional attempt replacement.
     // A revoked token must not update historical answers even when an
     // in-flight request passed the earlier status preflight.
     const schoolAttempt = Boolean(signedStudentUserId && !decoded.contestParticipantId);
+    const contestAttempt = Boolean(decoded.contestParticipantId);
     const draftValuesSql = schoolAttempt
       ? `SELECT ?, ?, ?, ?, ?, ?
          WHERE EXISTS (
@@ -184,8 +189,30 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
          )
          AND NOT EXISTS (
            SELECT 1 FROM _exam_abandoned_attempts WHERE session_id = ?
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM _exam_attempt_liveness
+           WHERE session_id = ? AND (leave_requested_at IS NOT NULL OR finalizing_at IS NOT NULL OR finalized_at IS NOT NULL)
          )`
-      : 'VALUES (?, ?, ?, ?, ?, ?)';
+      : contestAttempt
+        ? `SELECT ?, ?, ?, ?, ?, ?
+           WHERE EXISTS (
+             SELECT 1 FROM _exam_active_attempts a
+             JOIN contest_attempts ca ON ca.ma_phien_thi=a.session_id
+             WHERE a.session_id=? AND a.exam_id=? AND a.user_id=?
+               AND ca.ma_de_thi=a.exam_id AND ca.ma_nguoi_du_thi=?
+               AND ca.trang_thai='DANG_LAM'
+             FOR UPDATE OF a
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM _exam_attempt_liveness
+             WHERE session_id=? AND (leave_requested_at IS NOT NULL OR finalizing_at IS NOT NULL OR finalized_at IS NOT NULL)
+           )`
+        : `SELECT ?, ?, ?, ?, ?, ?
+           WHERE NOT EXISTS (
+             SELECT 1 FROM _exam_attempt_liveness
+             WHERE session_id=? AND (leave_requested_at IS NOT NULL OR finalizing_at IS NOT NULL OR finalized_at IS NOT NULL)
+           )`;
     const draftSql = `
       INSERT INTO _exam_answer_drafts (session_id, answers_json, revision, saved_at, writer_id, writer_seen_at)
       ${draftValuesSql}
@@ -202,18 +229,26 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
           _exam_answer_drafts.writer_seen_at IS NULL OR
           _exam_answer_drafts.writer_seen_at < ?
         )
+        AND NOT EXISTS (
+          SELECT 1 FROM _exam_attempt_liveness
+          WHERE session_id = ? AND (leave_requested_at IS NOT NULL OR finalizing_at IS NOT NULL OR finalized_at IS NOT NULL)
+        )
     `;
     const draftWrite: any = await db.prepare(draftSql).bind(
       gradingSessionId, answersJson, revision, savedAt, writerId, savedAt,
       ...(schoolAttempt ? [
-        gradingSessionId, String(session.exam_id || ''), signedStudentUserId, gradingSessionId
-      ] : []),
-      leaseCutoff
+        gradingSessionId, String(session.exam_id || ''), signedStudentUserId, gradingSessionId, gradingSessionId
+      ] : contestAttempt ? [
+        gradingSessionId,String(session.exam_id||''),'contest:'+String(decoded.contestParticipantId),
+        String(decoded.contestParticipantId),gradingSessionId
+      ] : [gradingSessionId]),
+      leaseCutoff, gradingSessionId
     ).run();
-    if (schoolAttempt && Number(draftWrite?.meta?.changes || 0) === 0) {
+    if ((schoolAttempt || contestAttempt) && Number(draftWrite?.meta?.changes || 0) === 0) {
       const active: any = await db.prepare(
         'SELECT session_id FROM _exam_active_attempts WHERE session_id = ? AND exam_id = ? AND user_id = ?'
-      ).bind(gradingSessionId, String(session.exam_id || ''), signedStudentUserId).first();
+      ).bind(gradingSessionId,String(session.exam_id||''),
+        schoolAttempt?signedStudentUserId:'contest:'+String(decoded.contestParticipantId)).first();
       if (!active) return new Response(JSON.stringify({
         code:'EXAM_ATTEMPT_REVOKED',
         error:'Phiên thi này đã được thay thế. Không thể tiếp tục lưu vào bài thi cũ.'

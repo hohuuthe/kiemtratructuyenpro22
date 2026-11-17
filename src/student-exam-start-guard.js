@@ -105,3 +105,4 @@ export async function fetchExamStartResponse(fetcher, url, options = {}, timeout
     clearTimeout(timerId);
   }
 }
+
