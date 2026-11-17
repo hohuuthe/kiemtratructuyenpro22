@@ -52,10 +52,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     // Revocation is authoritative even if an old browser still retains a
     // PRESTART token for the abandoned grading session.
     try {
-      await db.prepare(`CREATE TABLE IF NOT EXISTS _exam_abandoned_attempts (
-        session_id TEXT PRIMARY KEY, exam_id TEXT NOT NULL, user_id TEXT NOT NULL,
-        reason TEXT NOT NULL, abandoned_at TEXT NOT NULL
-      )`).run();
+      await ensureSchoolResultReservationSchema(db);
       if (gradingSessionId) {
         const abandoned: any = await db.prepare(
           'SELECT session_id FROM _exam_abandoned_attempts WHERE session_id = ?'
