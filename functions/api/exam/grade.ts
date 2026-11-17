@@ -1235,6 +1235,15 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
                 new Date().toISOString(),
                 tokenHash,claimedResultId
             ).first();
+            // A superseded/expired claim must not insert a late score. A
+            // missing RETURNING row is proof that this attempt was revoked.
+            // Do not reuse an earlier result ID for another session.
+            const committedByThisClaim = await db.prepare(
+                'SELECT id FROM results WHERE id=? AND submission_token_hash=? LIMIT 1'
+            ).bind(resultId,tokenHash).first();
+            if (!committedByThisClaim?.id) {
+                throw new Error('EXAM_SUBMISSION_CLAIM_REVOKED');
+            }
             resultPersisted = true;
         } catch (dbErr) {
             console.error("Lỗi khi lưu kết quả bài thi vào CSDL:", dbErr);
