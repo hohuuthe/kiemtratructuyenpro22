@@ -9,7 +9,7 @@ assert.ok(match, 'The test must use the exact production replacement SQL, never 
 const exactSql = match[1];
 let argNumber = 0;
 const replacementSql = exactSql.replace(/\?/g, () => '$' + (++argNumber));
-assert.equal(argNumber, 25, 'Replacement statement bind contract changed; review query and test');
+assert.equal(argNumber, 26, 'Replacement statement bind contract changed; review query and test');
 
 async function fixture({used=0, canceled=0, processing=false}={}) {
   const db = new PGlite();
@@ -54,7 +54,7 @@ async function fixture({used=0, canceled=0, processing=false}={}) {
   if(processing) await db.query(`INSERT INTO _submitted_exam_tokens VALUES ('session-hash','processing',NULL)`);
   const args = [
     'exam-1:user-1','exam-1','user-1','old-session',
-    'new-session',expiry,now,
+    'new-session',expiry,now,now,
     'exam-1:user-1','new-session','new-session','session-hash','session-hash',
     3,'exam-1','user-1','exam-1','user-1',3,
     now,end,expiry,'new-session',
