@@ -53,17 +53,17 @@ export const onRequestPost: PagesFunction<Env> = async context => {
     const now = new Date(nowMs).toISOString();
     const cutoff = new Date(nowMs - EXAM_DISCONNECT_GRACE_MS).toISOString();
     const refreshed: any = await db.prepare(`
-      UPDATE _exam_active_attempts AS lock
+      UPDATE _exam_active_attempts AS active_lock
          SET last_seen_at = ?::timestamptz
-       WHERE lock.attempt_key = ? AND lock.exam_id = ? AND lock.user_id = ? AND lock.session_id = ?
-         AND COALESCE(lock.last_seen_at, lock.created_at::timestamptz) > ?::timestamptz
-         AND lock.expires_at::timestamptz > ?::timestamptz
+       WHERE active_lock.attempt_key = ? AND active_lock.exam_id = ? AND active_lock.user_id = ? AND active_lock.session_id = ?
+         AND COALESCE(active_lock.last_seen_at, active_lock.created_at::timestamptz) > ?::timestamptz
+         AND active_lock.expires_at::timestamptz > ?::timestamptz
          AND NOT EXISTS (
-           SELECT 1 FROM _exam_abandoned_attempts abandoned WHERE abandoned.session_id = lock.session_id
+           SELECT 1 FROM _exam_abandoned_attempts abandoned WHERE abandoned.session_id = active_lock.session_id
          )
          AND EXISTS (
            SELECT 1 FROM _exam_grade_sessions s
-            WHERE s.session_id = lock.session_id AND s.exam_id = lock.exam_id
+            WHERE s.session_id = active_lock.session_id AND s.exam_id = active_lock.exam_id
               AND s.started_at IS NOT NULL AND s.deadline_at IS NOT NULL
          )
        RETURNING session_id
