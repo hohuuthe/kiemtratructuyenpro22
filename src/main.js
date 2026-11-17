@@ -9214,7 +9214,7 @@ if (contentType && contentType.includes("application/json")) {
             }
             // Old-session processing never blocks an ordinary school exam:
             // only a registered public contest may retain its own resume lock.
-            if (window.__contestTicket && window.__EXAM_RESUME_BLOCK_NEW__) {
+            if (window.__contestTicket && examConfig?.chedodethi === 'Cuộc thi trực tuyến' && window.__EXAM_RESUME_BLOCK_NEW__) {
                 showToast('Cuộc thi trước đang được máy chủ xử lý. Vui lòng kiểm tra lại.', 'warning');
                 return;
             }
@@ -9280,6 +9280,10 @@ if (contentType && contentType.includes("application/json")) {
                     showToast('Không thể xác thực cấu hình đề thi đã chọn. Vui lòng chọn lại đề!', 'error');
                     return;
                 }
+
+                // Stale contest registration state never turns a school test
+                // into a contest or activates the contest's old-session lock.
+                const isPublicContestStart = Boolean(window.__contestTicket && examConfig?.chedodethi === 'Cuộc thi trực tuyến');
 
                 // Disable button to prevent double clicks
                 if (startBtn) {
@@ -9386,7 +9390,7 @@ if (contentType && contentType.includes("application/json")) {
                     userDonvi: (currentUser && (currentUser.donvi || currentUser.address)) ? (currentUser.donvi || currentUser.address) : inputDonvi,
                     examConfig,
                     examAccessCode: window._studentExamAccessCode || '',
-                    ...(window.__contestTicket && examConfig?.chedodethi === 'Cuộc thi trực tuyến' ? {contestTicket: window.__contestTicket} : {})
+                    ...(isPublicContestStart ? {contestTicket: window.__contestTicket} : {})
                 };
                 
                 const authToken = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
@@ -9422,7 +9426,7 @@ if (contentType && contentType.includes("application/json")) {
                 // Token PRESTART chỉ xác nhận đề đã được bốc/kiểm tra/snapshot trên server.
                 // Nội dung câu hỏi chưa được gửi xuống trình duyệt ở bước này.
                 window.currentExamToken = result.token;
-                if (window.__contestTicket) {
+                if (isPublicContestStart) {
                     try {
                         localStorage.setItem(window.tenantStorageKey('currentExamToken'), result.token);
                     } catch (_) {}
@@ -9496,14 +9500,14 @@ if (contentType && contentType.includes("application/json")) {
                     // Never start the server clock unless the public contest's
                     // exam interface can be displayed. Otherwise a lazy-load failure
                     // would consume a registered candidate's time unfairly.
-                    if (window.__contestTicket && !window.__contestCanShowExam?.()) {
+                    if (isPublicContestStart && !window.__contestCanShowExam?.()) {
                         showToast('Giao diện cuộc thi chưa sẵn sàng. Vui lòng thử lại trước khi bắt đầu tính giờ.', 'error');
                         return;
                     }
 
                     // For contests, fix the fullscreen target before starting the
                     // server clock; moving a fullscreen node later creates a false exit.
-                    if (window.__contestTicket && !window.__contestBeforeFullscreen?.()) {
+                    if (isPublicContestStart && !window.__contestBeforeFullscreen?.()) {
                         showToast('Phòng thi chưa sẵn sàng để mở toàn màn hình. Chưa tính giờ.', 'error');
                         return;
                     }
@@ -9513,7 +9517,7 @@ if (contentType && contentType.includes("application/json")) {
                     // Public contests keep their existing fullscreen target.
                     if (typeof window.enterExamFullscreen === 'function') {
                         Promise.resolve(window.enterExamFullscreen({
-                            awaitingSchoolStart: !window.__contestTicket
+                            awaitingSchoolStart: !isPublicContestStart
                         })).catch(() => {});
                     }
                     readyAccepted = true;
@@ -9531,7 +9535,7 @@ if (contentType && contentType.includes("application/json")) {
                             body: JSON.stringify({ token: window.currentExamToken })
                         }, 20000);
                         const startResult = response.body || {};
-                        if (window.__contestTicket && response.status === 409 &&
+                        if (isPublicContestStart && response.status === 409 &&
                             (startResult.code === 'EXAM_ATTEMPT_ALREADY_ACTIVE' || startResult.code === 'EXAM_REPLACEMENT_CONFLICT')) {
                             // Never create a recursive Start/READY loop. The
                             // server may have received another concurrent start.
@@ -9547,13 +9551,13 @@ if (contentType && contentType.includes("application/json")) {
                             throw error;
                         }
                         window.currentExamToken = startResult.token;
-                        if (window.__contestTicket) {
+                        if (isPublicContestStart) {
                             try {
                             localStorage.setItem(window.tenantStorageKey('currentExamToken'), startResult.token);
                             localStorage.removeItem(window.tenantStorageKey('pending_exam_violation_events'));
                             localStorage.setItem(window.tenantStorageKey('active_exam_resume_meta'), JSON.stringify({
                                 phase: 'active',
-                                entryTab: window.__contestTicket && examConfig?.chedodethi === 'Cuộc thi trực tuyến' ? 'contest' : 'exam',
+                                entryTab: isPublicContestStart ? 'contest' : 'exam',
                                 writerId: getExamWriterId(),
                                 studentName: name,
                                 studentLop: inputLop,
@@ -9579,7 +9583,7 @@ if (contentType && contentType.includes("application/json")) {
                         currentExam.timeLimitSeconds = Math.max(1, Number(startResult.timeLimitSeconds) || Number(currentExam.timeLimitSeconds) || 1);
 
                         closeModal();
-                        if (window.__contestTicket && examConfig?.chedodethi === 'Cuộc thi trực tuyến') {
+                        if (isPublicContestStart) {
                             window.__contestOnExamStarted?.();
                         }
                         startExamUI(true);
@@ -9596,7 +9600,7 @@ if (contentType && contentType.includes("application/json")) {
                                 setTimeout(() => { window.intentionalFullscreenExit = false; }, 300);
                             }
                         } catch(e) {}
-                        if (window.__contestTicket) window.__contestAfterStartRejected?.();
+                        if (isPublicContestStart) window.__contestAfterStartRejected?.();
                         showToast(error?.message || 'Không thể bắt đầu bài thi. Vui lòng thử lại.', 'error');
                     }
                 });
