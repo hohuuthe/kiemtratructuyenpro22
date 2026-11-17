@@ -264,6 +264,10 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     if (signedStudentUserId && !contestParticipantId && examId) {
       try {
         await ensureExamLivenessSchema(db);
+        await db.prepare(`CREATE TABLE IF NOT EXISTS _exam_active_attempts (
+          attempt_key TEXT PRIMARY KEY, exam_id TEXT NOT NULL, user_id TEXT NOT NULL,
+          session_id TEXT NOT NULL, expires_at TEXT NOT NULL, created_at TEXT NOT NULL
+        )`).run();
         const oldKey = examId + ':' + signedStudentUserId;
         const locked: any = await db.prepare(
           'SELECT session_id FROM _exam_active_attempts WHERE attempt_key = ?'
