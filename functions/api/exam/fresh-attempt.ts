@@ -58,16 +58,20 @@ WITH previous AS MATERIALIZED (
   RETURNING session_id
 ), retired_contest AS (
   UPDATE contest_attempts ca SET
-    trang_thai=CASE
-      WHEN r.id IS NULL THEN 'HUY' ELSE 'DA_NOP' END,
-    ma_ket_qua=COALESCE(ca.ma_ket_qua,r.id),
-    thoi_diem_nop=CASE
-      WHEN r.id IS NOT NULL THEN COALESCE(ca.thoi_diem_nop,now())
-      ELSE ca.thoi_diem_nop END
+    trang_thai=CASE WHEN EXISTS(
+      SELECT 1 FROM results r WHERE r.ma_phien_thi=ca.ma_phien_thi
+      AND r.ma_nguoi_du_thi=ca.ma_nguoi_du_thi AND r.exam_id=ca.ma_de_thi
+    ) THEN 'DA_NOP' ELSE 'HUY' END,
+    ma_ket_qua=COALESCE(ca.ma_ket_qua,(
+      SELECT r.id FROM results r WHERE r.ma_phien_thi=ca.ma_phien_thi
+      AND r.ma_nguoi_du_thi=ca.ma_nguoi_du_thi AND r.exam_id=ca.ma_de_thi
+      ORDER BY r.created_at DESC LIMIT 1
+    )),
+    thoi_diem_nop=CASE WHEN EXISTS(
+      SELECT 1 FROM results r WHERE r.ma_phien_thi=ca.ma_phien_thi
+      AND r.ma_nguoi_du_thi=ca.ma_nguoi_du_thi AND r.exam_id=ca.ma_de_thi
+    ) THEN COALESCE(ca.thoi_diem_nop,now()) ELSE ca.thoi_diem_nop END
   FROM audited a
-  LEFT JOIN results r ON r.ma_phien_thi=a.session_id
-    AND r.ma_nguoi_du_thi=ca.ma_nguoi_du_thi
-    AND r.exam_id=ca.ma_de_thi
   WHERE ca.ma_phien_thi=a.session_id AND ca.trang_thai='DANG_LAM'
     AND EXISTS(SELECT 1 FROM claimed)
   RETURNING ca.ma_phien_thi
