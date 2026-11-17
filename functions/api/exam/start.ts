@@ -256,25 +256,30 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
     const timeLimitSeconds = normalizeExamTimeLimitSeconds(decoded.timeLimitSeconds);
 
+    // Applies to authenticated school students AND signed contest participants.
+    // An old contest record also has a UNIQUE active participant/exam constraint;
+    // ignoring it strands subsequent exams even if the school lock was cleaned.
     // Reconcile a past attempt BEFORE checking remaining quota. If its result
     // was just committed, the fresh quota query below must count it. A frozen
     // attempt that cannot be safely graded remains locked; never invent marks.
     // This also makes a new exam start independent of a deployed Cron schedule
     // when the student returns after the 90-second timeout.
-    if (signedStudentUserId && !contestParticipantId && examId) {
+    if (signedAttemptUserId && examId) {
       try {
         await ensureExamLivenessSchema(db);
         await db.prepare(`CREATE TABLE IF NOT EXISTS _exam_active_attempts (
           attempt_key TEXT PRIMARY KEY, exam_id TEXT NOT NULL, user_id TEXT NOT NULL,
           session_id TEXT NOT NULL, expires_at TEXT NOT NULL, created_at TEXT NOT NULL
         )`).run();
-        const oldKey = examId + ':' + signedStudentUserId;
+        const oldKey = examId + ':' + signedAttemptUserId;
         const locked: any = await db.prepare(
           'SELECT session_id FROM _exam_active_attempts WHERE attempt_key = ?'
         ).bind(oldKey).first();
         const oldId = String(locked?.session_id || '');
         if (oldId && oldId !== gradingSessionId) {
-          const archived = await reconcileExpiredLegacyOrphan(db, oldKey, oldId);
+          const archived = signedStudentUserId && !contestParticipantId
+            ? await reconcileExpiredLegacyOrphan(db, oldKey, oldId)
+            : false;
           if (!archived) {
             // Pre-heartbeat historical sessions may have a fully frozen exam
             // and an expired deadline, but no liveness row yet. Bootstrap only
