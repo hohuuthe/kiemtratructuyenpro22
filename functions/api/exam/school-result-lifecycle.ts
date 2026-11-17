@@ -36,7 +36,8 @@ export const SCHOOL_RESULT_ABORTED = 'ABANDONED';
  * snapshot, and reserving the result happen in ONE PostgreSQL statement.
  * Unique (exam_id,user_id,attempt_no) makes concurrent starts race safely:
  * at most one of two claims with the same remaining slot can succeed.
- * A losing request receives a bounded retry/error, NEVER a resume dialog.
+ * A conflicting INSERT raises a unique violation and rolls back the entire
+ * activation statement. It NEVER leaves a started snapshot without a slot.
  */
 export async function claimSchoolResultAtStart(db: any, params: {
   examId: string; userId: string; sessionId: string; tokenHash: string;
@@ -80,7 +81,6 @@ export async function claimSchoolResultAtStart(db: any, params: {
       SELECT ?,?,?,?,?,?,?,?,0,0,0,?,'[]','Đã đăng nhập',?,
              'IN_PROGRESS',?,quota.next_no,?::timestamptz
       FROM activated CROSS JOIN quota
-      ON CONFLICT DO NOTHING
       RETURNING id, attempt_no
     )
     SELECT reserved.id, reserved.attempt_no, activated.started_at, activated.deadline_at
