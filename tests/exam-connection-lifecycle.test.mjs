@@ -45,9 +45,9 @@ test('Heartbeat must verify the id actually returned by the successful SQL UPDAT
   const source = readFileSync('functions/api/exam/heartbeat.ts', 'utf8');
   const sql = source.split('const refreshed: any = await db.prepare(')[1]?.split(').bind(')[0];
   assert.ok(sql, 'Heartbeat update SQL exists');
-  assert.match(sql, /RETURNING current_attempt\\.id/);
-  assert.match(source, /if \\(!refreshed\\?\\.id\\)/);
-  assert.doesNotMatch(source, /if \\(!refreshed\\?\\.session_id\\)/);
+  assert.match(sql, /RETURNING current_attempt\.id/);
+  assert.match(source, /if \(!refreshed\?\.id\)/);
+  assert.doesNotMatch(source, /if \(!refreshed\?\.session_id\)/);
 });
 
 test('PostgreSQL heartbeat renews a valid attempt, not a stale, foreign or superseded attempt', async () => {
@@ -56,7 +56,7 @@ test('PostgreSQL heartbeat renews a valid attempt, not a stale, foreign or super
   const statement = source.split('const refreshed: any = await db.prepare(`')[1]?.split('`).bind(')[0];
   assert.ok(statement, 'Must exercise the production UPDATE SQL');
   let n = 0;
-  const sql = statement.replace(/\\?/g, () => '$' + (++n));
+  const sql = statement.replace(/\?/g, () => '$' + (++n));
   assert.equal(n, 5);
   const db = new PGlite();
   const now = '2026-11-17T08:00:00.000Z';
