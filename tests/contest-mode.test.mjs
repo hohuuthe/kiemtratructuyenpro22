@@ -178,10 +178,13 @@ test('Shared family telephone does not merge different named contestants',()=>{
  assert.match(register,/v\.unit\.toLocaleLowerCase\('vi-VN'\)/);
  assert.doesNotMatch(register,/Số điện thoại này đã được dùng với hồ sơ dự thi khác/);
 });
-test('Prestart crash recovery reclaims reservation only if earlier clock never started',()=>{
+test('Contest start ignores the old session while verifying current READY snapshot',()=>{
  const start=source('functions/api/exam/start.ts');
- assert.match(start,/gs\.started_at IS NOT NULL/);
- assert.match(start,/AND gs\.expires_at > \?/);
+ const claims=source('functions/api/exam/contest-start-claims.ts');
+ assert.match(start,/claimContestStart/);
+ assert.match(claims,/session\.started_at IS NULL/);
+ assert.match(claims,/session\.session_id = \?/);
+ assert.doesNotMatch(start,/_exam_active_attempts|UPDATE contest_attempts/);
 });
 
 test('All score submission and idempotent replay paths redact nested marking data',()=>{
