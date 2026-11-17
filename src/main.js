@@ -4543,7 +4543,7 @@ if (contentTypeData && contentTypeData.includes("application/json")) {
                 // Keep the current tab as owner if a learner declines cancellation.
                 // The earlier eager requestedTab update must not corrupt navigation.
                 requestedTab = previousTab || activeExamOwnerTab;
-                showConfirmModal('Phiên thi vẫn được giữ trên máy chủ và thời gian tiếp tục tính. Nếu rời phòng thi bạn phải khôi phục để làm tiếp. Bạn có muốn rời giao diện hiện tại?', () => {
+                showConfirmModal('Nếu rời phòng thi, bài đã lưu sẽ được máy chủ chốt sau 90 giây không liên lạc. Bạn có muốn rời phòng thi?', () => {
                     resetExam({ preserveActiveResume: true });
                     switchTab(tabName);
                 });
@@ -8955,8 +8955,16 @@ if (contentType && contentType.includes("application/json")) {
         }
 
         async function tryResumeActiveExam() {
-            clearStoredActiveExamResume();
-            return false;
+            // Contest mode keeps its existing resume contract; school exams do not.
+            let savedEntryTab = '';
+            try {
+                const meta = JSON.parse(localStorage.getItem(window.tenantStorageKey('active_exam_resume_meta')) || '{}');
+                savedEntryTab = String(meta?.entryTab || '');
+            } catch (_) {}
+            if (savedEntryTab !== 'contest') {
+                clearStoredActiveExamResume();
+                return false;
+            }
             if (isAdminLoggedIn || isTeacherLoggedIn) return false;
 
             let token = '';
