@@ -1,7 +1,7 @@
 import { verifyAuthSession, verifyJWT, signJWT, getDynamicSecret, getDatabase, hashToken } from './utils';
 import { publicContestExam } from '../contest/register';
 import { ensureExamLivenessSchema, initializeExamLiveness, finalizeExamLiveness, registerExpiredLegacyExamAttemptById, reconcileCommittedContestResult } from './finalize-service';
-import { reconcileExpiredLegacyOrphan } from './orphan-reconcile';
+import { reconcileExpiredLegacyOrphan, reconcileExpiredContestOrphan } from './orphan-reconcile';
 import { stripContestAnswerHints } from '../../../src/exam-public-contest-projection';
 import {
   EXAM_SESSION_PURPOSE_PRESTART,
@@ -292,7 +292,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
           }
           const archived = signedStudentUserId && !contestParticipantId
             ? await reconcileExpiredLegacyOrphan(db, oldKey, oldId)
-            : false;
+            : contestParticipantId
+              ? await reconcileExpiredContestOrphan(db,oldKey,oldId,contestParticipantId)
+              : false;
           if (!archived) {
             // Pre-heartbeat historical sessions may have a fully frozen exam
             // and an expired deadline, but no liveness row yet. Bootstrap only
