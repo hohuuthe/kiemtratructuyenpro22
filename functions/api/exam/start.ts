@@ -117,6 +117,14 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     if (!snapshot) {
       return new Response(JSON.stringify({ code:'EXAM_READY_REGENERATE_REQUIRED',error:'Phiên chuẩn bị thi không còn tồn tại. Hệ thống cần tạo bộ câu hỏi mới.' }), { status: 409, headers: corsHeaders });
     }
+    if (snapshot.started_at) {
+      // A PRESTART token must never reopen a session whose server clock
+      // already began, including a timed-out or stale browser response.
+      return new Response(JSON.stringify({
+        code:'EXAM_READY_REGENERATE_REQUIRED',
+        error:'Phiên chuẩn bị thi này đã được sử dụng. Hệ thống cần tạo phiên thi mới.'
+      }),{status:409,headers:corsHeaders});
+    }
     const nowMs = Date.now();
     if (snapshot.expires_at && new Date(String(snapshot.expires_at)).getTime() <= nowMs) {
       return new Response(JSON.stringify({ code:'EXAM_READY_REGENERATE_REQUIRED',error:'Phiên chuẩn bị thi đã hết hạn. Hệ thống cần tạo bộ câu hỏi mới.' }), { status: 409, headers: corsHeaders });
