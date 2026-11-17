@@ -223,9 +223,21 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         if (trustedFinalizer && sessionStudentUserId) {
             // Authentication was checked when the attempt started. Revalidate
             // the locked attempt owner from the tenant database, not the body.
-            const owner: any = await db.prepare(
-                'SELECT user_id FROM _exam_active_attempts WHERE session_id=? AND user_id=?'
-            ).bind(String(gradingSessionId),String(sessionStudentUserId)).first();
+            const owner: any = await db.prepare(`
+                SELECT user_id FROM _exam_active_attempts
+                WHERE session_id=? AND user_id=?
+                UNION ALL
+                SELECT source_data->>'user_id' AS user_id
+                FROM _exam_discarded_session_archive
+                WHERE session_id=? AND kind='fresh_lock'
+                  AND source_data->>'user_id'=?
+                  AND source_data->>'exam_id'=?
+                  AND EXISTS(SELECT 1 FROM _exam_grade_sessions gs
+                    WHERE gs.session_id=? AND gs.exam_id=? AND gs.started_at IS NOT NULL)
+            `).bind(String(gradingSessionId),String(sessionStudentUserId),
+                String(gradingSessionId),String(sessionStudentUserId),
+                String(decoded?.examConfig?.id||''),String(gradingSessionId),
+                String(decoded?.examConfig?.id||'')).first();
             if (!owner) return new Response(JSON.stringify({error:'Trusted attempt owner mismatch'}),{status:403,headers:corsHeaders});
             authenticatedUserId = String(sessionStudentUserId);
             const profile: any = await db.prepare(
@@ -248,6 +260,15 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                       WHERE a.session_id=ca.ma_phien_thi AND a.exam_id=ca.ma_de_thi
                         AND a.user_id='contest:'||ca.ma_nguoi_du_thi
                     ))
+                    OR (ca.trang_thai='HUY' AND ?=1 AND EXISTS(
+                      SELECT 1 FROM _exam_discarded_session_archive ar
+                      WHERE ar.session_id=ca.ma_phien_thi AND ar.kind='fresh_lock'
+                        AND ar.source_data->>'user_id'='contest:'||ca.ma_nguoi_du_thi
+                        AND ar.source_data->>'exam_id'=ca.ma_de_thi
+                    ) AND EXISTS(
+                      SELECT 1 FROM _exam_grade_sessions gs
+                      WHERE gs.session_id=ca.ma_phien_thi AND gs.started_at IS NOT NULL
+                    ))
                     OR (ca.trang_thai='DA_NOP' AND EXISTS(
                       SELECT 1 FROM results r
                       WHERE r.ma_phien_thi=ca.ma_phien_thi
@@ -255,7 +276,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                         AND r.exam_id=ca.ma_de_thi
                     ))
                   )
-            `).bind(String(gradingSessionId || ''),contestParticipantId,String(decoded?.examConfig?.id || '')).first();
+            `).bind(String(gradingSessionId || ''),contestParticipantId,String(decoded?.examConfig?.id || ''),trustedFinalizer?1:0).first();
             if (!candidate || !attempt) return new Response(JSON.stringify({error:'Không xác minh được người dự thi hoặc phiên dự thi đã đăng ký.'}),{status:403,headers:corsHeaders});
             authenticatedUserId = null;
             authenticatedStudentName = String(candidate.ho_ten);
@@ -1061,10 +1082,20 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
                 ? `INSERT INTO _submitted_exam_tokens
                      (token_hash, exam_id, student_name, user_id, submitted_at, status, result_id, claimed_at)
                    SELECT ?, ?, ?, ?, ?, ?, ?, ?
-                   WHERE EXISTS (
-                     SELECT 1 FROM _exam_active_attempts
-                     WHERE session_id = ? AND exam_id = ? AND user_id = ?
-                     FOR UPDATE
+                   WHERE (
+                     EXISTS (
+                       SELECT 1 FROM _exam_active_attempts
+                       WHERE session_id = ? AND exam_id = ? AND user_id = ?
+                       FOR UPDATE
+                     )
+                     OR (?=1 AND EXISTS (
+                       SELECT 1 FROM _exam_discarded_session_archive ar
+                       WHERE ar.session_id=? AND ar.kind='fresh_lock'
+                         AND ar.source_data->>'user_id'=?
+                         AND ar.source_data->>'exam_id'=?
+                         AND EXISTS(SELECT 1 FROM _exam_grade_sessions gs
+                           WHERE gs.session_id=ar.session_id AND gs.started_at IS NOT NULL)
+                     ))
                    )
                    AND NOT EXISTS (
                      SELECT 1 FROM _exam_abandoned_attempts WHERE session_id = ?
@@ -1074,7 +1105,7 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
                 ? `INSERT INTO _submitted_exam_tokens
                      (token_hash, exam_id, student_name, user_id, submitted_at, status, result_id, claimed_at)
                    SELECT ?, ?, ?, ?, ?, ?, ?, ?
-                   WHERE EXISTS (
+                   WHERE (EXISTS (
                      SELECT 1 FROM _exam_active_attempts a
                      JOIN contest_attempts ca ON ca.ma_phien_thi=a.session_id
                      WHERE a.session_id=? AND a.exam_id=? AND a.user_id=?
@@ -1082,6 +1113,16 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
                        AND ca.trang_thai='DANG_LAM'
                      FOR UPDATE OF a
                    )
+                   OR (?=1 AND EXISTS(
+                     SELECT 1 FROM contest_attempts ca
+                     JOIN _exam_discarded_session_archive ar
+                       ON ar.session_id=ca.ma_phien_thi AND ar.kind='fresh_lock'
+                     JOIN _exam_grade_sessions gs ON gs.session_id=ca.ma_phien_thi
+                     WHERE ca.ma_phien_thi=? AND ca.ma_de_thi=?
+                       AND ca.ma_nguoi_du_thi=? AND ca.trang_thai='HUY'
+                       AND ar.source_data->>'user_id'='contest:'||ca.ma_nguoi_du_thi
+                       AND gs.started_at IS NOT NULL
+                   )))
                    ON CONFLICT(token_hash) DO NOTHING`
                 : "INSERT INTO _submitted_exam_tokens (token_hash, exam_id, student_name, user_id, submitted_at, status, result_id, claimed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (token_hash) DO NOTHING";
             const claim = await db.prepare(claimSql).bind(
@@ -1095,10 +1136,15 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
                 new Date().toISOString(),
                 ...(schoolAttempt ? [
                     String(gradingSessionId), String(examConfig.id || studentInfo.examId || ''),
-                    signedStudentUserId, String(gradingSessionId)
+                    signedStudentUserId,
+                    trustedFinalizer?1:0,String(gradingSessionId),signedStudentUserId,
+                    String(examConfig.id||studentInfo.examId||''),
+                    String(gradingSessionId)
                 ] : contestAttempt ? [
                     String(gradingSessionId),String(examConfig.id||studentInfo.examId||''),
-                    'contest:'+contestParticipantId,contestParticipantId
+                    'contest:'+contestParticipantId,contestParticipantId,
+                    trustedFinalizer?1:0,String(gradingSessionId),
+                    String(examConfig.id||studentInfo.examId||''),contestParticipantId
                 ] : [])
             ).run();
             if (Number(claim?.meta?.changes || 0) !== 1) {
