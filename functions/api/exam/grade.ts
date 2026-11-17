@@ -2,6 +2,7 @@ import { verifyAuthSession, verifyJWT, getDynamicSecret, hashToken, getDatabase 
 import { evaluateTF4, isShortAnswerCorrect, examFlagEnabled, clampScore, roundScore, validateQuestionAnswer } from '../../../src/exam-grading-core.js';
 import { EXAM_SESSION_PURPOSE_PRESTART, EXAM_SESSION_PURPOSE_ACTIVE, resolveAuthoritativeExamTiming } from '../../../src/exam-time-authority.js';
 import { findSchoolResultBySession, isSchoolResultProvisional } from './school-result-lifecycle';
+import { findContestStartClaim } from './contest-start-claims';
 import { stripContestAnswerHints } from '../../../src/exam-public-contest-projection';
 
 interface Env {
@@ -218,22 +219,21 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         const contestParticipantId = String(decoded.contestParticipantId || '').trim();
         if (contestParticipantId) {
             const candidate: any = await db.prepare('SELECT ma_nguoi_du_thi, ho_ten, don_vi FROM contest_participants WHERE ma_nguoi_du_thi = ?').bind(contestParticipantId).first();
-            const attempt: any = await db.prepare('SELECT ma_phien_thi FROM contest_attempts WHERE ma_phien_thi = ? AND ma_nguoi_du_thi = ? AND ma_de_thi = ?').bind(String(gradingSessionId || ''),contestParticipantId,String(decoded?.examConfig?.id || '')).first();
-            if (!candidate || !attempt) return new Response(JSON.stringify({error:'Không xác minh được người dự thi hoặc phiên dự thi đã đăng ký.'}),{status:403,headers:corsHeaders});
+            // Validate ONLY the signed current attempt, not any prior contest session.
+            const examId = String(decoded?.examConfig?.id || '');
+            const currentClaim = await findContestStartClaim(db, String(gradingSessionId || ''), contestParticipantId, examId);
+            const legacyAttempt: any = currentClaim ? null : await db.prepare(
+              'SELECT ma_phien_thi FROM contest_attempts WHERE ma_phien_thi = ? AND ma_nguoi_du_thi = ? AND ma_de_thi = ?'
+            ).bind(String(gradingSessionId || ''),contestParticipantId,examId).first();
+            if (!candidate || (!currentClaim && !legacyAttempt)) return new Response(JSON.stringify({
+              error:'Không xác minh được người dự thi hoặc lượt thi hiện tại đã bắt đầu.'
+            }),{status:403,headers:corsHeaders});
             authenticatedUserId = null;
             authenticatedStudentName = String(candidate.ho_ten);
             authenticatedLop = '';
             authenticatedDonvi = String(candidate.don_vi);
         }
         let examConfig: any = decoded.examConfig || {};
-        const releaseActiveAttemptLock = async () => {
-            if (!gradingSessionId) return;
-            try {
-                await db.prepare('DELETE FROM _exam_active_attempts WHERE session_id = ?')
-                    .bind(String(gradingSessionId)).run();
-            } catch {}
-        };
-
         // Verify session ownership BEFORE any replay/result lookup.
         const verifiedRequestUserId = authenticatedUserId ? String(authenticatedUserId) : '';
         const signedStudentUserId = sessionStudentUserId ? String(sessionStudentUserId) : '';
@@ -323,7 +323,6 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                         const replayDetails = storedDetails.map((d: any) =>
                             sanitizeGradingDetailForClient(d, replayShowDetails, Boolean(contestParticipantId))
                         );
-                        await releaseActiveAttemptLock();
                         return new Response(JSON.stringify({
                             resultId: stored.id,
                             score: Number(stored.score) || 0,
@@ -1079,7 +1078,6 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
                             sanitizeGradingDetailForClient(d, showDetailsOnReplay, Boolean(contestParticipantId))
                         );
                         const replayGradingPending = hasPendingEssayGrading(storedDetails);
-                        await releaseActiveAttemptLock();
                         return new Response(JSON.stringify({
                             resultId: stored.id,
                             score: Number(stored.score) || 0,
@@ -1267,7 +1265,6 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
             for (const [sql, label] of [
                 ['DELETE FROM _exam_answer_drafts WHERE session_id = ?', 'answer draft'],
                 ['DELETE FROM _exam_violation_events WHERE session_id = ?', 'violation events'],
-                ['DELETE FROM _exam_active_attempts WHERE session_id = ?', 'active attempt lock'],
                 ['DELETE FROM _exam_grade_sessions WHERE session_id = ?', 'grading snapshot']
             ]) {
                 try {
