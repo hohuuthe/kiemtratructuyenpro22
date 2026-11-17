@@ -63,9 +63,9 @@ window.__contestBeforeFullscreen=function(){
   // Otherwise the hidden ancestor makes fullscreen fail on mobile.
   if(!tab.classList.contains('active'))window.switchTab?.('contest');
   if(!tab.classList.contains('active'))return false;
-  // requestFullscreen() rejects display:none. Reveal a blank container only
-  // after explicit READY acceptance; no question or timer exists yet.
-  root.classList.remove('hidden');
+  // During READY fullscreen targets document.body; keep the empty exam
+  // interface hidden until /api/exam/start returns verified questions.
+  root.classList.add('hidden');
   findEl('contest-registration')?.classList.add('hidden');
   window.__contestStartPending=true;
   return true;
