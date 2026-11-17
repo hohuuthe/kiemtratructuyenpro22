@@ -1,5 +1,6 @@
 import { verifyAuthSession, verifyJWT, signJWT, getDynamicSecret, getDatabase, hashToken } from './utils';
 import { publicContestExam } from '../contest/register';
+import { claimSchoolResultAtStart, ensureSchoolResultReservationSchema, findSchoolResultBySession } from './school-result-lifecycle';
 import { stripContestAnswerHints } from '../../../src/exam-public-contest-projection';
 import {
   EXAM_SESSION_PURPOSE_PRESTART,
@@ -249,32 +250,8 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
     const timeLimitSeconds = normalizeExamTimeLimitSeconds(decoded.timeLimitSeconds);
 
-    let oldSchoolAttemptSessionId = '';
-    // A click to start a fresh school exam authorizes replacement. Derive the
-    // previous lock solely from authenticated tenant DB, never a browser token.
-    if (signedStudentUserId && !contestParticipantId && examId) {
-      try {
-        await db.prepare(`CREATE TABLE IF NOT EXISTS _exam_active_attempts (
-          attempt_key TEXT PRIMARY KEY, exam_id TEXT NOT NULL, user_id TEXT NOT NULL,
-          session_id TEXT NOT NULL, expires_at TEXT NOT NULL, created_at TEXT NOT NULL
-        )`).run();
-        await db.prepare('ALTER TABLE _exam_active_attempts ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ DEFAULT NOW()').run();
-        const active: any = await db.prepare(
-          'SELECT session_id FROM _exam_active_attempts WHERE attempt_key = ? AND exam_id = ? AND user_id = ?'
-        ).bind(examId + ':' + signedStudentUserId, examId, signedStudentUserId).first();
-        if (active?.session_id && String(active.session_id) !== gradingSessionId) {
-          oldSchoolAttemptSessionId = String(active.session_id);
-        }
-      } catch (error) {
-        console.error('Cannot safely inspect active school attempt before start:',error);
-        return new Response(JSON.stringify({
-          code:'EXAM_ATTEMPT_STATE_UNAVAILABLE',
-          error:'Chưa thể kiểm tra phiên thi trước. Vui lòng thử lại khi có kết nối.'
-        }),{status:503,headers:corsHeaders});
-      }
-    }
-
     let completedAttemptsForQuota = 0;
+    let legacyAttemptsForQuota = 0;
     // Chốt quyền lượt làm LẦN CUỐI ngay trước khi bắt đầu đồng hồ. Generate chỉ là
     // bước READY; nhiều READY token song song không được phép tiêu thụ nhiều lượt.
     if (signedAttemptUserId && examId) {
@@ -328,9 +305,11 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
                    AND LOWER(TRIM(student_name)) = LOWER(TRIM(?))
                    AND LOWER(TRIM(COALESCE(lop,''))) = LOWER(TRIM(?))`
               ).bind(examId, profileName, profileClass).all();
-              completedAttempts += (legacyRows || []).filter((row: any) =>
+              const matchedLegacy = (legacyRows || []).filter((row: any) =>
                 normalizeLegacyUnit(row?.don_vi) === canonicalProfileUnit
               ).length;
+              completedAttempts += matchedLegacy;
+              legacyAttemptsForQuota += matchedLegacy;
             }
           }
 
@@ -353,9 +332,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       }
     }
 
-    // A canceled ACTIVE attempt consumes its original attempt. The currently
-    // active attempt also consumes one slot when explicitly replaced. Results
-    // already submitted are counted separately as before.
+    // Historic canceled attempts predate durable result reservations. Count
+    // these once to protect quotas during an incremental rollout; new starts
+    // exclusively consume a results row and never create canceled-lock rows.
     if (signedStudentUserId && !contestParticipantId) {
       try {
         await db.prepare(`CREATE TABLE IF NOT EXISTS _exam_abandoned_attempts (
@@ -364,25 +343,13 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         )`).run();
         const canceled: any = await db.prepare(
           'SELECT COUNT(*) AS count FROM _exam_abandoned_attempts WHERE exam_id = ? AND user_id = ?'
-        ).bind(examId, signedStudentUserId).first();
-        const usedCanceled = Math.max(0, Number(canceled?.count) || 0);
-        const completed = Math.max(0, Number(completedAttemptsForQuota) || 0);
-        const replacement = oldSchoolAttemptSessionId;
-        const maxAttempts = Number(authoritativeExamRow?.max_attempts);
-        if (!Number.isInteger(maxAttempts) || maxAttempts < 0) {
-          return new Response(JSON.stringify({code:'EXAM_ATTEMPT_CONFIG_INVALID',error:'Giới hạn lượt thi không hợp lệ.'}),{status:409,headers:corsHeaders});
-        }
-        if (maxAttempts > 0 && completed + usedCanceled + (replacement ? 1 : 0) >= maxAttempts) {
-          return new Response(JSON.stringify({
-            code:'EXAM_ATTEMPT_LIMIT_REACHED',
-            attemptCount:completed + usedCanceled + (replacement ? 1 : 0),maxAttempts,
-            error:'Bạn không còn đủ lượt làm bài để tạo phiên mới.'
-          }),{status:403,headers:corsHeaders});
-        }
-      } catch (quotaError) {
-        console.error('Cannot validate canceled attempt count:',quotaError);
-        return new Response(JSON.stringify({code:'EXAM_ATTEMPT_COUNT_UNAVAILABLE',
-          error:'Không thể xác minh đầy đủ lượt đã sử dụng. Bài thi chưa bắt đầu.'}),{status:503,headers:corsHeaders});
+        ).bind(examId,signedStudentUserId).first();
+        legacyAttemptsForQuota += Math.max(0,Number(canceled?.count) || 0);
+      } catch (error) {
+        console.error('Cannot count historical canceled attempts:',error);
+        return new Response(JSON.stringify({
+          code:'EXAM_ATTEMPT_COUNT_UNAVAILABLE',error:'Không thể xác minh số lượt thi đã dùng.'
+        }),{status:503,headers:corsHeaders});
       }
     }
 
@@ -395,133 +362,84 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     const proposedActiveExpiresAtMs = proposedDeadlineAtMs + 60 * 60 * 1000;
     const proposedActiveExpiresAt = new Date(proposedActiveExpiresAtMs).toISOString();
 
-    // Với học sinh đã đăng nhập, chỉ cho phép một phiên ACTIVE trên cùng một đề.
-    // Khóa DB này chặn hai tab/thiết bị cùng vượt giới hạn lượt dù cả hai đã có READY token.
-    if (signedAttemptUserId && examId) {
+    let schoolReserved = false;
+    if (signedStudentUserId && !contestParticipantId) {
       try {
-        await db.prepare(`
-          CREATE TABLE IF NOT EXISTS _exam_active_attempts (
-            attempt_key TEXT PRIMARY KEY,
-            exam_id TEXT NOT NULL,
-            user_id TEXT NOT NULL,
-            session_id TEXT NOT NULL,
-            expires_at TEXT NOT NULL,
-            created_at TEXT NOT NULL
-          )
-        `).run();
-        await db.prepare('ALTER TABLE _exam_active_attempts ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ DEFAULT NOW()').run();
-        const attemptKey = examId + ':' + signedAttemptUserId;
-        const replacementId = oldSchoolAttemptSessionId;
-        if (replacementId) {
-          // Commit swap + revocation together. No separate "delete old then
-          // create new" request can strand a student without an attempt.
-          // The lock row serializes concurrent replacement requests.
-          await db.prepare(`CREATE TABLE IF NOT EXISTS _submitted_exam_tokens (
-            token_hash TEXT PRIMARY KEY, exam_id TEXT, student_name TEXT, user_id TEXT,
-            submitted_at TEXT, status TEXT, result_id TEXT, claimed_at TEXT
-          )`).run();
-          for (const column of ['status','result_id']) {
-            await db.prepare('ALTER TABLE _submitted_exam_tokens ADD COLUMN IF NOT EXISTS ' + column + ' TEXT').run();
-          }
-          const submissionHash = await hashToken('exam-session:' + replacementId);
-          const replaced: any = await db.prepare(`
-            WITH old AS (
-              SELECT session_id
-              FROM _exam_active_attempts
-              WHERE attempt_key = ? AND exam_id = ? AND user_id = ? AND session_id = ?
-              FOR UPDATE
-            ),
-            switched AS (
-              UPDATE _exam_active_attempts AS active_lock
-              SET session_id = ?, expires_at = ?, created_at = ?, last_seen_at = ?::timestamptz
-              FROM old
-              WHERE active_lock.attempt_key = ? AND active_lock.session_id = old.session_id
-                AND old.session_id <> ?
-                AND EXISTS (
-                  SELECT 1 FROM _exam_grade_sessions ready
-                  WHERE ready.session_id = ? AND ready.started_at IS NULL
-                  FOR UPDATE
-                )
-                AND NOT EXISTS (
-                  SELECT 1 FROM _submitted_exam_tokens s
-                  WHERE s.token_hash = ? AND s.status IN ('processing','completed')
-                )
-                AND NOT EXISTS (
-                  SELECT 1 FROM results result WHERE result.submission_token_hash = ?
-                )
-                AND (? = 0 OR (
-                  (SELECT COUNT(*) FROM results WHERE exam_id = ? AND user_id = ?) +
-                  (SELECT COUNT(*) FROM _exam_abandoned_attempts WHERE exam_id = ? AND user_id = ?) +
-                  1 < ?
-                ))
-              RETURNING old.session_id AS old_session_id
-            ),
-            activated AS (
-              UPDATE _exam_grade_sessions AS new_session
-              SET started_at = ?, deadline_at = ?, expires_at = ?
-              FROM switched
-              WHERE new_session.session_id = ? AND new_session.started_at IS NULL
-              RETURNING switched.old_session_id
-            ),
-            revoked AS (
-              INSERT INTO _exam_abandoned_attempts
-                (session_id, exam_id, user_id, reason, abandoned_at)
-              SELECT old_session_id, ?, ?, 'replaced_by_student', ?
-              FROM activated WHERE TRUE
-              ON CONFLICT (session_id) DO UPDATE SET reason = excluded.reason
-              RETURNING session_id
-            )
-            SELECT session_id FROM revoked LIMIT 1
-          `).bind(
-            attemptKey,examId,signedStudentUserId,replacementId,
-            gradingSessionId,proposedActiveExpiresAt,proposedStartedAt,proposedStartedAt,
-            attemptKey,gradingSessionId,gradingSessionId,submissionHash,submissionHash,
-            Number(authoritativeExamRow?.max_attempts) || 0,
-            examId,signedStudentUserId,examId,signedStudentUserId,
-            Number(authoritativeExamRow?.max_attempts) || 0,
-            proposedStartedAt,proposedDeadlineAt,proposedActiveExpiresAt,gradingSessionId,
-            examId,signedStudentUserId,proposedStartedAt
-          ).first();
-          if (!replaced?.session_id) {
+        await ensureSchoolResultReservationSchema(db);
+        const tokenHash = await hashToken('exam-session:' + gradingSessionId);
+        const existing: any = await findSchoolResultBySession(
+          db,tokenHash,examId,signedStudentUserId
+        );
+        if (existing) {
+          if (String(existing.grading_status).toUpperCase() !== 'IN_PROGRESS') {
             return new Response(JSON.stringify({
-              code:'EXAM_REPLACEMENT_CONFLICT',
-              error:'Phiên thi hoặc số lượt đã thay đổi; vui lòng kiểm tra lại. Phiên cũ chưa bị hủy.'
+              code:'EXAM_ATTEMPT_ALREADY_CLOSED',
+              error:'Lượt thi này đã kết thúc. Vui lòng lấy đề mới nếu còn lượt.'
             }),{status:409,headers:corsHeaders});
           }
+          if (!snapshot.started_at || !snapshot.deadline_at) {
+            return new Response(JSON.stringify({
+              code:'EXAM_START_INVALID',
+              error:'Mốc bắt đầu bài thi không hợp lệ. Vui lòng tải đề mới.'
+            }),{status:409,headers:corsHeaders});
+          }
+          // Idempotent retry of the SAME prepared token: never count twice.
+          schoolReserved = true;
         } else {
-
-
-        // Never silently discard a stale ACTIVE lock. Even if its old
-        // snapshot vanished, the original attempt is consumed and must be
-        // explicitly replaced via the counted atomic transaction above.
-
+          const participantName = String(verifiedUser?.full_name || decoded.studentName || '').trim();
+          const participantClass = String(verifiedUser?.lop || decoded.studentLop || '').trim();
+          const participantUnit = String(verifiedUser?.donvi || decoded.studentDonvi || '').trim();
+          const reserved = await claimSchoolResultAtStart(db,{
+            examId,userId:signedStudentUserId,sessionId:gradingSessionId,tokenHash,
+            studentName:participantName,
+            studentClass:participantClass,studentUnit:participantUnit,
+            examName:String(authoritativeExamRow?.name || frozenExamConfig?.name || ''),
+            questionCount:frozenIds.length,
+            maxAttempts:Number(authoritativeExamRow?.max_attempts) || 0,
+            legacyAttempts:legacyAttemptsForQuota,
+            startedAt:proposedStartedAt,
+            deadlineAt:proposedDeadlineAt,expiresAt:proposedActiveExpiresAt
+          });
+          if (!reserved) return new Response(JSON.stringify({
+            code:'EXAM_ATTEMPT_LIMIT_REACHED',
+            error:'Bạn đã hết lượt thi hoặc phiên chuẩn bị không còn hợp lệ. Vui lòng tải lại đề.'
+          }),{status:409,headers:corsHeaders});
+          schoolReserved = true;
+        }
+      } catch (claimError) {
+        console.error('Cannot reserve school exam result atomically:',claimError);
+        return new Response(JSON.stringify({
+          code:'EXAM_ATTEMPT_RESERVATION_UNAVAILABLE',
+          error:'Chưa thể ghi nhận lượt thi an toàn. Vui lòng tải lại đề và thử lần nữa.'
+        }),{status:503,headers:corsHeaders});
+      }
+    }
+    // Public contests keep their existing, independent participant locks.
+    if (contestParticipantId && examId) {
+      try {
+        await db.prepare(`CREATE TABLE IF NOT EXISTS _exam_active_attempts (
+          attempt_key TEXT PRIMARY KEY, exam_id TEXT NOT NULL, user_id TEXT NOT NULL,
+          session_id TEXT NOT NULL, expires_at TEXT NOT NULL, created_at TEXT NOT NULL
+        )`).run();
+        const attemptKey = examId + ':' + signedAttemptUserId;
         const claim: any = await db.prepare(`
           INSERT INTO _exam_active_attempts
-            (attempt_key, exam_id, user_id, session_id, expires_at, created_at, last_seen_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?::timestamptz)
-          ON CONFLICT (attempt_key) DO UPDATE SET
-            session_id = excluded.session_id,
-            expires_at = excluded.expires_at,
-            created_at = excluded.created_at,
-            last_seen_at = excluded.created_at::timestamptz
+            (attempt_key, exam_id, user_id, session_id, expires_at, created_at)
+          VALUES (?, ?, ?, ?, ?, ?)
+          ON CONFLICT (attempt_key) DO UPDATE
+            SET session_id = excluded.session_id,expires_at = excluded.expires_at,created_at = excluded.created_at
           WHERE _exam_active_attempts.session_id = excluded.session_id
-        `).bind(
-          attemptKey, examId, signedAttemptUserId, gradingSessionId,
-          proposedActiveExpiresAt, proposedStartedAt, proposedStartedAt
-        ).run();
-        if (Number(claim?.meta?.changes || 0) !== 1) {
-          return new Response(JSON.stringify({
-            code: 'EXAM_ATTEMPT_ALREADY_ACTIVE',
-            error: 'Tài khoản này đang có một phiên làm bài của cùng đề chưa hoàn tất. Vui lòng tiếp tục phiên đang làm thay vì mở thêm lượt mới.'
-          }), { status: 409, headers: corsHeaders });
-        }
-        } // regular claim; replacement claimed atomically above
-      } catch (activeClaimError) {
-        console.error('Cannot claim active exam attempt:', activeClaimError);
+        `).bind(attemptKey,examId,signedAttemptUserId,gradingSessionId,
+          proposedActiveExpiresAt,proposedStartedAt).run();
+        if (Number(claim?.meta?.changes || 0) !== 1) return new Response(JSON.stringify({
+          code:'EXAM_ATTEMPT_ALREADY_ACTIVE',
+          error:'Cuộc thi đang có phiên hoạt động. Vui lòng liên hệ ban tổ chức.'
+        }),{status:409,headers:corsHeaders});
+      } catch (error) {
+        console.error('Cannot claim contest attempt:',error);
         return new Response(JSON.stringify({
-          code: 'EXAM_ATTEMPT_CLAIM_UNAVAILABLE',
-          error: 'Không thể khóa lượt làm an toàn. Hệ thống chưa chạy đồng hồ.'
-        }), { status: 503, headers: corsHeaders });
+          code:'EXAM_ATTEMPT_CLAIM_UNAVAILABLE',error:'Chưa thể xác minh phiên cuộc thi.'
+        }),{status:503,headers:corsHeaders});
       }
     }
 
@@ -575,13 +493,13 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       // SQL statement that revoked the previous session and swapped its lock.
       // A second update is unnecessary and a later network error must not
       // remove an already-committed replacement.
-      if (!oldSchoolAttemptSessionId) {
+      if (!schoolReserved) {
         await db.prepare(
           'UPDATE _exam_grade_sessions SET started_at = ?, deadline_at = ?, expires_at = ? WHERE session_id = ? AND started_at IS NULL'
         ).bind(proposedStartedAt, proposedDeadlineAt, proposedActiveExpiresAt, gradingSessionId).run();
       }
     } catch (startClaimError) {
-      if (signedAttemptUserId && examId && !oldSchoolAttemptSessionId) {
+      if (contestParticipantId && examId) {
         try {
           await db.prepare('DELETE FROM _exam_active_attempts WHERE session_id = ?')
             .bind(gradingSessionId).run();
@@ -598,7 +516,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     // started_at. Snapshot có thể bị dọn đúng giữa SELECT đầu và UPDATE; trong race
     // đó trả token ACTIVE sẽ tạo một phiên ảo mà save/grade không thể xác minh.
     if (!authoritative?.started_at) {
-      if (signedAttemptUserId && examId && !oldSchoolAttemptSessionId) {
+      if (contestParticipantId && examId) {
         try {
           await db.prepare('DELETE FROM _exam_active_attempts WHERE session_id = ?')
             .bind(gradingSessionId).run();
@@ -632,7 +550,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     // retry chỉ cần bảo đảm giá trị cũ không ngắn hơn deadline + 1 giờ.
     const activeExpiresAtMs = deadlineAtMs + 60 * 60 * 1000;
     const activeExpiresAt = new Date(activeExpiresAtMs).toISOString();
-    if (signedAttemptUserId && examId) {
+    if (contestParticipantId && examId) {
       try {
         await db.prepare(
           'UPDATE _exam_active_attempts SET expires_at = ? WHERE session_id = ?'
