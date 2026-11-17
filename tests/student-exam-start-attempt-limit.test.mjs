@@ -43,7 +43,7 @@ test('Front end never enters fullscreen before server accepts exam start', () =>
   // the timer remains server-authoritative and starts only after /api/exam/start.
   const readyClick=region.indexOf("readyButton.addEventListener('click'");
   const fullscreen=region.indexOf('window.enterExamFullscreen()', readyClick);
-  const serverStart=region.indexOf("fetchExamStartResponse(fetch, '/api/exam/start'", readyClick);
+  const serverStart=region.indexOf("activateExamAfterPreviousFinalization(fetch, '/api/exam/start'", readyClick);
   assert.ok(readyClick > 0 && fullscreen > readyClick && serverStart > fullscreen);
   assert.match(region,/startExamUI\(true\)/);
   assert.match(region,/exam-start-ready-confirm/);
