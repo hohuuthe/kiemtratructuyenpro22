@@ -74,6 +74,7 @@ test('School Start ignores all stale prior-session processing and replacement st
   assert.doesNotMatch(startBlock,/if \(window\.__EXAM_RESUME_BLOCK_NEW__\)/);
   assert.doesNotMatch(startBlock,/__pendingExamReplacement/);
   assert.doesNotMatch(startBlock,/\/api\/exam\/resume|\/api\/exam\/recover/);
+  assert.match(startBlock,/if \(window\.__contestTicket && response\.status === 409 &&/);
   assert.match(startBlock,/\/api\/exam\/generate/);
   assert.match(startBlock,/\/api\/exam\/start/);
 });
