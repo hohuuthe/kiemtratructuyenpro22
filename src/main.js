@@ -9287,10 +9287,10 @@ if (contentType && contentType.includes("application/json")) {
                     // Preserve the click gesture for fullscreen, but never expose
                     // the uninitialized school exam shell (00:00 / 1/0 / spinner)
                     // while the authoritative /exam/start request is pending.
-                    // Public contests keep their existing fullscreen target.
+                    // Both modes keep READY visible until the server sends real questions.
                     if (typeof window.enterExamFullscreen === 'function') {
                         Promise.resolve(window.enterExamFullscreen({
-                            awaitingSchoolStart: !isPublicContestStart
+                            awaitingAuthoritativeStart: true
                         })).catch(() => {});
                     }
                     readyAccepted = true;
@@ -10786,11 +10786,11 @@ if (contentType && contentType.includes("application/json")) {
         };
 
         window.enterExamFullscreen = function enterExamFullscreen(options = {}) {
-            // During an ordinary school PRESTART, the exam-interface is still
+            // During either PRESTART, the exam-interface is still
             // hidden and contains placeholder content. Fullscreen the page
             // (including the visible READY dialog) until server-verified
             // questions and deadline are applied by startExamUI().
-            const elem = options?.awaitingSchoolStart === true
+            const elem = options?.awaitingAuthoritativeStart === true
                 ? document.body
                 : (document.getElementById('exam-interface') || document.documentElement);
             if (!elem) return Promise.resolve(false);
