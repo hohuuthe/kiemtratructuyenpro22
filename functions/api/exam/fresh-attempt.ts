@@ -20,7 +20,8 @@ WITH previous AS MATERIALIZED (
   WHERE t.token_hash=encode(sha256(convert_to('exam-session:'||p.session_id,'UTF8')),'hex')
     AND t.status='processing'
     AND r.submission_token_hash=t.token_hash
-    AND r.exam_id=p.exam_id AND r.id=t.result_id
+    AND r.exam_id=p.exam_id
+    AND (t.result_id IS NULL OR r.id=t.result_id)
   RETURNING t.token_hash
 ), stale_processing AS (
   UPDATE _submitted_exam_tokens t SET status='superseded'
