@@ -340,7 +340,7 @@ test('Contest READY stages DOM before fullscreen and never moves an active fulls
  const readyClick=main.indexOf("readyButton.addEventListener('click'");
  const beforeFullscreen=main.indexOf('window.__contestBeforeFullscreen?.()',readyClick);
  const requestFullscreen=main.indexOf('window.enterExamFullscreen()',readyClick);
- const activateServer=main.indexOf("fetchExamStartResponse(fetch, '/api/exam/start'",readyClick);
+ const activateServer=main.indexOf("activateExamAfterPreviousFinalization(fetch, '/api/exam/start'",readyClick);
  assert.ok(readyClick>0 && beforeFullscreen>readyClick && requestFullscreen>beforeFullscreen && activateServer>requestFullscreen);
  assert.match(main,/window\.__contestAfterStartRejected\?\.\(\)/);
  assert.match(main,/window\.__contestOnReadyCancelled\?\.\(\)/);
