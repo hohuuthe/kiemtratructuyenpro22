@@ -75,6 +75,18 @@ test('empty or partial student metadata is safe and bounded',()=>{
   assert.equal(normalizeExamStudentInfo({name:'a'.repeat(500)}).name.length,200);
 });
 
+test('autosubmission is locked to server identity before starting the clock',()=>{
+  const start=source('functions/api/exam/start.ts');
+  assert.match(start,/SELECT full_name,lop,donvi FROM users WHERE id=\? LIMIT 1/);
+  assert.match(start,/name:fullName,lop:schoolClass,donvi:schoolUnit/);
+  assert.match(start,/loaiThiSinh:'Đã đăng nhập'/);
+  assert.match(start,/studentInfo:trustedStudentInfo/);
+  const profileAt=start.indexOf('let trustedStudentInfo:any=');
+  const clockAt=start.indexOf('const proposedStartedAtMs = Date.now()');
+  assert.ok(profileAt>=0 && clockAt>profileAt,
+    'profile lookup must precede lock and clock to avoid a stranded started attempt');
+});
+
 test('cron runs per tenant without any fallback to root tenant database',()=>{
   const worker=source('workers/exam-finalizer-worker.ts');
   const wrangler=source('wrangler.exam-finalizer.toml');
