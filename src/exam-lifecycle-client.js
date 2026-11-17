@@ -3,6 +3,7 @@ import { EXAM_HEARTBEAT_MS } from './exam-exit-policy.js';
 let active = null;
 let timer = null;
 let lastLeaveSent = false;
+let leftDuringPageNavigation = false;
 
 function stopTimer() {
   if (timer) clearInterval(timer);
@@ -44,6 +45,7 @@ export function beginExamLifecycle(config) {
   stopTimer();
   active=config;
   lastLeaveSent=false;
+  leftDuringPageNavigation=false;
   sendActivity('heartbeat');
   timer=setInterval(()=>sendActivity('heartbeat'),EXAM_HEARTBEAT_MS);
 }
@@ -56,6 +58,7 @@ export function stopExamLifecycle() {
 
 export function leaveExamLifecycle() {
   stopTimer();
+  if (active) leftDuringPageNavigation=true;
   sendActivity('leave',true);
   // This document is leaving. Do not resume it on navigation back.
   active=null;
@@ -66,5 +69,12 @@ export function leaveExamLifecycle() {
 if (typeof window!=='undefined') {
   window.addEventListener('pagehide',()=>{
     leaveExamLifecycle();
+  });
+  // A back-forward-cache restore keeps the old JS heap alive. It must never
+  // reopen a just-closed exam as an accidental in-memory "resume".
+  window.addEventListener('pageshow',event=>{
+    if (event.persisted && leftDuringPageNavigation) {
+      window.location.reload();
+    }
   });
 }
