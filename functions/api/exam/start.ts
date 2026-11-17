@@ -1,5 +1,6 @@
 import { verifyAuthSession, verifyJWT, signJWT, getDynamicSecret, getDatabase, hashToken } from './utils';
 import { publicContestExam } from '../contest/register';
+import { settleInactiveSchoolExam, ensureExamLifecycleColumns } from './lifecycle';
 import { stripContestAnswerHints } from '../../../src/exam-public-contest-projection';
 import {
   EXAM_SESSION_PURPOSE_PRESTART,
@@ -249,6 +250,23 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
     const timeLimitSeconds = normalizeExamTimeLimitSeconds(decoded.timeLimitSeconds);
 
+    // Resolve the previous attempt *before* counting quota or acquiring a new lock.
+    // This is intentionally server-owned: browser state is never authoritative.
+    if (signedStudentUserId && !contestParticipantId && examId) {
+      const previous = await settleInactiveSchoolExam(context,examId,signedStudentUserId);
+      if (previous.state !== 'ready') {
+        const code = previous.state === 'live' ? 'EXAM_ATTEMPT_STILL_LIVE' :
+          previous.state === 'processing' ? 'EXAM_FINALIZATION_IN_PROGRESS' : 'EXAM_FINALIZATION_UNAVAILABLE';
+        return new Response(JSON.stringify({
+          code,
+          error: previous.state === 'live'
+            ? 'Phiên thi trước vẫn đang hoạt động. Vui lòng thử lại sau khi phiên kết thúc.'
+            : 'Máy chủ đang chốt bài thi trước. Vui lòng thử lại; không tạo lượt trùng.',
+          retryAfterSeconds: previous.retryAfterSeconds || 10
+        }), {status: previous.state === 'unavailable' ? 503 : 409,headers:corsHeaders});
+      }
+    }
+
     let completedAttemptsForQuota = 0;
     // Chốt quyền lượt làm LẦN CUỐI ngay trước khi bắt đầu đồng hồ. Generate chỉ là
     // bước READY; nhiều READY token song song không được phép tiêu thụ nhiều lượt.
@@ -384,6 +402,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             created_at TEXT NOT NULL
           )
         `).run();
+        await ensureExamLifecycleColumns(db);
         const attemptKey = examId + ':' + signedAttemptUserId;
         const replacementId = signedStudentUserId && !contestParticipantId
           ? String(body?.replaceSessionId || '').trim() : '';
