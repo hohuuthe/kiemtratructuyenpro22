@@ -140,6 +140,48 @@ export async function finalizeExamLiveness(context: any, sessionId: string, nowM
 }
 
 /**
+ * Complete contest metadata after a result was already committed but the
+ * lock cleanup crashed. Do not score or count this session twice. Matching
+ * must use the signed participant, exam and exact server session identifiers.
+ */
+export const RECONCILE_COMMITTED_CONTEST_RESULT_SQL = `
+WITH matched AS (
+  SELECT a.session_id,r.id AS result_id
+  FROM _exam_active_attempts a
+  JOIN contest_attempts ca ON ca.ma_phien_thi=a.session_id
+  JOIN results r ON r.ma_phien_thi=a.session_id
+    AND r.ma_nguoi_du_thi=ca.ma_nguoi_du_thi AND r.exam_id=a.exam_id
+  WHERE a.attempt_key=? AND a.session_id=? AND a.user_id=?
+    AND a.exam_id=ca.ma_de_thi AND ca.ma_nguoi_du_thi=?
+    AND ca.trang_thai IN ('DANG_LAM','DA_NOP')
+  FOR UPDATE OF a,ca
+), completed AS (
+  UPDATE contest_attempts ca
+  SET trang_thai='DA_NOP', ma_ket_qua=m.result_id,
+      thoi_diem_nop=COALESCE(ca.thoi_diem_nop,now())
+  FROM matched m WHERE ca.ma_phien_thi=m.session_id
+  RETURNING ca.ma_phien_thi
+), unlocked AS (
+  DELETE FROM _exam_active_attempts a USING completed c
+  WHERE a.session_id=c.ma_phien_thi AND a.attempt_key=?
+  RETURNING a.session_id
+)
+SELECT session_id FROM unlocked
+`;
+
+export async function reconcileCommittedContestResult(
+  db:any, attemptKey:string, sessionId:string, contestUserId:string
+):Promise<boolean> {
+  if (!contestUserId.startsWith('contest:') || !sessionId) return false;
+  const participant=contestUserId.slice('contest:'.length);
+  if (!participant) return false;
+  const row:any=await db.prepare(RECONCILE_COMMITTED_CONTEST_RESULT_SQL).bind(
+    attemptKey,sessionId,contestUserId,participant,attemptKey
+  ).first();
+  return String(row?.session_id||'')===sessionId;
+}
+
+/**
  * Exact-session bootstrap for a learner returning to an old pre-heartbeat
  * attempt. Never assume the session ended solely because a browser closed:
  * require the server-authoritative deadline to have elapsed and a frozen
