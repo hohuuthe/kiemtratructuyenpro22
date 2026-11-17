@@ -1147,7 +1147,40 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
                     String(examConfig.id||studentInfo.examId||''),contestParticipantId
                 ] : [])
             ).run();
-            if (Number(claim?.meta?.changes || 0) !== 1) {
+            // A crashed Worker may leave a processing claim after its lease.
+            // Only the INTERNAL finalizer may take over that claim, and only
+            // after proving no result was committed. Rotate the preallocated
+            // result ID atomically: a late old Worker cannot persist its score.
+            let ownsClaim = Number(claim?.meta?.changes || 0) === 1;
+            if (!ownsClaim && trustedFinalizer && gradingSessionId) {
+                const takeover: any = await db.prepare(`
+                    UPDATE _submitted_exam_tokens t
+                    SET claimed_at=?, result_id=?
+                    WHERE t.token_hash=? AND t.status='processing'
+                      AND (
+                        (NULLIF(t.claimed_at,'') IS NOT NULL AND
+                         t.claimed_at::timestamptz<now()-interval '5 minutes')
+                        OR (NULLIF(t.claimed_at,'') IS NULL AND EXISTS(
+                          SELECT 1 FROM _exam_grade_sessions gs
+                          WHERE gs.session_id=? AND gs.started_at::timestamptz
+                            <now()-interval '5 minutes'
+                        ))
+                      )
+                      AND NOT EXISTS (
+                        SELECT 1 FROM results r
+                        WHERE r.submission_token_hash=t.token_hash
+                          OR r.id=t.result_id
+                      )
+                      AND EXISTS (
+                        SELECT 1 FROM _exam_grade_sessions gs
+                        WHERE gs.session_id=? AND gs.started_at IS NOT NULL
+                      )
+                    RETURNING token_hash
+                `).bind(new Date().toISOString(),claimedResultId,
+                    tokenHash,String(gradingSessionId),String(gradingSessionId)).first();
+                ownsClaim = Boolean(takeover?.token_hash);
+            }
+            if (!ownsClaim) {
                 const existing: any = await db.prepare(
                     "SELECT result_id FROM _submitted_exam_tokens WHERE token_hash = ?"
                 ).bind(tokenHash).first();
@@ -1397,8 +1430,8 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
                         .bind(claimedResultId, tokenHash).first()
                     : null;
                 if (!committed?.id) {
-                    await db.prepare("DELETE FROM _submitted_exam_tokens WHERE token_hash = ? AND status = ?")
-                        .bind(tokenHash, 'processing').run();
+                    await db.prepare("DELETE FROM _submitted_exam_tokens WHERE token_hash = ? AND status = ? AND result_id = ?")
+                        .bind(tokenHash, 'processing', claimedResultId).run();
                 }
             } catch (releaseErr) {
                 console.error('Keeping submission claim because commit state could not be proven:', releaseErr);
