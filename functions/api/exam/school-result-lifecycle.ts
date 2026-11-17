@@ -3,7 +3,30 @@
  * A start consumes one attempt, even if the browser disappears before submit.
  * IN_PROGRESS/ABANDONED are NOT scores and must never be publicly ranked.
  */
-export async function ensureSchoolResultReservationSchema(db: any) {
+// Schema is migrated ahead of release. The first request on a Worker instance
+// verifies the tenant and thereafter performs no DDL. Failed checks are retriable.
+const schoolSchemaChecks = new Map<string, Promise<void>>();
+
+async function schoolResultSchemaReady(db: any): Promise<boolean> {
+  const row: any = await db.prepare([
+    'SELECT (',
+    '(SELECT COUNT(*) FROM information_schema.columns',
+    "WHERE table_schema = 'public' AND table_name = 'results'",
+    "AND column_name IN ('user_id','lop','don_vi','submission_token_hash',",
+    "'grading_status','score_finalized_at','attempt_no','last_seen_at')) = 8",
+    'AND EXISTS (SELECT 1 FROM pg_indexes',
+    "WHERE schemaname='public' AND tablename='results' AND indexname='uq_results_school_attempt_no')",
+    'AND EXISTS (SELECT 1 FROM pg_indexes',
+    "WHERE schemaname='public' AND tablename='results' AND indexname='uq_results_submission_token_hash')",
+    ') AS ready'
+  ].join(' ')).bind().first();
+  return row?.ready === true || row?.ready === 1;
+}
+
+async function initializeSchoolResultReservationSchema(db: any): Promise<void> {
+  if (await schoolResultSchemaReady(db)) return;
+  // Backward-compatible additive setup for a tenant that missed migration.
+
   await db.prepare(`CREATE TABLE IF NOT EXISTS results (
     id TEXT PRIMARY KEY, user_id TEXT, student_name TEXT, student_class TEXT,
     lop TEXT, don_vi TEXT, exam_name TEXT, exam_id TEXT, score REAL,
@@ -24,6 +47,25 @@ export async function ensureSchoolResultReservationSchema(db: any) {
     'CREATE UNIQUE INDEX IF NOT EXISTS uq_results_submission_token_hash ON results(submission_token_hash) WHERE submission_token_hash IS NOT NULL',
     'CREATE UNIQUE INDEX IF NOT EXISTS uq_results_school_attempt_no ON results(exam_id, user_id, attempt_no) WHERE user_id IS NOT NULL AND attempt_no IS NOT NULL'
   ]) await db.prepare(sql).run();
+  if (!await schoolResultSchemaReady(db)) {
+    throw new Error('SCHOOL_RESULT_RESERVATION_SCHEMA_INCOMPLETE');
+  }
+}
+
+export async function ensureSchoolResultReservationSchema(db: any): Promise<void> {
+  const dbKey = String(db?.connectionUrl || '');
+  if (!dbKey) return initializeSchoolResultReservationSchema(db);
+  let pending = schoolSchemaChecks.get(dbKey);
+  if (!pending) {
+    pending = initializeSchoolResultReservationSchema(db);
+    schoolSchemaChecks.set(dbKey, pending);
+  }
+  try {
+    await pending;
+  } catch (error) {
+    if (schoolSchemaChecks.get(dbKey) === pending) schoolSchemaChecks.delete(dbKey);
+    throw error;
+  }
 }
 export function isSchoolResultProvisional(status: unknown): boolean {
   return ['IN_PROGRESS','ABANDONED'].includes(String(status || '').toUpperCase());
