@@ -42,9 +42,10 @@ test('Front end never enters fullscreen before server accepts exam start', () =>
   // Fullscreen is now requested in the actual user gesture on READY confirmation;
   // the timer remains server-authoritative and starts only after /api/exam/start.
   const readyClick=region.indexOf("readyButton.addEventListener('click'");
-  const fullscreen=region.indexOf('window.enterExamFullscreen()', readyClick);
+  const fullscreen=region.indexOf('window.enterExamFullscreen({', readyClick);
   const serverStart=region.indexOf("fetchExamStartResponse(fetch, '/api/exam/start'", readyClick);
   assert.ok(readyClick > 0 && fullscreen > readyClick && serverStart > fullscreen);
+   assert.match(region.slice(fullscreen,serverStart), /awaitingSchoolStart: !isPublicContestStart/);
   assert.match(region,/startExamUI\(true\)/);
   assert.match(region,/exam-start-ready-confirm/);
   assert.match(region,/readyButton.addEventListener\('click'/);
