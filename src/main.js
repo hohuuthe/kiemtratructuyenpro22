@@ -9282,6 +9282,18 @@ if (contentType && contentType.includes("application/json")) {
                             }
                         } catch(e) {}
                         if (window.__contestTicket) window.__contestAfterStartRejected?.();
+                        if (error?.code === 'EXAM_READY_REGENERATE_REQUIRED') {
+                            // A stale READY token cannot be reused after DB cleanup.
+                            // Clear only the unstarted token, then prepare a fresh
+                            // session. The new exam still needs a real user click
+                            // for fullscreen and server-authoritative clock start.
+                            window.currentExamToken = null;
+                            clearStoredActiveExamResume();
+                            closeModal();
+                            showToast('Đang chuẩn bị phiên thi mới thay cho phiên chờ đã hết hạn.', 'warning');
+                            setTimeout(() => window.startExam(), 0);
+                            return;
+                        }
                         showToast(error?.message || 'Không thể bắt đầu bài thi. Vui lòng thử lại.', 'error');
                     }
                 });
