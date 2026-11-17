@@ -2,6 +2,7 @@ import { verifyAuthSession, verifyJWT, signJWT, getDynamicSecret, getDatabase, h
 import { publicContestExam } from '../contest/register';
 import { claimSchoolResultAtStart, ensureSchoolResultReservationSchema, findSchoolResultBySession } from './school-result-lifecycle';
 import { stripContestAnswerHints } from '../../../src/exam-public-contest-projection';
+import { claimContestStart, countContestUsedAttempts, findContestStartClaim } from './contest-start-claims';
 import {
   EXAM_SESSION_PURPOSE_PRESTART,
   EXAM_SESSION_PURPOSE_ACTIVE,
@@ -259,11 +260,15 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       if (maxAttempts > 0) {
         try {
           let completedAttempts = 0;
-          const completedRow: any = await db.prepare(contestParticipantId
-            ? 'SELECT COUNT(*) AS count FROM results WHERE exam_id = ? AND ma_nguoi_du_thi = ?'
-            : 'SELECT COUNT(*) AS count FROM results WHERE exam_id = ? AND user_id = ?'
-          ).bind(examId, contestParticipantId || signedStudentUserId).first();
-          completedAttempts = Math.max(0, Number(completedRow?.count) || 0);
+          if (contestParticipantId) {
+            // Count starts, including abandoned attempts, never inspect a prior session.
+            completedAttempts = await countContestUsedAttempts(db, contestParticipantId, examId);
+          } else {
+            const completedRow: any = await db.prepare(
+              'SELECT COUNT(*) AS count FROM results WHERE exam_id = ? AND user_id = ?'
+            ).bind(examId, signedStudentUserId).first();
+            completedAttempts = Math.max(0, Number(completedRow?.count) || 0);
+          }
 
           const profile: any = contestParticipantId ? null : await db.prepare(
             'SELECT full_name, lop, donvi FROM users WHERE id = ? LIMIT 1'
@@ -363,6 +368,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     const proposedActiveExpiresAt = new Date(proposedActiveExpiresAtMs).toISOString();
 
     let schoolReserved = false;
+    let contestReserved = false;
     if (signedStudentUserId && !contestParticipantId) {
       try {
         await ensureSchoolResultReservationSchema(db);
@@ -414,75 +420,41 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         }),{status:503,headers:corsHeaders});
       }
     }
-    // Public contests keep their existing, independent participant locks.
+    // New contest starts never look up, restore, cancel, or lock a prior session.
+    // The unique quota slot and authoritative snapshot activate atomically.
     if (contestParticipantId && examId) {
       try {
-        await db.prepare(`CREATE TABLE IF NOT EXISTS _exam_active_attempts (
-          attempt_key TEXT PRIMARY KEY, exam_id TEXT NOT NULL, user_id TEXT NOT NULL,
-          session_id TEXT NOT NULL, expires_at TEXT NOT NULL, created_at TEXT NOT NULL
-        )`).run();
-        const attemptKey = examId + ':' + signedAttemptUserId;
-        const claim: any = await db.prepare(`
-          INSERT INTO _exam_active_attempts
-            (attempt_key, exam_id, user_id, session_id, expires_at, created_at)
-          VALUES (?, ?, ?, ?, ?, ?)
-          ON CONFLICT (attempt_key) DO UPDATE
-            SET session_id = excluded.session_id,expires_at = excluded.expires_at,created_at = excluded.created_at
-          WHERE _exam_active_attempts.session_id = excluded.session_id
-        `).bind(attemptKey,examId,signedAttemptUserId,gradingSessionId,
-          proposedActiveExpiresAt,proposedStartedAt).run();
-        if (Number(claim?.meta?.changes || 0) !== 1) return new Response(JSON.stringify({
-          code:'EXAM_ATTEMPT_ALREADY_ACTIVE',
-          error:'Cuộc thi đang có phiên hoạt động. Vui lòng liên hệ ban tổ chức.'
-        }),{status:409,headers:corsHeaders});
-      } catch (error) {
-        console.error('Cannot claim contest attempt:',error);
+        const existing = await findContestStartClaim(db, gradingSessionId, contestParticipantId, examId);
+        if (existing) {
+          if (!snapshot.started_at || !snapshot.deadline_at) {
+            return new Response(JSON.stringify({
+              code:'CONTEST_START_NOT_ACTIVE',
+              error:'Lượt dự thi chưa xác nhận được thời gian bắt đầu.'
+            }),{status:409,headers:corsHeaders});
+          }
+          contestReserved = true;
+        } else {
+          const claim = await claimContestStart(db, {
+            sessionId: gradingSessionId,
+            participantId: contestParticipantId,
+            examId,
+            maxAttempts: Math.max(0, Number(authoritativeExamRow?.max_attempts) || 0),
+            startedAt: proposedStartedAt,
+            deadlineAt: proposedDeadlineAt,
+            expiresAt: proposedActiveExpiresAt
+          });
+          if (!claim) return new Response(JSON.stringify({
+            code:'EXAM_ATTEMPT_LIMIT_REACHED',
+            error:'Bạn đã hết lượt dự thi hoặc đề đã thay đổi. Vui lòng tải lại đề.'
+          }),{status:409,headers:corsHeaders});
+          contestReserved = true;
+        }
+      } catch (claimError) {
+        console.error('Cannot count and activate contest attempt atomically:',claimError);
         return new Response(JSON.stringify({
-          code:'EXAM_ATTEMPT_CLAIM_UNAVAILABLE',error:'Chưa thể xác minh phiên cuộc thi.'
+          code:'CONTEST_START_CLAIM_UNAVAILABLE',
+          error:'Không thể ghi nhận lượt dự thi an toàn. Vui lòng thử lại.'
         }),{status:503,headers:corsHeaders});
-      }
-    }
-
-    // Record the accepted contest attempt without affecting school accounts.
-    if (contestParticipantId) {
-      try {
-        // A submission is authoritative once the results row is committed.
-        // Recover rare crashes between result INSERT and contest_attempts metadata
-        // update by exact signed grading-session ID, never by shared names.
-        await db.prepare(`
-          UPDATE contest_attempts ca
-          SET trang_thai='DA_NOP', ma_ket_qua=r.id,
-              thoi_diem_nop=COALESCE(r.created_at::timestamptz,now())
-          FROM results r
-          WHERE ca.ma_nguoi_du_thi=? AND ca.ma_de_thi=?
-            AND ca.trang_thai='DANG_LAM'
-            AND r.ma_phien_thi=ca.ma_phien_thi
-            AND r.ma_nguoi_du_thi=ca.ma_nguoi_du_thi
-            AND r.exam_id=ca.ma_de_thi
-        `).bind(contestParticipantId,examId).run();
-        // Reconcile orphaned ACTIVE rows only when the older session has
-        // demonstrably expired or been removed. Never cancel a live attempt.
-        await db.prepare(`
-          UPDATE contest_attempts SET trang_thai = 'HUY'
-          WHERE ma_nguoi_du_thi = ? AND ma_de_thi = ?
-            AND trang_thai = 'DANG_LAM' AND ma_phien_thi <> ?
-            AND NOT EXISTS (
-              SELECT 1 FROM _exam_grade_sessions gs
-              WHERE gs.session_id = contest_attempts.ma_phien_thi
-                AND gs.expires_at > ?
-                AND gs.started_at IS NOT NULL
-            )
-        `).bind(contestParticipantId,examId,gradingSessionId,new Date().toISOString()).run();
-        await db.prepare(`
-          INSERT INTO contest_attempts
-            (ma_phien_thi,ma_nguoi_du_thi,ma_de_thi,trang_thai,thoi_diem_bat_dau)
-          VALUES (?,?,?,'DANG_LAM',?)
-          ON CONFLICT (ma_phien_thi) DO NOTHING
-        `).bind(gradingSessionId,contestParticipantId,examId,proposedStartedAt).run();
-      } catch (error) {
-        console.error('Cannot bind contest attempt to verified session:',error);
-        try { await db.prepare('DELETE FROM _exam_active_attempts WHERE session_id = ?').bind(gradingSessionId).run(); } catch {}
-        return new Response(JSON.stringify({error:'Chưa thể xác nhận phiên dự thi. Vui lòng tiếp tục phiên hiện có.'}),{status:503,headers:corsHeaders});
       }
     }
 
@@ -493,18 +465,12 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       // SQL statement that revoked the previous session and swapped its lock.
       // A second update is unnecessary and a later network error must not
       // remove an already-committed replacement.
-      if (!schoolReserved) {
+      if (!schoolReserved && !contestReserved) {
         await db.prepare(
           'UPDATE _exam_grade_sessions SET started_at = ?, deadline_at = ?, expires_at = ? WHERE session_id = ? AND started_at IS NULL'
         ).bind(proposedStartedAt, proposedDeadlineAt, proposedActiveExpiresAt, gradingSessionId).run();
       }
     } catch (startClaimError) {
-      if (contestParticipantId && examId) {
-        try {
-          await db.prepare('DELETE FROM _exam_active_attempts WHERE session_id = ?')
-            .bind(gradingSessionId).run();
-        } catch {}
-      }
       throw startClaimError;
     }
 
@@ -516,12 +482,6 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     // started_at. Snapshot có thể bị dọn đúng giữa SELECT đầu và UPDATE; trong race
     // đó trả token ACTIVE sẽ tạo một phiên ảo mà save/grade không thể xác minh.
     if (!authoritative?.started_at) {
-      if (contestParticipantId && examId) {
-        try {
-          await db.prepare('DELETE FROM _exam_active_attempts WHERE session_id = ?')
-            .bind(gradingSessionId).run();
-        } catch {}
-      }
       return new Response(JSON.stringify({
         code: 'EXAM_START_CLAIM_NOT_PERSISTED',
         error: 'Máy chủ chưa xác nhận được thời điểm bắt đầu trong cơ sở dữ liệu. Đồng hồ chưa được tính; vui lòng thử lại.'
@@ -550,13 +510,6 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     // retry chỉ cần bảo đảm giá trị cũ không ngắn hơn deadline + 1 giờ.
     const activeExpiresAtMs = deadlineAtMs + 60 * 60 * 1000;
     const activeExpiresAt = new Date(activeExpiresAtMs).toISOString();
-    if (contestParticipantId && examId) {
-      try {
-        await db.prepare(
-          'UPDATE _exam_active_attempts SET expires_at = ? WHERE session_id = ?'
-        ).bind(activeExpiresAt, gradingSessionId).run();
-      } catch {}
-    }
     if (snapshot.started_at) {
       try {
         await db.prepare(
