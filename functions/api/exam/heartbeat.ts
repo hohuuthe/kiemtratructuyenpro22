@@ -69,7 +69,7 @@ export const onRequestPost: PagesFunction<Env> = async context => {
       RETURNING current_attempt.id
     `).bind(now, tokenHash, examId, userId, cutoff).first();
 
-    if (!refreshed?.session_id) {
+    if (!refreshed?.id) {
       return reply(409, {
         code: 'EXAM_SESSION_CLOSED',
         error: 'Phiên thi đã gián đoạn quá 90 giây hoặc đã kết thúc. Hãy chọn đề để tạo lượt mới nếu còn lượt.'
