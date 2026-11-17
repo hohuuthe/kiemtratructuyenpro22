@@ -19,6 +19,10 @@ export async function ensureExamLifecycleColumns(db: any): Promise<void> {
     token_hash TEXT PRIMARY KEY, exam_id TEXT, student_name TEXT, user_id TEXT,
     submitted_at TEXT, status TEXT, result_id TEXT, claimed_at TEXT
   )`).run();
+  await db.prepare(`CREATE TABLE IF NOT EXISTS _exam_abandoned_attempts (
+    session_id TEXT PRIMARY KEY, exam_id TEXT NOT NULL, user_id TEXT NOT NULL,
+    reason TEXT NOT NULL, abandoned_at TEXT NOT NULL
+  )`).run();
   for (const col of ['status','result_id','claimed_at']) {
     await db.prepare('ALTER TABLE _submitted_exam_tokens ADD COLUMN IF NOT EXISTS '+col+' TEXT').run();
   }
@@ -71,9 +75,47 @@ export async function settleInactiveSchoolExam(
     const session: any = await db.prepare(
       'SELECT session_id, exam_id, teacher_id, question_ids, question_snapshot, exam_config, started_at, deadline_at, expires_at FROM _exam_grade_sessions WHERE session_id = ?'
     ).bind(sessionId).first();
-    // Do not delete an orphan lock or invent a result when its snapshot is missing.
-    if (!session || String(session.exam_id) !== examId || !session.started_at) {
-      return { state: 'unavailable' };
+    // An old deployment may leave a lock after deleting its grading snapshot.
+    // Such an attempt cannot be scored. After a verifiable disconnect, record
+    // one consumed attempt for teacher audit and atomically release only its lock.
+    // Never create a fabricated result or delete the student's draft.
+    if (!session) {
+      const last = saneIso(active.heartbeat_at || active.created_at);
+      const cutoff = new Date(Date.now()-EXAM_DISCONNECT_MS).toISOString();
+      if (!Number.isFinite(last)) return {state:'unavailable'};
+      if (Date.now()-last < EXAM_DISCONNECT_MS)
+        return {state:'live',retryAfterSeconds:Math.max(1,Math.ceil((EXAM_DISCONNECT_MS-(Date.now()-last))/1000))};
+      const processing: any = await db.prepare(
+        'SELECT status FROM _submitted_exam_tokens WHERE token_hash = ?'
+      ).bind(submissionHash).first();
+      if (processing?.status === 'processing') return {state:'processing',retryAfterSeconds:10};
+      const orphan: any = await db.prepare(`
+        WITH old AS (
+          SELECT attempt_key, session_id FROM _exam_active_attempts
+          WHERE attempt_key = ? AND exam_id = ? AND user_id = ? AND session_id = ?
+            AND COALESCE(heartbeat_at, created_at) <= ?
+            AND finalizing_at IS NULL
+          FOR UPDATE
+        ), accounted AS (
+          INSERT INTO _exam_abandoned_attempts (session_id,exam_id,user_id,reason,abandoned_at)
+          SELECT session_id, ?, ?, 'missing_snapshot_requires_review', ? FROM old
+          WHERE NOT EXISTS (
+            SELECT 1 FROM results WHERE submission_token_hash = ?
+          )
+          ON CONFLICT (session_id) DO UPDATE SET reason = excluded.reason
+          RETURNING session_id
+        ), released AS (
+          DELETE FROM _exam_active_attempts locked USING accounted
+          WHERE locked.attempt_key = ? AND locked.session_id = accounted.session_id
+          RETURNING locked.session_id
+        )
+        SELECT session_id FROM released
+      `).bind(key,examId,userId,sessionId,cutoff,
+        examId,userId,new Date().toISOString(),submissionHash,key).first();
+      return orphan?.session_id ? {state:'ready'} : {state:'processing',retryAfterSeconds:10};
+    }
+    if (String(session.exam_id) !== examId || !session.started_at) {
+      return {state:'unavailable'};
     }
     const now = Date.now();
     const lastSeen = saneIso(active.heartbeat_at || active.created_at);
