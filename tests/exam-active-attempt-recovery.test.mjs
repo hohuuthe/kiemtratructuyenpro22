@@ -64,16 +64,12 @@ test('Recovered and original ACTIVE tokens share same submission deduplication k
   assert.match(grade, /ON CONFLICT \(token_hash\) DO NOTHING/);
 });
 
-test('Conflicting start returns to the two-choice dialog without deleting the prior attempt', () => {
+test('Conflicting start never recursively re-enters Start and cannot trap the READY dialog', () => {
   const main=readFileSync('src/main.js','utf8');
-  const fragment=main.slice(main.indexOf("startResult.code === 'EXAM_ATTEMPT_ALREADY_ACTIVE'"),
-    main.indexOf("if (!response.ok || !startResult.token ||"));
-  assert.match(fragment,/window.__pendingExamReplacement = null/);
-  assert.match(fragment,/window.startExam\(\)/);
-  assert.doesNotMatch(fragment,/api\/exam\/abandon/);
-  const inspection=readFileSync('functions/api/exam/recover.ts','utf8');
-  assert.match(inspection,/body\?\.mode === 'inspect'/);
-  assert.match(inspection,/SELECT session_id FROM _exam_active_attempts/);
+  const fragment=main.slice(main.indexOf("startResult.code === 'EXAM_ATTEMPT_ALREADY_ACTIVE'"),main.indexOf('if (!response.ok || !startResult.token'));
+  assert.match(fragment,/EXAM_REPLACEMENT_CONFLICT/);
+  assert.doesNotMatch(fragment,/window\.startExam\(\)/);
+  assert.match(fragment,/closeModal\(\)/);
 });
 test('Only proven invalid snapshots qualify for confirmed abandonment',()=>{
   assert.equal(unrecoverableExamSnapshotReason(session,'exam-1',now),null);
@@ -119,17 +115,12 @@ test('Replacement is atomic, counted and protected against submission races',()=
   assert.doesNotMatch(retired,/DELETE FROM _exam_active_attempts/);
 });
 
-test('Two actions are offered before generating a READY snapshot',()=>{
-  const s=readFileSync('src/main.js','utf8');
-  const region=s.slice(s.indexOf('const pendingReplacement = window.__pendingExamReplacement;'),
-    s.indexOf('const payload = {',s.indexOf('const pendingReplacement = window.__pendingExamReplacement;')));
-  assert.match(region,/exam-choice-resume/);
-  assert.match(region,/exam-choice-replace/);
-  assert.match(region,/mode:'inspect'/);
-  assert.match(region,/mayReplace/);
-  assert.match(region,/Bỏ phiên cũ, làm bài mới/);
-  assert.match(region,/Khôi phục phiên làm bài cũ/);
-  assert.match(s,/replaceSessionId:window.__pendingExamReplacement.sessionId/);
+test('School exams skip server recovery inspection and start fresh on explicit click',()=>{
+  const main=readFileSync('src/main.js','utf8');
+  assert.match(main,/async function offerExistingExamAttemptChoice\(\) \{ return false; \}/);
+  assert.match(main,/if \(meta.entryTab !== 'contest'\)/);
+  assert.match(main,/clearStoredActiveExamResume\(\)/);
+  assert.match(main,/startSchoolExamHeartbeat\(\)/);
 });
 test('Tenant-prefixed routing exposes recovery and abandonment only within the trusted slug',()=>{
   const router = readFileSync('functions/[slug]/api/[[path]].ts','utf8');
@@ -139,38 +130,25 @@ test('Tenant-prefixed routing exposes recovery and abandonment only within the t
   assert.match(router, /route.source !== 'path'/);
 });
 
-test('READY preparation cannot overwrite or cancel a previously saved active session',()=>{
-  const source=readFileSync('src/main.js','utf8');
-  const region=source.slice(source.indexOf("window.currentExamToken = result.token;"),
-    source.indexOf("// Cập nhật chế độ công bố kết quả",source.indexOf("window.currentExamToken = result.token;")));
-  assert.match(region,/previousMeta.phase === 'active'/);
-  assert.match(region,/String\(previousMeta.examId \|\| ''\) === String\(selectedExamId\)/);
-  assert.match(region,/if \(!preserveActive\)/);
-  const cancelStart = source.indexOf("document.getElementById('exam-start-ready-cancel')?.addEventListener");
-  assert.ok(cancelStart >= 0, 'Cancel button must have an actual event listener');
-  const cancelRegion=source.slice(cancelStart, source.indexOf('readyButton.focus();',cancelStart));
-  assert.match(cancelRegion,/cancelledReadyToken = window.currentExamToken/);
-  assert.match(cancelRegion,/storedToken === cancelledReadyToken/);
+test('READY preparation does not override an active snapshot before DB replacement succeeds',()=>{
+  const main=readFileSync('src/main.js','utf8');
+  assert.match(main,/const preserveActive = previousMeta.phase === 'active'/);
+  assert.match(main,/if \(!preserveActive\)/);
+  const start=readFileSync('functions/api/exam/start.ts','utf8');
+  assert.match(start,/const replacementId = oldSchoolAttemptSessionId/);
 });
-
-test('An expired lock must not replace a still-existing server snapshot',()=>{
-  const source=readFileSync('functions/api/exam/start.ts','utf8');
-  assert.doesNotMatch(source,/DELETE FROM _exam_active_attempts WHERE attempt_key = \? AND session_id = \?/);
-  assert.match(source,/WHERE _exam_active_attempts.session_id = excluded.session_id/);
-  assert.doesNotMatch(source,/OR \(_exam_active_attempts.expires_at <= \?/);
+test('A stale school attempt is never resumed through browser state',()=>{
+  const main=readFileSync('src/main.js','utf8');
+  assert.match(main,/if \(meta.entryTab !== 'contest'\)/);
+  assert.match(main,/clearStoredActiveExamResume\(\)/);
+  assert.match(main,/return false/);
 });
-
-test('Creating a new attempt retains the prior ACTIVE token through both form resets until server accepts start',()=>{
-  const source = readFileSync('src/main.js','utf8');
-  assert.match(source,/resetExam\(\{ preserveActiveResume: true \}\)/);
-  assert.match(source,/resetExam\(\{ preserveActiveResume: true \}\)/);
-  assert.match(source,/const replacingThisExam = pendingReplacement &&/);
-  assert.match(source,/window\.resetExam = function resetExam\(options = \{\}\)/);
-  const reset = source.slice(source.indexOf('window.resetExam = function resetExam('),source.indexOf('currentExam = {',source.indexOf('window.resetExam = function resetExam(')));
-  assert.match(reset,/if \(!preserveActiveResume\) clearStoredActiveExamResume\(\)/);
-  assert.match(source,/startResult\.code === 'EXAM_REPLACEMENT_CONFLICT'/);
+test('Fresh school attempt uses DB-resolved old lock rather than trusting replaceSessionId from browser',()=>{
+  const start=readFileSync('functions/api/exam/start.ts','utf8');
+  assert.match(start,/SELECT session_id FROM _exam_active_attempts WHERE attempt_key = \? AND exam_id = \? AND user_id = \?/);
+  assert.match(start,/oldSchoolAttemptSessionId = String\(active.session_id\)/);
+  assert.doesNotMatch(start,/body\?\.replaceSessionId/);
 });
-
 test('Student recovery accepts signed generic user accounts but excludes teachers and admins',()=>{
   const student={id:'user-1',role:'user',target_audience:'Học sinh'};
   assert.equal(isAuthenticatedSchoolExamStudent(student),true);
@@ -205,40 +183,30 @@ test('Submitted-result reconciliation releases only the exact matching active lo
   assert.match(source,/EXAM_INSPECT_STATE_CHANGED/);
 });
 
-test('Recovery failure keeps choices visible, bounded requests and durable active token',()=>{
+test('Heartbeat uses bounded timeout and never revokes a session on transient fetch failure',()=>{
   const main=readFileSync('src/main.js','utf8');
-  assert.match(main,/fetchExamStartResponse\(fetch, '\/api\/exam\/resume'/);
-  assert.match(main,/\}, 15000\)/);
-  assert.match(main,/if \(!await tryResumeActiveExam\(\)\) throw/);
-  assert.match(main,/resetExam\(\{ preserveActiveResume: true \}\)/);
-  assert.match(main,/const canResume = inspection\.body\.canResume !== false/);
-  assert.match(main,/const mayReplace = !isProcessing && inspection\.body\.canCreateNew === true/);
-  assert.match(main,/\$\{canResume && !isProcessing \? '' : 'disabled aria-disabled="true"'\}/);
-  assert.match(main,/fetchExamStartResponse\(fetch, '\/api\/exam\/start'/);
+  assert.match(main,/fetchExamStartResponse\(fetch, '\/api\/exam\/heartbeat'/);
+  assert.match(main,/\}, 12000\)/);
+  assert.match(main,/schoolExamHeartbeatTimer = setInterval/);
+  assert.match(main,/30000/);
+  assert.match(main,/EXAM_SESSION_CLOSED/);
 });
-
-test('Selecting an exam checks the learner previous attempt before loading new exam configuration',()=>{
-  const source=readFileSync('src/main.js','utf8');
-  const selection=source.slice(source.indexOf('window.onStudentExamNameChange = async function'),source.indexOf('window._verifyQuestionsSeq'));
-  const choice=selection.indexOf('offerExistingExamAttemptChoice(selectedExamId, selectedExamName');
-  const config=selection.indexOf("const detailUrl = ");
-  assert.ok(choice > 0 && config > choice,'Preflight must run before new-exam detail/access restrictions');
-  assert.match(selection,/fromSelection: true/);
-  assert.match(selection,/if \(handledExisting\) \{/);
-  assert.match(selection,/window\._studentExamLoadStatus = null/);
-  const start=source.slice(source.indexOf('window.startExam = async function'),source.indexOf('function generateExamQuestions()'));
-  assert.match(start,/if \(await offerExistingExamAttemptChoice\(selectedExamId, examName\)\) return/);
+test('Exam selection is not blocked by recovery mode or inspection failures',()=>{
+  const main=readFileSync('src/main.js','utf8');
+  assert.match(main,/async function offerExistingExamAttemptChoice\(\) \{ return false; \}/);
+  assert.match(main,/const handledExisting = await offerExistingExamAttemptChoice/);
+  assert.match(main,/if \(await offerExistingExamAttemptChoice\(selectedExamId, examName\)\) return/);
 });
-
-test('Recover and replace actions belong to the exact signed student and exam, without immediate revocation',()=>{
-  const source=readFileSync('src/main.js','utf8');
-  const dialog=source.slice(source.indexOf('async function offerExistingExamAttemptChoice('),source.indexOf('let examStartPending = false'));
-  assert.match(dialog,/mode:'inspect'/);
-  assert.match(dialog,/const mayReplace = !isProcessing && inspection\.body\.canCreateNew === true/);
-  assert.match(dialog,/if \(!mayReplace \|\| !activeId\) return/);
-  assert.match(dialog,/if \(!button \|\| button\.disabled \|\| !canResume \|\| isProcessing\) return/);
-  assert.match(dialog,/__pendingExamReplacement = \{examId:selectedExamId,sessionId:activeId\}/);
-  assert.match(dialog,/if \(fromSelection\)/);
-  assert.match(dialog,/await window\.onStudentExamNameChange\(\)/);
-  assert.doesNotMatch(dialog,/DELETE FROM _exam_active_attempts/);
+test('Heartbeat verifies tenant-authenticated user, signed session and strict 90-second lease',()=>{
+  const heartbeat=readFileSync('functions/api/exam/heartbeat.ts','utf8');
+  const clock=readFileSync('src/exam-connection-lifecycle.js','utf8');
+  const router=readFileSync('functions/[slug]/api/[[path]].ts','utf8');
+  assert.match(clock,/EXAM_HEARTBEAT_INTERVAL_MS = 30_000/);
+  assert.match(clock,/EXAM_DISCONNECT_GRACE_MS = 90_000/);
+  assert.match(heartbeat,/verifyAuthSession/);
+  assert.match(heartbeat,/verifyJWT/);
+  assert.match(heartbeat,/claims\.studentUserId/);
+  assert.match(heartbeat,/last_seen_at/);
+  assert.match(heartbeat,/EXAM_SESSION_CLOSED/);
+  assert.match(router,/'exam\/heartbeat': examHeartbeat/);
 });
