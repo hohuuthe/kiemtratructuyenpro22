@@ -70,17 +70,18 @@ test('Public contest participant lifecycle remains separately protected',()=>{
 
 test('School Start ignores all stale prior-session processing and replacement state',()=>{
   const startBlock = main.slice(main.indexOf('window.startExam = async function startExam'), main.indexOf('function generateExamQuestions()'));
-  assert.match(startBlock,/if \(window\.__contestTicket && window\.__EXAM_RESUME_BLOCK_NEW__\)/);
+  assert.match(startBlock,/if \(isPublicContestStart && window\.__EXAM_RESUME_BLOCK_NEW__\)/);
   assert.doesNotMatch(startBlock,/if \(window\.__EXAM_RESUME_BLOCK_NEW__\)/);
   assert.doesNotMatch(startBlock,/__pendingExamReplacement/);
   assert.doesNotMatch(startBlock,/\/api\/exam\/resume|\/api\/exam\/recover/);
-  assert.match(startBlock,/if \(window\.__contestTicket && response\.status === 409 &&/);
+  assert.match(startBlock,/if \(isPublicContestStart && response\.status === 409 &&/);
+  assert.match(startBlock,/const isPublicContestStart = Boolean\(window\.__contestTicket && examConfig\?\.chedodethi === 'Cuộc thi trực tuyến'\)/);
   assert.match(startBlock,/\/api\/exam\/generate/);
   assert.match(startBlock,/\/api\/exam\/start/);
 });
 test('School READY fullscreen displays confirmation rather than an empty exam shell',()=>{
   const startBlock = main.slice(main.indexOf('window.startExam = async function startExam'), main.indexOf('function generateExamQuestions()'));
-  assert.match(startBlock,/awaitingSchoolStart: !window\.__contestTicket/);
+  assert.match(startBlock,/awaitingSchoolStart: !isPublicContestStart/);
   assert.match(startBlock,/currentExam\.questions = startResult\.questions;[\s\S]*?startExamUI\(true\)/);
   const fullscreen = main.slice(main.indexOf('window.enterExamFullscreen = function'),main.indexOf('window.showFullscreenEnforcer = function'));
   assert.match(fullscreen,/options\?\.awaitingSchoolStart === true[\s\S]*?document\.body/);
