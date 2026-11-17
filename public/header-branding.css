@@ -38,6 +38,17 @@
 @media(max-width:700px){.header-banner-size-grid{grid-template-columns:1fr}.header-banner-device-inputs{grid-template-columns:1fr}.header-banner-size-guide{padding:11px}.header-banner-preview-viewport[data-device=tablet]{max-width:100%}}
 @media(prefers-reduced-motion:reduce){.header-banner-preview-viewport{transition:none}}
 
+/* Desktop-only: a 20% shorter header (240px -> 192px) that spans the
+   available screen content width. Cover avoids distortion; older 6:1
+   banners may be cropped vertically until replaced by a 7.5:1 image. */
+@media (min-width:1025px){
+  .app-header-banner{width:100%;padding:8px 0 2px}
+  .app-header-banner-image{width:100%;height:auto;aspect-ratio:15/2;max-height:192px;object-fit:cover;object-position:center;border-radius:0}
+  .header-banner-preview-viewport[data-device=desktop] .header-branding-preview-image{aspect-ratio:15/2;max-height:132px;object-fit:cover}
+  .student-exam-branding-img{max-height:68px}
+}
+
+
 /* Nonblocking visual guidance for recommended banner dimensions. */
 .header-banner-dimension-feedback{padding:8px 10px;border-radius:9px;line-height:1.45;background:#f1f5f9;color:#475569}
 .header-banner-dimension-feedback[data-status=good]{background:#ecfdf5;color:#065f46}
