@@ -110,14 +110,16 @@ export async function fetchExamStartResponse(fetcher, url, options = {}, timeout
  * A previously closed attempt must not require a second click. Retry ONLY
  * explicit server 409 "previous attempt is finishing" responses. A timeout
  * or unknown error is never retried: it might have committed a new attempt.
- * The bounded 8-second polling window covers the 90-second liveness grace.
+ * Retry is deliberately brief: the server reconciles expired locks before
+ * the quota check. Never hold the ready dialog in a 100-second wait loop.
+ * A still-live attempt cannot be replaced until server's 90s idle deadline.
  */
 export async function activateExamAfterPreviousFinalization(fetcher, url, options, {
   sleep = ms => new Promise(resolve => setTimeout(resolve, ms)),
   onRetry = () => {},
   isCancelled = () => false,
-  maxRetries = 13,
-  requestTimeoutMs = 20000
+  maxRetries = 2,
+  requestTimeoutMs = 12000
 } = {}) {
   let response = null;
   for (let retry = 0; retry <= maxRetries; retry++) {
@@ -133,7 +135,7 @@ export async function activateExamAfterPreviousFinalization(fetcher, url, option
     const justFinalized = code === 'EXAM_PREVIOUS_ATTEMPT_FINALIZED' ||
       code === 'EXAM_PREVIOUS_ATTEMPT_RECONCILED';
     if ((!pending && !justFinalized) || retry === maxRetries) return response;
-    const delay = justFinalized ? 700 : 8000;
+    const delay = justFinalized ? 300 : 1000;
     onRetry({ code, retry: retry + 1, delayMs: delay });
     await sleep(delay);
   }
