@@ -712,6 +712,31 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       }
     }
 
+    // A logged-in learner's identity comes from the authenticated server
+    // profile, never from editable browser metadata. Missing profile fields
+    // remain empty by design; do not force students to enter them.
+    let trustedStudentInfo:any=body?.studentInfo || {};
+    if (signedStudentUserId) {
+      try {
+        const identity:any=await db.prepare(
+          'SELECT full_name,lop,donvi FROM users WHERE id=? LIMIT 1'
+        ).bind(signedStudentUserId).first();
+        const fullName=String(identity?.full_name ?? verifiedUser?.full_name ?? '').trim();
+        const schoolClass=String(identity?.lop ?? verifiedUser?.lop ?? '').trim();
+        const schoolUnit=String(identity?.donvi ?? verifiedUser?.donvi ?? '').trim();
+        trustedStudentInfo={
+          ...trustedStudentInfo,name:fullName,lop:schoolClass,donvi:schoolUnit,
+          unit:schoolUnit,studentClass:[schoolClass,schoolUnit].filter(Boolean).join(' - '),
+          loaiThiSinh:'Đã đăng nhập'
+        };
+      } catch (identityError) {
+        console.error('Cannot lock authenticated learner identity for auto-finalization:',identityError);
+        return new Response(JSON.stringify({
+          code:'EXAM_STUDENT_IDENTITY_UNAVAILABLE',
+          error:'Không xác minh được hồ sơ học sinh để bảo vệ kết quả. Bài thi chưa được mở.'
+        }),{status:503,headers:corsHeaders});
+      }
+    }
     // The liveness record is required for a started attempt. On ambiguous
     // database failure leave the lock intact rather than issue a falsely
     // recoverable token; the watchdog will reconcile only proven sessions.
@@ -719,7 +744,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       await initializeExamLiveness(db,{
         sessionId:gradingSessionId,examId,userId:signedStudentUserId,
         contestParticipantId,deadlineAt:new Date(deadlineAtMs).toISOString(),
-        studentInfo:body?.studentInfo || {}
+        studentInfo:trustedStudentInfo
       });
     } catch(livenessError) {
       console.error('Unable to register started attempt for automatic finalization:',livenessError);
