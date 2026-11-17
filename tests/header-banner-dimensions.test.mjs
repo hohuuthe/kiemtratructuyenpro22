@@ -8,7 +8,7 @@ const file = path => readFileSync(new URL('../' + path,import.meta.url),'utf8');
 test('banner design sizes for desktop tablet and mobile stay documented and consistent',()=>{
   assert.deepEqual(
     Object.entries(RECOMMENDED_BANNER_SIZES).map(([name,{width,height}])=>[name,width,height]),
-    [['desktop',1920,320],['tablet',1200,300],['mobile',750,360]]
+    [['desktop',1920,256],['tablet',1200,300],['mobile',750,360]]
   );
   for(const [device,{width,height}] of Object.entries(RECOMMENDED_BANNER_SIZES)){
     const feedback=bannerDimensionFeedback(device,width,height);
@@ -22,7 +22,7 @@ test('banner design sizes for desktop tablet and mobile stay documented and cons
 test('dimension mismatch is advisory and never blocks a valid banner upload',()=>{
   const mismatch=bannerDimensionFeedback('mobile',1920,320);
   assert.equal(mismatch.status,'warning');
-  assert.match(mismatch.text,/không cắt hoặc kéo méo/);
+  assert.match(mismatch.text,/ảnh gốc không bị thay đổi/);
   assert.equal(bannerDimensionFeedback('desktop',NaN,320).status,'invalid');
   assert.equal(bannerDimensionFeedback('tablet',1200,0).status,'invalid');
   const js=file('src/header-branding-ui.js');
@@ -33,12 +33,14 @@ test('dimension mismatch is advisory and never blocks a valid banner upload',()=
 
 test('configuration guide provides exact recommended sizes and dynamic feedback',()=>{
   const tab=file('public/components/tab-settings.html');
-  for(const label of ['1920 × 320','1200 × 300','750 × 360','Kích thước banner khuyến nghị','settings-banner-dimension-feedback']){
+  for(const label of ['1920 × 256','1200 × 300','750 × 360','Kích thước banner khuyến nghị','settings-banner-dimension-feedback']){
     assert.ok(tab.includes(label),'Missing '+label);
   }
   assert.match(tab,/kích thước <strong>khuyến nghị, không bắt buộc<\/strong>/);
   const css=file('public/header-branding.css');
   assert.match(css,/\.app-header-banner-image\{[^\n]+object-fit:contain/);
+  assert.match(css,/@media \(min-width:1025px\)\{[\s\S]*?\.app-header-banner-image\{[^}]*aspect-ratio:15\/2;max-height:192px;object-fit:cover/);
+  assert.match(css,/\.student-exam-branding-img\{max-height:68px\}/);
   assert.match(css,/\.header-banner-dimension-feedback\[data-status=warning\]/);
   assert.match(css,/@media\s*\(min-width:601px\) and \(max-width:1024px\)/);
   assert.match(css,/@media\(max-width:700px\)/);
