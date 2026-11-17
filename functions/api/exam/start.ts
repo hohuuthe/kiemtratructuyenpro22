@@ -476,15 +476,11 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     // Claim đầu tiên ghi đồng thời start + deadline + TTL kỹ thuật. Nếu lệnh này
     // thất bại trước khi đồng hồ được ghi, thu hồi khóa ACTIVE để học sinh không mắc kẹt.
     try {
-      // A replacement already activated the snapshot inside the same atomic
-      // SQL statement that revoked the previous session and swapped its lock.
-      // A second update is unnecessary and a later network error must not
-      // remove an already-committed replacement.
-      {
-        await db.prepare(
-          'UPDATE _exam_grade_sessions SET started_at = ?, deadline_at = ?, expires_at = ? WHERE session_id = ? AND started_at IS NULL'
-        ).bind(proposedStartedAt, proposedDeadlineAt, proposedActiveExpiresAt, gradingSessionId).run();
-      }
+      // The freshly claimed slot belongs to the new grading session only.
+      // Persist its server-owned start/deadline before returning ACTIVE token.
+      await db.prepare(
+        'UPDATE _exam_grade_sessions SET started_at = ?, deadline_at = ?, expires_at = ? WHERE session_id = ? AND started_at IS NULL'
+      ).bind(proposedStartedAt, proposedDeadlineAt, proposedActiveExpiresAt, gradingSessionId).run();
     } catch (startClaimError) {
       if (signedAttemptUserId && examId) {
         try {
@@ -503,7 +499,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     // started_at. Snapshot có thể bị dọn đúng giữa SELECT đầu và UPDATE; trong race
     // đó trả token ACTIVE sẽ tạo một phiên ảo mà save/grade không thể xác minh.
     if (!authoritative?.started_at) {
-      if (signedAttemptUserId && examId && !body?.replaceSessionId) {
+      if (signedAttemptUserId && examId) {
         try {
           await db.prepare('DELETE FROM _exam_active_attempts WHERE session_id = ?')
             .bind(gradingSessionId).run();
