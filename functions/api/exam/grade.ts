@@ -1032,6 +1032,7 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
                      SELECT 1 FROM results reserved
                      WHERE reserved.submission_token_hash = ? AND reserved.exam_id = ? AND reserved.user_id = ?
                        AND reserved.grading_status = 'IN_PROGRESS'
+                       AND reserved.last_seen_at > NOW() - INTERVAL '90 seconds'
                        AND NOT EXISTS (
                          SELECT 1 FROM results newer
                          WHERE newer.exam_id = reserved.exam_id AND newer.user_id = reserved.user_id
@@ -1167,6 +1168,7 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
                   WHERE reserved.id = ? AND reserved.user_id = ? AND reserved.exam_id = ?
                     AND reserved.submission_token_hash = ?
                     AND reserved.grading_status = 'IN_PROGRESS'
+                    AND reserved.last_seen_at > NOW() - INTERVAL '90 seconds'
                     AND NOT EXISTS (
                       SELECT 1 FROM results newer
                       WHERE newer.exam_id = reserved.exam_id AND newer.user_id = reserved.user_id
