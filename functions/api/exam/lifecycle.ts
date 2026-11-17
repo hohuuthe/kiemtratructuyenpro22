@@ -14,6 +14,14 @@ export async function ensureExamLifecycleColumns(db: any): Promise<void> {
   )`).run();
   await db.prepare('ALTER TABLE _exam_active_attempts ADD COLUMN IF NOT EXISTS heartbeat_at TEXT').run();
   await db.prepare('ALTER TABLE _exam_active_attempts ADD COLUMN IF NOT EXISTS finalizing_at TEXT').run();
+  await db.prepare('ALTER TABLE results ADD COLUMN IF NOT EXISTS submission_token_hash TEXT').run();
+  await db.prepare(`CREATE TABLE IF NOT EXISTS _submitted_exam_tokens (
+    token_hash TEXT PRIMARY KEY, exam_id TEXT, student_name TEXT, user_id TEXT,
+    submitted_at TEXT, status TEXT, result_id TEXT, claimed_at TEXT
+  )`).run();
+  for (const col of ['status','result_id','claimed_at']) {
+    await db.prepare('ALTER TABLE _submitted_exam_tokens ADD COLUMN IF NOT EXISTS '+col+' TEXT').run();
+  }
 }
 
 export type ExamLifecycleState = 'ready' | 'live' | 'processing' | 'unavailable';
@@ -206,6 +214,7 @@ export const onRequestPost: PagesFunction<any> = async context => {
         SET heartbeat_at = ?
         WHERE attempt_key = ? AND exam_id = ? AND user_id = ? AND session_id = ?
           AND finalizing_at IS NULL
+          AND COALESCE(heartbeat_at, created_at) > ?
           AND EXISTS (SELECT 1 FROM _exam_grade_sessions gs
             WHERE gs.session_id = ? AND gs.started_at IS NOT NULL
               AND gs.deadline_at > ? AND gs.expires_at > ?)
@@ -214,7 +223,8 @@ export const onRequestPost: PagesFunction<any> = async context => {
             WHERE sub.token_hash = ? AND sub.status IN ('processing','completed')
           )
         RETURNING session_id
-      `).bind(now,examId+':'+userId,examId,userId,sessionId,sessionId,now,now,
+      `).bind(now,examId+':'+userId,examId,userId,sessionId,
+        new Date(Date.now()-EXAM_DISCONNECT_MS).toISOString(),sessionId,now,now,
         await hashToken('exam-session:'+sessionId)).first();
       return updated?.session_id ? reply(200,{ok:true,serverNow:now}) :
         reply(409,{code:'EXAM_SESSION_TERMINATED',error:'Phiên thi đã kết thúc hoặc đang nộp.'});
