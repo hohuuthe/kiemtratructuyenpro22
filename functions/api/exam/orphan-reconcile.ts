@@ -159,13 +159,13 @@ WITH eligible AS (
     (VALUES ('contest_lock',e.lock_data),
             ('contest_attempt',e.contest_data),
             ('contest_draft',COALESCE(e.draft_data,'{}'::jsonb))) audit(kind,data)
-  ON CONFLICT(session_id,kind) DO NOTHING
-  RETURNING session_id
+  ON CONFLICT(session_id,kind) DO UPDATE
+    SET archived_at=_exam_discarded_session_archive.archived_at
+  RETURNING session_id,kind
 ), complete_archive AS (
   SELECT e.session_id FROM eligible e
-  WHERE (SELECT COUNT(*) FROM _exam_discarded_session_archive a
-    WHERE a.session_id=e.session_id
-      AND a.kind IN ('contest_lock','contest_attempt','contest_draft'))=3
+  WHERE (SELECT COUNT(*) FROM archived a
+    WHERE a.session_id=e.session_id)=3
 ), canceled AS (
   UPDATE contest_attempts ca
   SET trang_thai='HUY'
