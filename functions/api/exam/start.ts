@@ -120,11 +120,11 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       'SELECT session_id, exam_id, question_ids, question_snapshot, exam_config, expires_at, started_at, deadline_at FROM _exam_grade_sessions WHERE session_id = ?'
     ).bind(gradingSessionId).first();
     if (!snapshot) {
-      return new Response(JSON.stringify({ error: 'Phiên thi không tồn tại hoặc đã được thu hồi.' }), { status: 409, headers: corsHeaders });
+      return new Response(JSON.stringify({ code:'EXAM_READY_REGENERATE_REQUIRED',error:'Phiên chuẩn bị thi không còn tồn tại. Hệ thống cần tạo bộ câu hỏi mới.' }), { status: 409, headers: corsHeaders });
     }
     const nowMs = Date.now();
     if (snapshot.expires_at && new Date(String(snapshot.expires_at)).getTime() <= nowMs) {
-      return new Response(JSON.stringify({ error: 'Phiên chuẩn bị thi đã hết hạn. Vui lòng tải lại đề.' }), { status: 409, headers: corsHeaders });
+      return new Response(JSON.stringify({ code:'EXAM_READY_REGENERATE_REQUIRED',error:'Phiên chuẩn bị thi đã hết hạn. Hệ thống cần tạo bộ câu hỏi mới.' }), { status: 409, headers: corsHeaders });
     }
 
     const issuedIds = Array.isArray(decoded.questionIds) ? decoded.questionIds.map((id: any) => String(id)) : [];
