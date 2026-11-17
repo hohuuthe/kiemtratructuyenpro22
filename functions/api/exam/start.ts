@@ -249,6 +249,31 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
     const timeLimitSeconds = normalizeExamTimeLimitSeconds(decoded.timeLimitSeconds);
 
+    let oldSchoolAttemptSessionId = '';
+    // A click to start a fresh school exam authorizes replacement. Derive the
+    // previous lock solely from authenticated tenant DB, never a browser token.
+    if (signedStudentUserId && !contestParticipantId && examId) {
+      try {
+        await db.prepare(`CREATE TABLE IF NOT EXISTS _exam_active_attempts (
+          attempt_key TEXT PRIMARY KEY, exam_id TEXT NOT NULL, user_id TEXT NOT NULL,
+          session_id TEXT NOT NULL, expires_at TEXT NOT NULL, created_at TEXT NOT NULL
+        )`).run();
+        await db.prepare('ALTER TABLE _exam_active_attempts ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ DEFAULT NOW()').run();
+        const active: any = await db.prepare(
+          'SELECT session_id FROM _exam_active_attempts WHERE attempt_key = ? AND exam_id = ? AND user_id = ?'
+        ).bind(examId + ':' + signedStudentUserId, examId, signedStudentUserId).first();
+        if (active?.session_id && String(active.session_id) !== gradingSessionId) {
+          oldSchoolAttemptSessionId = String(active.session_id);
+        }
+      } catch (error) {
+        console.error('Cannot safely inspect active school attempt before start:',error);
+        return new Response(JSON.stringify({
+          code:'EXAM_ATTEMPT_STATE_UNAVAILABLE',
+          error:'Chưa thể kiểm tra phiên thi trước. Vui lòng thử lại khi có kết nối.'
+        }),{status:503,headers:corsHeaders});
+      }
+    }
+
     let completedAttemptsForQuota = 0;
     // Chốt quyền lượt làm LẦN CUỐI ngay trước khi bắt đầu đồng hồ. Generate chỉ là
     // bước READY; nhiều READY token song song không được phép tiêu thụ nhiều lượt.
@@ -342,7 +367,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         ).bind(examId, signedStudentUserId).first();
         const usedCanceled = Math.max(0, Number(canceled?.count) || 0);
         const completed = Math.max(0, Number(completedAttemptsForQuota) || 0);
-        const replacement = String(body?.replaceSessionId || '').trim();
+        const replacement = oldSchoolAttemptSessionId;
         const maxAttempts = Number(authoritativeExamRow?.max_attempts);
         if (!Number.isInteger(maxAttempts) || maxAttempts < 0) {
           return new Response(JSON.stringify({code:'EXAM_ATTEMPT_CONFIG_INVALID',error:'Giới hạn lượt thi không hợp lệ.'}),{status:409,headers:corsHeaders});
@@ -384,9 +409,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             created_at TEXT NOT NULL
           )
         `).run();
+        await db.prepare('ALTER TABLE _exam_active_attempts ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ DEFAULT NOW()').run();
         const attemptKey = examId + ':' + signedAttemptUserId;
-        const replacementId = signedStudentUserId && !contestParticipantId
-          ? String(body?.replaceSessionId || '').trim() : '';
+        const replacementId = oldSchoolAttemptSessionId;
         if (replacementId) {
           // Commit swap + revocation together. No separate "delete old then
           // create new" request can strand a student without an attempt.
@@ -408,7 +433,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             ),
             switched AS (
               UPDATE _exam_active_attempts AS active_lock
-              SET session_id = ?, expires_at = ?, created_at = ?
+              SET session_id = ?, expires_at = ?, created_at = ?, last_seen_at = ?::timestamptz
               FROM old
               WHERE active_lock.attempt_key = ? AND active_lock.session_id = old.session_id
                 AND old.session_id <> ?
@@ -449,7 +474,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             SELECT session_id FROM revoked LIMIT 1
           `).bind(
             attemptKey,examId,signedStudentUserId,replacementId,
-            gradingSessionId,proposedActiveExpiresAt,proposedStartedAt,
+            gradingSessionId,proposedActiveExpiresAt,proposedStartedAt,proposedStartedAt,
             attemptKey,gradingSessionId,gradingSessionId,submissionHash,submissionHash,
             Number(authoritativeExamRow?.max_attempts) || 0,
             examId,signedStudentUserId,examId,signedStudentUserId,
@@ -472,16 +497,17 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
         const claim: any = await db.prepare(`
           INSERT INTO _exam_active_attempts
-            (attempt_key, exam_id, user_id, session_id, expires_at, created_at)
-          VALUES (?, ?, ?, ?, ?, ?)
+            (attempt_key, exam_id, user_id, session_id, expires_at, created_at, last_seen_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?::timestamptz)
           ON CONFLICT (attempt_key) DO UPDATE SET
             session_id = excluded.session_id,
             expires_at = excluded.expires_at,
-            created_at = excluded.created_at
+            created_at = excluded.created_at,
+            last_seen_at = excluded.created_at::timestamptz
           WHERE _exam_active_attempts.session_id = excluded.session_id
         `).bind(
           attemptKey, examId, signedAttemptUserId, gradingSessionId,
-          proposedActiveExpiresAt, proposedStartedAt
+          proposedActiveExpiresAt, proposedStartedAt, proposedStartedAt
         ).run();
         if (Number(claim?.meta?.changes || 0) !== 1) {
           return new Response(JSON.stringify({
@@ -549,13 +575,13 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       // SQL statement that revoked the previous session and swapped its lock.
       // A second update is unnecessary and a later network error must not
       // remove an already-committed replacement.
-      if (!(signedStudentUserId && body?.replaceSessionId)) {
+      if (!oldSchoolAttemptSessionId) {
         await db.prepare(
           'UPDATE _exam_grade_sessions SET started_at = ?, deadline_at = ?, expires_at = ? WHERE session_id = ? AND started_at IS NULL'
         ).bind(proposedStartedAt, proposedDeadlineAt, proposedActiveExpiresAt, gradingSessionId).run();
       }
     } catch (startClaimError) {
-      if (signedAttemptUserId && examId && !body?.replaceSessionId) {
+      if (signedAttemptUserId && examId && !oldSchoolAttemptSessionId) {
         try {
           await db.prepare('DELETE FROM _exam_active_attempts WHERE session_id = ?')
             .bind(gradingSessionId).run();
@@ -572,7 +598,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     // started_at. Snapshot có thể bị dọn đúng giữa SELECT đầu và UPDATE; trong race
     // đó trả token ACTIVE sẽ tạo một phiên ảo mà save/grade không thể xác minh.
     if (!authoritative?.started_at) {
-      if (signedAttemptUserId && examId && !body?.replaceSessionId) {
+      if (signedAttemptUserId && examId && !oldSchoolAttemptSessionId) {
         try {
           await db.prepare('DELETE FROM _exam_active_attempts WHERE session_id = ?')
             .bind(gradingSessionId).run();
