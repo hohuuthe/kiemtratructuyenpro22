@@ -117,6 +117,12 @@ test('start retries after an orphan cleanup and does not bypass quota check',()=
  const start=readFileSync('functions/api/exam/start.ts','utf8');
  assert.match(start,/reconcileExpiredLegacyOrphan\(/);
  assert.match(start,/const orphanReleased=signedStudentUserId && !contestParticipantId/);
+ const quotaPosition=start.indexOf('let completedAttemptsForQuota = 0;');
+ const reconcilePosition=start.indexOf('const oldKey = examId');
+ assert.ok(reconcilePosition>=0 && reconcilePosition<quotaPosition,
+  'expired prior attempt must be committed before the fresh quota count');
+ assert.match(start,/await ensureExamLivenessSchema\(db\);[\s\S]*?CREATE TABLE IF NOT EXISTS _exam_active_attempts/);
+ assert.match(start,/if \(closed.status === 'retry_required'\)/);
  assert.match(start,/EXAM_PREVIOUS_ATTEMPT_RECONCILED/);
  assert.match(start,/completed \+ usedCanceled/);
  assert.match(start,/if \(orphanReleased\) \{/);
