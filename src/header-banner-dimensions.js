@@ -23,7 +23,9 @@ export function bannerDimensionFeedback(device, width, height) {
   }
   const reason = width < target.width * 0.65
     ? 'Ảnh khá nhỏ, có thể thiếu nét khi trình chiếu.'
-    : 'Tỷ lệ ảnh khác tỷ lệ đề xuất, trên máy tính có thể bị cắt một phần ở mép để phủ hết chiều rộng.';
+    : device === 'desktop'
+      ? 'Tỷ lệ ảnh khác tỷ lệ đề xuất, trên máy tính có thể bị cắt phần mép để phủ hết chiều rộng.'
+      : 'Tỷ lệ ảnh khác tỷ lệ đề xuất, có thể xuất hiện khoảng trống hai bên.';
   return {
     status: 'warning',
     text: dimensions + ' • ' + reason + ' Khuyến nghị ' + recommended +
