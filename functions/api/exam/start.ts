@@ -1,7 +1,7 @@
-import { verifyAuthSession, verifyJWT, signJWT, getDynamicSecret, getDatabase, hashToken } from './utils';
+import { verifyAuthSession, verifyJWT, signJWT, getDynamicSecret, getDatabase } from './utils';
 import { publicContestExam } from '../contest/register';
-import { ensureExamLivenessSchema, initializeExamLiveness, finalizeExamLiveness, registerExpiredLegacyExamAttemptById, reconcileCommittedContestResult } from './finalize-service';
-import { reconcileExpiredLegacyOrphan, reconcileExpiredContestOrphan } from './orphan-reconcile';
+import { ensureExamLivenessSchema, initializeExamLiveness } from './finalize-service';
+import { claimFreshExamAttempt } from './fresh-attempt';
 import { stripContestAnswerHints } from '../../../src/exam-public-contest-projection';
 import {
   EXAM_SESSION_PURPOSE_PRESTART,
@@ -36,11 +36,6 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
   try {
     const body: any = await request.json();
     const token = String(body?.token || '').trim();
-    if (body?.replaceSessionId) {
-      return new Response(JSON.stringify({code:'EXAM_REPLACEMENT_DISABLED',
-        error:'Không hỗ trợ bỏ phiên cũ để mở phiên mới. Bài trước phải được nộp và chấm điểm.'}),
-        {status:409,headers:corsHeaders});
-    }
     if (!token) {
       return new Response(JSON.stringify({ error: 'Thiếu mã phiên chuẩn bị thi.' }), { status: 400, headers: corsHeaders });
     }
@@ -259,64 +254,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     // Applies to authenticated school students AND signed contest participants.
     // An old contest record also has a UNIQUE active participant/exam constraint;
     // ignoring it strands subsequent exams even if the school lock was cleaned.
-    // Reconcile a past attempt BEFORE checking remaining quota. If its result
-    // was just committed, the fresh quota query below must count it. A frozen
-    // attempt that cannot be safely graded remains locked; never invent marks.
-    // This also makes a new exam start independent of a deployed Cron schedule
-    // when the student returns after the 90-second timeout.
-    if (signedAttemptUserId && examId) {
-      try {
-        await ensureExamLivenessSchema(db);
-        await db.prepare(`CREATE TABLE IF NOT EXISTS _exam_active_attempts (
-          attempt_key TEXT PRIMARY KEY, exam_id TEXT NOT NULL, user_id TEXT NOT NULL,
-          session_id TEXT NOT NULL, expires_at TEXT NOT NULL, created_at TEXT NOT NULL
-        )`).run();
-        const oldKey = examId + ':' + signedAttemptUserId;
-        const locked: any = await db.prepare(
-          'SELECT session_id FROM _exam_active_attempts WHERE attempt_key = ?'
-        ).bind(oldKey).first();
-        const oldId = String(locked?.session_id || '');
-        if (oldId && oldId !== gradingSessionId) {
-          if (contestParticipantId) {
-            const resultAlreadySaved=await reconcileCommittedContestResult(
-              db,oldKey,oldId,signedAttemptUserId
-            );
-            if (resultAlreadySaved) {
-              // Count the committed contest result on the next quota query.
-              // Do not reuse a pre-start token that belongs to an old exam.
-              return new Response(JSON.stringify({
-                code:'EXAM_PREVIOUS_ATTEMPT_FINALIZED',
-                error:'Đã xác nhận kết quả lượt trước; hệ thống đang kiểm tra lượt còn lại.'
-              }),{status:409,headers:corsHeaders});
-            }
-          }
-          const archived = signedStudentUserId && !contestParticipantId
-            ? await reconcileExpiredLegacyOrphan(db, oldKey, oldId)
-            : contestParticipantId
-              ? await reconcileExpiredContestOrphan(db,oldKey,oldId,contestParticipantId)
-              : false;
-          if (!archived) {
-            // Pre-heartbeat historical sessions may have a fully frozen exam
-            // and an expired deadline, but no liveness row yet. Bootstrap only
-            // this exact locked session, then grade it from its server draft.
-            await registerExpiredLegacyExamAttemptById(context, oldId);
-            const closed = await finalizeExamLiveness(context, oldId);
-            if (closed.status === 'retry_required') {
-              return new Response(JSON.stringify({
-                code:'EXAM_PREVIOUS_ATTEMPT_FINALIZE_RETRY',
-                error:'Máy chủ chưa thể lưu kết quả bài trước. Hệ thống giữ bài làm để đối soát, không mở phiên mới làm mất dữ liệu.'
-              }),{status:503,headers:corsHeaders});
-            }
-          }
-        }
-      } catch (reconciliationError) {
-        console.error('Cannot reconcile prior attempt before new quota check:',reconciliationError);
-        return new Response(JSON.stringify({
-          code:'EXAM_PREVIOUS_ATTEMPT_RECONCILIATION_UNAVAILABLE',
-          error:'Máy chủ chưa xác minh được trạng thái nộp bài trước; vui lòng thử lại.'
-        }),{status:503,headers:corsHeaders});
-      }
-    }
+    // No old-session lookup, finalization, recovery or pending state is
+    // consulted before a fresh admission. The new attempt's validated exam
+    // config, signed identity and consumed-result quota are authoritative.
 
     let completedAttemptsForQuota = 0;
     // Chốt quyền lượt làm LẦN CUỐI ngay trước khi bắt đầu đồng hồ. Generate chỉ là
@@ -411,15 +351,14 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         ).bind(examId, signedStudentUserId).first();
         const usedCanceled = Math.max(0, Number(canceled?.count) || 0);
         const completed = Math.max(0, Number(completedAttemptsForQuota) || 0);
-        const replacement = String(body?.replaceSessionId || '').trim();
         const maxAttempts = Number(authoritativeExamRow?.max_attempts);
         if (!Number.isInteger(maxAttempts) || maxAttempts < 0) {
           return new Response(JSON.stringify({code:'EXAM_ATTEMPT_CONFIG_INVALID',error:'Giới hạn lượt thi không hợp lệ.'}),{status:409,headers:corsHeaders});
         }
-        if (maxAttempts > 0 && completed + usedCanceled + (replacement ? 1 : 0) >= maxAttempts) {
+        if (maxAttempts > 0 && completed + usedCanceled >= maxAttempts) {
           return new Response(JSON.stringify({
             code:'EXAM_ATTEMPT_LIMIT_REACHED',
-            attemptCount:completed + usedCanceled + (replacement ? 1 : 0),maxAttempts,
+            attemptCount:completed + usedCanceled,maxAttempts,
             error:'Bạn không còn đủ lượt làm bài để tạo phiên mới.'
           }),{status:403,headers:corsHeaders});
         }
@@ -487,140 +426,22 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
           )
         `).run();
         const attemptKey = examId + ':' + signedAttemptUserId;
-        const replacementId = signedStudentUserId && !contestParticipantId
-          ? String(body?.replaceSessionId || '').trim() : '';
-        if (replacementId) {
-          // Commit swap + revocation together. No separate "delete old then
-          // create new" request can strand a student without an attempt.
-          // The lock row serializes concurrent replacement requests.
-          await db.prepare(`CREATE TABLE IF NOT EXISTS _submitted_exam_tokens (
-            token_hash TEXT PRIMARY KEY, exam_id TEXT, student_name TEXT, user_id TEXT,
-            submitted_at TEXT, status TEXT, result_id TEXT, claimed_at TEXT
-          )`).run();
-          for (const column of ['status','result_id']) {
-            await db.prepare('ALTER TABLE _submitted_exam_tokens ADD COLUMN IF NOT EXISTS ' + column + ' TEXT').run();
-          }
-          const submissionHash = await hashToken('exam-session:' + replacementId);
-          const replaced: any = await db.prepare(`
-            WITH old AS (
-              SELECT session_id
-              FROM _exam_active_attempts
-              WHERE attempt_key = ? AND exam_id = ? AND user_id = ? AND session_id = ?
-              FOR UPDATE
-            ),
-            switched AS (
-              UPDATE _exam_active_attempts AS active_lock
-              SET session_id = ?, expires_at = ?, created_at = ?
-              FROM old
-              WHERE active_lock.attempt_key = ? AND active_lock.session_id = old.session_id
-                AND old.session_id <> ?
-                AND EXISTS (
-                  SELECT 1 FROM _exam_grade_sessions ready
-                  WHERE ready.session_id = ? AND ready.started_at IS NULL
-                  FOR UPDATE
-                )
-                AND NOT EXISTS (
-                  SELECT 1 FROM _submitted_exam_tokens s
-                  WHERE s.token_hash = ? AND s.status IN ('processing','completed')
-                )
-                AND NOT EXISTS (
-                  SELECT 1 FROM results result WHERE result.submission_token_hash = ?
-                )
-                AND (? = 0 OR (
-                  (SELECT COUNT(*) FROM results WHERE exam_id = ? AND user_id = ?) +
-                  (SELECT COUNT(*) FROM _exam_abandoned_attempts WHERE exam_id = ? AND user_id = ?) +
-                  1 < ?
-                ))
-              RETURNING old.session_id AS old_session_id
-            ),
-            activated AS (
-              UPDATE _exam_grade_sessions AS new_session
-              SET started_at = ?, deadline_at = ?, expires_at = ?
-              FROM switched
-              WHERE new_session.session_id = ? AND new_session.started_at IS NULL
-              RETURNING switched.old_session_id
-            ),
-            revoked AS (
-              INSERT INTO _exam_abandoned_attempts
-                (session_id, exam_id, user_id, reason, abandoned_at)
-              SELECT old_session_id, ?, ?, 'replaced_by_student', ?
-              FROM activated WHERE TRUE
-              ON CONFLICT (session_id) DO UPDATE SET reason = excluded.reason
-              RETURNING session_id
-            )
-            SELECT session_id FROM revoked LIMIT 1
-          `).bind(
-            attemptKey,examId,signedStudentUserId,replacementId,
-            gradingSessionId,proposedActiveExpiresAt,proposedStartedAt,
-            attemptKey,gradingSessionId,gradingSessionId,submissionHash,submissionHash,
-            Number(authoritativeExamRow?.max_attempts) || 0,
-            examId,signedStudentUserId,examId,signedStudentUserId,
-            Number(authoritativeExamRow?.max_attempts) || 0,
-            proposedStartedAt,proposedDeadlineAt,proposedActiveExpiresAt,gradingSessionId,
-            examId,signedStudentUserId,proposedStartedAt
-          ).first();
-          if (!replaced?.session_id) {
-            return new Response(JSON.stringify({
-              code:'EXAM_REPLACEMENT_CONFLICT',
-              error:'Phiên thi hoặc số lượt đã thay đổi; vui lòng kiểm tra lại. Phiên cũ chưa bị hủy.'
-            }),{status:409,headers:corsHeaders});
-          }
-        } else {
-
-
-        // Never silently discard a stale ACTIVE lock. Even if its old
-        // snapshot vanished, the original attempt is consumed and must be
-        // explicitly replaced via the counted atomic transaction above.
-
-        // Before acquiring a new slot, reconcile a prior attempt only when
-        // its server heartbeat proves it has ended (not from browser storage).
-        const existingLock: any = await db.prepare(
-          'SELECT session_id FROM _exam_active_attempts WHERE attempt_key = ?'
-        ).bind(attemptKey).first();
-        if (existingLock && String(existingLock.session_id)!==gradingSessionId) {
-          // The old schema can leave ACTIVE locks whose frozen session has
-          // already vanished. Archive only verifiably expired orphan locks,
-          // then require a fresh quota check on the next start request.
-          const orphanReleased=signedStudentUserId && !contestParticipantId
-            ? await reconcileExpiredLegacyOrphan(
-                db,attemptKey,String(existingLock.session_id)
-              )
-            : false;
-          if (orphanReleased) {
-            return new Response(JSON.stringify({
-              code:'EXAM_PREVIOUS_ATTEMPT_RECONCILED',
-              error:'Lượt thi cũ không còn bản đề gốc đã được ghi nhận để đối soát. Vui lòng bấm bắt đầu lại; hệ thống sẽ kiểm tra lượt còn lại.'
-            }),{status:409,headers:corsHeaders});
-          }
-          const prior=await finalizeExamLiveness(context,String(existingLock.session_id));
-          if (prior.status==='finalized') {
-            // Quota must be checked again against the newly persisted result.
-            // Do not consume a stale READY token in the same request.
-            return new Response(JSON.stringify({code:'EXAM_PREVIOUS_ATTEMPT_FINALIZED',
-              error:'Bài thi trước vừa được tự động nộp. Vui lòng bấm bắt đầu lại để kiểm tra số lượt còn lại.'}),
-              {status:409,headers:corsHeaders});
-          }
-        }
-        const claim: any = await db.prepare(`
-          INSERT INTO _exam_active_attempts
-            (attempt_key, exam_id, user_id, session_id, expires_at, created_at)
-          VALUES (?, ?, ?, ?, ?, ?)
-          ON CONFLICT (attempt_key) DO UPDATE SET
-            session_id = excluded.session_id,
-            expires_at = excluded.expires_at,
-            created_at = excluded.created_at
-          WHERE _exam_active_attempts.session_id = excluded.session_id
-        `).bind(
-          attemptKey, examId, signedAttemptUserId, gradingSessionId,
-          proposedActiveExpiresAt, proposedStartedAt
-        ).run();
-        if (Number(claim?.meta?.changes || 0) !== 1) {
+        // Every valid click creates a NEW attempt. Never inspect or wait on
+        // the previous session. One atomic database claim audits and revokes
+        // a superseded in-progress attempt, while protecting a submission
+        // already being committed by the grader.
+        const startedFresh=await claimFreshExamAttempt(db,{
+          attemptKey,examId,userId:signedAttemptUserId,
+          sessionId:gradingSessionId,
+          expiresAt:proposedActiveExpiresAt,
+          startedAt:proposedStartedAt
+        });
+        if (!startedFresh) {
           return new Response(JSON.stringify({
-            code: 'EXAM_ATTEMPT_ALREADY_ACTIVE',
-            error: 'Lượt thi trước của tài khoản này chưa được máy chủ kết thúc. Hệ thống đang bảo toàn bài làm và chưa thể mở lượt mới. Vui lòng thử lại; nếu tình trạng kéo dài, liên hệ giáo viên quản lý đề.'
-          }), { status: 409, headers: corsHeaders });
+            code:'EXAM_START_CONCURRENT_SUBMISSION',
+            error:'Một yêu cầu nộp bài khác đang được ghi kết quả. Vui lòng thử tạo bài thi mới sau khi máy chủ hoàn tất.'
+          }),{status:409,headers:corsHeaders});
         }
-        } // regular claim; replacement claimed atomically above
       } catch (activeClaimError) {
         console.error('Cannot claim active exam attempt:', activeClaimError);
         return new Response(JSON.stringify({
@@ -680,13 +501,13 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       // SQL statement that revoked the previous session and swapped its lock.
       // A second update is unnecessary and a later network error must not
       // remove an already-committed replacement.
-      if (!(signedStudentUserId && body?.replaceSessionId)) {
+      {
         await db.prepare(
           'UPDATE _exam_grade_sessions SET started_at = ?, deadline_at = ?, expires_at = ? WHERE session_id = ? AND started_at IS NULL'
         ).bind(proposedStartedAt, proposedDeadlineAt, proposedActiveExpiresAt, gradingSessionId).run();
       }
     } catch (startClaimError) {
-      if (signedAttemptUserId && examId && !body?.replaceSessionId) {
+      if (signedAttemptUserId && examId) {
         try {
           await db.prepare('DELETE FROM _exam_active_attempts WHERE session_id = ?')
             .bind(gradingSessionId).run();
