@@ -1205,7 +1205,12 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
             const gradingStatus = hasPendingEssayGrades ? 'PENDING' : 'FINAL';
             const finalizedAt = hasPendingEssayGrades ? null : new Date().toISOString();
             await db.prepare(
-                `INSERT INTO results (id, user_id, student_name, student_class, lop, don_vi, exam_name, exam_id, score, time_taken, correct_count, total_questions, details, loai_thi_sinh, cheat_warning_count, submission_token_hash, grading_status, score_finalized_at, ma_nguoi_du_thi, ma_phien_thi, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                `INSERT INTO results (id, user_id, student_name, student_class, lop, don_vi, exam_name, exam_id, score, time_taken, correct_count, total_questions, details, loai_thi_sinh, cheat_warning_count, submission_token_hash, grading_status, score_finalized_at, ma_nguoi_du_thi, ma_phien_thi, created_at)
+                 SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                 WHERE EXISTS (SELECT 1 FROM _submitted_exam_tokens t
+                   WHERE t.token_hash=? AND t.status='processing' AND t.result_id=?
+                   FOR UPDATE)
+                 RETURNING id`
             ).bind(
                 resultId,
                 authenticatedUserId || null,
@@ -1227,8 +1232,9 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
                 finalizedAt,
                 contestParticipantId || null,
                 contestParticipantId ? String(gradingSessionId || '') : null,
-                new Date().toISOString()
-            ).run();
+                new Date().toISOString(),
+                tokenHash,claimedResultId
+            ).first();
             resultPersisted = true;
         } catch (dbErr) {
             console.error("Lỗi khi lưu kết quả bài thi vào CSDL:", dbErr);
