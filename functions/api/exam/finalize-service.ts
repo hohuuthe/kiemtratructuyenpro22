@@ -139,6 +139,52 @@ export async function finalizeExamLiveness(context: any, sessionId: string, nowM
   }
 }
 
+/**
+ * Exact-session bootstrap for a learner returning to an old pre-heartbeat
+ * attempt. Never assume the session ended solely because a browser closed:
+ * require the server-authoritative deadline to have elapsed and a frozen
+ * started snapshot with the same locked account/exam. The regular finalizer
+ * will then grade the existing draft, without asking for a resume token.
+ */
+export async function registerExpiredLegacyExamAttemptById(context:any, sessionId:string) {
+  const db=getDatabase(context);
+  await ensureExamLivenessSchema(db);
+  const cutoff=new Date(Date.now()-EXAM_IDLE_TIMEOUT_MS).toISOString();
+  const row:any=await db.prepare(`
+    SELECT a.session_id,a.exam_id,a.user_id,gs.deadline_at
+    FROM _exam_active_attempts a
+    JOIN _exam_grade_sessions gs ON gs.session_id=a.session_id
+    LEFT JOIN _exam_attempt_liveness l ON l.session_id=a.session_id
+    WHERE a.session_id=? AND l.session_id IS NULL
+      AND gs.exam_id=a.exam_id AND gs.started_at IS NOT NULL
+      AND gs.started_at<=? AND gs.deadline_at<=?
+    LIMIT 1
+  `).bind(sessionId,cutoff,new Date().toISOString()).first();
+  if (!row) return false;
+  const identity=String(row.user_id||'');
+  const isContest=identity.startsWith('contest:');
+  const userId=isContest?'':identity;
+  const participant=isContest?identity.slice('contest:'.length):'';
+  let info:any={examId:String(row.exam_id)};
+  if (isContest) {
+    const person:any=await db.prepare(
+      'SELECT ho_ten,don_vi FROM contest_participants WHERE ma_nguoi_du_thi=?'
+    ).bind(participant).first();
+    info={...info,name:String(person?.ho_ten||''),donvi:String(person?.don_vi||'')};
+  } else {
+    const student:any=await db.prepare(
+      'SELECT full_name,lop,donvi FROM users WHERE id=?'
+    ).bind(userId).first();
+    info={...info,name:String(student?.full_name||''),lop:String(student?.lop||''),donvi:String(student?.donvi||'')};
+  }
+  await initializeExamLiveness(db,{
+    sessionId:String(row.session_id),examId:String(row.exam_id),
+    userId,contestParticipantId:participant,
+    deadlineAt:String(row.deadline_at),studentInfo:info
+  });
+  return true;
+}
+
 // Migrate old ACTIVE locks after at least 90 seconds since their START.
 // Register them with a fresh heartbeat clock, then wait 90 seconds before
 // automatic finalization. No active answer/snapshot is deleted prematurely.
