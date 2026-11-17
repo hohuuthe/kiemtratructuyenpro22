@@ -1,6 +1,6 @@
 import { verifyAuthSession, verifyJWT, signJWT, getDynamicSecret, getDatabase, hashToken } from './utils';
 import { publicContestExam } from '../contest/register';
-import { ensureExamLivenessSchema, initializeExamLiveness, finalizeExamLiveness } from './finalize-service';
+import { ensureExamLivenessSchema, initializeExamLiveness, finalizeExamLiveness, registerExpiredLegacyExamAttemptById } from './finalize-service';
 import { reconcileExpiredLegacyOrphan } from './orphan-reconcile';
 import { stripContestAnswerHints } from '../../../src/exam-public-contest-projection';
 import {
@@ -276,6 +276,10 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         if (oldId && oldId !== gradingSessionId) {
           const archived = await reconcileExpiredLegacyOrphan(db, oldKey, oldId);
           if (!archived) {
+            // Pre-heartbeat historical sessions may have a fully frozen exam
+            // and an expired deadline, but no liveness row yet. Bootstrap only
+            // this exact locked session, then grade it from its server draft.
+            await registerExpiredLegacyExamAttemptById(context, oldId);
             const closed = await finalizeExamLiveness(context, oldId);
             if (closed.status === 'retry_required') {
               return new Response(JSON.stringify({
