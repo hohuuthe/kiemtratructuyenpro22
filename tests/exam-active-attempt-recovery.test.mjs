@@ -96,7 +96,7 @@ test('A new attempt requires actual multiple-attempt availability',()=>{
 test('Replacement is atomic, counted and protected against submission races',()=>{
   const start=readFileSync('functions/api/exam/start.ts','utf8');
   const grade=readFileSync('functions/api/exam/grade.ts','utf8');
-  assert.match(start,/replaceSessionId/);
+  assert.match(start,/const replacementId = oldSchoolAttemptSessionId/);
   assert.match(start,/usedCanceled/);
   assert.match(start,/completed \+ usedCanceled \+ \(replacement \? 1 : 0\)/);
   assert.match(start,/WITH old AS \(/);
