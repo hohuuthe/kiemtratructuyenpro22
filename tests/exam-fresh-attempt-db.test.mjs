@@ -65,6 +65,32 @@ test('new session replaces previous frozen attempt atomically, archives source, 
   assert.equal((await db.query('SELECT COUNT(*)::int n FROM results')).rows[0].n,0);
  }finally{await db.close();}
 });
+test('authenticated school learner starts a new exam even with a previous unfinished lock',async()=>{
+ const db=await fixture({old:true});
+ const school='student1',schoolKey='exam1:'+school;
+ const schoolArgs=[schoolKey,'exam1',school,newSession,schoolKey,'exam1',school,newSession,exp,now];
+ try{
+  await db.query('UPDATE _exam_active_attempts SET attempt_key=$1,user_id=$2',[schoolKey,school]);
+  const r=await db.query(sql,schoolArgs);
+  assert.equal(r.rows[0]?.session_id,newSession);
+  assert.equal((await db.query('SELECT COUNT(*)::int n FROM _exam_grade_sessions')).rows[0].n,0);
+  assert.equal((await db.query('SELECT COUNT(*)::int n FROM _exam_discarded_session_archive')).rows[0].n,4);
+ }finally{await db.close();}
+});
+
+test('two READY tokens for the same account cannot keep two ACTIVE sessions',async()=>{
+ const db=await fixture();
+ try{
+  const first=await db.query(sql,args);
+  assert.equal(first.rows[0]?.session_id,newSession);
+  const finalId='newer-session';
+  const second=await db.query(sql,args.map(v=>v===newSession?finalId:v));
+  assert.equal(second.rows[0]?.session_id,finalId);
+  assert.equal((await db.query('SELECT COUNT(*)::int n FROM _exam_active_attempts')).rows[0].n,1);
+  assert.equal((await db.query('SELECT session_id FROM _exam_active_attempts')).rows[0].session_id,finalId);
+ }finally{await db.close();}
+});
+
 test('a processing submission cannot be superseded',async()=>{
  const db=await fixture({old:true,contest:true,processing:true});
  try{
