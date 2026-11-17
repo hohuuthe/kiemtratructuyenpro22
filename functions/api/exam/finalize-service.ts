@@ -76,6 +76,21 @@ export async function finalizeExamLiveness(context: any, sessionId: string, nowM
       // Continue via the grader's unique claim; never assume a result exists.
     }
     if (committed?.id) {
+      // An earlier result may have committed immediately before the old
+      // browser session was superseded. Reconcile contest metadata to the
+      // exact recorded result before marking the finalizer complete.
+      if (row.contest_participant_id) {
+        await db.prepare(`
+          UPDATE contest_attempts ca
+          SET trang_thai='DA_NOP',ma_ket_qua=r.id,
+              thoi_diem_nop=COALESCE(ca.thoi_diem_nop,r.created_at::timestamptz)
+          FROM results r
+          WHERE ca.ma_phien_thi=? AND ca.ma_de_thi=? AND ca.ma_nguoi_du_thi=?
+            AND r.id=? AND r.ma_phien_thi=ca.ma_phien_thi
+            AND r.exam_id=ca.ma_de_thi AND r.ma_nguoi_du_thi=ca.ma_nguoi_du_thi
+            AND ca.trang_thai IN ('DANG_LAM','HUY')
+        `).bind(sessionId,String(row.exam_id),String(row.contest_participant_id),String(committed.id)).run();
+      }
       await db.prepare('DELETE FROM _exam_active_attempts WHERE session_id=?').bind(sessionId).run();
       await db.prepare('UPDATE _exam_attempt_liveness SET finalized_at=?,last_error=NULL WHERE session_id=?')
         .bind(new Date().toISOString(),sessionId).run();
