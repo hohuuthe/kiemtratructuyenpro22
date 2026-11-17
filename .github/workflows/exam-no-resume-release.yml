@@ -13,6 +13,7 @@ on:
       - 'tests/exam-no-resume-liveness.test.mjs'
       - 'tests/exam-orphan-reconcile-db.test.mjs'
       - 'tests/exam-legacy-bootstrap-db.test.mjs'
+      - 'tests/exam-contest-committed-reconcile.test.mjs'
       - 'tests/exam-start-retry.test.mjs'
       - 'src/student-exam-start-guard.js'
       - 'functions/api/exam/orphan-reconcile.ts'
@@ -35,7 +36,7 @@ jobs:
       - name: New session lifecycle and liveness regressions
         run: node --test tests/exam-no-resume-liveness.test.mjs tests/exam-start-retry.test.mjs
       - name: Real production SQL orphan lock integration regression
-        run: node --test tests/exam-orphan-reconcile-db.test.mjs tests/exam-legacy-bootstrap-db.test.mjs
+        run: node --test tests/exam-orphan-reconcile-db.test.mjs tests/exam-legacy-bootstrap-db.test.mjs tests/exam-contest-committed-reconcile.test.mjs
       - name: TypeScript lint
         run: npm run lint
       - name: Production build
