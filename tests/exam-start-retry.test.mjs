@@ -85,7 +85,8 @@ test('student UI starts once with no old-session recovery or waiting',()=>{
  assert.doesNotMatch(main,/Đang hoàn tất lượt thi trước/);
  assert.doesNotMatch(main,/tryResumeActiveExam\(/);
 });
-\ntest('expired READY from a prior cleanup automatically requests a fresh unstarted exam',()=>{
+
+test('expired READY from a prior cleanup automatically requests a fresh unstarted exam',()=>{
  const backend=readFileSync('functions/api/exam/start.ts','utf8');
  const frontend=readFileSync('src/main.js','utf8');
  assert.match(backend,/code:'EXAM_READY_REGENERATE_REQUIRED'/);
