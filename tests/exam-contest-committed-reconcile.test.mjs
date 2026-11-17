@@ -8,7 +8,7 @@ const start=readFileSync('functions/api/exam/start.ts','utf8');
 const match=service.match(new RegExp('export const RECONCILE_COMMITTED_CONTEST_RESULT_SQL = `([\\s\\S]*?)`;'));
 assert.ok(match,'Use production reconciliation SQL');
 let index=0;
-const sql=match[1].replace(/\\?/g,()=>'$'+(++index));
+const sql=match[1].replace(/\?/g,()=>'$'+(++index));
 assert.equal(index,5);
 async function fixture({result=true,wrongOwner=false,wrongExam=false,canceled=false}={}) {
  const db=new PGlite();
@@ -58,7 +58,7 @@ test('a different contest participant cannot modify this session',async()=>{
  }finally{await db.close();}
 });
 test('contest reconciliation is invoked before new quota count and does not use browser identity',()=>{
- assert.match(start,/reconcileCommittedContestResult\\(\\s*db,oldKey,oldId,signedAttemptUserId/);
+ assert.match(start,/reconcileCommittedContestResult\(\s*db,oldKey,oldId,signedAttemptUserId/);
  assert.ok(start.indexOf('reconcileCommittedContestResult(')<start.indexOf('let completedAttemptsForQuota = 0;'));
- assert.match(start,/if \\(contestParticipantId\\)/);
+ assert.match(start,/if \(contestParticipantId\)/);
 });
