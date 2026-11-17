@@ -129,5 +129,5 @@ test('new start never runs old orphan reconciliation checks',()=>{
  const start=readFileSync('functions/api/exam/start.ts','utf8');
  assert.doesNotMatch(start,/reconcileExpiredLegacyOrphan|EXAM_PREVIOUS_ATTEMPT_RECONCILED/);
  assert.match(start,/claimFreshExamAttempt\(db,/);
- assert.match(start,/completed \+ usedCanceled/);
+ assert.match(start,/completedAttempts >= maxAttempts/);
 });
