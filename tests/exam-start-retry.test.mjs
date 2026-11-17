@@ -84,3 +84,15 @@ test('student UI uses the safe retry helper but no recovery token',()=>{
  assert.doesNotMatch(main,/tryResumeActiveExam\(/);
  assert.match(main,/isCancelled:\(\)=>window\.currentExamToken!==readyToken/);
 });
+
+test('expired READY from a prior cleanup automatically requests a fresh unstarted exam',()=>{
+ const backend=readFileSync('functions/api/exam/start.ts','utf8');
+ const frontend=readFileSync('src/main.js','utf8');
+ assert.match(backend,/code:'EXAM_READY_REGENERATE_REQUIRED'/);
+ const branch=frontend.slice(frontend.indexOf("if (error?.code === 'EXAM_READY_REGENERATE_REQUIRED')"));
+ assert.ok(branch.length>0);
+ assert.match(branch,/window.currentExamToken = null/);
+ assert.match(branch,/clearStoredActiveExamResume\(\)/);
+ assert.match(branch,/closeModal\(\)/);
+ assert.match(branch,/setTimeout\(\(\) => window.startExam\(\), 0\)/);
+});
