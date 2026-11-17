@@ -12,12 +12,12 @@ assert.ok(begin>=0);
 const end=source.indexOf(String.fromCharCode(96)+';',begin+mark.length);
 let count=0;
 const sql=source.slice(begin+mark.length,end).replace(/\?/g,()=>'$'+(++count));
-assert.equal(count,10);
+assert.equal(count,19);
 const now='2026-11-17T01:00:00Z',exp='2026-11-18T01:00:00Z';
 const user='contest:student1';
 const key='exam1:'+user;
 const oldSession='old-session',newSession='new-session';
-const args=[key,'exam1',user,newSession,key,'exam1',user,newSession,exp,now];
+const args=[key,'exam1',user,newSession,key,0,newSession,0,0,0,0,0,0,key,'exam1',user,newSession,exp,now];
 const tokenHash=createHash('sha256').update('exam-session:'+oldSession).digest('hex');
 
 async function fixture({old=false,contest=false,processing=false,committed=false,finalizing=false,staleProcessing=false,committedProcessing=false,missingClaimedAt=false,missingResultId=false}={}){
@@ -30,6 +30,7 @@ async function fixture({old=false,contest=false,processing=false,committed=false
  CREATE TABLE _submitted_exam_tokens(token_hash TEXT PRIMARY KEY,status TEXT,claimed_at TEXT,result_id TEXT);
  CREATE TABLE contest_attempts(ma_phien_thi TEXT PRIMARY KEY,ma_nguoi_du_thi TEXT,ma_de_thi TEXT,trang_thai TEXT,ma_ket_qua TEXT,thoi_diem_nop TIMESTAMPTZ);
  CREATE TABLE results(id TEXT PRIMARY KEY,ma_phien_thi TEXT,ma_nguoi_du_thi TEXT,exam_id TEXT,created_at TIMESTAMPTZ,submission_token_hash TEXT);
+ CREATE TABLE _exam_attempt_quota_guard(attempt_key TEXT PRIMARY KEY,used_attempts INTEGER NOT NULL,last_session_id TEXT NOT NULL,updated_at TEXT NOT NULL);
  CREATE TABLE _exam_discarded_session_archive(session_id TEXT,kind TEXT,source_data JSONB,reason TEXT,archived_at TIMESTAMPTZ DEFAULT now(),PRIMARY KEY(session_id,kind));
  `);
  if(old){
@@ -69,7 +70,7 @@ test('new session replaces previous frozen attempt atomically, archives source, 
 test('authenticated school learner starts a new exam even with a previous unfinished lock',async()=>{
  const db=await fixture({old:true});
  const school='student1',schoolKey='exam1:'+school;
- const schoolArgs=[schoolKey,'exam1',school,newSession,schoolKey,'exam1',school,newSession,exp,now];
+ const schoolArgs=[schoolKey,'exam1',school,newSession,schoolKey,0,newSession,0,0,0,0,0,0,schoolKey,'exam1',school,newSession,exp,now];
  try{
   await db.query('UPDATE _exam_active_attempts SET attempt_key=$1,user_id=$2',[schoolKey,school]);
   const r=await db.query(sql,schoolArgs);
