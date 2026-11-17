@@ -414,7 +414,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
           attemptKey,examId,userId:signedAttemptUserId,
           sessionId:gradingSessionId,
           expiresAt:proposedActiveExpiresAt,
-          startedAt:proposedStartedAt
+          startedAt:proposedStartedAt,
+          maxAttempts:Math.max(0,Number(authoritativeExamRow?.max_attempts)||0),
+          baselineUsed:completedAttemptsForQuota
         });
         if (!startedFresh) {
           return new Response(JSON.stringify({
