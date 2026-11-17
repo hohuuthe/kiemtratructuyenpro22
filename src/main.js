@@ -9531,11 +9531,12 @@ if (contentType && contentType.includes("application/json")) {
                             body: JSON.stringify({ token: window.currentExamToken })
                         }, 20000);
                         const startResult = response.body || {};
-                        if (response.status === 409 && (startResult.code === 'EXAM_ATTEMPT_ALREADY_ACTIVE' || startResult.code === 'EXAM_REPLACEMENT_CONFLICT')) {
+                        if (window.__contestTicket && response.status === 409 &&
+                            (startResult.code === 'EXAM_ATTEMPT_ALREADY_ACTIVE' || startResult.code === 'EXAM_REPLACEMENT_CONFLICT')) {
                             // Never create a recursive Start/READY loop. The
                             // server may have received another concurrent start.
                             closeModal();
-                            showToast('Trạng thái bài thi vừa thay đổi. Hãy kiểm tra lại lượt thi rồi bấm Bắt đầu nếu còn lượt.', 'warning');
+                            showToast('Cuộc thi đang có lượt hoạt động. Vui lòng liên hệ ban tổ chức.', 'warning');
                             return;
                         }
                         if (!response.ok || !startResult.token ||
