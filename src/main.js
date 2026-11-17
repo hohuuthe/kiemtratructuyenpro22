@@ -9156,7 +9156,8 @@ if (contentType && contentType.includes("application/json")) {
         }
         function startSchoolExamHeartbeat() {
             stopSchoolExamHeartbeat();
-            if (window.__contestTicket || !window.currentExamToken || !currentExam?.deadlineAtMs) return;
+            if ((window.__contestTicket && examConfig?.chedodethi === 'Cuộc thi trực tuyến') ||
+                !window.currentExamToken || !currentExam?.deadlineAtMs) return;
             const generation = schoolExamHeartbeatGeneration;
             const activeToken = window.currentExamToken;
             const send = async () => {
@@ -9211,12 +9212,6 @@ if (contentType && contentType.includes("application/json")) {
                     await window.onStudentExamNameChange();
                     return;
                 }
-            }
-            // Old-session processing never blocks an ordinary school exam:
-            // only a registered public contest may retain its own resume lock.
-            if (window.__contestTicket && examConfig?.chedodethi === 'Cuộc thi trực tuyến' && window.__EXAM_RESUME_BLOCK_NEW__) {
-                showToast('Cuộc thi trước đang được máy chủ xử lý. Vui lòng kiểm tra lại.', 'warning');
-                return;
             }
             if (examStartPending) return;
             examStartPending = true;
@@ -9284,6 +9279,12 @@ if (contentType && contentType.includes("application/json")) {
                 // Stale contest registration state never turns a school test
                 // into a contest or activates the contest's old-session lock.
                 const isPublicContestStart = Boolean(window.__contestTicket && examConfig?.chedodethi === 'Cuộc thi trực tuyến');
+                // Public contests alone retain a prior-session processing guard.
+                // A school Start NEVER reads or blocks on an old exam session.
+                if (isPublicContestStart && window.__EXAM_RESUME_BLOCK_NEW__) {
+                    showToast('Cuộc thi trước đang được máy chủ xử lý. Vui lòng kiểm tra lại.', 'warning');
+                    return;
+                }
 
                 // Disable button to prevent double clicks
                 if (startBtn) {
