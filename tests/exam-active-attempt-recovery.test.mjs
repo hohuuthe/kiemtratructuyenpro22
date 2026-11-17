@@ -82,10 +82,10 @@ test('School Start ignores all stale prior-session processing and replacement st
 });
 test('School READY fullscreen displays confirmation rather than an empty exam shell',()=>{
   const startBlock = main.slice(main.indexOf('window.startExam = async function startExam'), main.indexOf('function generateExamQuestions()'));
-  assert.match(startBlock,/awaitingSchoolStart: !isPublicContestStart/);
+  assert.match(startBlock,/awaitingAuthoritativeStart: true/);
   assert.match(startBlock,/currentExam\.questions = startResult\.questions;[\s\S]*?startExamUI\(true\)/);
   const fullscreen = main.slice(main.indexOf('window.enterExamFullscreen = function'),main.indexOf('window.showFullscreenEnforcer = function'));
-  assert.match(fullscreen,/options\?\.awaitingSchoolStart === true[\s\S]*?document\.body/);
+  assert.match(fullscreen,/options\?\.awaitingAuthoritativeStart === true[\s\S]*?document\.body/);
   assert.match(fullscreen,/document\.getElementById\('exam-interface'\)/);
   const examUI = main.slice(main.indexOf('window.startExamUI = function'),main.indexOf('function clearStoredActiveExamResume()'));
   assert.match(examUI,/currentExam\.questions\.length === 0/);
