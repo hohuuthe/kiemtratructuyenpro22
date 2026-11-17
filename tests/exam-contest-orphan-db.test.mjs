@@ -76,7 +76,7 @@ for(const [name,opts] of [
   }finally{await db.close();}
  });
 }
-test('server start calls contest orphan reconciliation before checking quota',()=>{
- assert.match(start,/reconcileExpiredContestOrphan\(db,oldKey,oldId,contestParticipantId\)/);
- assert.ok(start.indexOf('reconcileExpiredContestOrphan(')<start.indexOf('let completedAttemptsForQuota = 0;'));
+test('new contest session does not wait for legacy orphan lookup',()=>{
+ assert.doesNotMatch(start,/reconcileExpiredContestOrphan\(db,oldKey,oldId/);
+ assert.match(start,/claimFreshExamAttempt\(db,/);
 });
