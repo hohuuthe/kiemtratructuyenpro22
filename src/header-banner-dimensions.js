@@ -7,7 +7,8 @@ export const RECOMMENDED_BANNER_SIZES = Object.freeze({
 
 /**
  * Returns advisory feedback only. A banner never fails to upload solely because
- * of image proportions: the browser always displays it with object-fit:contain.
+ * of image proportions: desktop uses object-fit:cover to fill the available width,
+ * while tablet and mobile retain object-fit:contain.
  */
 export function bannerDimensionFeedback(device, width, height) {
   const target = RECOMMENDED_BANNER_SIZES[device];
