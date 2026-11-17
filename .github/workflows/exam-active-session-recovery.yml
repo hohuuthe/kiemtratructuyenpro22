@@ -4,6 +4,8 @@ on:
     paths:
       - 'src/main.js'
       - 'src/exam-active-attempt-recovery.js'
+      - 'src/exam-lifecycle-policy.js'
+      - 'tests/exam-lifecycle-heartbeat.test.mjs'
       - 'functions/api/exam/**'
       - 'tests/exam-active-attempt-recovery.test.mjs'
       - 'tests/exam-session-replacement-db.test.mjs'
@@ -32,6 +34,6 @@ jobs:
       - name: Syntax and recovery regression tests
         run: |
           node --check src/main.js
-          node --test tests/exam-active-attempt-recovery.test.mjs tests/exam-session-replacement-db.test.mjs tests/student-exam-start-attempt-limit.test.mjs tests/student-exam-auto-submit-guard.test.mjs
+          node --test tests/exam-lifecycle-heartbeat.test.mjs tests/exam-session-replacement-db.test.mjs tests/student-exam-start-attempt-limit.test.mjs tests/student-exam-auto-submit-guard.test.mjs
       - run: npm run lint
       - run: npm run build
