@@ -19,7 +19,7 @@ export function studentExamVisibility(row: any) {
   const lifecycle = studentGradingLifecycle(row);
   return {
     can_view_score: lifecycle.score_finalized && isExamSettingEnabled(row?.exam_show_score),
-    can_view_details: lifecycle.score_finalized && isExamSettingEnabled(row?.exam_show_details)
+    can_view_details: !['IN_PROGRESS','ABANDONED'].includes(lifecycle.grading_status) && isExamSettingEnabled(row?.exam_show_details)
   };
 }
 
