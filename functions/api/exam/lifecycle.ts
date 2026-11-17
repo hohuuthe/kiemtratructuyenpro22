@@ -1,0 +1,161 @@
+import { getDatabase, getDynamicSecret, signJWT, hashToken } from './utils';
+import { buildActiveExamRecoveryPayload } from '../../../src/exam-active-attempt-recovery.js';
+import { finalizeSchoolExamFromServer } from './grade';
+
+// Server receipt time is authoritative; no browser clock or localStorage state.
+export const EXAM_HEARTBEAT_MS = 30_000;
+export const EXAM_DISCONNECT_MS = 90_000;
+const CLAIM_RETRY_MS = 5 * 60_000;
+
+export async function ensureExamLifecycleColumns(db: any): Promise<void> {
+  await db.prepare(`CREATE TABLE IF NOT EXISTS _exam_active_attempts (
+    attempt_key TEXT PRIMARY KEY, exam_id TEXT NOT NULL, user_id TEXT NOT NULL,
+    session_id TEXT NOT NULL, expires_at TEXT NOT NULL, created_at TEXT NOT NULL
+  )`).run();
+  await db.prepare('ALTER TABLE _exam_active_attempts ADD COLUMN IF NOT EXISTS heartbeat_at TEXT').run();
+  await db.prepare('ALTER TABLE _exam_active_attempts ADD COLUMN IF NOT EXISTS finalizing_at TEXT').run();
+}
+
+export type ExamLifecycleState = 'ready' | 'live' | 'processing' | 'unavailable';
+export interface ExamLifecycleResult {
+  state: ExamLifecycleState;
+  retryAfterSeconds?: number;
+  resultId?: string;
+}
+
+const saneIso = (value: unknown): number => {
+  const parsed = Date.parse(String(value || ''));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : NaN;
+};
+
+/**
+ * Called only for the authenticated learner's exact exam. Never replaces or
+ * discards an attempt; a stale attempt is graded from the immutable server
+ * snapshot and the last acknowledged autosave before its lock is released.
+ * The same grading token hash is used as interactive submission.
+ */
+export async function settleInactiveSchoolExam(
+  context: any, examId: string, userId: string
+): Promise<ExamLifecycleResult> {
+  if (!examId || !userId) return { state: 'unavailable' };
+  const db = getDatabase(context);
+  try {
+    await ensureExamLifecycleColumns(db);
+    const key = examId + ':' + userId;
+    const active: any = await db.prepare(
+      'SELECT session_id, heartbeat_at, finalizing_at, created_at FROM _exam_active_attempts WHERE attempt_key = ? AND exam_id = ? AND user_id = ?'
+    ).bind(key, examId, userId).first();
+    if (!active?.session_id) return { state: 'ready' };
+
+    const sessionId = String(active.session_id);
+    const submissionHash = await hashToken('exam-session:' + sessionId);
+    // Reconcile a committed grade before doing any timeout or quota decision.
+    const completed: any = await db.prepare(
+      'SELECT id FROM results WHERE submission_token_hash = ? LIMIT 1'
+    ).bind(submissionHash).first();
+    if (completed?.id) {
+      await db.prepare(
+        'DELETE FROM _exam_active_attempts WHERE attempt_key = ? AND exam_id = ? AND user_id = ? AND session_id = ?'
+      ).bind(key, examId, userId, sessionId).run();
+      return { state: 'ready', resultId: String(completed.id) };
+    }
+
+    const session: any = await db.prepare(
+      'SELECT session_id, exam_id, teacher_id, question_ids, question_snapshot, exam_config, started_at, deadline_at, expires_at FROM _exam_grade_sessions WHERE session_id = ?'
+    ).bind(sessionId).first();
+    // Do not delete an orphan lock or invent a result when its snapshot is missing.
+    if (!session || String(session.exam_id) !== examId || !session.started_at) {
+      return { state: 'unavailable' };
+    }
+    const now = Date.now();
+    const lastSeen = saneIso(active.heartbeat_at || active.created_at);
+    const deadline = saneIso(session.deadline_at);
+    if (!Number.isFinite(lastSeen) || !Number.isFinite(deadline)) {
+      return { state: 'unavailable' };
+    }
+    const disconnected = now - lastSeen >= EXAM_DISCONNECT_MS;
+    const timedOut = now >= deadline;
+    if (!disconnected && !timedOut) {
+      return { state: 'live', retryAfterSeconds: Math.max(1, Math.ceil(Math.min(
+        EXAM_DISCONNECT_MS - (now - lastSeen), deadline - now
+      ) / 1000)) };
+    }
+
+    const claimTime = new Date(now).toISOString();
+    const cutoff = new Date(now - EXAM_DISCONNECT_MS).toISOString();
+    const retryCutoff = new Date(now - CLAIM_RETRY_MS).toISOString();
+    const claimed: any = await db.prepare(`
+      UPDATE _exam_active_attempts
+      SET finalizing_at = ?
+      WHERE attempt_key = ? AND exam_id = ? AND user_id = ? AND session_id = ?
+        AND (finalizing_at IS NULL OR finalizing_at < ?)
+        AND (COALESCE(heartbeat_at, created_at) <= ? OR EXISTS (
+          SELECT 1 FROM _exam_grade_sessions
+          WHERE session_id = ? AND deadline_at <= ?
+        ))
+      RETURNING session_id
+    `).bind(claimTime,key,examId,userId,sessionId,retryCutoff,cutoff,sessionId,claimTime).first();
+    if (!claimed?.session_id) {
+      return { state: 'processing', retryAfterSeconds: 10 };
+    }
+
+    let gradeSucceeded = false;
+    try {
+      const draft: any = await db.prepare(
+        'SELECT answers_json FROM _exam_answer_drafts WHERE session_id = ?'
+      ).bind(sessionId).first();
+      const answers = JSON.parse(String(draft?.answers_json || 'null'));
+      const questions = JSON.parse(String(session.question_snapshot || 'null'));
+      if (!Array.isArray(answers) || !Array.isArray(questions) ||
+          answers.length !== questions.length || !questions.length) {
+        return { state: 'unavailable' };
+      }
+      const signedPayload = buildActiveExamRecoveryPayload({
+        session, examId, studentUserId: userId,
+        // The snapshot must still be within its technical TTL.
+        nowMs: now
+      });
+      if (!signedPayload) return { state: 'unavailable' };
+      const secret = await getDynamicSecret(db, context.env.JWT_SECRET);
+      const token = await signJWT({ ...signedPayload, exp: Math.floor((now + 300_000) / 1000) }, secret);
+      const gradeRequest = new Request(context.request.url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          token, studentAnswers: answers, clientQuestions: questions,
+          studentInfo: { examId, examName: '', name: '', lop: '', donvi: '', loaiThiSinh: 'Đã đăng nhập' },
+          timeTaken: Math.max(0, Math.floor((now - saneIso(session.started_at)) / 1000))
+        })
+      });
+      const response: Response = await finalizeSchoolExamFromServer(
+        { ...context, request: gradeRequest }, userId
+      );
+      gradeSucceeded = response.ok;
+      if (!response.ok) {
+        console.warn('Deferred exam submission did not finish:', response.status);
+        return { state: 'unavailable' };
+      }
+      // Verify persistence, not just HTTP success, before allowing a new attempt.
+      const stored: any = await db.prepare(
+        'SELECT id FROM results WHERE submission_token_hash = ? LIMIT 1'
+      ).bind(submissionHash).first();
+      if (!stored?.id) return { state: 'unavailable' };
+      return { state: 'ready', resultId: String(stored.id) };
+    } finally {
+      if (!gradeSucceeded) {
+        // A transient failure must not permanently hold a finalization lock.
+        // A grade claim/result remains authoritative and is checked on retry.
+        try {
+          await db.prepare(
+            'UPDATE _exam_active_attempts SET finalizing_at = NULL WHERE attempt_key = ? AND session_id = ? AND finalizing_at = ?'
+          ).bind(key,sessionId,claimTime).run();
+        } catch (releaseError) {
+          console.warn('Cannot release failed exam finalization claim:',releaseError);
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Cannot settle inactive school exam:', error);
+    return { state: 'unavailable' };
+  }
+}
