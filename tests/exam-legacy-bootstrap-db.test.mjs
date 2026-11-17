@@ -67,8 +67,10 @@ test('verified result with exact frozen session hash may be reconciled idempoten
  }finally{await db.close();}
 });
 
-test('caller reconciles only signed school user before checking quota',()=>{
- assert.match(start,/signedStudentUserId && !contestParticipantId && examId/);
+test('caller reconciles signed school and contest owner before checking quota',()=>{
+ assert.match(start,/if \(signedAttemptUserId && examId\) \{/);
+ assert.match(start,/const oldKey = examId \+ ':' \+ signedAttemptUserId/);
+ assert.match(start,/const archived = signedStudentUserId && !contestParticipantId/);
  assert.match(start,/registerExpiredLegacyExamAttemptById\(context, oldId\)/);
  assert.ok(start.indexOf('registerExpiredLegacyExamAttemptById(context, oldId)') <
    start.indexOf('let completedAttemptsForQuota = 0;'));
