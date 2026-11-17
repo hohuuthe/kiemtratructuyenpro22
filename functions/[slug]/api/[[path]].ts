@@ -19,6 +19,7 @@ import * as r12 from '../../api/exam/export-docx';
 import * as r13 from '../../api/exam/generate';
 import * as r14 from '../../api/exam/grade';
 import * as examStart from '../../api/exam/start';
+import * as examLifecycle from '../../api/exam/lifecycle';
 import * as examSave from '../../api/exam/save';
 import * as examResume from '../../api/exam/resume';
 import * as examRecover from '../../api/exam/recover';
@@ -68,6 +69,7 @@ const handlers: Record<string, any> = {
   'exam/generate': r13,
   'exam/grade': r14,
   'exam/start': examStart,
+  'exam/lifecycle': examLifecycle,
   'exam/save': examSave,
   'exam/resume': examResume,
   'exam/recover': examRecover,
