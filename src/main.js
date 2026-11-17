@@ -8963,6 +8963,13 @@ if (contentType && contentType.includes("application/json")) {
                 }
             } catch(e) {}
             if (!token) return false;
+            // School exams never resume a browser-saved attempt. Their previous
+            // server-side lock is reconciled atomically on the next fresh start.
+            // Preserve the separate public-contest recovery policy.
+            if (meta.entryTab !== 'contest') {
+                clearStoredActiveExamResume();
+                return false;
+            }
             // A stale tab of the same browser must not adopt another tab's
             // active exam. Keep the server token for the legitimate original
             // tab; never delete an unverified ongoing attempt here.
@@ -9210,126 +9217,64 @@ if (contentType && contentType.includes("application/json")) {
         }
         window.tryResumeActiveExam = tryResumeActiveExam;
 
-        // Shared two-choice recovery dialog for exam selection and Start.
-        // Every decision is bound to the signed-in learner and exact exam.
-        async function offerExistingExamAttemptChoice(selectedExamId, examName, { fromSelection = false, isCurrent = () => true } = {}) {
-                const pendingReplacement = window.__pendingExamReplacement;
-                const replacingThisExam = pendingReplacement &&
-                    String(pendingReplacement.examId) === String(selectedExamId);
-                if (replacingThisExam || window.__contestTicket) return false;
-                const inspectionAuth = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
-                if (!inspectionAuth) return false;
-                    {
-                        let inspection;
-                        try { inspection = await fetchExamStartResponse(fetch, '/api/exam/recover', {
-                            method:'POST',
-                            cache:'no-store',
-                            headers:{
-                                'Content-Type':'application/json',
-                                'Authorization':'Bearer ' + inspectionAuth
-                            },
-                            body:JSON.stringify({examId:selectedExamId,mode:'inspect'})
-                        },15000); } catch (error) {
-                            if (isCurrent()) showToast('Không thể xác minh phiên cũ do lỗi kết nối. Vui lòng thử lại.', 'error');
-                            return true;
-                        }
-                        if (!isCurrent()) return true;
-                        if (!inspection.ok) {
-                            showToast(inspection.body?.error || 'Chưa thể kiểm tra phiên thi trước. Vui lòng thử lại.', 'error');
-                            return true;
-                        }
-                        if (inspection.body?.alreadySubmitted) showToast('Bài thi cũ đã nộp. Vui lòng kiểm tra kết quả.', 'info');
-                        if (inspection.body?.active === true) {
-                            const activeId = String(inspection.body.sessionId || '');
-                            const canResume = inspection.body.canResume !== false;
-                            const isProcessing = inspection.body.status === 'submission_processing';
-                            const mayReplace = !isProcessing && inspection.body.canCreateNew === true;
-                            // Escape supplied exam labels: dialogs render HTML.
-                            const safeExamName = String(examName || '').replace(/[&<>"']/g, ch =>
-                                ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
-                            showModal(`
-                                <section class="student-exam-compact-body" role="dialog" aria-modal="true">
-                                    <div class="student-exam-dialog-head">
-                                        <span class="student-exam-dialog-icon">🔄</span>
-                                        <h3 class="student-exam-dialog-title">Đã có phiên thi trước đó</h3>
-                                    </div>
-                                    <p class="student-exam-dialog-note">
-                                        Đề <strong>${safeExamName}</strong> có một phiên chưa hoàn tất.
-                                        ${isProcessing ? 'Bài đang xử lý nộp, vui lòng kiểm tra lại.' : canResume ? 'Chọn tiếp tục hoặc tạo lượt mới.' : 'Bản lưu cũ không thể khôi phục. Bạn có thể tạo lượt mới nếu còn lượt.'}
-                                    </p>
-                                    <div class="student-exam-dialog-actions">
-                                        <button type="button" id="exam-choice-resume" class="student-exam-dialog-primary"
-                                            ${canResume && !isProcessing ? '' : 'disabled aria-disabled="true"'}>
-                                            Khôi phục phiên làm bài cũ
-                                        </button>
-                                        <button type="button" id="exam-choice-replace" class="student-exam-dialog-secondary"
-                                            ${mayReplace ? '' : 'disabled aria-disabled="true"'}>
-                                            Bỏ phiên cũ, làm bài mới
-                                        </button>
-                                    </div>
-                                    <p class="student-exam-dialog-footnote">
-                                      ${isProcessing ? 'Máy chủ đang xử lý nộp bài; chưa được tạo lượt mới.' : mayReplace ? 'Tạo bài mới sẽ tính phiên cũ là một lượt đã dùng.' : canResume ? 'Không còn lượt tạo bài mới. Vui lòng tiếp tục bài cũ.' : 'Không thể khôi phục hoặc tạo bài mới. Vui lòng liên hệ giáo viên.'}
-                                    </p>
-                                </section>`, 'student-exam-compact', false);
-                            document.getElementById('exam-choice-resume')?.addEventListener('click', async () => {
-                                const button = document.getElementById('exam-choice-resume');
-                                if (!button || button.disabled || !canResume || isProcessing) return;
-                                button.disabled = true;
-                                try {
-                                    const result = await fetchExamStartResponse(fetch,'/api/exam/recover',{
-                                        method:'POST',cache:'no-store',
-                                        headers:{'Content-Type':'application/json','Authorization':'Bearer '+inspectionAuth},
-                                        body:JSON.stringify({examId:selectedExamId,writerId:getExamWriterId()})
-                                    },15000);
-                                    if (!result.ok || !result.body?.token) {
-                                        throw new Error(result.body?.error || 'Không thể khôi phục phiên cũ.');
-                                    }
-                                    window.__pendingExamReplacement = null;
-                                    window.currentExamToken = result.body.token;
-                                    localStorage.setItem(window.tenantStorageKey('currentExamToken'),result.body.token);
-                                    localStorage.setItem(window.tenantStorageKey('active_exam_resume_meta'),JSON.stringify({
-                                        phase:'active', writerId:getExamWriterId(), entryTab:'exam',
-                                        examId:selectedExamId, examName,
-                                        studentName:name,studentLop:inputLop,studentDonvi:inputDonvi,studentClass
-                                    }));
-                                    // Preserve choice dialog until the recovered exam is mounted.
-                                    if (!await tryResumeActiveExam()) throw new Error('Chưa thể khôi phục phiên cũ. Vui lòng thử lại hoặc chọn tạo bài mới.');
-                                } catch(error) {
-                                    showToast(error?.message || 'Không thể khôi phục phiên cũ.', 'error');
-                                } finally {
-                                    if(button.isConnected) button.disabled=false;
-                                }
-                            });
-                            document.getElementById('exam-choice-replace')?.addEventListener('click', () => {
-                                if (!mayReplace || !activeId) return;
-                                window.__pendingExamReplacement = {examId:selectedExamId,sessionId:activeId};
-                                closeModal();
-                                // First-time exam selection has not loaded the
-                                // new exam configuration. Validate before READY.
-                                if (fromSelection) {
-                                    void (async () => {
-                                        try {
-                                            await window.onStudentExamNameChange();
-                                            if (String(document.getElementById('student-exam-name-filter')?.value || '') !== String(selectedExamId)) return;
-                                            const load = window._studentExamLoadStatus;
-                                            if (load?.status === 'ready' && String(load.examId) === String(selectedExamId)) {
-                                                void window.startExam();
-                                            } else {
-                                                showToast('Vui lòng hoàn tất tải cấu hình và mã truy cập đề để bắt đầu lượt mới.', 'info');
-                                            }
-                                        } catch (_) {
-                                            showToast('Không thể chuẩn bị lượt mới. Phiên cũ vẫn được giữ; vui lòng thử lại.', 'error');
-                                        }
-                                    })();
-                                } else {
-                                    // Defer until the original Start handler unlocks.
-                                    setTimeout(() => { void window.startExam(); },0);
-                                }
-                            }, {once:true});
-                            return true;
-                        }
+        // A school attempt is never restored through the browser. Choosing
+        // Start is the explicit request to replace any prior unfinished attempt.
+        async function offerExistingExamAttemptChoice() { return false; }
+
+        let schoolExamHeartbeatTimer = null;
+        let schoolExamHeartbeatInFlight = false;
+        let schoolExamHeartbeatGeneration = 0;
+        function stopSchoolExamHeartbeat() {
+            schoolExamHeartbeatGeneration++;
+            if (schoolExamHeartbeatTimer) clearInterval(schoolExamHeartbeatTimer);
+            schoolExamHeartbeatTimer = null;
+            schoolExamHeartbeatInFlight = false;
+        }
+        function startSchoolExamHeartbeat() {
+            stopSchoolExamHeartbeat();
+            if (window.__contestTicket || !window.currentExamToken || !currentExam?.deadlineAtMs) return;
+            const generation = schoolExamHeartbeatGeneration;
+            const activeToken = window.currentExamToken;
+            const send = async () => {
+                if (generation !== schoolExamHeartbeatGeneration || schoolExamHeartbeatInFlight ||
+                    currentExam?.submitting || currentExam?.deadlineLocked ||
+                    window.currentExamToken !== activeToken) return;
+                schoolExamHeartbeatInFlight = true;
+                try {
+                    const authToken = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
+                    if (!authToken) return;
+                    const response = await fetchExamStartResponse(fetch, '/api/exam/heartbeat', {
+                        method: 'POST', cache: 'no-store',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + authToken },
+                        body: JSON.stringify({ token: activeToken })
+                    }, 12000);
+                    if (generation !== schoolExamHeartbeatGeneration) return;
+                    if (response.status === 409 && response.body?.code === 'EXAM_SESSION_CLOSED') {
+                        stopSchoolExamHeartbeat();
+                        if (currentExam?.timerInterval) clearInterval(currentExam.timerInterval);
+                        if (currentExam) currentExam.deadlineLocked = true;
+                        clearStoredActiveExamResume();
+                        showModal(`
+                          <div class="p-4 text-center">
+                            <h3 class="font-bold text-lg mb-2">Phiên thi đã kết thúc</h3>
+                            <p class="text-sm text-gray-600 mb-3">Phiên cũ đã ngừng hoạt động do mất kết nối hoặc đã được thay thế. Nếu còn lượt thi, bạn có thể bắt đầu bài mới.</p>
+                            <button id="exam-disconnect-new" type="button" class="px-5 py-2 rounded-xl bg-indigo-600 text-white font-bold">Quay lại chọn đề</button>
+                          </div>`, 'student-exam-compact', false);
+                        document.getElementById('exam-disconnect-new')?.addEventListener('click', () => {
+                            closeModal();
+                            resetExam();
+                        }, {once:true});
                     }
-                return false;
+                } catch (error) {
+                    // Network failure is not a cheating signal and must not
+                    // revoke the session locally. Server lease remains decisive.
+                    console.warn('[ExamHeartbeat] Mất kết nối tạm thời:', error);
+                } finally {
+                    if (generation === schoolExamHeartbeatGeneration) schoolExamHeartbeatInFlight = false;
+                }
+            };
+            schoolExamHeartbeatTimer = setInterval(() => { void send(); }, 30000);
+            void send();
         }
 
         let examStartPending = false;
@@ -9679,20 +9624,11 @@ if (contentType && contentType.includes("application/json")) {
                         }, 20000);
                         const startResult = response.body || {};
                         if (response.status === 409 && (startResult.code === 'EXAM_ATTEMPT_ALREADY_ACTIVE' || startResult.code === 'EXAM_REPLACEMENT_CONFLICT')) {
-                            // A concurrent tab/device may have started after
-                            // preflight. Return to the same two-choice selector,
-                            // never silently submit or delete the prior session.
+                            // Never create a recursive Start/READY loop. The
+                            // server may have received another concurrent start.
                             window.__pendingExamReplacement = null;
-                            try {
-                                if (document.fullscreenElement && document.exitFullscreen) {
-                                    window.intentionalFullscreenExit = true;
-                                    await document.exitFullscreen();
-                                    setTimeout(() => { window.intentionalFullscreenExit = false; }, 300);
-                                }
-                            } catch (_) {}
                             closeModal();
-                            showToast('Đã phát hiện phiên thi khác. Vui lòng chọn tiếp tục hoặc tạo bài mới.', 'warning');
-                            setTimeout(() => { void window.startExam(); }, 0);
+                            showToast('Trạng thái bài thi vừa thay đổi. Hãy kiểm tra lại lượt thi rồi bấm Bắt đầu nếu còn lượt.', 'warning');
                             return;
                         }
                         if (!response.ok || !startResult.token ||
@@ -9737,6 +9673,7 @@ if (contentType && contentType.includes("application/json")) {
                             window.__contestOnExamStarted?.();
                         }
                         startExamUI(true);
+                        startSchoolExamHeartbeat();
                         showToast('Bắt đầu làm bài! Thời gian đã được máy chủ xác nhận.', 'success');
                     } catch (error) {
                         readyAccepted = false;
@@ -12216,6 +12153,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
                 // Bỏ qua việc xóa dữ liệu
             }
             
+            stopSchoolExamHeartbeat();
             // Dừng toàn bộ tác vụ phiên thi cũ trước khi reset để không còn callback
             // timer/autosave chạy chồng sang phiên kế tiếp.
             if (currentExam && currentExam.timerInterval) {
