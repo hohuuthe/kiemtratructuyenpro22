@@ -26,7 +26,7 @@ async function fixture({old=false,contest=false,processing=false,committed=false
  CREATE TABLE _exam_active_attempts(attempt_key TEXT PRIMARY KEY,exam_id TEXT,user_id TEXT,session_id TEXT,expires_at TEXT,created_at TEXT);
  CREATE TABLE _exam_grade_sessions(session_id TEXT PRIMARY KEY,question_snapshot TEXT,question_ids TEXT,created_at TEXT);
  CREATE TABLE _exam_answer_drafts(session_id TEXT PRIMARY KEY,answers_json TEXT,revision INTEGER,saved_at TEXT);
- CREATE TABLE _exam_attempt_liveness(session_id TEXT PRIMARY KEY,finalized_at TEXT,last_error TEXT,finalizing_at TEXT);
+ CREATE TABLE _exam_attempt_liveness(session_id TEXT PRIMARY KEY,finalized_at TEXT,last_error TEXT,finalizing_at TEXT,last_seen_at TEXT);
  CREATE TABLE _submitted_exam_tokens(token_hash TEXT PRIMARY KEY,status TEXT,claimed_at TEXT,result_id TEXT);
  CREATE TABLE contest_attempts(ma_phien_thi TEXT PRIMARY KEY,ma_nguoi_du_thi TEXT,ma_de_thi TEXT,trang_thai TEXT,ma_ket_qua TEXT,thoi_diem_nop TIMESTAMPTZ);
  CREATE TABLE results(id TEXT PRIMARY KEY,ma_phien_thi TEXT,ma_nguoi_du_thi TEXT,exam_id TEXT,created_at TIMESTAMPTZ,submission_token_hash TEXT);
@@ -36,7 +36,7 @@ async function fixture({old=false,contest=false,processing=false,committed=false
   await db.query('INSERT INTO _exam_active_attempts VALUES($1,$2,$3,$4,$5,$6)',[key,'exam1',user,oldSession,exp,now]);
   await db.query('INSERT INTO _exam_grade_sessions VALUES($1,$2,$3,$4)',[oldSession,'[{"id":"Q1"}]','["Q1"]',now]);
   await db.query('INSERT INTO _exam_answer_drafts VALUES($1,$2,$3,$4)',[oldSession,'["A"]',3,now]);
-  await db.query('INSERT INTO _exam_attempt_liveness (session_id,finalized_at,last_error,finalizing_at) VALUES($1,$2,$3,$4)',[oldSession,null,null,finalizing?new Date().toISOString():null]);
+  await db.query('INSERT INTO _exam_attempt_liveness (session_id,finalized_at,last_error,finalizing_at,last_seen_at) VALUES($1,$2,$3,$4,$5)',[oldSession,null,null,finalizing?new Date().toISOString():null,'2026-01-01T00:00:00Z']);
   if(contest)await db.query('INSERT INTO contest_attempts VALUES($1,$2,$3,$4,$5,$6)',[oldSession,'student1','exam1','DANG_LAM',null,null]);
   if(processing||staleProcessing||committedProcessing) await db.query('INSERT INTO _submitted_exam_tokens VALUES($1,$2,$3,$4)',[tokenHash,'processing',missingClaimedAt?null:staleProcessing?'2026-01-01T00:00:00Z':new Date().toISOString(),committedProcessing&&!missingResultId?'result1':null]);
   if(committed||committedProcessing)await db.query('INSERT INTO results VALUES($1,$2,$3,$4,$5,$6)',['result1',oldSession,'student1','exam1',now,committedProcessing?tokenHash:null]);
@@ -140,6 +140,17 @@ test('committed legacy result without claim result ID is recognized by signed ha
   assert.equal((await db.query('SELECT status,result_id FROM _submitted_exam_tokens')).rows[0].status,'completed');
   assert.equal((await db.query('SELECT result_id FROM _submitted_exam_tokens')).rows[0].result_id,'result1');
   assert.equal((await db.query('SELECT COUNT(*)::int n FROM results')).rows[0].n,1);
+ }finally{await db.close();}
+});
+
+test('a recent heartbeat prevents cancellation of an old processing claim',async()=>{
+ const db=await fixture({old:true,contest:true,staleProcessing:true});
+ try{
+  await db.query('UPDATE _exam_attempt_liveness SET last_seen_at=$1',[new Date().toISOString()]);
+  const r=await db.query(sql,args);
+  assert.equal(r.rowCount,0);
+  assert.equal((await db.query('SELECT status FROM _submitted_exam_tokens')).rows[0].status,'processing');
+  assert.equal((await db.query('SELECT session_id FROM _exam_active_attempts')).rows[0].session_id,oldSession);
  }finally{await db.close();}
 });
 
