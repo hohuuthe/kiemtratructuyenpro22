@@ -19,7 +19,9 @@ export async function ensureExamLivenessSchema(db: any) {
       last_error TEXT
     )
   `).run();
-  await db.prepare('CREATE INDEX IF NOT EXISTS idx_exam_liveness_due ON _exam_attempt_liveness(last_seen_at) WHERE finalized_at IS NULL').run();
+  await db.prepare('ALTER TABLE _exam_attempt_liveness ADD COLUMN IF NOT EXISTS failure_count INTEGER NOT NULL DEFAULT 0').run();
+  await db.prepare('ALTER TABLE _exam_attempt_liveness ADD COLUMN IF NOT EXISTS manual_review_at TEXT').run();
+  await db.prepare('CREATE INDEX IF NOT EXISTS idx_exam_liveness_due ON _exam_attempt_liveness(last_seen_at) WHERE finalized_at IS NULL AND manual_review_at IS NULL').run();
 }
 
 export async function initializeExamLiveness(db: any, args: {
@@ -48,6 +50,7 @@ export async function finalizeExamLiveness(context: any, sessionId: string, nowM
     'SELECT * FROM _exam_attempt_liveness WHERE session_id = ?'
   ).bind(sessionId).first();
   if (!row || row.finalized_at) return {status:'no_pending_attempt'};
+  if (row.manual_review_at) return {status:'manual_review_required'};
   if (!shouldFinalizeExamLiveness(row,nowMs)) return {status:'still_active'};
 
   const claimedAt = new Date(nowMs).toISOString();
@@ -56,7 +59,7 @@ export async function finalizeExamLiveness(context: any, sessionId: string, nowM
   const claim: any = await db.prepare(`
     UPDATE _exam_attempt_liveness
     SET finalizing_at = ?, last_error = NULL
-    WHERE session_id = ? AND finalized_at IS NULL
+    WHERE session_id = ? AND finalized_at IS NULL AND manual_review_at IS NULL
       AND (finalizing_at IS NULL OR finalizing_at < ?)
       AND (leave_requested_at IS NOT NULL OR deadline_at <= ? OR last_seen_at <= ?)
   `).bind(claimedAt,sessionId,staleCutoff,claimedAt,idleCutoff).run();
@@ -148,8 +151,23 @@ export async function finalizeExamLiveness(context: any, sessionId: string, nowM
     return {status:'finalized',resultId:String(gradeData.resultId)};
   } catch (error:any) {
     // Keep the old lock and draft; never erase an ungraded attempt.
-    await db.prepare('UPDATE _exam_attempt_liveness SET last_error=? WHERE session_id=? AND finalizing_at=?')
-      .bind(String(error?.message||'finalization_failed').slice(0,300),sessionId,claimedAt).run().catch(()=>{});
+    // Bounded retries: an irrecoverably malformed frozen attempt must not
+    // occupy the scheduled worker forever. Preserve its frozen source and
+    // autosave for human review; do NOT mark it graded or consume fake points.
+    const failed:any=await db.prepare(`
+      UPDATE _exam_attempt_liveness
+      SET failure_count=COALESCE(failure_count,0)+1,
+          last_error=?,
+          manual_review_at=CASE WHEN COALESCE(failure_count,0)+1>=5
+            THEN COALESCE(manual_review_at,now()::text) ELSE manual_review_at END
+      WHERE session_id=? AND finalizing_at=? AND finalized_at IS NULL
+      RETURNING failure_count,manual_review_at
+    `).bind(String(error?.message||'finalization_failed').slice(0,300),sessionId,claimedAt)
+      .first().catch(()=>null);
+    if (failed?.manual_review_at) {
+      console.error('Exam attempt requires manual grade review after bounded retries:',sessionId);
+      return {status:'manual_review_required'};
+    }
     return {status:'retry_required'};
   }
 }
@@ -301,7 +319,8 @@ export async function finalizeDueExamLiveness(context:any, limit=20) {
   const retry=new Date(Date.now()-EXAM_FINALIZER_RETRY_MS).toISOString();
   const {results}=await db.prepare(`
     SELECT session_id FROM _exam_attempt_liveness
-    WHERE finalized_at IS NULL AND (finalizing_at IS NULL OR finalizing_at < ?)
+    WHERE finalized_at IS NULL AND manual_review_at IS NULL
+      AND (finalizing_at IS NULL OR finalizing_at < ?)
       AND (leave_requested_at IS NOT NULL OR deadline_at <= ? OR last_seen_at <= ?)
     ORDER BY last_seen_at ASC LIMIT ?
   `).bind(retry,now,idle,Math.min(50,Math.max(1,limit))).all();
