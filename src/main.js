@@ -1612,15 +1612,8 @@ Trả về kết quả dưới dạng JSON Array, mỗi phần tử tương ứn
 
         async function init() {
             try {
-                // Giữ một bản token/meta phiên thi từ đúng thời điểm page boot. Một số
-                // hàm tải selector cũ có thể gọi resetExam(); không được để chúng xóa
-                // mất bằng chứng Resume trước khi /exam/resume kịp xác minh trên server.
-                let bootExamResumeToken = '';
-                let bootExamResumeMeta = '';
-                try {
-                    bootExamResumeToken = localStorage.getItem(window.tenantStorageKey('currentExamToken')) || '';
-                    bootExamResumeMeta = localStorage.getItem(window.tenantStorageKey('active_exam_resume_meta')) || '';
-                } catch(e) {}
+                // No attempt token or resume metadata is retained on application boot.
+                clearStoredActiveExamResume();
 
                 // Xóa cấu hình cũ có thể chứa khóa quản trị từng được lưu trên trình duyệt.
                 try { localStorage.removeItem('appSettings'); } catch (_) {}
@@ -1640,19 +1633,6 @@ Trả về kết quả dưới dạng JSON Array, mỗi phần tử tương ứn
                     await loadData().catch(err => console.error('Data loading failed:', err));
                 }
                 
-                // Khôi phục token/meta boot nếu các thao tác tải dữ liệu/selector cũ
-                // đã reset UI trước khi Resume được xác minh.
-                if (bootExamResumeToken) {
-                    try {
-                        if (!localStorage.getItem(window.tenantStorageKey('currentExamToken'))) {
-                            localStorage.setItem(window.tenantStorageKey('currentExamToken'), bootExamResumeToken);
-                        }
-                        if (bootExamResumeMeta && !localStorage.getItem(window.tenantStorageKey('active_exam_resume_meta'))) {
-                            localStorage.setItem(window.tenantStorageKey('active_exam_resume_meta'), bootExamResumeMeta);
-                        }
-                    } catch(e) {}
-                }
-
                 // Các bước khởi tạo giao diện
                 try { updateStats(); } catch (e) { console.warn('updateStats init error:', e); }
                 try { updateCurrentExamInfo(); } catch (e) { console.warn('updateCurrentExamInfo init error:', e); }
@@ -1672,25 +1652,20 @@ Trả về kết quả dưới dạng JSON Array, mỗi phần tử tương ứn
                 // Lazy load questions
                 // Do not prefetch questions.
 
-                let resumedActiveExam = false;
-                try {
-                    resumedActiveExam = await tryResumeActiveExam();
-                } catch (e) {
-                    console.warn('Exam resume init error:', e);
-                }
+                // Clear retired browser resume tokens on every application load.
+                // The server decides all exam rights and remaining attempt quota.
+                clearStoredActiveExamResume();
                 
                 // Khách và học sinh bắt đầu tại Làm bài; không tải tab quản trị.
                 try {
-                    if (!resumedActiveExam) {
-                        if (!isAdminLoggedIn && !isTeacherLoggedIn) switchTab(appSettings.applicationMode === 'contest' ? 'contest' : 'exam');
-                        else if (!document.querySelector('.tab-content.active')) switchTab('help');
-                    }
+                    if (!isAdminLoggedIn && !isTeacherLoggedIn) switchTab(appSettings.applicationMode === 'contest' ? 'contest' : 'exam');
+                    else if (!document.querySelector('.tab-content.active')) switchTab('help');
                 } catch (e) {
                     console.warn('switchTab init error:', e);
                 }
                 
-                // Chỉ xóa form khách khi không có phiên đang được khôi phục.
-                if (!currentUser && !resumedActiveExam) {
+                // No previous attempt is ever restored on application initialization.
+                if (!currentUser) {
                     const studentName = document.getElementById('guest_data_1');
                     const studentLop = document.getElementById('guest_data_lop') || document.getElementById('guest_data_2');
                     const studentDonvi = document.getElementById('guest_data_donvi');
@@ -8937,7 +8912,6 @@ if (contentType && contentType.includes("application/json")) {
         };
 
         function clearStoredActiveExamResume() {
-            window.__EXAM_RESUME_BLOCK_NEW__ = false;
             try {
                 localStorage.removeItem('currentExamToken');
                 localStorage.removeItem(window.tenantStorageKey('currentExamToken'));
@@ -8946,201 +8920,10 @@ if (contentType && contentType.includes("application/json")) {
             } catch(e) {}
         }
 
-        async function tryResumeActiveExam() {
-            if (isAdminLoggedIn || isTeacherLoggedIn) return false;
+        // Both school and public contest attempts always start fresh.
+        // No browser recovery function is registered or called.
 
-            let token = '';
-            let meta = {};
-            try {
-                token = localStorage.getItem(window.tenantStorageKey('currentExamToken')) || '';
-                const rawMeta = localStorage.getItem(window.tenantStorageKey('active_exam_resume_meta')) || '';
-                if (rawMeta) {
-                    try { meta = JSON.parse(rawMeta) || {}; } catch(e) { meta = {}; }
-                }
-            } catch(e) {}
-            if (!token) return false;
-            // School exams never resume a browser-saved attempt. Their previous
-            // server-side lock is reconciled atomically on the next fresh start.
-            // Preserve the separate public-contest recovery policy.
-            if (meta.entryTab !== 'contest') {
-                clearStoredActiveExamResume();
-                return false;
-            }
-            // A stale tab of the same browser must not adopt another tab's
-            // active exam. Keep the server token for the legitimate original
-            // tab; never delete an unverified ongoing attempt here.
-            if (meta.writerId && meta.writerId !== getExamWriterId()) {
-                window.__EXAM_RESUME_BLOCK_NEW__ = false;
-                showToast('Phiên thi đang hoạt động ở tab khác. Bạn có thể trở lại tab đó hoặc lựa chọn phiên thi khi vào phòng thi.', 'warning');
-                return false;
-            }
 
-            const authToken = localStorage.getItem(window.tenantStorageKey('auth_token')) || '';
-            const headers = { 'Content-Type': 'application/json' };
-            if (authToken) headers['Authorization'] = 'Bearer ' + authToken;
-
-            let response;
-            let data = {};
-            try {
-                const resumed = await fetchExamStartResponse(fetch, '/api/exam/resume', {
-                    method: 'POST', headers, cache: 'no-store', body: JSON.stringify({ token })
-                }, 15000);
-                response = { ok: resumed.ok, status: resumed.status };
-                data = resumed.body || {};
-            } catch (error) {
-                console.warn('[ExamResume] Không thể kiểm tra phiên đang làm:', error);
-                showToast('Không thể tải phiên thi cũ. Dữ liệu được giữ lại, vui lòng thử lại.', 'warning');
-                return false;
-            }
-
-            if (response.ok && data?.alreadySubmitted) {
-                clearStoredActiveExamResume();
-                showToast('Bài thi trước đó đã được nộp thành công.', 'success');
-                return false;
-            }
-
-            if (!response.ok) {
-                if (['EXAM_RESUME_INVALID','EXAM_RESUME_NOT_FOUND','EXAM_RESUME_NOT_STARTED','EXAM_RESUME_OWNER_MISMATCH'].includes(String(data?.code || '')) ||
-                    response.status === 403) {
-                    clearStoredActiveExamResume();
-                }
-                if (data?.code === 'EXAM_SUBMISSION_PROCESSING') {
-                    window.__EXAM_RESUME_BLOCK_NEW__ = true;
-                    try { switchTab(data.isContestAttempt === true ? 'contest' : 'exam'); } catch(e) {}
-                    showModal(`
-                        <div class="p-4 sm:p-5 text-center">
-                            <div class="text-4xl mb-2">⏳</div>
-                            <h3 class="text-lg font-bold text-gray-800 mb-2">Bài thi đang được xử lý</h3>
-                            <p class="text-sm text-gray-600">Máy chủ đang hoàn tất lần nộp trước. Hệ thống tạm khóa việc tạo phiên mới để tránh trùng kết quả.</p>
-                            <button id="exam-processing-recheck" class="mt-3 px-5 py-2.5 rounded-xl bg-indigo-600 text-white font-bold">Kiểm tra lại</button>
-                        </div>
-                    `, 'student-exam-compact', false);
-                    document.getElementById('exam-processing-recheck')?.addEventListener('click', () => location.reload(), { once: true });
-                    return true;
-                }
-                return false;
-            }
-
-            if (!data?.resumed || !Array.isArray(data.questions) || data.questions.length === 0) {
-                return false;
-            }
-
-            window.__EXAM_RESUME_BLOCK_NEW__ = false;
-            window.currentExamToken = data.token || token;
-            try {
-                localStorage.setItem(window.tenantStorageKey('currentExamToken'), window.currentExamToken);
-            } catch(e) {}
-
-            if (data.examConfig && typeof data.examConfig === 'object') {
-                examConfig = { ...examConfig, ...data.examConfig };
-            }
-            examConfig.immediateFeedback = Boolean(data.immediateFeedback);
-
-            const restoredAnswers = Array.isArray(data.answers)
-                ? data.answers.map(answer => answer === null ? undefined : answer)
-                : [];
-            currentExam = {
-                questions: data.questions,
-                answers: restoredAnswers,
-                currentIndex: 0,
-                startTime: Number(data.startedAtMs) || Date.now(),
-                timerInterval: null,
-                sessionId: createExamSessionId(),
-                writerId: getExamWriterId(),
-                submitting: false,
-                studentName: String(meta.studentName || currentUser?.full_name || currentUser?.ho_ten || ''),
-                studentLop: String(meta.studentLop || currentUser?.lop || ''),
-                studentDonvi: String(meta.studentDonvi || currentUser?.donvi || currentUser?.address || ''),
-                studentClass: String(meta.studentClass || meta.studentLop || currentUser?.lop || ''),
-                cheatWarningCount: Math.max(0, Number(data.cheatWarningCount) || 0),
-                serverCheatWarningCount: Math.max(0, Number(data.cheatWarningCount) || 0),
-                maxCheatWarnings: Math.max(1, Number(data.maxCheatWarnings) || 5),
-                timeLimitSeconds: Math.max(1, Number(data.timeLimitSeconds) || 1),
-                timeLimitMinutes: Math.max(1 / 60, Number(data.timeLimitSeconds || 1) / 60),
-                lastViolationAt: 0,
-                lastViolationReason: '',
-                startTick: null,
-                violationEpisodeActive: false,
-                serverStartedAtMs: Number(data.startedAtMs) || null,
-                deadlineAtMs: Number(data.deadlineAtMs) || null,
-                serverNowAtActivationMs: Number(data.serverNowMs) || Date.now(),
-                serverActivationTick: (typeof performance !== 'undefined' && Number.isFinite(performance.now())) ? performance.now() : null,
-                autosaveRevision: Math.max(0, Number(data.autosaveRevision) || 0),
-                autosaveTimer: null,
-                autosaveInFlight: false,
-                autosavePending: false,
-                deadlineLocked: Boolean(data.expired),
-                pendingViolationEvents: loadPendingExamViolationEvents()
-            };
-
-            if (currentExam.pendingViolationEvents.length > 0) {
-                setTimeout(() => { flushExamViolationEvents(); }, 0);
-            }
-
-            const isResumedContest = data.isContestAttempt === true;
-            // Set the owner before calling switchTab: a resumed attempt already
-            // has a server start time and must never trigger the "cancel exam" guard.
-            window.__activeStudentExamTab = isResumedContest ? 'contest' : 'exam';
-            try { switchTab(isResumedContest ? 'contest' : 'exam'); } catch(e) {}
-            const nameInput = document.getElementById('guest_data_1');
-            const lopInput = document.getElementById('guest_data_lop') || document.getElementById('guest_data_2');
-            const donviInput = document.getElementById('guest_data_donvi');
-            if (nameInput && currentExam.studentName) nameInput.value = currentExam.studentName;
-            if (lopInput && currentExam.studentLop) lopInput.value = currentExam.studentLop;
-            if (donviInput && currentExam.studentDonvi) donviInput.value = currentExam.studentDonvi;
-
-            const remaining = Math.max(0, Number(data.remainingSeconds) || 0);
-            const mins = Math.floor(remaining / 60);
-            const secs = String(remaining % 60).padStart(2, '0');
-            showModal(`
-                <div class="p-4 sm:p-5 text-center">
-                    <div class="text-4xl mb-2">${data.expired ? '⏱️' : '🔄'}</div>
-                    <h3 class="text-lg sm:text-xl font-bold text-gray-800 mb-2">${data.expired ? 'Bài thi đã hết giờ' : 'Phát hiện bài thi đang làm'}</h3>
-                    <p class="text-sm text-gray-600 mb-2">
-                        ${data.expired
-                            ? 'Hệ thống đã giữ bản đáp án lưu cuối cùng trước hạn. Bấm tiếp tục để hoàn tất nộp bài.'
-                            : `Bài thi sẽ tiếp tục đúng phiên cũ. Thời gian còn lại: <b>${mins}:${secs}</b>. Thời gian không được đặt lại.`}
-                    </p>
-                    <button id="exam-resume-confirm" class="mt-3 px-5 py-2.5 rounded-xl bg-indigo-600 text-white font-bold hover:bg-indigo-700">
-                        ${data.expired ? 'Hoàn tất bài thi' : 'Tiếp tục làm bài'}
-                    </button>
-
-                </div>
-            `, 'student-exam-compact', false);
-
-            const resumeButton = document.getElementById('exam-resume-confirm');
-            if (resumeButton) {
-                resumeButton.addEventListener('click', async () => {
-                    resumeButton.disabled = true;
-                    // A restored contest has no registration ticket; its
-                    // server-attested ACTIVE session still owns the contest tab.
-                    // Stabilize the DOM BEFORE any fullscreen request or grading.
-                    if (isResumedContest && !window.__contestOnExamResumed?.()) {
-                        resumeButton.disabled = false;
-                        showToast('Không thể đặt giao diện cuộc thi an toàn để khôi phục bài. Vui lòng thử lại.', 'error');
-                        return;
-                    }
-                    closeModal();
-
-                    if (data.expired) {
-                        currentExam.deadlineLocked = true;
-                        showToast('Đã hết giờ. Hệ thống đang nộp bản đáp án đã lưu trước hạn.', 'warning');
-                        executeSubmit();
-                        return;
-                    }
-
-                    if (typeof window.enterExamFullscreen === 'function') {
-                        Promise.resolve(window.enterExamFullscreen()).catch(() => {});
-                    }
-                    // Resume UI was already mounted before entering fullscreen.
-                    window.startExamUI(true);
-                    showToast('Đã khôi phục bài thi. Đồng hồ tiếp tục theo deadline cũ.', 'success');
-                }, { once: true });
-                resumeButton.focus();
-            }
-            return true;
-        }
-        window.tryResumeActiveExam = tryResumeActiveExam;
 
         // A school attempt is never restored through the browser. Choosing
         // Start is the explicit request to replace any prior unfinished attempt.
@@ -9279,12 +9062,7 @@ if (contentType && contentType.includes("application/json")) {
                 // Stale contest registration state never turns a school test
                 // into a contest or activates the contest's old-session lock.
                 const isPublicContestStart = Boolean(window.__contestTicket && examConfig?.chedodethi === 'Cuộc thi trực tuyến');
-                // Public contests alone retain a prior-session processing guard.
-                // A school Start NEVER reads or blocks on an old exam session.
-                if (isPublicContestStart && window.__EXAM_RESUME_BLOCK_NEW__) {
-                    showToast('Cuộc thi trước đang được máy chủ xử lý. Vui lòng kiểm tra lại.', 'warning');
-                    return;
-                }
+                // Both modes ignore old-session state. Quota is verified server-side.
 
                 // Disable button to prevent double clicks
                 if (startBtn) {
@@ -9427,14 +9205,8 @@ if (contentType && contentType.includes("application/json")) {
                 // Token PRESTART chỉ xác nhận đề đã được bốc/kiểm tra/snapshot trên server.
                 // Nội dung câu hỏi chưa được gửi xuống trình duyệt ở bước này.
                 window.currentExamToken = result.token;
-                if (isPublicContestStart) {
-                    try {
-                        localStorage.setItem(window.tenantStorageKey('currentExamToken'), result.token);
-                    } catch (_) {}
-                } else {
-                    // School PRESTART is memory-only; never resume a stale browser token.
-                    clearStoredActiveExamResume();
-                }
+                // PRESTART is memory-only for every exam mode.
+                clearStoredActiveExamResume();
 
                 // Cập nhật chế độ công bố kết quả ngay lập tức trực tiếp từ phản hồi máy chủ
                 if (result.immediateFeedback !== undefined) {
@@ -9515,10 +9287,10 @@ if (contentType && contentType.includes("application/json")) {
                     // Preserve the click gesture for fullscreen, but never expose
                     // the uninitialized school exam shell (00:00 / 1/0 / spinner)
                     // while the authoritative /exam/start request is pending.
-                    // Public contests keep their existing fullscreen target.
+                    // Both modes keep READY visible until the server sends real questions.
                     if (typeof window.enterExamFullscreen === 'function') {
                         Promise.resolve(window.enterExamFullscreen({
-                            awaitingSchoolStart: !isPublicContestStart
+                            awaitingAuthoritativeStart: true
                         })).catch(() => {});
                     }
                     readyAccepted = true;
@@ -9536,14 +9308,6 @@ if (contentType && contentType.includes("application/json")) {
                             body: JSON.stringify({ token: window.currentExamToken })
                         }, 20000);
                         const startResult = response.body || {};
-                        if (isPublicContestStart && response.status === 409 &&
-                            (startResult.code === 'EXAM_ATTEMPT_ALREADY_ACTIVE' || startResult.code === 'EXAM_REPLACEMENT_CONFLICT')) {
-                            // Never create a recursive Start/READY loop. The
-                            // server may have received another concurrent start.
-                            closeModal();
-                            showToast('Cuộc thi đang có lượt hoạt động. Vui lòng liên hệ ban tổ chức.', 'warning');
-                            return;
-                        }
                         if (!response.ok || !startResult.token ||
                             !Array.isArray(startResult.questions) || startResult.questions.length === 0 ||
                             (currentExam.expectedQuestionCount > 0 && startResult.questions.length !== currentExam.expectedQuestionCount)) {
@@ -9552,26 +9316,8 @@ if (contentType && contentType.includes("application/json")) {
                             throw error;
                         }
                         window.currentExamToken = startResult.token;
-                        if (isPublicContestStart) {
-                            try {
-                            localStorage.setItem(window.tenantStorageKey('currentExamToken'), startResult.token);
-                            localStorage.removeItem(window.tenantStorageKey('pending_exam_violation_events'));
-                            localStorage.setItem(window.tenantStorageKey('active_exam_resume_meta'), JSON.stringify({
-                                phase: 'active',
-                                entryTab: isPublicContestStart ? 'contest' : 'exam',
-                                writerId: getExamWriterId(),
-                                studentName: name,
-                                studentLop: inputLop,
-                                studentDonvi: inputDonvi,
-                                studentClass,
-                                teacherId,
-                                examId: selectedExamId,
-                                examName
-                            }));
-                        } catch(e) {}
-                        } else {
-                            clearStoredActiveExamResume();
-                        }
+                        // ACTIVE token is never persisted for recovery in either mode.
+                        clearStoredActiveExamResume();
                         currentExam.questions = startResult.questions;
                         currentExam.answers = {};
                         if (startResult.immediateFeedback !== undefined) {
@@ -9606,14 +9352,8 @@ if (contentType && contentType.includes("application/json")) {
                     }
                 });
                 document.getElementById('exam-start-ready-cancel')?.addEventListener('click', () => {
-                    const cancelledReadyToken = window.currentExamToken;
                     window.currentExamToken = null;
-                    try {
-                        // Do not erase an unrelated, already-ACTIVE session
-                        // previously saved by the original browser tab.
-                        const storedToken = localStorage.getItem(window.tenantStorageKey('currentExamToken')) || '';
-                        if (!storedToken || storedToken === cancelledReadyToken) clearStoredActiveExamResume();
-                    } catch (_) {}
+                    clearStoredActiveExamResume();
                     window.__contestOnReadyCancelled?.();
                     closeModal();
                 }, { once: true });
@@ -11046,11 +10786,11 @@ if (contentType && contentType.includes("application/json")) {
         };
 
         window.enterExamFullscreen = function enterExamFullscreen(options = {}) {
-            // During an ordinary school PRESTART, the exam-interface is still
+            // During either PRESTART, the exam-interface is still
             // hidden and contains placeholder content. Fullscreen the page
             // (including the visible READY dialog) until server-verified
             // questions and deadline are applied by startExamUI().
-            const elem = options?.awaitingSchoolStart === true
+            const elem = options?.awaitingAuthoritativeStart === true
                 ? document.body
                 : (document.getElementById('exam-interface') || document.documentElement);
             if (!elem) return Promise.resolve(false);

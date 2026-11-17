@@ -49,7 +49,8 @@ test('Contest mode does not modify scoring engine and never trusts client teache
  assert.match(grade,/authenticatedStudentName = String\(candidate.ho_ten\)/);
  const start=source('functions/api/exam/start.ts');
  assert.match(start,/signedAttemptUserId/);
- assert.match(start,/contest_attempts/);
+ assert.match(start,/claimContestStart/);
+ assert.doesNotMatch(start,/_exam_active_attempts/);
 });
 test('Public selector excludes private scoring and identity data',()=>{
  const select=source('functions/api/contest/exams.ts');
@@ -102,13 +103,15 @@ test('Contest answer keys stay server-side, existing school Immediate Feedback u
  assert.match(generate,/!registeredContest && examFlagEnabled/);
  assert.match(start,/if \(immediateFeedback\)/);
 });
-test('Contest attempt is claimed BEFORE the server starts the clock',()=>{
+test('Contest attempt is counted atomically with server clock, without old-session locks',()=>{
  const start=source('functions/api/exam/start.ts');
- const reservation=start.indexOf('INSERT INTO contest_attempts');
- const ticking=start.indexOf('UPDATE _exam_grade_sessions SET started_at');
- assert.ok(reservation>0 && ticking>reservation,'contest reservation must precede clock activation');
- assert.match(start,/ON CONFLICT \(ma_phien_thi\) DO NOTHING/);
- assert.match(start,/attemptKey = examId \+ ':' \+ signedAttemptUserId/);
+ const claims=source('functions/api/exam/contest-start-claims.ts');
+ assert.match(start,/claimContestStart\(db/);
+ assert.match(claims,/WITH quota AS MATERIALIZED/);
+ assert.match(claims,/INSERT INTO _contest_start_claims/);
+ assert.match(claims,/UPDATE _exam_grade_sessions AS session/);
+ assert.match(claims,/CONSTRAINT uq_contest_start_claim_slot UNIQUE/);
+ assert.doesNotMatch(start,/_exam_active_attempts|INSERT INTO contest_attempts/);
 });
 test('Registered results use server-owned identity, class and exam ID',()=>{
  const grade=source('functions/api/exam/grade.ts');
@@ -175,10 +178,13 @@ test('Shared family telephone does not merge different named contestants',()=>{
  assert.match(register,/v\.unit\.toLocaleLowerCase\('vi-VN'\)/);
  assert.doesNotMatch(register,/Số điện thoại này đã được dùng với hồ sơ dự thi khác/);
 });
-test('Prestart crash recovery reclaims reservation only if earlier clock never started',()=>{
+test('Contest start ignores the old session while verifying current READY snapshot',()=>{
  const start=source('functions/api/exam/start.ts');
- assert.match(start,/gs\.started_at IS NOT NULL/);
- assert.match(start,/AND gs\.expires_at > \?/);
+ const claims=source('functions/api/exam/contest-start-claims.ts');
+ assert.match(start,/claimContestStart/);
+ assert.match(claims,/session\.started_at IS NULL/);
+ assert.match(claims,/session\.session_id = \?/);
+ assert.doesNotMatch(start,/_exam_active_attempts|UPDATE contest_attempts/);
 });
 
 test('All score submission and idempotent replay paths redact nested marking data',()=>{
@@ -207,7 +213,7 @@ test('Both tabs are always in guest navigation and have separate components',()=
  assert.match(main,/__activeStudentExamTab === 'contest'/);
  assert.match(main,/__contestOnExamStarted/);
  assert.match(main,/__contestOnExamReset/);
- assert.match(main,/isResumedContest = data\.isContestAttempt === true/);
+ assert.doesNotMatch(main,/tryResumeActiveExam|isResumedContest/);
  assert.match(ui,/relocateExamWidgets\(true\)/);
  assert.match(ui,/relocateExamWidgets\(false\)/);
  assert.doesNotMatch(ui,/body\[data-application-mode/);
@@ -231,19 +237,19 @@ test('Default choice changes landing only; contest APIs remain published-only fo
  assert.match(settings,/Cả hai chức năng/);
 });
 
-test('Contest tab follows server-attested resume and never loses active student exam on navigation',()=>{
+test('Contest tab uses only the current start without previous-session recovery',()=>{
  const main=source('src/main.js');
  const resume=source('functions/api/exam/resume.ts');
  const ui=source('src/contest-mode-ui.js');
- assert.match(resume,/isContestAttempt: Boolean\(decoded\.contestParticipantId\)/);
- assert.match(main,/window\.__activeStudentExamTab = isResumedContest \? 'contest' : 'exam'/);
+ assert.match(resume,/EXAM_RECOVERY_RETIRED/);
+ assert.match(resume,/status:410/);
+ assert.doesNotMatch(resume,/_exam_grade_sessions|contest_attempts/);
+ assert.doesNotMatch(main,/tryResumeActiveExam|\/api\/exam\/resume/);
  assert.match(main,/tabName !== activeExamOwnerTab && isExamInProgress/);
- assert.match(main,/requestedTab = previousTab \|\| activeExamOwnerTab/);
  assert.match(main,/window\.__contestOnExamStarted\?\.\(\)/);
  assert.match(main,/window\.__contestCanShowExam\?\.\(\)/);
  assert.match(ui,/relocateExamWidgets\(true\)/);
  assert.match(ui,/relocateExamWidgets\(false\)/);
- assert.match(ui,/window\.__contestCanShowExam/);
 });
 test('Contest registration uses isolated component and starts only after ready exam configuration',()=>{
  const school=source('public/components/tab-exam.html');
@@ -342,7 +348,7 @@ test('Contest READY stages DOM before fullscreen and never moves an active fulls
  const requestFullscreen=main.indexOf('window.enterExamFullscreen({',readyClick);
  const activateServer=main.indexOf("fetchExamStartResponse(fetch, '/api/exam/start'",readyClick);
  assert.ok(readyClick>0 && beforeFullscreen>readyClick && requestFullscreen>beforeFullscreen && activateServer>requestFullscreen);
-  assert.match(main.slice(requestFullscreen,activateServer), /awaitingSchoolStart: !isPublicContestStart/);
+  assert.match(main.slice(requestFullscreen,activateServer), /awaitingAuthoritativeStart: true/);
  assert.match(main,/window\.__contestAfterStartRejected\?\.\(\)/);
  assert.match(main,/window\.__contestOnReadyCancelled\?\.\(\)/);
 });
@@ -361,7 +367,8 @@ test('Same-device attempts remain tenant and browser-tab scoped without legacy g
  const main=source('src/main.js');
  assert.doesNotMatch(main,/localStorage\.getItem\('currentExamToken'\)/);
  assert.doesNotMatch(main,/localStorage\.setItem\('currentExamToken'/);
- assert.match(main,/meta\.writerId !== getExamWriterId\(\)/);
+ assert.doesNotMatch(main,/meta\.writerId !== getExamWriterId\(\)/);
+ assert.doesNotMatch(main,/localStorage\.setItem\(window\.tenantStorageKey\('currentExamToken'\)/);
  assert.match(main,/writerId: getExamWriterId\(\)/);
  assert.match(main,/if \(currentExam\?\.startTime && currentExam\?\.questions\?\.length/);
 });
@@ -384,19 +391,15 @@ test('Finishing a contest clears guest identity and restores only authenticated 
  assert.match(ui,/for\(const \[id,value\] of Object\.entries\(restore\)\)/);
 });
 
-test('Restoring a contest mounts its DOM BEFORE fullscreen and handles expired drafts',()=>{
+test('Contest always starts fresh and no former resume DOM path remains',()=>{
  const ui=source('src/contest-mode-ui.js');
  const main=source('src/main.js');
- assert.match(ui,/window\.__contestOnExamResumed=function\(\)/);
- assert.match(ui,/if\(!relocateExamWidgets\(true\)\)return false/);
- const click=main.indexOf("resumeButton.addEventListener('click'");
- const resume=main.indexOf('window.__contestOnExamResumed?.()',click);
- const expired=main.indexOf('if (data.expired)',click);
- const fullscreen=main.indexOf('window.enterExamFullscreen()',click);
- assert.ok(click>=0 && resume>click && expired>resume && fullscreen>expired);
- assert.doesNotMatch(main.slice(click,fullscreen+100),/isResumedContest\) window\.__contestOnExamStarted/);
+ assert.doesNotMatch(ui,/__contestOnExamResumed/);
+ assert.doesNotMatch(main,/resumeButton\.addEventListener|tryResumeActiveExam/);
+ assert.match(ui,/__contestPrepareForReady/);
+ assert.match(ui,/__contestOnExamStarted/);
+ assert.match(main,/currentExam\.questions = startResult\.questions/);
 });
-
 test('Mobile registration keeps the start action visible with independently scrollable fields',()=>{
  const html=source('public/components/tab-contest.html');
  const css=source('src/style.css');

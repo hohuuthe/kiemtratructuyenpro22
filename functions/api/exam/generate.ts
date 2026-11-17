@@ -4,6 +4,7 @@ import {makeGradeSessionConfig, accessCodeMatches} from './security';
 import { examFlagEnabled, validateQuestionAnswer } from '../../../src/exam-grading-core.js';
 import { EXAM_SESSION_PURPOSE_PRESTART, evaluateExamAccessWindow } from '../../../src/exam-time-authority.js';
 import { publicContestExam, verifyContestTicket } from '../contest/register';
+import { countContestUsedAttempts } from './contest-start-claims';
 import { selectQuestionsStrictByDifficulty, orderSelectedExamQuestionsByType } from '../../../src/exam-question-selector.js';
 
 interface Env {
@@ -397,10 +398,8 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
             : Number(activeExamConfig.max_attempts || activeExamConfig.maxAttempts || 0);
 
         if (maxAttemptsVal > 0 && registeredContest) {
-            const countRow: any = await db.prepare(
-                'SELECT COUNT(*) AS count FROM results WHERE exam_id = ? AND ma_nguoi_du_thi = ?'
-            ).bind(String(examId),registeredContest.participantId).first();
-            if ((Number(countRow?.count)||0) >= maxAttemptsVal) {
+            const usedAttempts = await countContestUsedAttempts(db, registeredContest.participantId, String(examId));
+            if (usedAttempts >= maxAttemptsVal) {
                 return new Response(JSON.stringify({code:'EXAM_ATTEMPT_LIMIT_REACHED',error:'Bạn đã hết số lượt tham gia cuộc thi.'}),{status:403,headers:corsHeaders});
             }
         }

@@ -99,5 +99,6 @@ test('generation uses grouped order before freezing signed IDs and grading snaps
   const start=readFileSync('functions/api/exam/start.ts','utf8');
   const resume=readFileSync('functions/api/exam/resume.ts','utf8');
   assert.match(start,/const clientQuestions = frozenQuestions\.map/);
-  assert.match(resume,/const questions = frozenQuestions\.map/);
+  assert.match(resume,/EXAM_RECOVERY_RETIRED/);
+   assert.doesNotMatch(resume,/question_snapshot|frozenQuestions/);
 });

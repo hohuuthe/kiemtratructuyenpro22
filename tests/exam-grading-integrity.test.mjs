@@ -352,8 +352,8 @@ test('stale processing submission claims can recover without duplicating a store
   const resume = fs.readFileSync(new URL('../functions/api/exam/resume.ts', import.meta.url), 'utf8');
   assert.match(grade, /claimedAtMs < Date\.now\(\) - 5 \* 60 \* 1000/);
   assert.match(grade, /DELETE FROM _submitted_exam_tokens WHERE token_hash = \? AND status = \? AND claimed_at = \?/);
-  assert.match(resume, /claimedAtMs < Date\.now\(\) - 5 \* 60 \* 1000/);
-  assert.match(resume, /SELECT id FROM results WHERE id = \?/);
+  assert.match(resume, /EXAM_RECOVERY_RETIRED/);
+  assert.match(resume, /status:410/);
 });
 
 test('autosave equal-revision races are accepted only when this exact payload was persisted', () => {
@@ -364,10 +364,11 @@ test('autosave equal-revision races are accepted only when this exact payload wa
   assert.match(save, /persistedWriterId === writerId/);
 });
 
-test('resume fails closed when authoritative violation count cannot be restored', () => {
+test('Retired exam recovery never reads or modifies a prior session', () => {
   const resume = fs.readFileSync(new URL('../functions/api/exam/resume.ts', import.meta.url), 'utf8');
-  assert.match(resume, /EXAM_VIOLATION_COUNT_UNAVAILABLE/);
-  assert.match(resume, /Không thể xác minh số lần vi phạm/);
+  assert.match(resume, /EXAM_RECOVERY_RETIRED/);
+  assert.match(resume, /status:410/);
+  assert.doesNotMatch(resume, /db\.prepare|_exam_grade_sessions|contest_attempts/);
 });
 
 test('server decides violation auto-submit threshold and browser persists unsent violation events', () => {

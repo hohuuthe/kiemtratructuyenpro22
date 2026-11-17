@@ -63,9 +63,9 @@ window.__contestBeforeFullscreen=function(){
   // Otherwise the hidden ancestor makes fullscreen fail on mobile.
   if(!tab.classList.contains('active'))window.switchTab?.('contest');
   if(!tab.classList.contains('active'))return false;
-  // requestFullscreen() rejects display:none. Reveal a blank container only
-  // after explicit READY acceptance; no question or timer exists yet.
-  root.classList.remove('hidden');
+  // During READY fullscreen targets document.body; keep the empty exam
+  // interface hidden until /api/exam/start returns verified questions.
+  root.classList.add('hidden');
   findEl('contest-registration')?.classList.add('hidden');
   window.__contestStartPending=true;
   return true;
@@ -98,21 +98,7 @@ window.__contestOnExamStarted=function(){
   // which browsers interpret as leaving fullscreen.
   if(!findEl('tab-contest')?.classList.contains('active'))window.switchTab?.('contest');
 };
-// Resume belongs to an already server-verified ACTIVE attempt and has no
-// registration ticket. Prepare its DOM before requesting fullscreen on click.
-window.__contestOnExamResumed=function(){
-  if(document.fullscreenElement)return false;
-  if(!relocateExamWidgets(true))return false;
-  window.__activeStudentExamTab='contest';
-  const tab=findEl('tab-contest');
-  if(!tab?.classList.contains('active'))window.switchTab?.('contest');
-  if(!tab?.classList.contains('active'))return false;
-  findEl('contest-registration')?.classList.add('hidden');
-  findEl('exam-interface')?.classList.remove('hidden');
-  window.__contestReadyPrepared=false;
-  window.__contestStartPending=false;
-  return true;
-};
+// Contest recovery is retired: all entries begin a fresh counted attempt.
 window.__contestOnExamReset=function(){
   window.__contestReadyPrepared=false;
   window.__contestStartPending=false;

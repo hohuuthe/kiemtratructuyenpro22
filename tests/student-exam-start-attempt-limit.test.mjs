@@ -45,7 +45,7 @@ test('Front end never enters fullscreen before server accepts exam start', () =>
   const fullscreen=region.indexOf('window.enterExamFullscreen({', readyClick);
   const serverStart=region.indexOf("fetchExamStartResponse(fetch, '/api/exam/start'", readyClick);
   assert.ok(readyClick > 0 && fullscreen > readyClick && serverStart > fullscreen);
-   assert.match(region.slice(fullscreen,serverStart), /awaitingSchoolStart: !isPublicContestStart/);
+   assert.match(region.slice(fullscreen,serverStart), /awaitingAuthoritativeStart: true/);
   assert.match(region,/startExamUI\(true\)/);
   assert.match(region,/exam-start-ready-confirm/);
   assert.match(region,/readyButton.addEventListener\('click'/);
@@ -64,7 +64,9 @@ test('attempt limits are bound only to authenticated user_id and exact exam_id',
   assert.match(backend,/EXAM_ATTEMPT_LOGIN_REQUIRED/);
   assert.match(backend,/WHERE exam_id = \? AND user_id = \?/);
   const contestBranch = backend.slice(backend.indexOf('if (maxAttemptsVal > 0 && registeredContest)'),backend.indexOf('if (maxAttemptsVal > 0 && !isAdmin'));
-  assert.match(contestBranch,/ma_nguoi_du_thi/);
+  assert.match(contestBranch,/countContestUsedAttempts\(db, registeredContest\.participantId, String\(examId\)\)/);
+   const usedQuota=readFileSync('functions/api/exam/contest-start-claims.ts','utf8');
+   assert.match(usedQuota,/ma_nguoi_du_thi/);
   assert.doesNotMatch(contestBranch,/student_name|exam_name/);
   assert.match(backend,/EXAM_ATTEMPT_COUNT_UNAVAILABLE/);
 });

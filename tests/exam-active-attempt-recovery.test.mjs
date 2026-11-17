@@ -15,20 +15,20 @@ test('Previous school exam is never looked up before selecting or generating a n
   assert.doesNotMatch(main,/\/api\/exam\/recover/);
   assert.doesNotMatch(main,/exam-choice-resume|exam-choice-replace/);
 });
-test('School browser tokens are never stored for later recovery',()=>{
-  assert.match(main,/if \(meta.entryTab !== 'contest'\) \{/);
+test('Neither school nor contest stores previous ACTIVE tokens for browser recovery',()=>{
+  assert.doesNotMatch(main,/tryResumeActiveExam|\/api\/exam\/resume/);
+  assert.doesNotMatch(main,/localStorage\.setItem\(window\.tenantStorageKey\('currentExamToken'\)/);
   assert.match(main,/clearStoredActiveExamResume\(\)/);
-  assert.match(main,/School PRESTART is memory-only/);
 });
 test('School recovery endpoint is retired and no longer reads prior locks',()=>{
   assert.match(recover,/EXAM_RECOVERY_RETIRED/);
   assert.match(recover,/status:410/);
   assert.doesNotMatch(recover,/_exam_active_attempts/);
   assert.match(resume,/EXAM_RECOVERY_RETIRED/);
-  assert.match(resume,/contestParticipantId/);
+  assert.doesNotMatch(resume,/contestParticipantId|_exam_grade_sessions|contest_attempts/);
 });
 test('School start does not check or claim an unfinished active session',()=>{
-  const schoolPart=start.slice(start.indexOf('let schoolReserved = false'),start.indexOf('// Public contests keep'));
+  const schoolPart=start.slice(start.indexOf('let schoolReserved = false'),start.indexOf('// New contest starts never'));
   assert.match(schoolPart,/claimSchoolResultAtStart/);
   assert.match(schoolPart,/findSchoolResultBySession/);
   assert.doesNotMatch(schoolPart,/_exam_active_attempts/);
@@ -51,11 +51,11 @@ test('Old abandoned attempts cannot save or submit to newer attempt',()=>{
   assert.match(save,/newer.attempt_no > reserved.attempt_no/);
   assert.match(grade,/EXAM_ATTEMPT_CLOSED/);
 });
-test('No recursive exam start on conflict',()=>{
-  const i=main.indexOf("startResult.code === 'EXAM_ATTEMPT_ALREADY_ACTIVE'");
-  const j=main.indexOf('if (!response.ok || !startResult.token',i);
-  assert.ok(i>=0 && j>i);
-  assert.doesNotMatch(main.slice(i,j),/window\.startExam\(\)/);
+test('No old ACTIVE-session conflict handler can block fresh starts',()=>{
+  const block=main.slice(main.indexOf('window.startExam = async function startExam'),main.indexOf('function generateExamQuestions()'));
+  assert.doesNotMatch(block,/EXAM_ATTEMPT_ALREADY_ACTIVE|EXAM_REPLACEMENT_CONFLICT|EXAM_RESUME_BLOCK_NEW/);
+  assert.doesNotMatch(start,/_exam_active_attempts|INSERT INTO contest_attempts/);
+  assert.match(start,/claimContestStart/);
 });
 test('Empty exam UI cannot show 1/0 or 00:00 while loading questions',()=>{
   const i=main.indexOf('window.startExamUI = function');
@@ -63,28 +63,29 @@ test('Empty exam UI cannot show 1/0 or 00:00 while loading questions',()=>{
   assert.match(main.slice(i,i+1000),/currentExam\.questions\.length === 0/);
   assert.match(main.slice(i,i+1000),/window\.resetExam\(\)/);
 });
-test('Public contest participant lifecycle remains separately protected',()=>{
-  assert.match(start,/if \(contestParticipantId && examId\)/);
-  assert.match(resume,/contestParticipantId/);
+test('Public contest owner identity and unique counted start remain protected',()=>{
+  assert.match(start,/publicContestExam\(db,examId\)/);
+  assert.match(start,/claimContestStart/);
+  assert.match(grade,/findContestStartClaim/);
+  assert.match(resume,/EXAM_RECOVERY_RETIRED/);
 });
-
 test('School Start ignores all stale prior-session processing and replacement state',()=>{
   const startBlock = main.slice(main.indexOf('window.startExam = async function startExam'), main.indexOf('function generateExamQuestions()'));
-  assert.match(startBlock,/if \(isPublicContestStart && window\.__EXAM_RESUME_BLOCK_NEW__\)/);
+  assert.doesNotMatch(startBlock,/__EXAM_RESUME_BLOCK_NEW__/);
   assert.doesNotMatch(startBlock,/if \(window\.__EXAM_RESUME_BLOCK_NEW__\)/);
   assert.doesNotMatch(startBlock,/__pendingExamReplacement/);
   assert.doesNotMatch(startBlock,/\/api\/exam\/resume|\/api\/exam\/recover/);
-  assert.match(startBlock,/if \(isPublicContestStart && response\.status === 409 &&/);
+  assert.doesNotMatch(startBlock,/EXAM_ATTEMPT_ALREADY_ACTIVE|EXAM_REPLACEMENT_CONFLICT/);
   assert.match(startBlock,/const isPublicContestStart = Boolean\(window\.__contestTicket && examConfig\?\.chedodethi === 'Cuộc thi trực tuyến'\)/);
   assert.match(startBlock,/\/api\/exam\/generate/);
   assert.match(startBlock,/\/api\/exam\/start/);
 });
 test('School READY fullscreen displays confirmation rather than an empty exam shell',()=>{
   const startBlock = main.slice(main.indexOf('window.startExam = async function startExam'), main.indexOf('function generateExamQuestions()'));
-  assert.match(startBlock,/awaitingSchoolStart: !isPublicContestStart/);
+  assert.match(startBlock,/awaitingAuthoritativeStart: true/);
   assert.match(startBlock,/currentExam\.questions = startResult\.questions;[\s\S]*?startExamUI\(true\)/);
   const fullscreen = main.slice(main.indexOf('window.enterExamFullscreen = function'),main.indexOf('window.showFullscreenEnforcer = function'));
-  assert.match(fullscreen,/options\?\.awaitingSchoolStart === true[\s\S]*?document\.body/);
+  assert.match(fullscreen,/options\?\.awaitingAuthoritativeStart === true[\s\S]*?document\.body/);
   assert.match(fullscreen,/document\.getElementById\('exam-interface'\)/);
   const examUI = main.slice(main.indexOf('window.startExamUI = function'),main.indexOf('function clearStoredActiveExamResume()'));
   assert.match(examUI,/currentExam\.questions\.length === 0/);
