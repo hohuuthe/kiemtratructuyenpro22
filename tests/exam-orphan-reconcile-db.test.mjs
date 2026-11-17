@@ -9,7 +9,7 @@ const match=source.match(/export const EXPIRED_LEGACY_ORPHAN_SQL = `([\s\S]*?)`;
 assert.ok(match,'Use production SQL, not a reimplementation');
 let n=0;
 const sql=match[1].replace(/\?/g,()=>'$'+(++n));
-assert.equal(n,7);
+assert.equal(n,8);
 const verifiedMatch=source.match(/export const EXPIRED_SUBMITTED_ORPHAN_SQL = \`([\s\S]*?)\`;/);
 assert.ok(verifiedMatch,'Extract production verified-result reconciliation SQL');
 let verifiedBindings=0;
@@ -28,7 +28,8 @@ async function fixture({snapshot=false,liveness=false,completed=false,processing
     CREATE TABLE _exam_abandoned_attempts(session_id TEXT PRIMARY KEY,exam_id TEXT NOT NULL,user_id TEXT NOT NULL,reason TEXT NOT NULL,abandoned_at TEXT NOT NULL);
     CREATE TABLE _submitted_exam_tokens(token_hash TEXT PRIMARY KEY,status TEXT);
     CREATE TABLE results(id TEXT PRIMARY KEY,exam_id TEXT,user_id TEXT,submission_token_hash TEXT,created_at TEXT);
-    CREATE TABLE _exam_answer_drafts(session_id TEXT PRIMARY KEY,answers_json TEXT,revision INT);
+    CREATE TABLE _exam_answer_drafts(session_id TEXT PRIMARY KEY,answers_json TEXT,revision INT,saved_at TEXT,writer_id TEXT,writer_seen_at TEXT);
+    CREATE TABLE _exam_failed_attempt_cleanup_audit(session_id TEXT PRIMARY KEY,attempt_key TEXT NOT NULL,exam_id TEXT NOT NULL,user_id TEXT NOT NULL,lock_data JSONB NOT NULL,draft_data JSONB,reason TEXT NOT NULL,archived_at TIMESTAMPTZ NOT NULL DEFAULT now());
   `);
   await db.query('INSERT INTO _exam_active_attempts VALUES ($1,$2,$3,$4,$5,$6)', ['exam1:user1','exam1','user1','oldsession',expiryAt,started]);
   await db.query('INSERT INTO _exam_answer_drafts VALUES ($1,$2,$3)',['oldsession','["work remains"]',7]);
@@ -40,21 +41,22 @@ async function fixture({snapshot=false,liveness=false,completed=false,processing
     'INSERT INTO results VALUES ($1,$2,$3,$4,$5)',
     ['graded-result',wrongResultOwner?'another-exam':'exam1','user1',sha('exam-session:oldsession'),now]
   );
-  const args=['exam1:user1','oldsession',now,sha('exam-session:oldsession'),sha('exam-session:oldsession'),now,'exam1:user1'];
+  const args=['exam1:user1','oldsession',now,new Date(Date.parse(now)-90000).toISOString(),new Date(Date.parse(now)-90000).toISOString(),sha('exam-session:oldsession'),sha('exam-session:oldsession'),'exam1:user1'];
   return {db,args};
 }
 
-test('expired missing snapshot is archived and lock released without erasing draft',async()=>{
+test('expired missing snapshot is audited and lock/draft removed without consuming a quota',async()=>{
  const {db,args}=await fixture();
  try{
   const result=await db.query(sql,args);
   assert.equal(result.rows[0]?.session_id,'oldsession');
   assert.equal((await db.query('SELECT COUNT(*)::int AS n FROM _exam_active_attempts')).rows[0].n,0);
-  const archived=await db.query('SELECT reason FROM _exam_abandoned_attempts WHERE session_id=$1',['oldsession']);
-  assert.equal(archived.rows[0].reason,'orphan_snapshot_missing');
-  assert.equal((await db.query('SELECT answers_json FROM _exam_answer_drafts WHERE session_id=$1',['oldsession'])).rows[0].answers_json,'["work remains"]');
+  const archived=await db.query('SELECT reason,draft_data FROM _exam_failed_attempt_cleanup_audit WHERE session_id=$1',['oldsession']);
+  assert.equal(archived.rows[0].reason,'invalid_missing_frozen_exam_snapshot');
+  assert.equal(archived.rows[0].draft_data.answers_json,'["work remains"]');
+  assert.equal((await db.query('SELECT COUNT(*)::int AS n FROM _exam_answer_drafts')).rows[0].n,0);
   assert.equal((await db.query(sql,args)).rowCount,0);
-  assert.equal((await db.query('SELECT COUNT(*)::int AS n FROM _exam_abandoned_attempts')).rows[0].n,1);
+  assert.equal((await db.query('SELECT COUNT(*)::int AS n FROM _exam_abandoned_attempts')).rows[0].n,0);
  } finally{await db.close();}
 });
 
