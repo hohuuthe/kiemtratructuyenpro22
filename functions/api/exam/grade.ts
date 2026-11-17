@@ -1046,6 +1046,7 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
             // session cannot create a result. If submission wins first,
             // replacement observes the processing claim and is refused.
             const schoolAttempt = Boolean(signedStudentUserId && !contestParticipantId);
+            const contestAttempt = Boolean(contestParticipantId);
             const claimSql = schoolAttempt
                 ? `INSERT INTO _submitted_exam_tokens
                      (token_hash, exam_id, student_name, user_id, submitted_at, status, result_id, claimed_at)
@@ -1059,6 +1060,19 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
                      SELECT 1 FROM _exam_abandoned_attempts WHERE session_id = ?
                    )
                    ON CONFLICT (token_hash) DO NOTHING`
+                : contestAttempt
+                ? `INSERT INTO _submitted_exam_tokens
+                     (token_hash, exam_id, student_name, user_id, submitted_at, status, result_id, claimed_at)
+                   SELECT ?, ?, ?, ?, ?, ?, ?, ?
+                   WHERE EXISTS (
+                     SELECT 1 FROM _exam_active_attempts a
+                     JOIN contest_attempts ca ON ca.ma_phien_thi=a.session_id
+                     WHERE a.session_id=? AND a.exam_id=? AND a.user_id=?
+                       AND ca.ma_de_thi=a.exam_id AND ca.ma_nguoi_du_thi=?
+                       AND ca.trang_thai='DANG_LAM'
+                     FOR UPDATE OF a,ca
+                   )
+                   ON CONFLICT(token_hash) DO NOTHING`
                 : "INSERT INTO _submitted_exam_tokens (token_hash, exam_id, student_name, user_id, submitted_at, status, result_id, claimed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (token_hash) DO NOTHING";
             const claim = await db.prepare(claimSql).bind(
                 tokenHash,
@@ -1072,6 +1086,9 @@ Chỉ trả JSON hợp lệ đúng dạng {"score": số, "feedback": "nhận x�
                 ...(schoolAttempt ? [
                     String(gradingSessionId), String(examConfig.id || studentInfo.examId || ''),
                     signedStudentUserId, String(gradingSessionId)
+                ] : contestAttempt ? [
+                    String(gradingSessionId),String(examConfig.id||studentInfo.examId||''),
+                    'contest:'+contestParticipantId,contestParticipantId
                 ] : [])
             ).run();
             if (Number(claim?.meta?.changes || 0) !== 1) {
