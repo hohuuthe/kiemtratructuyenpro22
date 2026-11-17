@@ -78,14 +78,14 @@ test('cancelled ready state stops before next request',async()=>{
  assert.equal(calls,1);
 });
 
-test('student UI uses the safe retry helper but no recovery token',()=>{
+test('student UI starts once with no old-session recovery or waiting',()=>{
  const main=readFileSync('src/main.js','utf8');
- assert.match(main,/activateExamAfterPreviousFinalization\(fetch, '\/api\/exam\/start'/);
+ assert.match(main,/fetchExamStartResponse\(fetch, '\/api\/exam\/start'/);
+ assert.doesNotMatch(main,/activateExamAfterPreviousFinalization\(fetch/);
+ assert.doesNotMatch(main,/Đang hoàn tất lượt thi trước/);
  assert.doesNotMatch(main,/tryResumeActiveExam\(/);
- assert.match(main,/isCancelled:\(\)=>window\.currentExamToken!==readyToken/);
 });
-
-test('expired READY from a prior cleanup automatically requests a fresh unstarted exam',()=>{
+\ntest('expired READY from a prior cleanup automatically requests a fresh unstarted exam',()=>{
  const backend=readFileSync('functions/api/exam/start.ts','utf8');
  const frontend=readFileSync('src/main.js','utf8');
  assert.match(backend,/code:'EXAM_READY_REGENERATE_REQUIRED'/);
