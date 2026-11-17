@@ -87,6 +87,17 @@ test('autosubmission is locked to server identity before starting the clock',()=
     'profile lookup must precede lock and clock to avoid a stranded started attempt');
 });
 
+test('unrecoverable auto-grading is bounded, audited and queued for manual review',()=>{
+  const service=source('functions/api/exam/finalize-service.ts');
+  assert.match(service,/ADD COLUMN IF NOT EXISTS failure_count/);
+  assert.match(service,/ADD COLUMN IF NOT EXISTS manual_review_at/);
+  assert.match(service,/COALESCE\(failure_count,0\)\+1>=5/);
+  assert.match(service,/manual_review_at IS NULL/);
+  assert.match(service,/manual_review_required/);
+  assert.doesNotMatch(service,/DELETE FROM _exam_grade_sessions/);
+  assert.doesNotMatch(service,/DELETE FROM _exam_answer_drafts/);
+});
+
 test('cron runs per tenant without any fallback to root tenant database',()=>{
   const worker=source('workers/exam-finalizer-worker.ts');
   const wrangler=source('wrangler.exam-finalizer.toml');
