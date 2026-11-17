@@ -42,8 +42,11 @@ WITH previous AS MATERIALIZED (
     AND NOT EXISTS(
       SELECT 1 FROM _exam_attempt_liveness l
       WHERE l.session_id=p.session_id AND l.finalized_at IS NULL
-        AND l.finalizing_at IS NOT NULL
-        AND l.finalizing_at::timestamptz>now()-interval '5 minutes'
+        AND (
+          (l.finalizing_at IS NOT NULL
+            AND l.finalizing_at::timestamptz>now()-interval '5 minutes')
+          OR l.last_seen_at::timestamptz>now()-interval '90 seconds'
+        )
     )
   RETURNING t.token_hash,t.result_id,t.claimed_at,p.session_id
 ), safe_previous AS MATERIALIZED (
