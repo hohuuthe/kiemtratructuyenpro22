@@ -93,24 +93,27 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     }
 
     const gradingSessionId = String(decoded.gradingSessionId || '').trim();
-    // Revocation is authoritative even if an old browser still retains a
-    // PRESTART token for the abandoned grading session.
-    try {
-      await ensureSchoolResultReservationSchema(db);
-      if (gradingSessionId) {
-        const abandoned: any = await db.prepare(
-          'SELECT session_id FROM _exam_abandoned_attempts WHERE session_id = ?'
-        ).bind(gradingSessionId).first();
-        if (abandoned) return new Response(JSON.stringify({
-          code:'EXAM_ATTEMPT_ABANDONED',
-          error:'Phiên thi này đã được bỏ do không thể khôi phục. Vui lòng bắt đầu một phiên mới.'
-        }), {status:409,headers:corsHeaders});
+    // Only reject a revoked PRESTART token belonging to this school attempt.
+    // An older school or contest session must never block a fresh START.
+    if (String(decoded.studentUserId || '').trim()) {
+      try {
+        await ensureSchoolResultReservationSchema(db);
+        if (gradingSessionId) {
+          const abandoned: any = await db.prepare(
+            'SELECT session_id FROM _exam_abandoned_attempts WHERE session_id = ?'
+          ).bind(gradingSessionId).first();
+          if (abandoned) return new Response(JSON.stringify({
+            code:'EXAM_ATTEMPT_ABANDONED',
+            error:'Lượt chuẩn bị này đã bị hủy. Vui lòng nhận đề mới nếu còn lượt.'
+          }), {status:409,headers:corsHeaders});
+        }
+      } catch (abandonError) {
+        console.error('Cannot validate abandoned PRESTART token:',abandonError);
+        return new Response(JSON.stringify({
+          code:'EXAM_ABANDON_STATUS_UNAVAILABLE',
+          error:'Không thể xác minh lượt chuẩn bị đã hủy; đồng hồ chưa bắt đầu.'
+        }), {status:503,headers:corsHeaders});
       }
-    } catch (abandonError) {
-      console.error('Cannot validate abandoned session before exam start:',abandonError);
-      return new Response(JSON.stringify({
-        code:'EXAM_ABANDON_STATUS_UNAVAILABLE',error:'Không thể kiểm tra phiên đã bỏ; chưa bắt đầu tính giờ.'
-      }), {status:503,headers:corsHeaders});
     }
     if (!gradingSessionId) {
       return new Response(JSON.stringify({ error: 'Phiên thi thiếu mã phiên chấm điểm.' }), { status: 409, headers: corsHeaders });
