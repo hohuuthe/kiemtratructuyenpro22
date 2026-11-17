@@ -158,8 +158,15 @@ export async function registerExpiredLegacyExamAttemptById(context:any, sessionI
     WHERE a.session_id=? AND l.session_id IS NULL
       AND gs.exam_id=a.exam_id AND gs.started_at IS NOT NULL
       AND gs.started_at<=? AND gs.deadline_at<=?
+      AND NOT EXISTS (
+        SELECT 1 FROM results r
+        WHERE r.exam_id=a.exam_id AND r.user_id=a.user_id
+          AND r.created_at::timestamptz>=gs.started_at::timestamptz
+          AND r.submission_token_hash IS DISTINCT FROM ?
+      )
     LIMIT 1
-  `).bind(sessionId,cutoff,new Date().toISOString()).first();
+  `).bind(sessionId,cutoff,new Date().toISOString(),
+    await hashToken('exam-session:'+sessionId)).first();
   if (!row) return false;
   const identity=String(row.user_id||'');
   const isContest=identity.startsWith('contest:');
