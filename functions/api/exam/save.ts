@@ -1,4 +1,4 @@
-import { verifyAuthSession, verifyJWT, getDynamicSecret, getDatabase } from './utils';
+import { verifyAuthSession, verifyJWT, getDynamicSecret, getDatabase, hashToken } from './utils';
 import {
   EXAM_SESSION_PURPOSE_ACTIVE,
   resolveAuthoritativeExamTiming,
@@ -178,8 +178,15 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     const draftValuesSql = schoolAttempt
       ? `SELECT ?, ?, ?, ?, ?, ?
          WHERE EXISTS (
-           SELECT 1 FROM _exam_active_attempts
-           WHERE session_id = ? AND exam_id = ? AND user_id = ?
+           SELECT 1 FROM results reserved
+           WHERE reserved.submission_token_hash = ?
+             AND reserved.exam_id = ? AND reserved.user_id = ?
+             AND reserved.grading_status = 'IN_PROGRESS'
+             AND NOT EXISTS (
+               SELECT 1 FROM results newer
+               WHERE newer.exam_id = reserved.exam_id AND newer.user_id = reserved.user_id
+                 AND newer.attempt_no > reserved.attempt_no
+             )
            FOR UPDATE
          )
          AND NOT EXISTS (
@@ -206,14 +213,15 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     const draftWrite: any = await db.prepare(draftSql).bind(
       gradingSessionId, answersJson, revision, savedAt, writerId, savedAt,
       ...(schoolAttempt ? [
-        gradingSessionId, String(session.exam_id || ''), signedStudentUserId, gradingSessionId
+        await hashToken('exam-session:' + gradingSessionId), String(session.exam_id || ''), signedStudentUserId, gradingSessionId
       ] : []),
       leaseCutoff
     ).run();
     if (schoolAttempt && Number(draftWrite?.meta?.changes || 0) === 0) {
+      const tokenHash = await hashToken('exam-session:' + gradingSessionId);
       const active: any = await db.prepare(
-        'SELECT session_id FROM _exam_active_attempts WHERE session_id = ? AND exam_id = ? AND user_id = ?'
-      ).bind(gradingSessionId, String(session.exam_id || ''), signedStudentUserId).first();
+        "SELECT id FROM results WHERE submission_token_hash = ? AND exam_id = ? AND user_id = ? AND grading_status = 'IN_PROGRESS'"
+      ).bind(tokenHash, String(session.exam_id || ''), signedStudentUserId).first();
       if (!active) return new Response(JSON.stringify({
         code:'EXAM_ATTEMPT_REVOKED',
         error:'Phiên thi này đã được thay thế. Không thể tiếp tục lưu vào bài thi cũ.'
