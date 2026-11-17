@@ -66,6 +66,8 @@ WITH previous AS MATERIALIZED (
       ELSE ca.thoi_diem_nop END
   FROM audited a
   LEFT JOIN results r ON r.ma_phien_thi=a.session_id
+    AND r.ma_nguoi_du_thi=ca.ma_nguoi_du_thi
+    AND r.exam_id=ca.ma_de_thi
   WHERE ca.ma_phien_thi=a.session_id AND ca.trang_thai='DANG_LAM'
     AND EXISTS(SELECT 1 FROM claimed)
   RETURNING ca.ma_phien_thi
