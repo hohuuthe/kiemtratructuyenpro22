@@ -214,7 +214,8 @@ test('hidden-detail responses strip nested question.answer and correctness hints
   const grade = fs.readFileSync(new URL('../functions/api/exam/grade.ts', import.meta.url), 'utf8');
   assert.match(grade, /sanitizeGradingDetailForClient/);
   assert.match(grade, /const \{ answer, \.\.\.safeQuestion \} = question/);
-  assert.match(grade, /const \{ correctAnswer, aiFeedback, isCorrect, correctStatements, \.\.\.safeD \}/);
+  assert.match(grade, /const \{ correctAnswer, aiFeedback, isCorrect, correctStatements, \.\.\.redacted \}/);
+  assert.match(grade, /safeD = \{ \.\.\.redacted, question: safeQuestion \}/);
 });
 
 test('public shared result API is summary-only', () => {
