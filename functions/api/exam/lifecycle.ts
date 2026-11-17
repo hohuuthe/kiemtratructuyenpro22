@@ -160,10 +160,25 @@ export async function settleInactiveSchoolExam(
           answers.length !== questions.length || !questions.length) {
         return { state: 'unavailable' };
       }
+      // The technical JWT TTL must not make an otherwise intact, already
+      // timed-out attempt ungradable. This isolated finalizer is the lock owner;
+      // extend only this exact frozen snapshot for one bounded grading attempt.
+      if (saneIso(session.expires_at) <= now) {
+        const extended = new Date(now+10*60_000).toISOString();
+        const renewed: any = await db.prepare(`
+          UPDATE _exam_grade_sessions SET expires_at = ?
+          WHERE session_id = ? AND exam_id = ?
+            AND EXISTS (
+              SELECT 1 FROM _exam_active_attempts
+              WHERE attempt_key = ? AND session_id = ? AND finalizing_at = ?
+            )
+          RETURNING session_id
+        `).bind(extended,sessionId,examId,key,sessionId,claimTime).first();
+        if (!renewed?.session_id) return {state:'unavailable'};
+        session.expires_at = extended;
+      }
       const signedPayload = buildActiveExamRecoveryPayload({
-        session, examId, studentUserId: userId,
-        // The snapshot must still be within its technical TTL.
-        nowMs: now
+        session, examId, studentUserId: userId, nowMs: now
       });
       if (!signedPayload) return { state: 'unavailable' };
       const secret = await getDynamicSecret(db, context.env.JWT_SECRET);
