@@ -1,7 +1,7 @@
 import { verifyAuthSession, verifyJWT, signJWT, getDynamicSecret, getDatabase } from './utils';
 import { publicContestExam } from '../contest/register';
 import { ensureExamLivenessSchema, initializeExamLiveness } from './finalize-service';
-import { claimFreshExamAttempt } from './fresh-attempt';
+import { claimFreshExamAttempt, releaseUnusedExamQuotaSlot } from './fresh-attempt';
 import { stripContestAnswerHints } from '../../../src/exam-public-contest-projection';
 import {
   EXAM_SESSION_PURPOSE_PRESTART,
@@ -420,8 +420,8 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         });
         if (!startedFresh) {
           return new Response(JSON.stringify({
-            code:'EXAM_START_CONCURRENT_SUBMISSION',
-            error:'Một yêu cầu nộp bài khác đang được ghi kết quả. Vui lòng thử tạo bài thi mới sau khi máy chủ hoàn tất.'
+            code:'EXAM_START_QUOTA_OR_CONCURRENCY',
+            error:'Máy chủ chưa cấp được lượt thi mới do giới hạn lượt hoặc yêu cầu bắt đầu đồng thời. Vui lòng thử lại hoặc kiểm tra số lượt còn lại.'
           }),{status:409,headers:corsHeaders});
         }
       } catch (activeClaimError) {
@@ -478,7 +478,8 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         `).bind(gradingSessionId,contestParticipantId,examId,proposedStartedAt).run();
       } catch (error) {
         console.error('Cannot bind contest attempt to verified session:',error);
-        try { await db.prepare('DELETE FROM _exam_active_attempts WHERE session_id = ?').bind(gradingSessionId).run(); } catch {}
+        try { await db.prepare('DELETE FROM _exam_active_attempts WHERE session_id = ?').bind(gradingSessionId).run();
+          await releaseUnusedExamQuotaSlot(db,gradingSessionId); } catch {}
         return new Response(JSON.stringify({error:'Chưa thể xác nhận phiên dự thi. Vui lòng tiếp tục phiên hiện có.'}),{status:503,headers:corsHeaders});
       }
     }
@@ -496,6 +497,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         try {
           await db.prepare('DELETE FROM _exam_active_attempts WHERE session_id = ?')
             .bind(gradingSessionId).run();
+          await releaseUnusedExamQuotaSlot(db,gradingSessionId);
         } catch {}
       }
       throw startClaimError;
@@ -513,6 +515,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         try {
           await db.prepare('DELETE FROM _exam_active_attempts WHERE session_id = ?')
             .bind(gradingSessionId).run();
+          await releaseUnusedExamQuotaSlot(db,gradingSessionId);
         } catch {}
       }
       return new Response(JSON.stringify({
@@ -581,6 +584,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
           .bind(gradingSessionId,new Date(startedAtMs).toISOString()).run();
         if (Number(rolledBack?.meta?.changes || 0) === 1) {
           await db.prepare('DELETE FROM _exam_active_attempts WHERE session_id=?').bind(gradingSessionId).run();
+          await releaseUnusedExamQuotaSlot(db,gradingSessionId);
           if (contestParticipantId) {
             await db.prepare("DELETE FROM contest_attempts WHERE ma_phien_thi=? AND trang_thai='DANG_LAM'")
               .bind(gradingSessionId).run();
