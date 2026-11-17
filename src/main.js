@@ -11499,7 +11499,7 @@ if (err && err.message && err.message.includes("is not valid JSON")) {
 
             // The server owns score publication. Never trust only cached exam settings.
             const showScore = result.canViewScore === true &&
-                examFlagEnabled(examConfig.showScore ?? examConfig.show_score, false);
+                examFlagEnabled(examConfig.showScore ?? examConfig.show_score, true);
             // Public contest outcomes never expose per-question correctness or keys.
             // The server computes any published category aggregates independently.
             const showDetails = window.__activeStudentExamTab === 'contest'
