@@ -14,6 +14,14 @@ WITH previous AS MATERIALIZED (
   WHERE a.attempt_key=? AND a.exam_id=? AND a.user_id=?
     AND a.session_id<>?
   FOR UPDATE
+), committed_processing AS (
+  UPDATE _submitted_exam_tokens t SET status='completed',result_id=r.id
+  FROM previous p,results r
+  WHERE t.token_hash=encode(sha256(convert_to('exam-session:'||p.session_id,'UTF8')),'hex')
+    AND t.status='processing'
+    AND r.submission_token_hash=t.token_hash
+    AND r.exam_id=p.exam_id AND r.id=t.result_id
+  RETURNING t.token_hash
 ), stale_processing AS (
   UPDATE _submitted_exam_tokens t SET status='superseded'
   FROM previous p
@@ -44,6 +52,9 @@ WITH previous AS MATERIALIZED (
       AND t.status='processing'
       AND NOT EXISTS(
         SELECT 1 FROM stale_processing sp WHERE sp.token_hash=t.token_hash
+      )
+      AND NOT EXISTS(
+        SELECT 1 FROM committed_processing cp WHERE cp.token_hash=t.token_hash
       )
   )
   AND NOT EXISTS (
