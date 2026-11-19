@@ -20,6 +20,34 @@ body:-webkit-full-screen #sidebar-backdrop {
 }
 
 
+/* Fullscreen student attempt: fill the real viewport instead of leaving the
+ * browser's black fullscreen backdrop visible above or beside the exam.
+ * This is scoped to the active exam root; the READY dialog (body fullscreen),
+ * ordinary app pages, QR presenter and question-navigation controls are intact.
+ */
+#exam-interface:fullscreen,
+#exam-interface:-webkit-full-screen {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  min-width: 100vw !important;
+  max-width: none !important;
+  height: 100vh !important;
+  height: 100dvh !important;
+  min-height: 100vh !important;
+  box-sizing: border-box !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  overflow-x: hidden !important;
+  background-color: #f8fafc !important;
+}
+#exam-interface:fullscreen::backdrop,
+#exam-interface:-webkit-full-screen::backdrop {
+  background-color: #f8fafc !important;
+}
+
 @theme {
   --breakpoint-xs: 480px;
 }
