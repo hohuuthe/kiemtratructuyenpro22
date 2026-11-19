@@ -1,4 +1,20 @@
 
+/*
+ * The exam READY dialog intentionally fullscreen's <body> before the server
+ * activates the attempt.  While that fullscreen remains active, the global
+ * mobile menu must not appear above the exam UI.  The question navigation
+ * (#question-nav) and exam controls are deliberately unaffected.
+ */
+body:fullscreen #app-mobile-menu-toggle,
+body:-webkit-full-screen #app-mobile-menu-toggle,
+body:fullscreen #app-sidebar,
+body:-webkit-full-screen #app-sidebar,
+body:fullscreen #sidebar-backdrop,
+body:-webkit-full-screen #sidebar-backdrop {
+  display: none !important;
+}
+
+
 
         @import "tailwindcss";
 
