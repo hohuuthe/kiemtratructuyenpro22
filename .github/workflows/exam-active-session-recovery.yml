@@ -7,6 +7,8 @@ on:
       - 'src/exam-connection-lifecycle.js'
       - 'tests/exam-connection-lifecycle.test.mjs'
       - 'tests/exam-school-result-reservation-db.test.mjs'
+      - 'tests/exam-tenant-schema-preflight.test.mjs'
+      - 'migrations/20261117_exam_start_tenant_preflight.sql'
       - 'functions/api/exam/school-result-lifecycle.ts'
       - 'functions/api/exam/**'
       - 'tests/exam-active-attempt-recovery.test.mjs'
@@ -19,6 +21,8 @@ on:
       - 'src/exam-active-attempt-recovery.js'
       - 'functions/api/exam/**'
       - 'tests/exam-active-attempt-recovery.test.mjs'
+      - 'tests/exam-tenant-schema-preflight.test.mjs'
+      - 'migrations/20261117_exam_start_tenant_preflight.sql'
       - '.github/workflows/exam-active-session-recovery.yml'
 permissions:
   contents: read
@@ -36,6 +40,6 @@ jobs:
       - name: Syntax and recovery regression tests
         run: |
           node --check src/main.js
-          node --test tests/contest-start-claims-db.test.mjs tests/exam-connection-lifecycle.test.mjs tests/exam-active-attempt-recovery.test.mjs tests/exam-session-replacement-db.test.mjs tests/exam-school-result-reservation-db.test.mjs tests/student-exam-start-attempt-limit.test.mjs tests/student-exam-auto-submit-guard.test.mjs
+          node --test tests/exam-tenant-schema-preflight.test.mjs tests/contest-start-claims-db.test.mjs tests/exam-connection-lifecycle.test.mjs tests/exam-active-attempt-recovery.test.mjs tests/exam-session-replacement-db.test.mjs tests/exam-school-result-reservation-db.test.mjs tests/student-exam-start-attempt-limit.test.mjs tests/student-exam-auto-submit-guard.test.mjs
       - run: npm run lint
       - run: npm run build
