@@ -7,6 +7,7 @@ on:
       - 'src/student-exam-header-branding.js'
       - 'public/components/tab-exam.html'
       - 'tests/student-exam-header-branding.test.mjs'
+      - 'tests/student-exam-fullscreen-menu.test.mjs'
       - 'index.html'
       - 'public/header-branding.css'
       - 'public/components/tab-settings.html'
@@ -26,6 +27,7 @@ on:
       - 'src/student-exam-header-branding.js'
       - 'public/components/tab-exam.html'
       - 'tests/student-exam-header-branding.test.mjs'
+      - 'tests/student-exam-fullscreen-menu.test.mjs'
       - 'index.html'
       - 'public/header-branding.css'
       - 'public/components/tab-settings.html'
@@ -49,6 +51,6 @@ jobs:
           cache: npm
       - run: npm ci --no-audit --no-fund
       - run: node --check src/student-exam-header-branding.js && node --check src/header-branding-ui.js && node --check src/header-branding-policy.js && node --check src/main.js
-      - run: node --test tests/header-branding.test.mjs tests/header-banner-dimensions.test.mjs tests/student-exam-header-branding.test.mjs tests/lazy-tab-loading.test.mjs
+      - run: node --test tests/header-branding.test.mjs tests/header-banner-dimensions.test.mjs tests/student-exam-header-branding.test.mjs tests/student-exam-fullscreen-menu.test.mjs tests/lazy-tab-loading.test.mjs
       - run: npm run lint
       - run: npm run build
