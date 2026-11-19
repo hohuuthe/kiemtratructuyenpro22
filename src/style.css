@@ -1,4 +1,9 @@
 
+
+
+
+        @import "tailwindcss";
+
 /*
  * The exam READY dialog intentionally fullscreen's <body> before the server
  * activates the attempt.  While that fullscreen remains active, the global
@@ -14,9 +19,6 @@ body:-webkit-full-screen #sidebar-backdrop {
   display: none !important;
 }
 
-
-
-        @import "tailwindcss";
 
 @theme {
   --breakpoint-xs: 480px;
