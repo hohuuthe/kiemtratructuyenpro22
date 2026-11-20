@@ -1,0 +1,30 @@
+name: Exam fullscreen question navigation
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/main.js'
+      - 'src/exam-question-navigator.js'
+      - 'tests/exam-question-nav-fullscreen.test.mjs'
+      - '.github/workflows/exam-question-nav-fullscreen.yml'
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Fullscreen question navigation and tab guard regressions
+        run: node --test tests/exam-question-nav-fullscreen.test.mjs tests/exam-tab-separation.test.mjs tests/student-exam-auto-submit-guard.test.mjs
+      - name: JavaScript parse validation
+        run: node --check src/main.js
+      - name: TypeScript validation
+        run: npm run lint
+      - name: Production build
+        run: npm run build
